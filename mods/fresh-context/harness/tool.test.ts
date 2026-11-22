@@ -192,3 +192,41 @@ test('a clear that never happens is abandoned at the next turn end, and the tool
   expect(w.submitted).toEqual(['fresh_context did not run: the clear did not happen'])
   expect((await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'y' })).result).toBe('Reset queued: clear after this turn.')
 })
+
+test('the ledger is in the fresh context before complete delivers the chat welcome', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x', then: 'go' })
+  await stop($)
+  await w.clock.settle()
+  w.state.sessionId = NEW
+  await $.classic.SessionStart({ source: 'clear', session_id: NEW })
+  await w.clock.settle()
+  expect(w.order).toEqual(['rt begin after 0 appended', 'rt complete after 1 appended'])
+  expect(w.submitted).toEqual(['go'])
+})
+
+for (const reason of ['aborted', 'error'] as const) {
+  test(`a turn that ends ${reason} drops the queued reset and cancels the hand-off`, async ($, on) => {
+    const w = world(on)
+    await startSession($)
+    await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
+    await $.turn.complete({ answer: '', durationMs: 1, isAborted: reason === 'aborted', turnId: 't1', reason } as never)
+    await w.clock.settle()
+    expect(w.verbs()).toEqual(['begin', 'cancel --from sess-old'])
+    await stop($)
+    await w.clock.settle()
+    expect(w.commands).toEqual([])
+    expect((await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'y' })).result).toBe('Reset queued: clear after this turn.')
+  })
+}
+
+test('a subagent turn that aborts leaves the main reset queued', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 't1', reason: 'aborted', agentId: 'a1' } as never)
+  await stop($)
+  await w.clock.settle()
+  expect(w.commands).toEqual(['clear'])
+})

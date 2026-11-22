@@ -748,8 +748,8 @@ test("a row handing off reads idle while the registry has moved on", () => {
 test("prune spares a row handing off", () => {
   const db = fresh();
   mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
-  beginHandoff({ sessionId: "s1", pid: 4242 }, db);
   const handingOff: HandoffDeps = { sessionForPid: () => "s1", pidAlive: () => true };
+  beginHandoff({ sessionId: "s1", pid: 4242 }, db, handingOff);
   expect(prunePresence(now + 25 * HOUR, db, NO_BINDING, handingOff)).toBe(0);
   const gone: HandoffDeps = { sessionForPid: () => null, pidAlive: () => false };
   expect(prunePresence(now + 25 * HOUR, db, NO_BINDING, gone)).toBe(1);

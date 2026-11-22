@@ -32,7 +32,7 @@ async function signedIn(handoffDeps: HandoffDeps = HANDING_OFF) {
 
 test("sign-out of a session handing off keeps the row signed in", async () => {
   const { db, h } = await signedIn();
-  beginHandoff({ sessionId: "old", pid: 4242 }, db);
+  beginHandoff({ sessionId: "old", pid: 4242 }, db, STILL_OLD);
   expect(await h["chat:sign-out"]({ sessionId: "old" })).toEqual({ ok: true, data: { sessionId: "old" } });
   expect(presenceForSession("old", db)?.signedOutAt).toBeUndefined();
 });
@@ -52,7 +52,7 @@ test("sign-out of a session handing off does not close its Slack chat", async ()
     lastReadTs: "1000000000.000100",
     openedAt: Date.now(),
   }, db);
-  beginHandoff({ sessionId: "old", pid: 4242 }, db);
+  beginHandoff({ sessionId: "old", pid: 4242 }, db, STILL_OLD);
   await h["chat:sign-out"]({ sessionId: "old" });
   await Bun.sleep(20);
   expect(conversationForAgent(handle, db)).toBeDefined();
@@ -79,7 +79,7 @@ test("an exit while handing off: sign-out first, then cancel, still signs out an
     lastReadTs: "1000000000.000100",
     openedAt: Date.now(),
   }, db);
-  beginHandoff({ sessionId: "old", pid: 4242 }, db);
+  beginHandoff({ sessionId: "old", pid: 4242 }, db, STILL_OLD);
   await h["chat:sign-out"]({ sessionId: "old" });
   expect(presenceForSession("old", db)?.signedOutAt).toBeUndefined();
   expect(await h["chat:handoff-cancel"]({ fromSessionId: "old" })).toEqual({ ok: true, data: { signedOut: true } });

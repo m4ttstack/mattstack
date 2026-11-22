@@ -94,10 +94,10 @@ async function abandon($, carry, why) {
 }
 async function handOver($, carry, sessionId) {
   await drop($);
+  await $.session.append({ message: { type: "user", content: [{ type: "text", text: ledgerMessage(carry.ledger) }] } });
   if (carry.chatHandle && !await completeChat($, carry.oldSessionId, sessionId)) {
     await cancelChat($, carry.oldSessionId, sessionId);
   }
-  await $.session.append({ message: { type: "user", content: [{ type: "text", text: ledgerMessage(carry.ledger) }] } });
   if (carry.then)
     await submit($, carry.then);
 }
@@ -160,6 +160,16 @@ ${busy.join(`
     $.clock.after(0, () => {
       runReset($, carry);
     });
+    return result;
+  });
+  on("turn.complete", async ($, e, next) => {
+    const result = await next(e);
+    const carry = pending;
+    if (carry && !isFiring && !e.agentId && (e.reason === "aborted" || e.reason === "error")) {
+      await drop($);
+      if (carry.chatHandle)
+        await cancelChat($, carry.oldSessionId, await $.session.id());
+    }
     return result;
   });
   on("classic.SessionStart", async ($, e, next) => {

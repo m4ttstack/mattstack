@@ -43,9 +43,15 @@ export function handoffFromSession(sessionId: string, db: Database = getStateDb(
   return Object.values(listKvValues<Handoff>(NS, db)).find((h) => h.fromSessionId === sessionId) ?? null;
 }
 
-export function beginHandoff(a: { sessionId: string; pid: number; now?: number }, db: Database = getStateDb()): Handoff | HandoffRefusal {
+export function beginHandoff(
+  a: { sessionId: string; pid: number; now?: number },
+  db: Database = getStateDb(),
+  deps: HandoffDeps = defaultHandoffDeps,
+): Handoff | HandoffRefusal {
   const row = presenceForSession(a.sessionId, db);
   if (!row || row.signedOutAt !== undefined) return { refused: "not-signed-in" };
+  // Complete trusts the pid to name the session's own process, so begin checks it.
+  if (deps.sessionForPid(a.pid) !== a.sessionId) return { refused: "not-this-session" };
   if (getKvValue<Handoff | null>(NS, row.handle, null, db)) return { refused: "already-handing-off" };
   const handoff: Handoff = { handle: row.handle, fromSessionId: a.sessionId, pid: a.pid, startedAt: a.now ?? Date.now() };
   setKvValue(NS, row.handle, handoff, db);

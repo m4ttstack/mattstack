@@ -55,8 +55,9 @@ export async function chatHandoff(args: string[]): Promise<void> {
 
   if (verb === "begin") {
     const sessionId = envSessionId();
-    // A mod's child has no CLAUDE_PID; the Claude registry names the process its session runs in.
-    const pid = process.env.CLAUDE_PID ? Number(process.env.CLAUDE_PID) : (resolveInbox(sessionId)?.pid ?? NaN);
+    // The registry names the process the session runs in; CLAUDE_PID can be inherited from another
+    // Claude, and a mod's child has none.
+    const pid = resolveInbox(sessionId)?.pid ?? (process.env.CLAUDE_PID ? Number(process.env.CLAUDE_PID) : NaN);
     if (!Number.isInteger(pid) || pid <= 0) failUsage("rt cannot tell which Claude process this is", USAGE, "Claude Code sets CLAUDE_PID and lists its session in its registry; a hand-off only runs inside a Claude session.");
     const { handle } = settle(await chatHandoffBegin({ sessionId, pid }, sockOpts(args)), json);
     if (json) out.json({ ok: true, handle });

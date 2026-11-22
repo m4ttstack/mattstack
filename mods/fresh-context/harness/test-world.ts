@@ -16,6 +16,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   const commands: string[] = []
   const compactions: (string | undefined)[] = []
   const submitted: string[] = []
+  const order: string[] = []
   const agents: Agent[] = []
   const commandsRegistered: { name: string; description: string }[] = []
   const argv0: string[] = []
@@ -30,11 +31,13 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   })
   on('classic.Stop', () => (state.stopBlocks ? { block: 'keep going' } : {}))
   on('classic.SessionStart', () => ({}))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
   on('agent.list', () => ({ value: agents }))
   on('process.run', (_, e) => {
     argv0.push(e.argv[0] ?? '')
     const args = e.argv.slice(3, -1)
     rt.push({ args, sessionId: e.init?.env?.CLAUDE_CODE_SESSION_ID })
+    order.push(`rt ${args[0]} after ${session.appended().length} appended`)
     const verb = args[0]
     const reply =
       verb === 'begin' ? (signedIn ? { ok: true, handle: 'pansy.ab12' } : { ok: false, code: 'not-signed-in', error: 'x' })
@@ -63,6 +66,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   const clock = mock.clock(on, { now: 1_000_000 })
   return {
     registered,
+    order,
     commandsRegistered,
     argv0,
     rt,

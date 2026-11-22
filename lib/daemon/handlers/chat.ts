@@ -1495,7 +1495,7 @@ export function createChatHandlers(opts: {
 
     "chat:handoff-begin": async (rawPayload: unknown): Promise<CommandResult<"chat:handoff-begin">> => {
       const payload = rawPayload as Commands["chat:handoff-begin"]["payload"];
-      const r = beginHandoff({ sessionId: payload.sessionId, pid: payload.pid }, db);
+      const r = beginHandoff({ sessionId: payload.sessionId, pid: payload.pid }, db, handoffDeps);
       if ("refused" in r) return handoffRefusal(r);
       return { ok: true, data: { handle: r.handle } };
     },

@@ -52,10 +52,11 @@ async function abandon($: EngineInterface, carry: Carry, why: string): Promise<v
 
 async function handOver($: EngineInterface, carry: Carry, sessionId: string): Promise<void> {
   await drop($)
+  // Before complete: its chat welcome can start the fresh context's first turn.
+  await $.session.append({ message: { type: 'user', content: [{ type: 'text', text: ledgerMessage(carry.ledger) }] } })
   if (carry.chatHandle && !(await completeChat($, carry.oldSessionId, sessionId))) {
     await cancelChat($, carry.oldSessionId, sessionId)
   }
-  await $.session.append({ message: { type: 'user', content: [{ type: 'text', text: ledgerMessage(carry.ledger) }] } })
   if (carry.then) await submit($, carry.then)
 }
 
@@ -117,6 +118,18 @@ export function registerReset(on: On): void {
     $.clock.after(0, () => {
       void runReset($, carry)
     })
+    return result
+  })
+
+  // Stop does not run for a turn the user interrupted or an API error ended, so the reset would
+  // otherwise fire at some later, unrelated turn's end.
+  on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
+    const carry = pending
+    if (carry && !isFiring && !e.agentId && (e.reason === 'aborted' || e.reason === 'error')) {
+      await drop($)
+      if (carry.chatHandle) await cancelChat($, carry.oldSessionId, await $.session.id())
+    }
     return result
   })
 
