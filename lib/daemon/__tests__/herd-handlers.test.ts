@@ -1283,6 +1283,15 @@ describe("herd:spawn", () => {
     expect(store.getJob(herd, "job-a")!.tree).toBeNull();
   });
 
+  test("a --dir respawn into the job's own provisioned tree keeps the tree marker", async () => {
+    const { h, store, herd, worktreeCalls } = await started();
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "the brief" })).ok).toBe(true);
+    const again = await h["herd:spawn"]({ herd, job: "job-a", dir: "/w/job-a" });
+    if (!again.ok) throw new Error(again.error);
+    expect(worktreeCalls.filter((c) => c.verb === "provision")).toHaveLength(1);
+    expect(store.getJob(herd, "job-a")!.tree).toBe("job-a");
+  });
+
   test("a respawn with neither --dir nor a tree provisions again and records the fresh tree", async () => {
     const { h, store, herd, worktreeCalls } = await started();
     expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "the brief", dir: "/existing/tree" })).ok).toBe(true);
