@@ -112,6 +112,16 @@ export function createMemoryStatic(
     if (mtime !== snapshot.indexMtimeMs) load();
   };
 
+  const existsOnDisk = (path: string): boolean => {
+    if (path.includes('..')) return false;
+    try {
+      fs.mtimeMs(`${distRoot}${path}`);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const fileResponse = (path: string): Response | null => {
     const file = snapshot.files.get(path);
     return file
@@ -126,6 +136,11 @@ export function createMemoryStatic(
       const hit = fileResponse(path);
       if (hit) return hit;
       refreshIfRebuilt();
+      const afterIndex = fileResponse(path);
+      if (afterIndex || !existsOnDisk(path)) return afterIndex;
+      // Vite can write index.html before its larger chunks, so a snapshot
+      // taken in between lacks files the index mtime will never flag again.
+      load();
       return fileResponse(path);
     },
     index() {

@@ -99,6 +99,32 @@ test('a rebuilt dist is picked up on the next index request', async () => {
   expect(await mem.serve('/assets/b.js')?.text()).toBe('b');
 });
 
+test('an asset written after its index is served once it exists', async () => {
+  const { fs, state, write } = fakeFs();
+  state.present = false;
+  const mem = createMemoryStatic('dist', fs);
+  state.present = true;
+  write('dist/index.html', INDEX);
+  expect(mem.index()).not.toBeNull();
+  write('dist/assets/big-chunk.js', 'late');
+
+  expect(await mem.serve('/assets/big-chunk.js')?.text()).toBe('late');
+  expect(mem.serve('/assets/never-built.js')).toBeNull();
+});
+
+test('a failed reload on an asset miss keeps the last good copy', async () => {
+  const { fs, write } = fakeFs({ 'dist/index.html': INDEX });
+  const mem = createMemoryStatic('dist', fs);
+  write('dist/assets/late.js', 'late');
+  fs.read = () => {
+    throw fsError('EIO');
+  };
+
+  expect(mem.serve('/assets/late.js')).toBeNull();
+  expect(await mem.index()?.text()).toContain('<title>app</title>');
+  expect(mem.health()).toEqual({ ok: true, buildId: buildIdOf(INDEX) });
+});
+
 test('a dist folder that appears after boot is picked up', async () => {
   const { fs, state } = fakeFs({ 'dist/index.html': INDEX });
   state.present = false;
