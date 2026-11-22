@@ -26,11 +26,14 @@ the tool. A bare `/fresh` clears. The note becomes `then`.
 
 ## Busy sessions
 
-A clear would cut off background work, so `clear` refuses while a subagent,
-a background shell, a monitor or a workflow is still running, and names each
-one. It checks again when the turn ends and abandons the reset if work
-started in the meantime. A pending wakeup is not busy: it survives a clear.
-`compact` never refuses.
+`clear` refuses while a subagent, a background shell, a monitor or a workflow
+is still running, and names each one. It checks again when the turn ends and
+abandons the reset, with a notice, if work started in the meantime. A
+`/clear` does not stop a background shell (checked on Claude Code 2.1.330):
+the process keeps running, but the fresh context no longer knows why it was
+started or what to do with its output. A pending wakeup is not busy: it
+survives a clear and fires once, into the fresh context. `compact` never
+refuses, and keeps the session id.
 
 ## rt chat
 
@@ -41,8 +44,8 @@ Slack chat, and gets the usual welcome with whatever arrived meanwhile. The
 name never shows offline. If the clear does not happen, the mod cancels and
 the session signs out as it always did.
 
-## Files
+## Reloads
 
-The mod keeps one working file per reset, `carry-<session id>.json`, in its
-plugin data folder, so a reload of the mod mid-reset still finishes the job.
-It is deleted once the ledger is handed over.
+The queued reset lives in the mod's session state as well as in memory, so a
+reload of the mod before the clear still runs it, and a reload after the
+clear still hands the ledger over.
