@@ -3,7 +3,9 @@ import { expect, test } from 'vitest';
 import { buildIdOf } from './instance';
 import { createMemoryStatic, type SnapshotFs } from './memory-static';
 
-const INDEX = '<html><head><title>app</title></head><body></body></html>';
+const INDEX =
+  '<html><head><meta name="mattstack-host-signal"><title>app</title></head><body></body></html>';
+const OLD_INDEX = '<html><head><title>app</title></head><body></body></html>';
 
 function fsError(code: string): Error {
   return Object.assign(new Error(code), { code });
@@ -65,6 +67,13 @@ test('index html carries the host signal script with the build id', async () => 
   const html = await createMemoryStatic('dist', fs).index()?.text();
   expect(html).toMatch(/^<html><head><script>/);
   expect(html).toContain(JSON.stringify(buildIdOf(INDEX)));
+});
+
+test('an index built before the host signal is served unchanged', async () => {
+  const { fs } = fakeFs({ 'dist/index.html': OLD_INDEX });
+  const mem = createMemoryStatic('dist', fs);
+  expect(await mem.index()?.text()).toBe(OLD_INDEX);
+  expect(mem.health()).toEqual({ ok: true, buildId: buildIdOf(OLD_INDEX) });
 });
 
 test('no dist folder is healthy with a null build id and no index', () => {

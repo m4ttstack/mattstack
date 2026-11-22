@@ -148,7 +148,8 @@ test('embedded mode serves the same icons as disk mode, falling back to its inde
 
 test('embedded index html carries the host signal script', async () => {
   const app = new Hono();
-  const indexHtml = '<html><head><title>e</title></head></html>';
+  const indexHtml =
+    '<html><head><meta name="mattstack-host-signal"><title>e</title></head></html>';
   const { health } = mountStatic(app, {
     embedded: { indexHtmlPath: '/$bunfs/root/index.html', files: {} },
     toResponse: asset => new Response(`EMBEDDED:${asset.path}`),
@@ -161,4 +162,15 @@ test('embedded index html carries the host signal script', async () => {
   expect(html).toMatch(/^<html><head><script>/);
   expect(html).toContain(JSON.stringify(buildId));
   expect(health()).toEqual({ ok: true, buildId });
+});
+
+test('an embedded index without the opt-in marker is served unchanged', async () => {
+  const app = new Hono();
+  const indexHtml = '<html><head><title>e</title></head></html>';
+  mountStatic(app, {
+    embedded: { indexHtmlPath: '/$bunfs/root/index.html', files: {} },
+    toResponse: asset => new Response(`EMBEDDED:${asset.path}`),
+    fs: fakeFs({ '/$bunfs/root/index.html': indexHtml }),
+  });
+  expect(await (await app.request('/anything')).text()).toBe(indexHtml);
 });

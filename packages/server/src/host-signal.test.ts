@@ -55,8 +55,7 @@ function run(
         mattstackHost: { postMessage: (m: unknown) => posted.push(m) },
       },
     };
-  const captured: Record<string, Array<(e: { target: unknown }) => void>> =
-    {};
+  const captured: Record<string, Array<(e: { target: unknown }) => void>> = {};
   const document = {
     querySelectorAll: (sel: string) =>
       sel === 'link[rel~="stylesheet"]' ? links : [],
@@ -189,16 +188,31 @@ test('with no message handler nothing throws', () => {
   }).not.toThrow();
 });
 
-test('injectHostSignal puts the script right after <head>', () => {
+const MARKER = '<meta name="mattstack-host-signal">';
+
+test('injectHostSignal puts the script right after <head> of an opted-in index', () => {
   const script = hostSignalScript('abc');
   expect(
-    injectHostSignal('<html><head><title>t</title></head></html>', 'abc')
-  ).toBe(`<html><head>${script}<title>t</title></head></html>`);
-  expect(injectHostSignal('<html><head lang="en"><meta></head>', 'abc')).toBe(
-    `<html><head lang="en">${script}<meta></head>`
-  );
-  const noHead = '<html><header>x</header><body></body></html>';
+    injectHostSignal(
+      `<html><head>${MARKER}<title>t</title></head></html>`,
+      'abc'
+    )
+  ).toBe(`<html><head>${script}${MARKER}<title>t</title></head></html>`);
+  expect(
+    injectHostSignal(`<html><head lang="en">${MARKER}</head>`, 'abc')
+  ).toBe(`<html><head lang="en">${script}${MARKER}</head>`);
+  const selfClosing = '<head><meta name="mattstack-host-signal" /></head>';
+  expect(injectHostSignal(selfClosing, 'abc')).toContain('__mattstackHost');
+  const noHead = `<html><header>${MARKER}</header><body></body></html>`;
   expect(injectHostSignal(noHead, 'abc')).toBe(noHead);
+});
+
+test('an index without the opt-in marker is returned unchanged', () => {
+  const plain =
+    '<html><head><meta charset="utf-8"><title>t</title></head></html>';
+  expect(injectHostSignal(plain, 'abc')).toBe(plain);
+  const otherMeta = '<html><head><meta name="mattstack-other"></head></html>';
+  expect(injectHostSignal(otherMeta, 'abc')).toBe(otherMeta);
 });
 
 test('a null build id is sent as null', () => {

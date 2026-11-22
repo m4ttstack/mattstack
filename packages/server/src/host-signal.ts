@@ -85,7 +85,15 @@ export function hostSignalScript(buildId: string | null): string {
 })();</script>`;
 }
 
+/**
+ * Only an index carrying `<meta name="mattstack-host-signal">` gets the
+ * script: a dev server can run over a `dist/` built before its client called
+ * `ready()`, and a page that posts `booting` but never `ready` is failed by
+ * the window.
+ */
 export function injectHostSignal(html: string, buildId: string | null): string {
+  if (!/<meta\s[^>]*name=["']?mattstack-host-signal["'\s/>]/i.test(html))
+    return html;
   const head = /<head(\s[^>]*)?>/i.exec(html);
   if (!head) return html;
   const at = head.index + head[0].length;

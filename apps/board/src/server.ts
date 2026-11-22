@@ -2304,6 +2304,7 @@ const shell = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
+<meta name="mattstack-host-signal">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>${config.title.replace(/</g, '&lt;')}</title>
 <script>
