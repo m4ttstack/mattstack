@@ -186,9 +186,8 @@ export function createRebuilder<T>(opts: {
 
 /**
  * Dev only: rebuild the client bundle whenever a file under src/client
- * changes, and report a stylesheet save (which /style.css already re-reads
- * from disk) so the caller can tell browsers to reload either way. Returns
- * the stop function.
+ * changes, and report a stylesheet save so the caller can re-read it and
+ * tell browsers to reload either way. Returns the stop function.
  */
 export function watchClientAssets(handlers: {
   onBundle: (assets: ClientBundle) => void;
