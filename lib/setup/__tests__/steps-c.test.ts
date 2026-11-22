@@ -2107,6 +2107,35 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(readSetupState(p).marketplaces).toEqual([]);
     });
 
+    // A second Install on a Mac with no Chrome: fast-browser finds its own
+    // config plus a missing Chrome and calls it drift. Fast Browser is
+    // optional, so that must not stop the steps after it.
+    const DRIFT = "fast-browser: Existing Fast Browser configuration has external drift. Run fast-browser doctor for details.";
+
+    test("drift on a Mac without Chrome -> skipped, so the rest of the run still executes", async () => {
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/fast-browser": "bin" },
+        exec: async () => ({ code: 1, stdout: "", stderr: DRIFT }),
+      });
+      const outcome = await fastbrowserSetupStep.run(makeCtx(p).ctx);
+      expect(outcome.state).toBe("skipped");
+      expect(detailOf(outcome)).toContain("Google Chrome is not installed");
+    });
+
+    test("drift on a Mac with Chrome is still reported as a failure", async () => {
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/fast-browser": "bin", "/Applications/Google Chrome.app": "app" },
+        exec: async () => ({ code: 1, stdout: "", stderr: DRIFT }),
+      });
+      const outcome = await fastbrowserSetupStep.run(makeCtx(p).ctx);
+      expect(outcome.state).toBe("failed");
+      expect(detailOf(outcome)).toContain("external drift");
+    });
+
     test("not bundled, no user copy -> skipped honestly, never execs", async () => {
       const p = fakeProbes({ home, env: {} });
       const { ctx } = makeCtx(p);

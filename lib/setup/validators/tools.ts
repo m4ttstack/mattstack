@@ -31,6 +31,7 @@ import type { ExecResult, Probes } from "../probes.ts";
 import type { HostArch, PackRequirements, ToolRequirement } from "../requirements.ts";
 import { atLeast } from "../semver.ts";
 import { fits, heldCopy, runnableEngine, type Floor } from "../../engine-floor.ts";
+import { chromeInstalled } from "../chrome.ts";
 import { mattstackFloor } from "../mattstack-floor.ts";
 import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
 import { VENDOR_INSTALLERS, vendorBinPath } from "../tools-install.ts";
@@ -43,7 +44,6 @@ const HERDR_FLOOR = "0.7.5";
 const PROBE_TIMEOUT_MS = 5000;
 /** `fast-browser doctor --json` runs ~22 real checks (runtime checksum, extension load, pairing) and takes about 20s on a healthy machine, so PROBE_TIMEOUT_MS reads a healthy doctor as hung. Only this one call gets the longer bound; a doctor that genuinely hangs still surfaces as "error" at 45s instead of never. */
 const DOCTOR_TIMEOUT_MS = 45_000;
-const CHROME_PATHS = (home: string): string[] => ["/Applications/Google Chrome.app", `${home}/Applications/Google Chrome.app`];
 
 export const CLAUDE_SIGNIN_ACTION: Action = { type: "run", label: "Sign in to Claude", verb: ["setup", "claude", "connect"] };
 /** Only the claude binary gates Install; the sign-in waits for Finish. */
@@ -368,7 +368,7 @@ function fastBrowserExtensionRow(p: Probes, probe: FastBrowserProbe, solo: boole
     recheck: "on-activate" as const,
   };
 
-  if (!CHROME_PATHS(p.home).some((path) => p.exists(path))) return row({ ...base, status: "skipped", detail: "Google Chrome is not installed, so there is nothing to load it into" });
+  if (!chromeInstalled(p)) return row({ ...base, status: "skipped", detail: "Google Chrome is not installed, so there is nothing to load it into" });
   // tool.fast-browser already reports an unreadable doctor; repeating it here
   // would be two rows for one fact.
   if (!probe.doctor) return row({ ...base, status: "skipped", detail: "Fast Browser's doctor report could not be read. See the Fast Browser row" });
@@ -457,7 +457,7 @@ function chromeRow(p: Probes, reqs: PackRequirements[]): Row {
     recheck: "on-activate" as const,
     ...(required ? {} : { optionalNote: "Works without this unless your pack declares chrome.required." }),
   };
-  const found = CHROME_PATHS(p.home).some((path) => p.exists(path));
+  const found = chromeInstalled(p);
   if (found) return row({ ...base, status: "ready", detail: "Google Chrome installed" });
   return row({ ...base, status: "missing", detail: "Google Chrome is not installed", action: CHROME_DOWNLOAD_ACTION });
 }

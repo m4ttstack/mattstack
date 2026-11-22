@@ -12,6 +12,7 @@ import { resolveTool } from "../../deps/resolve.ts";
 import type { SnapshotResult } from "../../daemon/home-snapshot.ts";
 import { withoutUrls } from "../../team/redact.ts";
 import type { ApplyContext } from "../apply.ts";
+import { chromeInstalled } from "../chrome.ts";
 import { claudeMarketplaces, fastBrowserMarketplaceSource, registeredMattstackMarketplace } from "./plugins.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { hasRemote } from "../home-git.ts";
@@ -34,6 +35,13 @@ function realSleep(ms: number): Promise<void> {
  * degrades this to the loud failure it replaced rather than to a silent pass.
  */
 const NO_HOST_STDERR = /Detected hosts: none|Requested \S+ host was not detected/i;
+
+/**
+ * fast-browser's refusal when its existing config no longer matches the
+ * machine. With no Chrome that is the browser side it cannot set up, which a
+ * first Install on the same Mac already passes; matched like NO_HOST_STDERR.
+ */
+const DRIFT_STDERR = /external drift/i;
 
 async function fastbrowserSetupRun(p: Probes, nonInteractive: boolean): Promise<StepOutcome> {
   const resolved = resolveTool(p, "fast-browser");
@@ -62,6 +70,9 @@ async function fastbrowserSetupRun(p: Probes, nonInteractive: boolean): Promise<
   // skip where nobody can act on a Retry, stay loud where a human is watching.
   if (NO_HOST_STDERR.test(result.detail) && nonInteractive) {
     return { state: "skipped", detail: "No Claude Code or Codex found, so there is nothing to integrate with" };
+  }
+  if (DRIFT_STDERR.test(result.detail) && !chromeInstalled(p)) {
+    return { state: "skipped", detail: "Google Chrome is not installed, so Fast Browser's browser side is not set up" };
   }
   return { state: "failed", detail: result.detail, remedy: "Run fast-browser setup in a terminal for details" };
 }
