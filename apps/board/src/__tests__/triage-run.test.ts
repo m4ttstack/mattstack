@@ -8,6 +8,7 @@ import {
   readCiLease,
   type RunSummary,
 } from '@mattstack/rt-client';
+import { DOCTOR_QUIET_MS } from '../doctor-quiet.ts';
 import type { DoctorState } from '../doctor-state.ts';
 import { SkillBindError } from '../skill-path.ts';
 import { createBoardAttendants } from '../triage/attendant.ts';
@@ -29,6 +30,12 @@ import {
 } from '../triage/run.ts';
 
 type NotifyCall = { title: string; message: string; mrUrl: string };
+
+const NOW = 1_000_000_000;
+/** A running doctor's last write, recent enough to still count as in flight. */
+const RECENT_AT = NOW - 60_000;
+/** A running doctor's last write, past the quiet limit. */
+const QUIET_AT = NOW - DOCTOR_QUIET_MS - 60_000;
 
 function deps(over: Partial<TriageRunDeps> = {}): TriageRunDeps & {
   audit: AuditEntry[];
@@ -99,7 +106,7 @@ function deps(over: Partial<TriageRunDeps> = {}): TriageRunDeps & {
       paneNudges.push({ paneId, text });
     },
     doctorTabOpen: async () => false,
-    now: () => 1_000_000_000,
+    now: () => NOW,
     identity: 'matt',
   };
   return Object.assign(base, over, {
@@ -289,7 +296,7 @@ describe('runTriage', () => {
           status: 'fixing' as const,
           origin: 'manual' as const,
           startedAt: 0,
-          updatedAt: 0,
+          updatedAt: RECENT_AT,
         },
       ],
     ]);
@@ -297,6 +304,26 @@ describe('runTriage', () => {
     await runTriage(d);
     expect(d.launches).toHaveLength(0);
     expect(d.audit.some(e => e.reason === 'doctor-in-flight')).toBe(true);
+  });
+
+  test('a doctor quiet past the limit no longer blocks a redispatch', async () => {
+    const quiet = new Map([
+      [
+        'https://x/mr/1',
+        {
+          mrUrl: 'https://x/mr/1',
+          iid: 1,
+          status: 'watching' as const,
+          origin: 'manual' as const,
+          startedAt: 0,
+          updatedAt: QUIET_AT,
+        },
+      ],
+    ]);
+    const d = deps({ readDoctorStates: () => quiet });
+    await runTriage(d);
+    expect(d.audit.some(e => e.reason === 'doctor-in-flight')).toBe(false);
+    expect(d.launches).toHaveLength(1);
   });
 
   test('a rebase waiting on the forge counts as a doctor in flight', async () => {
@@ -531,7 +558,7 @@ describe('runTriage attendant lease (BOARD-10)', () => {
           status: 'fixing' as const,
           origin: 'auto' as const,
           startedAt: 0,
-          updatedAt: 0,
+          updatedAt: RECENT_AT,
         },
       ],
       [
@@ -554,6 +581,30 @@ describe('runTriage attendant lease (BOARD-10)', () => {
     await runTriage(d);
     expect(fa.calls.heartbeats).toEqual([1]);
     expect(fa.calls.releases).toEqual([2]);
+  });
+
+  test('a doctor quiet past the limit gets no heartbeat; its lease is released', async () => {
+    const states = new Map([
+      [
+        'https://x/mr/1',
+        {
+          mrUrl: 'https://x/mr/1',
+          iid: 1,
+          status: 'watching' as const,
+          origin: 'auto' as const,
+          startedAt: 0,
+          updatedAt: QUIET_AT,
+        },
+      ],
+    ]);
+    const fa = fakeAttendants();
+    const d = deps({
+      attendants: fa.attendants,
+      readDoctorStates: () => states,
+    });
+    await runTriage(d);
+    expect(fa.calls.heartbeats).toEqual([]);
+    expect(fa.calls.releases).toContain(1);
   });
 
   test('the lease is claimed before the queued state is written', async () => {
@@ -927,7 +978,7 @@ describe('runTriage stack chain (BOARD-12)', () => {
           status: 'fixing' as const,
           origin: 'manual' as const,
           startedAt: 0,
-          updatedAt: 0,
+          updatedAt: RECENT_AT,
         },
       ],
     ]);
@@ -941,6 +992,32 @@ describe('runTriage stack chain (BOARD-12)', () => {
     expect(
       d.audit.some(e => e.mrUrl === CHILD && e.reason === 'attended-upstream')
     ).toBe(true);
+  });
+
+  test('a doctor on the parent quiet past the limit no longer holds the child', async () => {
+    const a = attendants();
+    const states = new Map([
+      [
+        PARENT,
+        {
+          mrUrl: PARENT,
+          iid: 1,
+          status: 'watching' as const,
+          origin: 'manual' as const,
+          startedAt: 0,
+          updatedAt: QUIET_AT,
+        },
+      ],
+    ]);
+    const d = deps({
+      fetchOwnMrs: async () => stack(),
+      attendants: a.port,
+      readDoctorStates: () => states,
+    });
+    await runTriage(d);
+    expect(
+      d.audit.some(e => e.mrUrl === CHILD && e.reason === 'attended-upstream')
+    ).toBe(false);
   });
 
   test('a lease naming the parent branch blocks the child when the parent MR is outside the board window', async () => {

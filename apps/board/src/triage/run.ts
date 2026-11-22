@@ -1,5 +1,6 @@
 import type { RunSummary } from '@mattstack/rt-client';
 import type { AgentLaunchResult } from '../agent-launch.ts';
+import { doctorGoneQuiet } from '../doctor-quiet.ts';
 import {
   NO_SYNC_CARRY,
   STAND_DOWN_PANE_MESSAGE,
@@ -139,6 +140,12 @@ const IN_FLIGHT = new Set<DoctorStatus>([
   'fixing',
   'watching',
 ]);
+
+/** A doctor still working: an in-flight status it has not gone quiet in. A
+    quiet one holds no lease, blocks no child and no longer stops a redispatch. */
+function inFlight(d: DoctorState, now: number): boolean {
+  return IN_FLIGHT.has(d.status) && !doctorGoneQuiet(d, now);
+}
 
 /** BOARD-10: the one-CI-attendant-per-MR lease (src/triage/attendant.ts).
     Injected as a port so runTriage stays fs-free in tests; absent means the
@@ -374,14 +381,15 @@ function upstreamBlocker(
   edge: { mrUrl: string },
   mrs: OwnMrFacts[],
   doctors: Map<string, DoctorState>,
-  attendants: AttendantsPort | undefined
+  attendants: AttendantsPort | undefined,
+  now: number
 ): { reason: 'attended-upstream' | 'red-upstream'; upstreamMr: string } | null {
   const { ancestors, unresolvedParentBranch } = chainOf(mrs, edge.mrUrl);
   for (const anc of ancestors) {
     const doc = doctors.get(anc.mrUrl);
     if (
       attendants?.read(anc.mrUrl, anc.iid) ||
-      (doc && IN_FLIGHT.has(doc.status))
+      (doc && inFlight(doc, now))
     ) {
       return { reason: 'attended-upstream', upstreamMr: anc.mrUrl };
     }
@@ -433,7 +441,7 @@ export async function runTriage(
   const edges = detectEdges(deps.memory, mrs);
   const doctors = deps.readDoctorStates();
   let activeAuto = [...doctors.values()].filter(
-    d => d.origin === 'auto' && IN_FLIGHT.has(d.status)
+    d => d.origin === 'auto' && inFlight(d, now)
   ).length;
 
   // Lease maintenance (BOARD-10) BEFORE edge decisions: keep in-flight
@@ -442,7 +450,7 @@ export async function runTriage(
   // release the lease of any doctor that reached a terminal state.
   if (deps.attendants) {
     for (const d of doctors.values()) {
-      if (IN_FLIGHT.has(d.status)) deps.attendants.heartbeat(d.mrUrl, d.iid);
+      if (inFlight(d, now)) deps.attendants.heartbeat(d.mrUrl, d.iid);
       else deps.attendants.release(d.mrUrl, d.iid);
     }
   }
@@ -462,7 +470,7 @@ export async function runTriage(
       continue;
     }
     const existing = doctors.get(edge.mrUrl);
-    if (existing && IN_FLIGHT.has(existing.status)) {
+    if (existing && inFlight(existing, now)) {
       result.skipped++;
       deps.appendAudit({
         ts: now,
@@ -511,7 +519,7 @@ export async function runTriage(
     // on. Skipping without markHandled means it re-fires once the ancestor
     // clears. Applies to both edge kinds -- auto-rebasing a child while the
     // parent's attendant is mid-push is the force-with-lease race itself.
-    const upstream = upstreamBlocker(edge, mrs, doctors, deps.attendants);
+    const upstream = upstreamBlocker(edge, mrs, doctors, deps.attendants, now);
     if (upstream) {
       result.skipped++;
       deps.appendAudit({
