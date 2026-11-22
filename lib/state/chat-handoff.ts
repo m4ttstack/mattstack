@@ -108,6 +108,7 @@ export function completeHandoff(
   if (deps.sessionForPid(recorded.pid) !== a.sessionId) return { refused: "not-this-session" };
   const h = pendingHandoffFor(recorded.handle, db, deps);
   if (!h) return { refused: "no-handoff" };
+  if (h.nextSessionId !== a.sessionId) return { refused: "not-this-session" };
   let moved = false;
   const move = db.transaction(() => {
     // A sign-in that reclaimed the row in the meantime leaves nothing to move.

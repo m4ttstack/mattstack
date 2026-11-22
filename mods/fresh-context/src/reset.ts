@@ -51,9 +51,19 @@ async function abandon($: EngineInterface, carry: Carry, why: string): Promise<v
 }
 
 async function handOver($: EngineInterface, carry: Carry, sessionId: string): Promise<void> {
-  await drop($)
+  // One hand-over per carry, whichever cue arrives first.
+  if (pending !== carry) return
+  pending = null
   // Before complete: its chat welcome can start the fresh context's first turn.
-  await $.session.append({ message: { type: 'user', content: [{ type: 'text', text: ledgerMessage(carry.ledger) }] } })
+  let appended: Awaited<ReturnType<EngineInterface['session']['append']>> | undefined
+  try {
+    appended = await $.session.append({ message: { type: 'user', content: [{ type: 'text', text: ledgerMessage(carry.ledger) }] } })
+  } catch {
+    appended = undefined
+  }
+  // A refused append still gets the ledger in, as a prompt.
+  if (!appended || appended.deny !== undefined) await $.prompt.submit({ text: ledgerMessage(carry.ledger) })
+  await drop($)
   if (carry.chatHandle && !(await completeChat($, carry.oldSessionId, sessionId))) {
     await cancelChat($, carry.oldSessionId, sessionId)
   }
@@ -102,8 +112,9 @@ export async function resumeCarry($: EngineInterface): Promise<void> {
   const { value } = await $.state.get(CARRY)
   if (!value) return
   const current = await $.session.id()
-  if (value.oldSessionId === current) pending = value
-  else await handOver($, value, current)
+  pending = value
+  // A command or prompt from inside session.start would wait on that hook.
+  if (value.oldSessionId !== current) $.clock.after(0, () => void handOver($, value, current))
 }
 
 export function registerReset(on: On): void {

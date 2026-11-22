@@ -20,7 +20,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   const agents: Agent[] = []
   const commandsRegistered: { name: string; description: string }[] = []
   const argv0: string[] = []
-  const state = { sessionId: OLD, compact: { skip: undefined as string | undefined }, stopBlocks: false, rtOverruns: false, overrunMs: 10_000, onBegin: undefined as undefined | (() => Promise<unknown>) }
+  const state = { sessionId: OLD, compact: { skip: undefined as string | undefined }, stopBlocks: false, rtOverruns: false, overrunMs: 10_000, onBegin: undefined as undefined | (() => Promise<unknown>), appendRefused: false }
 
   on('session.id', () => ({ value: state.sessionId }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -68,6 +68,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
     return { text: e.text }
   })
   mock.env(on, { HOME: '/home/me' })
+  on('session.append', { door: 'note' }, (_, e, next) => (state.appendRefused ? { deny: 'not now' } : next(e)))
   const session = mock.session(on)
   const clock = mock.clock(on, { now: 1_000_000 })
   return {

@@ -101,8 +101,18 @@ async function abandon($, carry, why) {
   notice($, `fresh_context did not run: ${why}`);
 }
 async function handOver($, carry, sessionId) {
+  if (pending !== carry)
+    return;
+  pending = null;
+  let appended;
+  try {
+    appended = await $.session.append({ message: { type: "user", content: [{ type: "text", text: ledgerMessage(carry.ledger) }] } });
+  } catch {
+    appended = undefined;
+  }
+  if (!appended || appended.deny !== undefined)
+    await $.prompt.submit({ text: ledgerMessage(carry.ledger) });
   await drop($);
-  await $.session.append({ message: { type: "user", content: [{ type: "text", text: ledgerMessage(carry.ledger) }] } });
   if (carry.chatHandle && !await completeChat($, carry.oldSessionId, sessionId)) {
     await cancelChat($, carry.oldSessionId, sessionId);
   }
@@ -148,10 +158,9 @@ async function resumeCarry($) {
   if (!value)
     return;
   const current = await $.session.id();
-  if (value.oldSessionId === current)
-    pending = value;
-  else
-    await handOver($, value, current);
+  pending = value;
+  if (value.oldSessionId !== current)
+    $.clock.after(0, () => void handOver($, value, current));
 }
 function registerReset(on) {
   on("classic.Stop", async ($, e, next) => {

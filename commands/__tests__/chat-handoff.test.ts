@@ -59,6 +59,8 @@ async function run(args: string[]): Promise<{ code: number; stdout: string; stde
     throw Object.assign(new Error("exit"), { exitCode: code ?? 0 });
   }) as never);
   let code = 0;
+  let stdout = "";
+  let stderr = "";
   try {
     await chatHandoff(args);
   } catch (err) {
@@ -67,10 +69,10 @@ async function run(args: string[]): Promise<{ code: number; stdout: string; stde
     code = c;
   } finally {
     exitSpy.mockRestore();
+    stdout = io.stdout();
+    stderr = io.stderr();
+    io.restore();
   }
-  const stdout = io.stdout();
-  const stderr = io.stderr();
-  io.restore();
   return { code, stdout, stderr };
 }
 

@@ -272,3 +272,28 @@ test('an exit-time cancel that times out under a second is not re-sent', async (
   await $.session.end({ reason: 'prompt_input_exit', sessionId: OLD, resume: undefined as never })
   expect(w.argv0).toEqual(['rt', 'rt'])
 })
+
+test('a refused ledger append still reaches the fresh context, as a prompt', async ($, on) => {
+  const w = world(on, { signedIn: false })
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'Goal: x' })
+  await stop($)
+  await w.clock.settle()
+  w.state.appendRefused = true
+  w.state.sessionId = NEW
+  await $.classic.SessionStart({ source: 'clear', session_id: NEW })
+  await w.clock.settle()
+  expect(w.appended()).toEqual([])
+  expect(w.submitted).toEqual(['Ledger carried from before the reset:\n\nGoal: x'])
+})
+
+test('a reset restored after a reload runs a slash-command then outside the session-start hook', async ($, on) => {
+  const w = world(on, { signedIn: false })
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'Goal: x', then: '/review now' })
+  w.state.sessionId = NEW
+  await startSession($)
+  await w.clock.settle()
+  expect(w.appended()).toEqual(['Ledger carried from before the reset:\n\nGoal: x'])
+  expect(w.commands).toEqual(['review now'])
+})

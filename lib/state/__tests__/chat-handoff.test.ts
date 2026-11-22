@@ -175,3 +175,19 @@ test("a row handing off is never reclaimed by another session's sign-in", () => 
   expect(() => signIn({ sessionId: "intruder", continueId: handle }, db, NO_BINDING)).toThrow();
   expect(presenceForSession("old", db)?.handle).toBe(handle);
 });
+
+test("complete refuses a caller that is not the next session the hand-off recorded", () => {
+  const db = freshDb();
+  signedIn(db);
+  beginHandoff({ sessionId: "old", pid: PID }, db, ON_OLD);
+  // The registry moved on between complete's lineage check and its settle.
+  const answers = ["new", "other"];
+  const shifting: HandoffDeps = { sessionForPid: () => answers.shift() ?? "other", pidAlive: () => true };
+  expect(completeHandoff({ fromSessionId: "old", sessionId: "new" }, db, shifting)).toMatchObject({ refused: expect.any(String) });
+  expect(presenceForSession("new", db)).toBeNull();
+  expect(handleOf(db)).toBeString();
+});
+
+function handleOf(db: Database): string {
+  return presenceForSession("old", db)!.handle;
+}
