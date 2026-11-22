@@ -58,9 +58,10 @@ final class WindowNavigationDelegate: NSObject, WKNavigationDelegate, WKUIDelega
         model?.tabEvent(appName, .navigationFinished)
     }
 
-    /// With no start seen there is nothing to compare against.
+    /// A nil navigation is one WebKit stopped tracking, not a different one,
+    /// so it cannot be dropped as superseded.
     private func isCurrent(_ navigation: WKNavigation?) -> Bool {
-        currentNavigation == nil || navigation === currentNavigation
+        navigation == nil || currentNavigation == nil || navigation === currentNavigation
     }
 
     /// An abandoned navigation is never noted as the failed load: a Retry or
