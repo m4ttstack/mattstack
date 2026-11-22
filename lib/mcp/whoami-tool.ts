@@ -19,9 +19,9 @@ export function whoamiToolDefs(deps: WhoamiDeps = realWhoamiDeps): McpToolDef[] 
   return [
     {
       name: "whoami",
-      description: "Report this session's identity as the other tools see it: its Claude Code session id, herdr pane, the chat identity every chat_* tool acts as, as its name (what others see and type) and its handle (the id the tools send; null, with a sign-in hint, when this session has no chat session file), and the herd id, job and room when this is a herd worker. Reads only this server's environment and the session file, so it shows what the tools would act as, not live presence.",
+      description: "Report this session's identity as the chat tools see it: the Claude Code session id the Claude process that started this server is on now (it changes on /clear), herdr pane, the chat identity every chat_* tool acts as, as its name (what others see and type) and its handle (the id the tools send; null, with a sign-in hint, when this session has no chat session file), and the herd id, job and room when this is a herd worker. Reads only this server's environment, its parent Claude's session registry entry and the session file, so it shows what the tools would act as, not live presence.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      shellForms: { none: "reads this server's own env and chat session file, and asks the daemon for this session's live pane; no shell command is equivalent" },
+      shellForms: { none: "reads this server's own env, its parent Claude's session registry entry and the chat session file, and asks the daemon for this session's live pane; no shell command is equivalent" },
       async handler(_input, launchEnv) {
         const env = currentSessionEnv(launchEnv, deps.currentSession);
         const sessionId = env.CLAUDE_CODE_SESSION_ID || null;
