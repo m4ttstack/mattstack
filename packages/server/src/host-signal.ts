@@ -31,6 +31,16 @@ export function hostSignalScript(buildId: string | null): string {
       return true;
     }
   }
+  // A stylesheet that failed before ready() looks like one still loading
+  // (no sheet, its error already fired), so outcomes are recorded from the start.
+  var outcomes = new WeakMap();
+  function record(type) {
+    return function (event) {
+      if (event.target && event.target.tagName === 'LINK') outcomes.set(event.target, type);
+    };
+  }
+  document.addEventListener('load', record('load'), true);
+  document.addEventListener('error', record('error'), true);
   var readyCalled = false;
   function ready() {
     if (readyCalled) return;
@@ -42,7 +52,7 @@ export function hostSignalScript(buildId: string | null): string {
     var pending = links.length;
     function finish() {
       for (var i = 0; i < links.length; i++) {
-        if (!hasRules(links[i].sheet)) {
+        if (outcomes.get(links[i]) === 'error' || !hasRules(links[i].sheet)) {
           post({ type: 'failed', reason: 'stylesheet ' + links[i].href });
           return;
         }
@@ -55,7 +65,7 @@ export function hostSignalScript(buildId: string | null): string {
     }
     if (pending === 0) return finish();
     links.forEach(function (link) {
-      if (link.sheet) return settle();
+      if (link.sheet || outcomes.has(link)) return settle();
       var settled = false;
       function once() {
         if (settled) return;

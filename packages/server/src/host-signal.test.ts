@@ -5,12 +5,15 @@ import { hostSignalScript, injectHostSignal } from './host-signal';
 type Listener = () => void;
 
 interface FakeLink {
+  tagName: 'LINK';
   href: string;
   disabled: boolean;
   sheet: { cssRules: unknown[] } | null;
   listeners: Record<string, Listener[]>;
   addEventListener(type: string, fn: Listener): void;
   fire(type: string): void;
+  /** The document's capture listeners, set once the script has run. */
+  capture?: (type: string, target: FakeLink) => void;
 }
 
 function link(
@@ -19,6 +22,7 @@ function link(
   disabled = false
 ): FakeLink {
   const l: FakeLink = {
+    tagName: 'LINK',
     href,
     disabled,
     sheet,
@@ -27,6 +31,7 @@ function link(
       (l.listeners[type] ??= []).push(fn);
     },
     fire(type) {
+      l.capture?.(type, l);
       for (const fn of l.listeners[type] ?? []) fn();
     },
   };
@@ -50,10 +55,23 @@ function run(
         mattstackHost: { postMessage: (m: unknown) => posted.push(m) },
       },
     };
+  const captured: Record<string, Array<(e: { target: unknown }) => void>> =
+    {};
   const document = {
     querySelectorAll: (sel: string) =>
       sel === 'link[rel~="stylesheet"]' ? links : [],
+    addEventListener(
+      type: string,
+      fn: (e: { target: unknown }) => void,
+      capture?: boolean
+    ) {
+      if (capture) (captured[type] ??= []).push(fn);
+    },
   };
+  for (const l of links)
+    l.capture = (type, target) => {
+      for (const fn of captured[type] ?? []) fn({ target });
+    };
   const body = hostSignalScript(buildId)
     .replace(/^<script>/, '')
     .replace(/<\/script>$/, '');
@@ -109,6 +127,25 @@ test('a stylesheet that errors while loading fails', () => {
   expect(posted.slice(1)).toEqual([
     { type: 'failed', reason: 'stylesheet https://x/style.css' },
   ]);
+});
+
+test('a stylesheet that failed before ready was called fails at once', () => {
+  const broken = link('https://x/style.css', null);
+  const { posted, host } = run('abc', [broken]);
+  broken.fire('error');
+  host.ready();
+  expect(posted.slice(1)).toEqual([
+    { type: 'failed', reason: 'stylesheet https://x/style.css' },
+  ]);
+});
+
+test('a stylesheet that loaded before ready was called counts as loaded', () => {
+  const loaded = link('https://x/style.css', null);
+  const { posted, host } = run('abc', [loaded]);
+  loaded.sheet = rules(2);
+  loaded.fire('load');
+  host.ready();
+  expect(posted.slice(1)).toEqual([{ type: 'ready', buildId: 'abc' }]);
 });
 
 test('a disabled link and a cross-origin sheet do not count', () => {
