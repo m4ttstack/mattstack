@@ -64,11 +64,9 @@ the MRs live and reads the daemon's synced MR list only for each row's
 (`git-tools.ts`), worktrees (`worktree-tools.ts`: provision, dispose,
 stop-holders, and no general kill), the other herd tools
 (`herd-tools.ts`), the other chat tools (`chat-tools.ts`) and `whoami`
-(`whoami-tool.ts`, which reads only the server's env, the Claude session
-registry entry of the Claude process that started the server, this session's
-own chat session file and, through `pane:self`, the pane this session runs in
-now); every chat tool acts only as this session's own handle, taking the
-session from that registry entry, since the server outlives a `/clear`.
+(`whoami-tool.ts`: env, parent Claude's registry entry, chat session file, live
+pane); every chat tool acts only as this session's handle, the session read
+from that registry entry, since the server outlives a `/clear`.
 `gitlab_get`'s daemon guard in `lib/daemon/forge-reads.ts` caps the body
 at 256 KiB counted in bytes, never follows a redirect (the token header
 would travel with it), refuses a path percent-encoded more than once, and
