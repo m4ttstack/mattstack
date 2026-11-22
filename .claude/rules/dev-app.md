@@ -24,10 +24,12 @@ The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
   button, for deck itself). That runs the manifest's `dev.deploy`, which
   builds and then restarts; `deck restart <app>` alone restarts the server
   and keeps the old browser bundle.
-  `rt release update-machine` also re-registers and restarts them, as its
+  `rt release update-machine` also re-registers, builds (each manifest's
+  `dev.build`, after a clean checkout sync) and restarts them, as its
   `checkout-sync` (labelled "shared checkout sync") and served-suite legs
   (`REGISTERED_APPS` in `lib/release/update-machine.ts` is exactly this
-  list plus deck). Deck runs through the dev shim (`rt-tray/Sources-deck-shim`),
+  list plus deck); its verify leg then wants a 200 from each app's root
+  URL. Deck runs through the dev shim (`rt-tray/Sources-deck-shim`),
   which falls back to `Contents/Helpers/deck-pinned` when source cannot
   run; `api.json`'s `runMode` says which is serving. A pin older than
   `runMode` (deck 1.0.6 today) reads as `standalone`; the last
