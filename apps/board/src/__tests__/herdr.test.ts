@@ -112,7 +112,7 @@ describe('mrTabOpen', () => {
     );
   });
 
-  test('closeMrTabs closes every tab of the MR in the workspace, under any marker', async () => {
+  test("closeMrTabs closes the stored tab and this MR's exact label under any marker, never another MR's", async () => {
     const tabs = JSON.stringify({
       result: {
         type: 'tab_list',
@@ -128,6 +128,7 @@ describe('mrTabOpen', () => {
             workspace_id: 'w40',
           },
           { tab_id: 'w40:t4', label: '!48210 Ada', workspace_id: 'w40' },
+          { tab_id: 'w40:t5', label: '!4821 Ada', workspace_id: 'w40' },
         ],
       },
     });
@@ -137,12 +138,20 @@ describe('mrTabOpen', () => {
       if (args[0] === 'tab' && args[1] === 'close') closed.push(args[2]!);
       return tabs;
     };
-    expect(await closeMrTabs('reviews', 4821, runner)).toBe(2);
-    expect(closed).toEqual(['w40:t2', 'w40:t9']);
     expect(
-      await closeMrTabs('reviews', 4821, async () => {
-        throw new Error('herdr is not running');
-      })
+      await closeMrTabs('reviews', 4821, 'Grace Hopper', 'w18:t7', runner)
+    ).toBe(3);
+    expect(closed.sort()).toEqual(['w18:t7', 'w40:t2', 'w40:t9']);
+    expect(
+      await closeMrTabs(
+        'reviews',
+        4821,
+        'Grace Hopper',
+        undefined,
+        async () => {
+          throw new Error('herdr is not running');
+        }
+      )
     ).toBe(0);
   });
 

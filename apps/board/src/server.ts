@@ -3668,8 +3668,14 @@ const httpServer = Bun.serve({
                   .filter(Boolean)
                   .join('. ')
               : note;
-          if (redo) await closeMrTabs(config.doctorsWorkspace, parsed.iid);
-          writeDoctorState(statePath, {
+          if (redo)
+            await closeMrTabs(
+              config.doctorsWorkspace,
+              parsed.iid,
+              author,
+              existing?.tabId
+            );
+          const queuedAt = writeDoctorState(statePath, {
             mrUrl: parsed.mrUrl,
             iid: parsed.iid,
             status: 'queued',
@@ -3679,7 +3685,7 @@ const httpServer = Bun.serve({
             boardTabId: boardTabId ?? '',
             noPack: !launchPack(boardTabId),
             ...(parsed.mode === 'rebase' ? {} : NO_SYNC_CARRY),
-          });
+          }).updatedAt;
           launched = launchDoctor({
             mrUrl: parsed.mrUrl,
             iid: parsed.iid,
@@ -3700,13 +3706,16 @@ const httpServer = Bun.serve({
             .then(result => {
               void clearHandoffsAfterLaunch(parsed.mrUrl);
               // A redo whose old tab would not close: the launcher focused it,
-              // so nothing will move this queued row on. Say so instead.
+              // so nothing will move this queued row on. Say so, but only over
+              // this launch's own queued write: a concurrent launch may own it.
               if (result.focusedExisting && redo) {
-                writeDoctorState(statePath, {
-                  status: 'error',
-                  message:
-                    'an earlier doctor tab for this MR is still open; close it, then redo',
-                });
+                const now = readDoctorStates().get(parsed.mrUrl);
+                if (now?.status === 'queued' && now.updatedAt === queuedAt)
+                  writeDoctorState(statePath, {
+                    status: 'error',
+                    message:
+                      'an earlier doctor tab for this MR is still open; close it, then redo',
+                  });
                 return;
               }
               if (result.focusedExisting) return;
