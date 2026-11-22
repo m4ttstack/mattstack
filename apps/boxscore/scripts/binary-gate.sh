@@ -73,7 +73,11 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 health=$(curl -fsS -m 5 "$base/api/health") || fail "never answered /api/health"
-[ "$health" = "{\"ok\":true,\"name\":\"boxscore\",\"version\":\"$expected\"}" ] || fail "/api/health said $health"
+# Leading fields only: the body goes on with bootId and buildId.
+case "$health" in
+  "{\"ok\":true,\"name\":\"boxscore\",\"version\":\"$expected\""[,}]*) ;;
+  *) fail "/api/health said $health" ;;
+esac
 
 code() { curl -s -m 5 -o /dev/null -w '%{http_code}' "$base$1"; }
 ctype() { curl -s -m 5 -o /dev/null -w '%{content_type}' "$base$1"; }
