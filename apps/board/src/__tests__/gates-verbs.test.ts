@@ -480,6 +480,7 @@ describe("gateOpen: label and writer by kind's domain", () => {
     expect(doctorState.gateKind).toBe('doctor-escalation');
     expect(doctorState.status).toBe('fixing');
     expect(doctorState.origin).toBe('manual');
+    expect(doctorState.gateOpenedAt).toBe(doctorState.updatedAt);
   });
 });
 

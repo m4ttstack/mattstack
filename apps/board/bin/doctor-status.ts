@@ -37,11 +37,27 @@ if (!existsSync(dbPath)) {
   process.exit(1);
 }
 const db = openStateDb(dbPath, 'cli');
+/** The pane runs this from the tree it pushed, so HEAD is the commit whose
+    pipeline it is about to watch. */
+function watchedSha(): string | undefined {
+  const r = Bun.spawnSync(['git', 'rev-parse', 'HEAD'], {
+    env: process.env,
+    stdout: 'pipe',
+    stderr: 'ignore',
+  });
+  const sha = r.exitCode === 0 ? r.stdout.toString().trim() : '';
+  return sha || undefined;
+}
+
+const watched = status === 'watching' ? watchedSha() : undefined;
 const merged = updateByHandle(
   path,
   {
     status: status as DoctorStatus,
     ...(message ? { message } : {}),
+    // A watching write that cannot read HEAD clears the last one, so an older
+    // watch's commit never settles this one.
+    ...(status === 'watching' ? { watchedSha: watched ?? null } : {}),
   },
   Date.now(),
   db

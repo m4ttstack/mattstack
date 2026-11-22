@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { domainForKind } from '@mattstack/gate-kit';
 import type { BoardMRWithReview } from '../../types.ts';
+import { doctorInterrupted } from '../format.ts';
 import { people } from '../people.ts';
 import {
   candidateLines,
@@ -1297,6 +1298,127 @@ describe('rowStatus: doctor lane', () => {
     });
   });
 
+  const goneDoctorPane = {
+    agentId: 'ag-doc',
+    repo: null,
+    subject: 'agent:ag-doc',
+    surface: 'herdr',
+    sessionId: null,
+    paneRef: null,
+    state: 'gone',
+    since: NOW,
+    openGateIds: [],
+  };
+
+  test('a watching doctor with no write past the quiet limit reads interrupted; with its pane still open it offers focus and dismiss', () => {
+    const [line] = candidateLines(
+      own({
+        doctor: {
+          status: 'watching',
+          origin: 'manual',
+          updatedAt: NOW - 46 * 60_000,
+        },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      tone: 'warn',
+      word: 'doctor interrupted',
+      detail: 'no update for 46m',
+    });
+    expect(line!.spin).toBeUndefined();
+    expect(line!.verbs).toEqual([
+      { kind: 'focus', label: 'focus', domain: 'doctor' },
+      { kind: 'dismiss', label: 'dismiss', domain: 'doctor' },
+    ]);
+  });
+
+  test('a quiet doctor whose pane is gone offers redo', () => {
+    const line = candidateLines(
+      own({
+        doctor: {
+          status: 'watching',
+          origin: 'manual',
+          agentId: 'ag-doc',
+          updatedAt: NOW - 46 * 60_000,
+        },
+        orphan: goneDoctorPane,
+      } as never),
+      NOW,
+      NONE,
+      ME
+    ).find(l => l.word === 'doctor interrupted');
+    expect(line!.verbs).toEqual([
+      { kind: 'redo', label: 'redo', domain: 'doctor' },
+    ]);
+  });
+
+  test('a watching doctor that wrote inside the quiet limit is still working', () => {
+    const [line] = candidateLines(
+      own({
+        doctor: {
+          status: 'watching',
+          origin: 'manual',
+          updatedAt: NOW - 44 * 60_000,
+        },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ tone: 'work', word: 'watching CI…' });
+  });
+
+  test('a doctor held at its escalation gate never ages out', () => {
+    const at = NOW - 3 * 60 * 60_000;
+    const [line] = candidateLines(
+      own({
+        doctor: {
+          status: 'watching',
+          origin: 'manual',
+          updatedAt: at,
+          gateId: 'g-esc',
+          gateOpenedAt: at,
+        },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ tone: 'work', word: 'watching CI…' });
+  });
+
+  test('a gate an older board opened, with no open stamp, still holds', () => {
+    const [line] = candidateLines(
+      own({
+        doctor: {
+          status: 'watching',
+          origin: 'manual',
+          updatedAt: NOW - 3 * 60 * 60_000,
+          gateId: 'g-legacy',
+        },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ tone: 'work', word: 'watching CI…' });
+  });
+
+  test('a quiet doctor with its pane open is not interrupted for the row menus; with its pane gone it is', () => {
+    const quiet = {
+      status: 'fixing',
+      agentId: 'ag-doc',
+      updatedAt: NOW - 50 * 60_000,
+    };
+    expect(doctorInterrupted(own({ doctor: quiet }))).toBe(false);
+    expect(
+      doctorInterrupted(own({ doctor: quiet, orphan: goneDoctorPane } as never))
+    ).toBe(true);
+  });
+
   test('a doctor queued a moment ago is a quiet queued line', () => {
     const [line] = candidateLines(
       mr({ doctor: { status: 'queued', updatedAt: NOW - 60_000 } }),
@@ -1438,6 +1560,7 @@ describe('rowStatus: doctor lane', () => {
     for (const doctor of [
       { status: 'done', updatedAt: NOW - 60_000 },
       { status: 'error' },
+      { status: 'watching', updatedAt: NOW - 46 * 60_000 },
     ]) {
       const [line] = candidateLines(
         mr({ doctor, handoffs: { 'pipeline-red': handoff() } } as Over),

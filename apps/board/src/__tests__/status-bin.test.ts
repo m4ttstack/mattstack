@@ -195,6 +195,70 @@ describe('the status writer the board hands out', () => {
     );
   });
 
+  describe('a watching write records the commit it watches', () => {
+    async function writeWatching(cwd: string, root: string, url: string) {
+      const handle = seedRow(root, 'doctor', url, 3, { status: 'fixing' });
+      const proc = Bun.spawn(
+        [statusBinPath(), 'doctor-status', handle, 'watching'],
+        { cwd, stdout: 'pipe', stderr: 'pipe', env: NO_LIVE_BOARD }
+      );
+      expect(await proc.exited).toBe(0);
+      return readByHandle(handle, openStateDb(dbPathForRoot(root), 'cli')) as {
+        status: string;
+        watchedSha?: string;
+      };
+    }
+
+    test('from inside the pushed tree, HEAD is recorded', async () => {
+      const repo = mkdtempSync(join(tmpdir(), 'board-watch-repo-'));
+      const git = (...args: string[]) =>
+        Bun.spawnSync(['git', ...args], { cwd: repo, env: process.env });
+      git('init', '-q');
+      git(
+        '-c',
+        'user.email=t@t',
+        '-c',
+        'user.name=t',
+        'commit',
+        '-q',
+        '--allow-empty',
+        '-m',
+        'x'
+      );
+      const head = git('rev-parse', 'HEAD').stdout.toString().trim();
+      const root = mkdtempSync(join(tmpdir(), 'board-watch-'));
+      const written = await writeWatching(repo, root, 'https://x/mr/3');
+      expect(written).toMatchObject({ status: 'watching', watchedSha: head });
+    });
+
+    test('a later watching write that cannot read HEAD clears the earlier commit', async () => {
+      const root = mkdtempSync(join(tmpdir(), 'board-watch-'));
+      const handle = seedRow(root, 'doctor', 'https://x/mr/5', 5, {
+        status: 'fixing',
+        watchedSha: 'old1234',
+      });
+      const cwd = mkdtempSync(join(tmpdir(), 'board-watch-norepo-'));
+      const proc = Bun.spawn(
+        [statusBinPath(), 'doctor-status', handle, 'watching'],
+        { cwd, stdout: 'pipe', stderr: 'pipe', env: NO_LIVE_BOARD }
+      );
+      expect(await proc.exited).toBe(0);
+      const written = readByHandle(
+        handle,
+        openStateDb(dbPathForRoot(root), 'cli')
+      ) as { watchedSha?: string };
+      expect(written.watchedSha).toBeUndefined();
+    });
+
+    test('outside a git tree, nothing is recorded', async () => {
+      const cwd = mkdtempSync(join(tmpdir(), 'board-watch-norepo-'));
+      const root = mkdtempSync(join(tmpdir(), 'board-watch-'));
+      const written = await writeWatching(cwd, root, 'https://x/mr/4');
+      expect(written.status).toBe('watching');
+      expect(written.watchedSha).toBeUndefined();
+    });
+  });
+
   /** Domain skills ship in version-pinned plugin caches (acme 0.4.11 has
       `bun run <status-bin> <state> fixing`), so they reach a board newer than
       themselves and pass the pre-subcommand argv. Dropping that shape would

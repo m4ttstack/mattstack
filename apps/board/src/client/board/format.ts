@@ -482,14 +482,16 @@ function doctorItemLabel(
   return 'focus doctor';
 }
 
-/** Whether a running doctor's own pane is gone. A doctor with an agent on
-    file must match the gone pane's agent; one without (still queued) only
-    counts when no review or response on the row could own the pane. */
+/** Whether a running doctor's own pane is gone, so redo can launch fresh. A
+    doctor with an agent on file must match the gone pane's agent; one without
+    (still queued) only counts when no review or response on the row could own
+    the pane. A quiet doctor whose pane is still open is not interrupted here:
+    the launcher would focus that pane, so its row offers focus instead. */
 function doctorInterrupted(mr: BoardMRWithReview): boolean {
   const orphan = mr.orphan;
   const d = mr.doctor;
-  if (orphan?.state !== 'gone' || !d || !DOCTOR_ACTIVE.has(d.status))
-    return false;
+  if (!d || !DOCTOR_ACTIVE.has(d.status)) return false;
+  if (orphan?.state !== 'gone') return false;
   if (d.agentId) return orphan.agentId === d.agentId;
   return (
     !['queued', 'reviewing'].includes(mr.review?.status ?? '') &&

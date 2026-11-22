@@ -5,6 +5,7 @@ import type { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
+  attachDoctors,
   doctorFilePath,
   doctorResumeDispatchFields,
   failOrphanedSyncs,
@@ -13,6 +14,7 @@ import {
   planStandDown,
   readDoctorStates,
   writeDoctorState,
+  type DoctorState,
 } from '../doctor-state.ts';
 import { dispatchPrompt } from '../herdr.ts';
 import { openStateDb } from '../state/db.ts';
@@ -380,6 +382,33 @@ test('a launch with NO_SYNC_CARRY drops an earlier forge step', () => {
   expect(next.forge).toBeUndefined();
 });
 
+test("a launch with NO_SYNC_CARRY drops an earlier run's gate and watched commit", () => {
+  const path = doctorFilePath('u/7');
+  writeDoctorState(
+    path,
+    {
+      mrUrl: 'u/7',
+      iid: 1,
+      status: 'watching',
+      gateId: 'g-old',
+      gateKind: 'escalation',
+      watchedSha: 'old1234',
+    },
+    1,
+    db
+  );
+  const next = writeDoctorState(
+    path,
+    { status: 'queued', ...NO_SYNC_CARRY },
+    2,
+    db
+  );
+  expect(next.gateId).toBeUndefined();
+  expect(next.gateKind).toBeUndefined();
+  expect(next.gateOpenedAt).toBeUndefined();
+  expect(next.watchedSha).toBeUndefined();
+});
+
 test('dispatchPrompt carries the paused tree', async () => {
   const prompt = await dispatchPrompt(
     'board:doctor',
@@ -392,4 +421,49 @@ test('dispatchPrompt carries the paused tree', async () => {
     async () => ({ ok: true as const, path: '/unused' })
   );
   expect(prompt).toContain('--paused-tree /trees/elrond');
+});
+
+describe('a watching doctor settles when its watched commit goes green', () => {
+  const URL = 'https://x/mr/1';
+  const watching = (over: Partial<DoctorState> = {}): DoctorState => ({
+    mrUrl: URL,
+    iid: 1,
+    status: 'watching',
+    origin: 'manual',
+    startedAt: 1,
+    updatedAt: 1,
+    watchedSha: 'abc123',
+    ...over,
+  });
+  const mr = (sha: string | null, pipelineState: string) => ({
+    webUrl: URL,
+    pipeline: sha === null ? null : { id: 'p1', status: 'success', sha },
+    pipelineState,
+  });
+  const attached = (d: DoctorState, row: ReturnType<typeof mr>) =>
+    attachDoctors([row], new Map([[URL, d]]))[0]!.doctor!;
+
+  test('the watched sha passing reads done, with no pane write', () => {
+    expect(attached(watching(), mr('abc123', 'passed'))).toMatchObject({
+      status: 'done',
+      message: 'CI passed',
+    });
+  });
+
+  test('a pipeline on another commit, or one still running, leaves it watching', () => {
+    expect(attached(watching(), mr('def456', 'passed')).status).toBe(
+      'watching'
+    );
+    expect(attached(watching(), mr('abc123', 'running')).status).toBe(
+      'watching'
+    );
+    expect(attached(watching(), mr(null, 'none')).status).toBe('watching');
+  });
+
+  test('a doctor that recorded no watched sha is left alone', () => {
+    expect(
+      attached(watching({ watchedSha: undefined }), mr('abc123', 'passed'))
+        .status
+    ).toBe('watching');
+  });
 });

@@ -67,6 +67,8 @@ export interface DoctorState {
       wrapper's own re-entry reads this to know what a `--resumed-gate`
       id names. */
   gateKind?: string;
+  /** The clock of the write that recorded `gateId`; see doctorHeldAtGate. */
+  gateOpenedAt?: number;
   /** Id of the gate the board has already resumed a parked-then-answered
       session for -- the exactly-once dedup marker (see gates/resume.ts). */
   resumedGateId?: string;
@@ -94,6 +96,9 @@ export interface DoctorState {
   /** The pipeline the MR showed when a sync pushed: its result predates the
       push, so it says nothing about the rebased branch. */
   pipelineAtSync?: string;
+  /** The commit a `watching` write named: the pane's HEAD when it started
+      watching, so a passing pipeline on it settles the row (attachDoctors). */
+  watchedSha?: string;
   /** The forge's own rebase, the first step of a one-click rebase. */
   forge?: ForgeStep;
   startedAt: number;
@@ -132,6 +137,7 @@ export function writeDoctorState(
     fixClasses: patch.fixClasses,
     gateId: patch.gateId,
     gateKind: patch.gateKind,
+    gateOpenedAt: patch.gateOpenedAt,
     resumedGateId: patch.resumedGateId,
     reopenedAt: patch.reopenedAt,
     dismissedAt: patch.dismissedAt,
@@ -162,15 +168,38 @@ export function pruneDoctorStates(
   pruneStates('doctor', keepUrls, db);
 }
 
+interface PipelineFacts {
+  pipeline?: { sha?: string | null } | null;
+  pipelineState?: string;
+}
+
+/** A pane that stopped without its final write leaves `watching` behind, so
+    the row reads done once the commit it watched has passed. Read-side only:
+    the pane's own write, when it comes, still lands. */
+export function settleWatchedDoctor(
+  d: DoctorState,
+  mr: PipelineFacts
+): DoctorState {
+  const passed =
+    d.status === 'watching' &&
+    !!d.watchedSha &&
+    mr.pipelineState === 'passed' &&
+    mr.pipeline?.sha === d.watchedSha;
+  return passed
+    ? { ...d, status: 'done', message: d.message ?? 'CI passed' }
+    : d;
+}
+
 export function attachDoctors<T extends { webUrl?: string | null }>(
   mrs: T[],
   doctors: Map<string, DoctorState>
 ): Array<T & { doctor?: DoctorState }> {
-  return mrs.map(mr =>
-    mr.webUrl && doctors.has(mr.webUrl)
-      ? { ...mr, doctor: doctors.get(mr.webUrl) }
-      : mr
-  );
+  return mrs.map(mr => {
+    const d = mr.webUrl ? doctors.get(mr.webUrl) : undefined;
+    return d
+      ? { ...mr, doctor: settleWatchedDoctor(d, mr as PipelineFacts) }
+      : mr;
+  });
 }
 
 /** The tier/fixClasses/draftBin fields a resumed doctor pane's dispatch
@@ -233,14 +262,21 @@ export const FRESH_SYNC_ROW = {
   dismissedAt: null,
   gateId: null,
   gateKind: null,
+  gateOpenedAt: null,
+  watchedSha: null,
 } as unknown as Partial<DoctorState>;
 
 /** A doctor launch that is not a sync's hand-off starts with no paused
-    tree, no sync output and no forge step from an earlier run. */
+    tree, no sync output, no forge step, no gate and no watched commit from
+    an earlier run, so an old gate never holds the new run (doctorHeldAtGate). */
 export const NO_SYNC_CARRY = {
   pausedTree: null,
   syncLog: null,
   forge: null,
+  gateId: null,
+  gateKind: null,
+  gateOpenedAt: null,
+  watchedSha: null,
 } as unknown as Partial<DoctorState>;
 
 /** A sync and its forge wait run inside this server's request, so a

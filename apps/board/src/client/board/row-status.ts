@@ -9,6 +9,7 @@
 import { domainForKind } from '@mattstack/gate-kit';
 import type { BoardMR } from '../../data.ts';
 import { hasChangesRequested } from '../../data.ts';
+import { doctorGoneQuiet } from '../../doctor-quiet.ts';
 import { isFreshPeerReview } from '../../peer/presence.ts';
 import { respondOutcome } from '../../respond-outcome.ts';
 import { approvalSlots, isOwnMr, statusBucket } from '../../view.ts';
@@ -761,7 +762,8 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
   const inFlight =
     d &&
     !laneDismissed(d) &&
-    (d.status === 'queued' || DOCTOR_WORKING.has(d.status));
+    (d.status === 'queued' ||
+      (DOCTOR_WORKING.has(d.status) && !doctorGoneQuiet(d, now)));
   const handoff = inFlight ? null : handoffLine(mr);
   if (handoff) return handoff;
   if (!d || laneDismissed(d)) return null;
@@ -819,6 +821,21 @@ function doctorStatusLine(
     case 'rebasing':
     case 'fixing':
     case 'watching':
+      if (doctorGoneQuiet(d, now))
+        return {
+          tone: 'warn',
+          word: 'doctor interrupted',
+          detail: `no update for ${ago(new Date(d.updatedAt!).toISOString(), now)}`,
+          // Redo only once the pane is gone: while it lives, the launcher
+          // would focus it, so the row offers that instead, and dismiss for a
+          // pane that is gone but never reported so.
+          verbs: doctorInterrupted(mr)
+            ? [{ kind: 'redo', label: 'redo', domain: 'doctor' }]
+            : [
+                { kind: 'focus', label: 'focus', domain: 'doctor' },
+                { kind: 'dismiss', label: 'dismiss', domain: 'doctor' },
+              ],
+        };
       return {
         tone: 'work',
         word: DOCTOR_LABEL[d.status],
