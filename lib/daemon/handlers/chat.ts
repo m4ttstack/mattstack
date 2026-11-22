@@ -10,6 +10,7 @@ import {
   cancelHandoff,
   completeHandoff,
   defaultHandoffDeps,
+  dropHandoffFrom,
   handoffFromSession,
   markOldSessionEnded,
   pendingHandoffFor,
@@ -136,6 +137,7 @@ const HANDOFF_REFUSALS: Record<HandoffRefusal["refused"], string> = {
   "already-handing-off": "chat: this chat name is already handing off",
   "no-handoff": "chat: no hand-off is waiting from that session",
   "not-this-session": "chat: that hand-off belongs to another session",
+  busy: "chat: the chat database is busy, so the hand-off did not start",
 };
 
 function handoffRefusal(r: HandoffRefusal): { ok: false; error: string; failure: { code: string; message: string } } {
@@ -1484,10 +1486,13 @@ export function createChatHandlers(opts: {
       if (!presence) return { ok: true, data: { sessionId } };
       // A session clearing itself hands its identity to the next one; the
       // hand-off signs the row out itself if it never completes.
-      if (pendingHandoffFor(presence.handle, db, handoffDeps)?.fromSessionId === sessionId) {
+      // Only a /clear's sign-out waits for the next session to take the name; an exit or a
+      // sign-out the session asked for ends the hand-off and signs out as always.
+      if (payload.reason === "clear" && pendingHandoffFor(presence.handle, db, handoffDeps)?.fromSessionId === sessionId) {
         markOldSessionEnded(sessionId, db);
         return { ok: true, data: { sessionId } };
       }
+      dropHandoffFrom(sessionId, db);
       signOut(sessionId, undefined, db);
       closeHeldSlack(presence.handle);
       return { ok: true, data: { sessionId } };

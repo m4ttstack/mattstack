@@ -230,3 +230,11 @@ test('a subagent turn that aborts leaves the main reset queued', async ($, on) =
   await w.clock.settle()
   expect(w.commands).toEqual(['clear'])
 })
+
+test('an rt run that overran is not sent again to the second rt', async ($, on) => {
+  const w = world(on)
+  w.state.rtOverruns = true
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
+  expect(w.argv0).toEqual(['rt'])
+})

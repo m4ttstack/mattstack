@@ -877,7 +877,8 @@ export interface Commands {
    * such a caller learns which session file to delete locally.
    */
   "chat:sign-out": {
-    payload: { sessionId?: string; pane?: string; viaPane?: boolean };
+    /** `reason` is the SessionEnd reason when the hook signs out; only "clear" can be held for a hand-off. */
+    payload: { sessionId?: string; pane?: string; viaPane?: boolean; reason?: string };
     data: { sessionId: string };
   };
   /** A signed-in session about to clear itself marks its identity as handing off to the next session its Claude process starts. */

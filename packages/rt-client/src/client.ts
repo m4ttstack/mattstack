@@ -392,6 +392,7 @@ export function chatSignOut(
   if (a.sessionId !== undefined) payload.sessionId = a.sessionId;
   if (a.pane !== undefined) payload.pane = a.pane;
   if (a.viaPane !== undefined) payload.viaPane = a.viaPane;
+  if (a.reason !== undefined) payload.reason = a.reason;
   return rtCommand<Commands["chat:sign-out"]["data"]>("chat:sign-out", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 

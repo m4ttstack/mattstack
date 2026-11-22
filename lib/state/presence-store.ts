@@ -117,10 +117,12 @@ function bindingAlive(sessionId: string, deps: RegistryDeps): boolean {
  * while the agent is very much still there, so staleness alone must never
  * reclaim a seat the registry still vouches for.
  */
-function isReclaimable(row: PresenceRawRow, sessionStaleCutoff: number, deps: RegistryDeps): boolean {
+function isReclaimable(row: PresenceRawRow, sessionStaleCutoff: number, deps: RegistryDeps, db: Database): boolean {
   if (row.signed_out_at !== null) return true;
   if (row.last_seen_at >= sessionStaleCutoff) return false;
-  return !bindingAlive(row.session_id, deps);
+  if (bindingAlive(row.session_id, deps)) return false;
+  // Mid-hand-off the registry already names the next session, so the old row's binding reads dead.
+  return pendingHandoffFor(row.handle, db) === null;
 }
 
 /**
@@ -226,7 +228,7 @@ function seatsByName(db: Database, sessionStaleCutoff: number, deps: RegistryDep
   const seats = new Map<string, Seat>();
   for (const row of rows) {
     const name = names.get(row.handle)!;
-    seats.set(name, { ...row, name, reclaimable: isReclaimable(row, sessionStaleCutoff, deps) });
+    seats.set(name, { ...row, name, reclaimable: isReclaimable(row, sessionStaleCutoff, deps, db) });
   }
   return seats;
 }
@@ -258,7 +260,7 @@ function pickDisplayName(
 function claimIdentitySeat(id: string, sessionStaleCutoff: number, deps: RegistryDeps, db: Database): boolean {
   const holder = db.query(SELECT_PRESENCE_BY_HANDLE_SQL).get(id) as PresenceRawRow | null;
   if (!holder) return true;
-  if (!isReclaimable(holder, sessionStaleCutoff, deps)) return false;
+  if (!isReclaimable(holder, sessionStaleCutoff, deps, db)) return false;
   db.query(DELETE_PRESENCE_BY_SESSION_SQL).run(holder.session_id);
   return true;
 }
@@ -403,8 +405,8 @@ export function reserveAgentHandle(db: Database = getStateDb(), now: number = Da
 }
 
 /** Re-keys a presence row onto the session that continues it, keeping its handle, status and timestamps. */
-export function movePresenceSession(fromSessionId: string, toSessionId: string, db: Database = getStateDb()): void {
-  runCriticalWrite("movePresenceSession", () => { db.query(UPDATE_SESSION_ID_SQL).run(toSessionId, fromSessionId); }, { sessionId: fromSessionId });
+export function movePresenceSession(fromSessionId: string, toSessionId: string, db: Database = getStateDb()): number {
+  return runCriticalWrite("movePresenceSession", () => db.query(UPDATE_SESSION_ID_SQL).run(toSessionId, fromSessionId).changes, { sessionId: fromSessionId }) ?? 0;
 }
 
 export function signOut(sessionId: string, now: number = Date.now(), db: Database = getStateDb()): void {

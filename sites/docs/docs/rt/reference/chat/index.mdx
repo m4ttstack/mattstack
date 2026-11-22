@@ -38,6 +38,7 @@ rt chat <verb> [<room>] [<text>] [flags]
 | `--pane` | text |  | For sign-in/sign-out: target this herdr pane's Claude session daemon-side (resolved via herdr), no CLAUDE_CODE_SESSION_ID needed |
 | `--file` | text |  | For post/dm: read the body from a file instead of stdin or the text |
 | `--as-is` | boolean | `false` | For post/dm: post a long single-line body anyway (500+ characters with no line break is refused by default) |
+| `--reason` | text |  | For sign-out: why the session ended (the SessionEnd hook's reason), so a /clear handing its name on is not signed out |
 | `--quiet` | boolean | `false` | For post: put the message on the room record without waking anyone (it stays unread and catches up in a later delivery); for sign-out: suppress output (the SessionEnd hook's flag) |
 | [`--json`](/rt/guides/common-flags) | boolean | `false` | Emit machine-readable JSON instead of the plain rendering (join/leave/archive/post/read/rooms/who/mark/prune/buddies/dm/away/back/sign-in/sign-out/invite) |
 

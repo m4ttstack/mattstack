@@ -1791,6 +1791,7 @@ export const TREE: Record<string, CommandNode> = {
       { name: "Pane", flag: "--pane", type: "text", placeholder: "w1:p1", hint: "For sign-in/sign-out: target this herdr pane's Claude session daemon-side (resolved via herdr), no CLAUDE_CODE_SESSION_ID needed" },
       { name: "Body file", flag: "--file", type: "text", placeholder: "post.md", hint: "For post/dm: read the body from a file instead of stdin or the text" },
       { name: "As is", flag: "--as-is", type: "boolean", default: false, hint: "For post/dm: post a long single-line body anyway (500+ characters with no line break is refused by default)" },
+      { name: "Reason", flag: "--reason", type: "text", optional: true, placeholder: "clear", hint: "For sign-out: why the session ended (the SessionEnd hook's reason), so a /clear handing its name on is not signed out" },
       { name: "Quiet", flag: "--quiet", type: "boolean", default: false, hint: "For post: put the message on the room record without waking anyone (it stays unread and catches up in a later delivery); for sign-out: suppress output (the SessionEnd hook's flag)" },
       { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit machine-readable JSON instead of the plain rendering (join/leave/archive/post/read/rooms/who/mark/prune/buddies/dm/away/back/sign-in/sign-out/invite)" },
     ],

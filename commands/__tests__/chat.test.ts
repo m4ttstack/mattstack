@@ -709,6 +709,12 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     expect(row?.signed_out_at).not.toBeNull();
   });
 
+  test("sign-out passes the SessionEnd reason to the daemon", async () => {
+    await signInInProcess({ as: "x", session: "s1", noRoom: true });
+    await runChat(["sign-out", "--session", "s1", "--quiet", "--reason", "clear"]);
+    expect(seen.find((c) => c.cmd === "chat:sign-out")?.payload).toEqual({ sessionId: "s1", reason: "clear" });
+  });
+
   test("sign-out with the daemon unreachable still cleans up locally and exits 0", async () => {
     await signInInProcess({ as: "x", session: "s1", noRoom: true });
     const sessionPath = join(home, ".mattstack", "rt", "chat", "sessions", "s1.json");

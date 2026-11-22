@@ -1,13 +1,17 @@
 // mods/fresh-context/src/chat.ts
 var RT_MS = 1e4;
 var EXIT_RT_MS = 1000;
+var START_FAILURE_MS = 2000;
 async function handoff($, sessionId, args, timeoutMs = RT_MS) {
   const home = await $.env.get("HOME");
   for (const rt of ["rt", `${home ?? ""}/.local/bin/rt`]) {
+    const started = await $.clock.now();
     let stdout;
     try {
       stdout = (await $.process.run([rt, "chat", "handoff", ...args, "--json"], { env: { CLAUDE_CODE_SESSION_ID: sessionId }, timeoutMs })).stdout;
     } catch {
+      if (await $.clock.now() - started >= START_FAILURE_MS)
+        return null;
       continue;
     }
     try {

@@ -12,7 +12,7 @@ import { Database } from "bun:sqlite";
 import { sessionForPid } from "../claude-registry.ts";
 import { getStateDb } from "./db.ts";
 import { bindIdentitySession } from "./identity-store.ts";
-import { deleteKvValue, getKvValue, listKvValues, setKvValue } from "./kv-blob.ts";
+import { deleteKvValue, getKvValue, listKvValues, setKvValue, setKvValueCritical } from "./kv-blob.ts";
 import { movePresenceSession, presenceForSession, signOut } from "./presence-store.ts";
 
 const NS = "chat.handoff";
@@ -37,7 +37,7 @@ export const defaultHandoffDeps: HandoffDeps = {
   },
 };
 
-export type HandoffRefusal = { refused: "not-signed-in" | "already-handing-off" | "no-handoff" | "not-this-session" };
+export type HandoffRefusal = { refused: "not-signed-in" | "already-handing-off" | "no-handoff" | "not-this-session" | "busy" };
 
 export function handoffFromSession(sessionId: string, db: Database = getStateDb()): Handoff | null {
   return Object.values(listKvValues<Handoff>(NS, db)).find((h) => h.fromSessionId === sessionId) ?? null;
@@ -52,15 +52,25 @@ export function beginHandoff(
   if (!row || row.signedOutAt !== undefined) return { refused: "not-signed-in" };
   // Complete trusts the pid to name the session's own process, so begin checks it.
   if (deps.sessionForPid(a.pid) !== a.sessionId) return { refused: "not-this-session" };
-  if (getKvValue<Handoff | null>(NS, row.handle, null, db)) return { refused: "already-handing-off" };
+  // A record from this same session is an earlier reset that never finished; this begin replaces it.
+  const existing = getKvValue<Handoff | null>(NS, row.handle, null, db);
+  if (existing && existing.fromSessionId !== a.sessionId && pendingHandoffFor(row.handle, db, deps)) return { refused: "already-handing-off" };
   const handoff: Handoff = { handle: row.handle, fromSessionId: a.sessionId, pid: a.pid, startedAt: a.now ?? Date.now() };
-  setKvValue(NS, row.handle, handoff, db);
+  if (!setKvValueCritical(NS, row.handle, handoff, db)) return { refused: "busy" };
   return handoff;
 }
 
 function end(h: Handoff, db: Database): void {
   deleteKvValue(NS, h.handle, db);
   signOut(h.fromSessionId, Date.now(), db);
+}
+
+/** Ends a hand-off from this session without signing anything out; true when there was one. */
+export function dropHandoffFrom(sessionId: string, db: Database = getStateDb()): boolean {
+  const h = handoffFromSession(sessionId, db);
+  if (!h) return false;
+  deleteKvValue(NS, h.handle, db);
+  return true;
 }
 
 /** Records that the old session's sign-out arrived and was held back; true when a pending hand-off from it exists. */
@@ -98,12 +108,19 @@ export function completeHandoff(
   if (deps.sessionForPid(recorded.pid) !== a.sessionId) return { refused: "not-this-session" };
   const h = pendingHandoffFor(recorded.handle, db, deps);
   if (!h) return { refused: "no-handoff" };
+  let moved = false;
   const move = db.transaction(() => {
-    movePresenceSession(h.fromSessionId, a.sessionId, db);
+    // A sign-in that reclaimed the row in the meantime leaves nothing to move.
+    if (movePresenceSession(h.fromSessionId, a.sessionId, db) !== 1) return;
     bindIdentitySession(h.handle, a.sessionId, db);
     deleteKvValue(NS, h.handle, db);
+    moved = true;
   });
   move.immediate();
+  if (!moved) {
+    deleteKvValue(NS, h.handle, db);
+    return { refused: "no-handoff" };
+  }
   return { handle: h.handle };
 }
 

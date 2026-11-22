@@ -14,11 +14,17 @@ command -v jq >/dev/null 2>&1 || exit 0
 
 input="$(cat 2>/dev/null)" || exit 0
 session_id="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
+reason="$(printf '%s' "$input" | jq -r '.reason // empty' 2>/dev/null)"
 [ -n "$session_id" ] || exit 0
 
 session_file="$home/.mattstack/rt/chat/sessions/$session_id.json"
 [ -f "$session_file" ] || exit 0
 
 command -v rt >/dev/null 2>&1 || exit 0
-rt chat sign-out --quiet --session "$session_id" >/dev/null 2>&1
+# A /clear that hands its chat name to the next session holds its sign-out; rt decides.
+if [ -n "$reason" ]; then
+  rt chat sign-out --quiet --session "$session_id" --reason "$reason" >/dev/null 2>&1
+else
+  rt chat sign-out --quiet --session "$session_id" >/dev/null 2>&1
+fi
 exit 0

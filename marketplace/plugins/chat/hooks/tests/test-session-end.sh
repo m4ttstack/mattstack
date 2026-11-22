@@ -54,6 +54,10 @@ check "signed-in session: no stderr" "" "$err"
 check "signed-in session: exits 0" "0" "$rc"
 check "signed-in session: sign-out invoked" "chat sign-out --quiet --session sess-a" "$(cat "$RT_STUB_CALLS")"
 
+# ── the SessionEnd reason rides along, so a /clear handing off its name is held ─
+run '{"session_id":"sess-a","reason":"clear"}'
+check "reason passed through" "chat sign-out --quiet --session sess-a --reason clear" "$(cat "$RT_STUB_CALLS")"
+
 # ── no session_id at all: silent, never calls rt ─────────────────────────────
 run '{"hook_event_name":"SessionEnd"}'
 check "no session_id: no stdout" "" "$out"

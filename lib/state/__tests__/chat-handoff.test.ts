@@ -46,13 +46,6 @@ test("begin refuses a session that is not signed in", () => {
   expect(beginHandoff({ sessionId: "old", pid: PID }, db, ON_OLD)).toEqual({ refused: "not-signed-in" });
 });
 
-test("begin twice refuses the second", () => {
-  const db = freshDb();
-  signedIn(db);
-  expect(beginHandoff({ sessionId: "old", pid: PID }, db, ON_OLD)).toMatchObject({ fromSessionId: "old", pid: PID });
-  expect(beginHandoff({ sessionId: "old", pid: PID }, db, ON_OLD)).toEqual({ refused: "already-handing-off" });
-});
-
 test("complete moves the row and identity to the new session", () => {
   const db = freshDb();
   const handle = signedIn(db);
@@ -155,4 +148,30 @@ test("begin refuses a pid the registry does not show on that session", () => {
   signedIn(db);
   expect(beginHandoff({ sessionId: "old", pid: PID }, db, fakeDeps("someone-else"))).toEqual({ refused: "not-this-session" });
   expect(handoffFromSession("old", db)).toBeNull();
+});
+
+test("begin again from the same session replaces an abandoned record", () => {
+  const db = freshDb();
+  const handle = signedIn(db);
+  beginHandoff({ sessionId: "old", pid: PID, now: 1 }, db, ON_OLD);
+  expect(beginHandoff({ sessionId: "old", pid: PID, now: 2 }, db, ON_OLD)).toMatchObject({ handle, fromSessionId: "old", startedAt: 2 });
+});
+
+test("complete refuses when the old row is gone, and binds nothing", () => {
+  const db = freshDb();
+  const handle = signedIn(db);
+  beginHandoff({ sessionId: "old", pid: PID }, db, ON_OLD);
+  db.run("DELETE FROM chat_presence WHERE session_id = 'old'");
+  expect(completeHandoff({ fromSessionId: "old", sessionId: "new" }, db, fakeDeps("new"))).toEqual({ refused: "no-handoff" });
+  expect(identityForSession("new", db)?.id).not.toBe(handle);
+});
+
+test("a row handing off is never reclaimed by another session's sign-in", () => {
+  const db = freshDb();
+  const handle = signedIn(db);
+  // A live pid the registry does not list reads as still handing off.
+  beginHandoff({ sessionId: "old", pid: process.pid }, db, { sessionForPid: () => "old", pidAlive: () => true });
+  db.run("UPDATE chat_presence SET last_seen_at = 0 WHERE session_id = 'old'");
+  expect(() => signIn({ sessionId: "intruder", continueId: handle }, db, NO_BINDING)).toThrow();
+  expect(presenceForSession("old", db)?.handle).toBe(handle);
 });
