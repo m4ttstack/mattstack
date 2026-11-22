@@ -227,3 +227,53 @@ describe("runReadySteps — nvm", () => {
     expect(warnings).toEqual([]);
   });
 });
+
+describe("runReadySteps — intercept shims", () => {
+  let home: string;
+  let repo: string;
+  const saved = { HOME: process.env.HOME, NVM_DIR: process.env.NVM_DIR };
+
+  function fakeTool(dir: string, name: string, says: string): void {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, name), `#!/bin/sh\necho ${says}\n`);
+    chmodSync(join(dir, name), 0o755);
+  }
+
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rtready-shim-home-")));
+    repo = makeRepo();
+    process.env.HOME = home;
+    delete process.env.NVM_DIR;
+  });
+
+  afterEach(() => {
+    process.env.HOME = saved.HOME;
+    if (saved.NVM_DIR === undefined) delete process.env.NVM_DIR;
+    else process.env.NVM_DIR = saved.NVM_DIR;
+  });
+
+  // brew shellenv in ~/.zprofile runs path_helper, which puts Homebrew ahead of
+  // ~/.local/bin in every login shell, whatever prepended it earlier.
+  test("a step runs the ~/.local/bin shim even when the login profile puts another copy first", async () => {
+    fakeTool(join(home, ".local", "bin"), "doppler", "shim");
+    fakeTool(join(home, "brew", "bin"), "doppler", "brew");
+    writeFileSync(join(home, ".zprofile"), 'export PATH="$HOME/brew/bin:$PATH"\n');
+
+    const result = await runReadySteps(repo, [{ run: "doppler > which-doppler" }]);
+    expect(result).toEqual({ ok: true });
+    expect(readFileSync(join(repo, "which-doppler"), "utf8").trim()).toBe("shim");
+  });
+
+  test("the shim also wins over nvm's bin, while other commands still come from nvm", async () => {
+    fakeTool(join(home, ".local", "bin"), "pnpm", "shim");
+    const nvmBin = join(home, ".nvm", "versions", "20", "bin");
+    fakeTool(nvmBin, "pnpm", "nvm");
+    fakeTool(nvmBin, "fakenode", "v20");
+    writeFileSync(join(home, ".nvm", "nvm.sh"), `PATH="${nvmBin}:$PATH"; export PATH\n`);
+
+    const result = await runReadySteps(repo, [{ run: "pnpm > which-pnpm; fakenode > which-node" }]);
+    expect(result).toEqual({ ok: true });
+    expect(readFileSync(join(repo, "which-pnpm"), "utf8").trim()).toBe("shim");
+    expect(readFileSync(join(repo, "which-node"), "utf8").trim()).toBe("v20");
+  });
+});
