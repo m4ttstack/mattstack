@@ -80,9 +80,9 @@ test('after the clear, complete runs and the ledger is appended before then is s
   await $.classic.SessionStart({ source: 'clear', session_id: NEW })
   await w.clock.settle()
 
-  expect(w.verbs()).toEqual(['begin', 'complete --from sess-old'])
+  expect(w.verbs()).toEqual(['begin', 'complete --from sess-old --quiet'])
   expect(w.rt[1]?.sessionId).toBe(NEW)
-  expect(w.appended()).toEqual(['Ledger carried from before the reset:\n\nGoal: x'])
+  expect(w.appended()).toEqual(['Ledger carried from before the reset:\n\nGoal: x', 'WELCOME FRAME'])
   expect(w.submitted).toEqual(['carry on'])
 })
 
@@ -332,4 +332,18 @@ test('a then that only starts with a slash, like a path, is sent as a prompt', a
   await w.clock.settle()
   expect(w.commands).toEqual(['clear'])
   expect(w.submitted).toEqual(['Next step from before the reset: /tmp/notes.md has the plan; read it'])
+})
+
+test('the chat welcome lands in the fresh context quietly, after the ledger, and starts no turn', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'Goal: x' })
+  await stop($)
+  await w.clock.settle()
+  w.state.sessionId = NEW
+  await $.classic.SessionStart({ source: 'clear', session_id: NEW })
+  await w.clock.settle()
+  expect(w.verbs()).toEqual(['begin', 'complete --from sess-old --quiet'])
+  expect(w.appended()).toEqual(['Ledger carried from before the reset:\n\nGoal: x', 'WELCOME FRAME'])
+  expect(w.submitted).toEqual([])
 })

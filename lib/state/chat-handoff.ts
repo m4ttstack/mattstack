@@ -107,7 +107,7 @@ export function completeHandoff(
   a: { fromSessionId: string; sessionId: string },
   db: Database = getStateDb(),
   deps: HandoffDeps = defaultHandoffDeps,
-): { handle: string } | HandoffRefusal {
+): { handle: string; startedAt: number } | HandoffRefusal {
   const recorded = handoffFromSession(a.fromSessionId, db);
   if (!recorded) return { refused: "no-handoff" };
   if (deps.sessionForPid(recorded.pid) !== a.sessionId) return { refused: "not-this-session" };
@@ -127,7 +127,7 @@ export function completeHandoff(
     deleteKvValue(NS, h.handle, db);
     return { refused: "no-handoff" };
   }
-  return { handle: h.handle };
+  return { handle: h.handle, startedAt: h.startedAt };
 }
 
 export function cancelHandoff(

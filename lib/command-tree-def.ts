@@ -1817,6 +1817,7 @@ export const TREE: Record<string, CommandNode> = {
         args: [
           { name: "Step", type: "select", options: [{ value: "begin", label: "begin" }, { value: "complete", label: "complete" }, { value: "cancel", label: "cancel" }], hint: "begin before the /clear, complete from the next session, cancel if the clear does not happen" },
           { name: "From", flag: "--from", type: "text", optional: true, placeholder: "<session id>", hint: "The session the hand-off comes from (complete and cancel)" },
+          { name: "Quiet", flag: "--quiet", type: "boolean", default: false, hint: "For complete: hand back the welcome instead of delivering it, so the new session is not woken" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
         ],
       },

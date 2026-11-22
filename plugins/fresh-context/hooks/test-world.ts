@@ -46,7 +46,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
     const verb = args[0]
     const reply =
       verb === 'begin' ? (signedIn ? { ok: true, handle: 'pansy.ab12' } : { ok: false, code: 'not-signed-in', error: 'x' })
-      : verb === 'complete' ? { ok: true, handle: 'pansy.ab12', name: 'pansy' }
+      : verb === 'complete' ? { ok: true, handle: 'pansy.ab12', name: 'pansy', ...(args.includes('--quiet') ? { welcome: 'WELCOME FRAME' } : {}) }
       : { ok: true, signedOut: false }
     return { value: { exitCode: reply.ok ? 0 : 2, stdout: `${JSON.stringify(reply)}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })

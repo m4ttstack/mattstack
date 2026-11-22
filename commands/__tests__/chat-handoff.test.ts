@@ -132,3 +132,16 @@ test("a refusal prints the envelope and exits 2", async () => {
   expect(r.code).toBe(2);
   expect(JSON.parse(r.stdout)).toMatchObject({ ok: false, code: "not-signed-in" });
 });
+
+test("complete --quiet returns the welcome in its envelope", async () => {
+  const { handle } = await signIn("old");
+  process.env.CLAUDE_CODE_SESSION_ID = "old";
+  process.env.CLAUDE_PID = "4242";
+  await run(["begin", "--json"]);
+  pid.session = "new";
+  process.env.CLAUDE_CODE_SESSION_ID = "new";
+  const done = await run(["complete", "--from", "old", "--quiet", "--json"]);
+  const env = JSON.parse(done.stdout);
+  expect(env).toMatchObject({ ok: true, handle });
+  expect(env.welcome).toContain("You're signed in to rt chat as");
+});

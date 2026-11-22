@@ -884,7 +884,7 @@ export interface Commands {
   /** A signed-in session about to clear itself marks its identity as handing off to the next session its Claude process starts. */
   "chat:handoff-begin": { payload: { sessionId: string; pid: number }; data: { handle: string } };
   /** The session the process moved on to takes the identity, its status and rooms, and gets the sign-in welcome. */
-  "chat:handoff-complete": { payload: { fromSessionId: string; sessionId: string }; data: { handle: string; name: string } };
+  "chat:handoff-complete": { payload: { fromSessionId: string; sessionId: string; quiet?: boolean }; data: { handle: string; name: string; welcome?: string } };
   "chat:handoff-cancel": { payload: { fromSessionId: string; sessionId?: string }; data: { signedOut: boolean } };
   "chat:away": { payload: { sessionId: string; text: string }; data: Record<string, never> };
   "chat:back": { payload: { sessionId: string }; data: Record<string, never> };

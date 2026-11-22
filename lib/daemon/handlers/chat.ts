@@ -34,6 +34,7 @@ import {
   listMessages,
   markRead,
   markDelivered,
+  rewindReadCursors,
   pendingMessages,
   stalePendingPairs,
   listRooms,
@@ -1107,8 +1108,8 @@ export function createChatHandlers(opts: {
     });
   }
 
-  /** The sign-in welcome: the session's rooms and its unread catch-up, delivered once the caller has answered. */
-  function queueWelcome(sessionId: string, handle: string, name: string): void {
+  /** The sign-in welcome: the session's rooms and its unread catch-up, and the read cursors it shows up to. */
+  function composeWelcome(handle: string, name: string): { content: string; cursors: Array<{ room: string; upToId: number }> } {
     const rooms = listRooms(handle, db).map((r) => r.room);
     // A non-advancing peek, not readUnread: the welcome is composed BEFORE
     // delivery is attempted, and readUnread's cursor write happens
@@ -1121,14 +1122,20 @@ export function createChatHandlers(opts: {
     const senders = peeked.flatMap((r) =>
       r.messages.map((m) => ({ handle: m.handle, name: m.name, room: r.room, passedOn: resolveHandle(m.handle, db) !== m.handle })),
     );
-    const catchupCursors = peeked.map((r) => ({ room: r.room, upToId: r.messages[r.messages.length - 1]!.id }));
-    const welcomeContent = wrapCrossSession("rt chat", renderWelcome(name, rooms, catchup, senders));
+    const cursors = peeked.map((r) => ({ room: r.room, upToId: r.messages[r.messages.length - 1]!.id }));
+    return { content: wrapCrossSession("rt chat", renderWelcome(name, rooms, catchup, senders)), cursors };
+  }
+
+  /** Delivers the welcome once the caller has answered. */
+  function queueWelcome(sessionId: string, handle: string, name: string): void {
+    const { content, cursors } = composeWelcome(handle, name);
     queueMicrotask(() => {
-      deliverWelcome(db, deliveryChains, inboxDeps, sessionId, handle, welcomeContent, catchupCursors).catch((err) => {
+      deliverWelcome(db, deliveryChains, inboxDeps, sessionId, handle, content, cursors).catch((err) => {
         log.warn({ err, handle }, "chat: welcome delivery failed");
       });
     });
   }
+
 
   return {
     "chat:join": async (rawPayload: unknown): Promise<CommandResult<"chat:join">> => {
@@ -1515,6 +1522,14 @@ export function createChatHandlers(opts: {
       const r = completeHandoff({ fromSessionId: payload.fromSessionId, sessionId: payload.sessionId }, db, handoffDeps);
       if ("refused" in r) return handoffRefusal(r);
       const name = identityName(r.handle, db);
+      // What reached the old session during the reset went with its context; the catch-up shows it again.
+      rewindReadCursors(r.handle, r.startedAt, db);
+      if (payload.quiet) {
+        // The caller adds the welcome to the new session itself, so it lands without starting a turn.
+        const { content, cursors } = composeWelcome(r.handle, name);
+        for (const { room, upToId } of cursors) markDelivered(room, r.handle, upToId, db);
+        return { ok: true, data: { handle: r.handle, name, welcome: content } };
+      }
       queueWelcome(payload.sessionId, r.handle, name);
       return { ok: true, data: { handle: r.handle, name } };
     },

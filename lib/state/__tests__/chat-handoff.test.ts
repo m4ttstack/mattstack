@@ -51,7 +51,7 @@ test("complete moves the row and identity to the new session", () => {
   const handle = signedIn(db);
   beginHandoff({ sessionId: "old", pid: PID }, db, ON_OLD);
   const deps = fakeDeps("new");
-  expect(completeHandoff({ fromSessionId: "old", sessionId: "new" }, db, deps)).toEqual({ handle });
+  expect(completeHandoff({ fromSessionId: "old", sessionId: "new" }, db, deps)).toMatchObject({ handle });
   expect(presenceForSession("new", db)?.handle).toBe(handle);
   expect(presenceForSession("new", db)?.signedOutAt).toBeUndefined();
   expect(presenceForSession("old", db)).toBeNull();

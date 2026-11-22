@@ -37,13 +37,14 @@ refuses, and keeps the session id.
 
 ## rt chat
 
-A session signed in to rt chat keeps its chat name across a clear. Before the
-reset the mod runs `rt chat handoff begin`; the next session runs
+A session signed in to rt chat keeps its chat name across a clear. As the
+clear runs, the mod starts `rt chat handoff begin`; the next session runs
 `rt chat handoff complete`, takes over the name, its status, rooms and any
-Slack chat, and gets the usual welcome with whatever arrived meanwhile. The
-name never shows offline. If the clear does not happen, the mod cancels and
-the session stays signed in as it was. A session that exits instead signs
-out as it always did.
+Slack chat. The chat welcome, with everything that arrived during the reset
+(messages the old session saw included), lands in the fresh context after
+the ledger without starting a turn. The name never shows offline. If the
+clear does not happen, the mod cancels and the session stays signed in as it
+was. A session that exits instead signs out as it always did.
 
 ## Reloads
 

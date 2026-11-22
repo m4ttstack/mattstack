@@ -5,7 +5,7 @@
  * happen. CLI only: no MCP tool may move an identity between sessions.
  *
  *   rt chat handoff begin [--json]
- *   rt chat handoff complete --from <sessionId> [--json]
+ *   rt chat handoff complete --from <sessionId> [--quiet] [--json]
  *   rt chat handoff cancel --from <sessionId> [--json]
  */
 
@@ -68,9 +68,10 @@ export async function chatHandoff(args: string[]): Promise<void> {
   if (verb === "complete") {
     const from = fromSessionId(args);
     const sessionId = envSessionId();
-    const { handle, name } = settle(await chatHandoffComplete({ fromSessionId: from, sessionId }, sockOpts(args)), json);
+    const quiet = args.includes("--quiet");
+    const { handle, name, welcome } = settle(await chatHandoffComplete({ fromSessionId: from, sessionId, ...(quiet ? { quiet: true } : {}) }, sockOpts(args)), json);
     writeChatSession({ sessionId, handle, baseHandle: baseOfHandle(handle), name, signedInAt: Date.now() });
-    if (json) out.json({ ok: true, handle, name });
+    if (json) out.json({ ok: true, handle, name, ...(welcome !== undefined ? { welcome } : {}) });
     else say(`✓ signed in as ${name}`);
     return;
   }

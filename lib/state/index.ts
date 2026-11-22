@@ -120,6 +120,7 @@ export {
   listMessages,
   markRead,
   markDelivered,
+  rewindReadCursors,
   pendingMessages,
   stalePendingPairs,
   listRooms,
