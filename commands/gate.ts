@@ -382,7 +382,9 @@ export async function gateWait(args: string[]): Promise<void> {
 
 export function buildListPayload(args: string[]): Commands["gate:list"]["payload"] {
   const payload: Commands["gate:list"]["payload"] = {};
-  if (args.includes("--open")) payload.open = true;
+  // A parked gate is still unanswered, and an agent closing out leftovers
+  // must see it, so --open lists both.
+  if (args.includes("--open")) payload.status = ["open", "parked"];
   const subjectPrefix = flagValue(args, "--subject-prefix");
   if (subjectPrefix !== undefined) payload.subjectPrefix = subjectPrefix;
   const kind = flagValue(args, "--kind");

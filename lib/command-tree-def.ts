@@ -123,7 +123,7 @@ const gateSubcommands: Record<string, CommandNode> = {
     agentSafe: true,
     omitBehavior: "list",
     args: [
-      { name: "Open only", flag: "--open", type: "boolean", default: false, hint: "Only open (unanswered, unparked) gates" },
+      { name: "Open only", flag: "--open", type: "boolean", default: false, hint: "Only unanswered gates, parked ones included" },
       { name: "Subject prefix", flag: "--subject-prefix", type: "text", placeholder: "run:", hint: "Filter by subject prefix" },
       { name: "Kind", flag: "--kind", type: "text", placeholder: "approval", hint: "Filter by kind" },
       { name: "Limit", flag: "--limit", type: "text", placeholder: "100", hint: "Cap the number of returned gates" },

@@ -231,7 +231,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "gate_list",
-      description: "List gates in all statuses unless open is true, optionally filtered by subject prefix or kind and capped by limit. Pass the previous response's cursor to continue paging; an empty gates array means there is nothing more to page.",
+      description: "List gates in all statuses unless open is true, which lists the unanswered ones (open and parked), optionally filtered by subject prefix or kind and capped by limit. Pass the previous response's cursor to continue paging; an empty gates array means there is nothing more to page.",
       inputSchema: {
         type: "object",
         properties: {
@@ -246,7 +246,7 @@ export function mcpTools(): McpToolDef[] {
       shellForms: ["rt gate list"],
       async handler(input) {
         const payload: Commands["gate:list"]["payload"] = {};
-        if (input.open !== undefined) payload.open = input.open as boolean;
+        if (input.open === true) payload.status = ["open", "parked"];
         if (input.subjectPrefix !== undefined) payload.subjectPrefix = input.subjectPrefix as string;
         if (input.kind !== undefined) payload.kind = input.kind as string;
         if (input.limit !== undefined) payload.limit = input.limit as number;

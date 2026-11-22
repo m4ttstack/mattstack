@@ -97,13 +97,13 @@ describe("buildListPayload", () => {
     expect(buildListPayload([])).toEqual({});
   });
 
-  test("--open is a boolean presence flag", () => {
-    expect(buildListPayload(["--open"])).toEqual({ open: true });
+  test("--open lists every unanswered gate, parked ones included", () => {
+    expect(buildListPayload(["--open"])).toEqual({ status: ["open", "parked"] });
   });
 
   test("subject-prefix and kind carried through together", () => {
     expect(buildListPayload(["--subject-prefix", "run:", "--kind", "approval", "--open"])).toEqual({
-      open: true,
+      status: ["open", "parked"],
       subjectPrefix: "run:",
       kind: "approval",
     });
