@@ -207,14 +207,16 @@ export async function gateOpen(
       db
     );
   } else {
+    const at = Date.now();
     writeDoctorState(
       statePath,
       {
         status: state.status as DoctorStatus,
         gateId: res.data.id,
         gateKind: kind,
+        gateOpenedAt: at,
       },
-      Date.now(),
+      at,
       db
     );
   }

@@ -9,6 +9,7 @@
 import { domainForKind } from '@mattstack/gate-kit';
 import type { BoardMR } from '../../data.ts';
 import { hasChangesRequested } from '../../data.ts';
+import { doctorGoneQuiet } from '../../doctor-quiet.ts';
 import { isFreshPeerReview } from '../../peer/presence.ts';
 import { respondOutcome } from '../../respond-outcome.ts';
 import { approvalSlots, isOwnMr, statusBucket } from '../../view.ts';
@@ -819,13 +820,23 @@ function doctorStatusLine(
     case 'rebasing':
     case 'fixing':
     case 'watching':
+      if (doctorGoneQuiet(d, now))
+        return {
+          tone: 'warn',
+          word: 'doctor interrupted',
+          detail: `no update for ${ago(new Date(d.updatedAt!).toISOString(), now)}`,
+          verbs: [
+            { kind: 'redo', label: 'redo', domain: 'doctor' },
+            { kind: 'focus', label: 'focus', domain: 'doctor' },
+          ],
+        };
       return {
         tone: 'work',
         word: DOCTOR_LABEL[d.status],
         spin: true,
         detail: d.origin === 'auto' ? 'auto' : d.message || undefined,
         verbs: [
-          doctorInterrupted(mr)
+          doctorInterrupted(mr, now)
             ? { kind: 'redo', label: 'redo', domain: 'doctor' }
             : { kind: 'focus', label: 'focus', domain: 'doctor' },
         ],

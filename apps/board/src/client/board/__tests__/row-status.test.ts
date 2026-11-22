@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { domainForKind } from '@mattstack/gate-kit';
 import type { BoardMRWithReview } from '../../types.ts';
+import { doctorInterrupted } from '../format.ts';
 import { people } from '../people.ts';
 import {
   candidateLines,
@@ -1295,6 +1296,80 @@ describe('rowStatus: doctor lane', () => {
       detail: 'auto',
       spin: true,
     });
+  });
+
+  test('a watching doctor with no write past the quiet limit reads interrupted and offers redo', () => {
+    const [line] = candidateLines(
+      own({
+        doctor: {
+          status: 'watching',
+          origin: 'manual',
+          updatedAt: NOW - 46 * 60_000,
+        },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      tone: 'warn',
+      word: 'doctor interrupted',
+      detail: 'no update for 46m',
+    });
+    expect(line!.spin).toBeUndefined();
+    expect(line!.verbs).toContainEqual({
+      kind: 'redo',
+      label: 'redo',
+      domain: 'doctor',
+    });
+  });
+
+  test('a watching doctor that wrote inside the quiet limit is still working', () => {
+    const [line] = candidateLines(
+      own({
+        doctor: {
+          status: 'watching',
+          origin: 'manual',
+          updatedAt: NOW - 44 * 60_000,
+        },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ tone: 'work', word: 'watching CI…' });
+  });
+
+  test('a doctor held at its escalation gate never ages out', () => {
+    const at = NOW - 3 * 60 * 60_000;
+    const [line] = candidateLines(
+      own({
+        doctor: {
+          status: 'watching',
+          origin: 'manual',
+          updatedAt: at,
+          gateId: 'g-esc',
+          gateOpenedAt: at,
+        },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ tone: 'work', word: 'watching CI…' });
+  });
+
+  test('a quiet doctor counts as interrupted for the row menus', () => {
+    const quiet = own({
+      doctor: { status: 'fixing', updatedAt: NOW - 50 * 60_000 },
+    });
+    expect(doctorInterrupted(quiet, NOW)).toBe(true);
+    expect(
+      doctorInterrupted(
+        own({ doctor: { status: 'fixing', updatedAt: NOW - 60_000 } }),
+        NOW
+      )
+    ).toBe(false);
   });
 
   test('a doctor queued a moment ago is a quiet queued line', () => {

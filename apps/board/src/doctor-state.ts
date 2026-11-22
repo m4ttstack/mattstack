@@ -67,6 +67,8 @@ export interface DoctorState {
       wrapper's own re-entry reads this to know what a `--resumed-gate`
       id names. */
   gateKind?: string;
+  /** The clock of the write that recorded `gateId`; see doctorHeldAtGate. */
+  gateOpenedAt?: number;
   /** Id of the gate the board has already resumed a parked-then-answered
       session for -- the exactly-once dedup marker (see gates/resume.ts). */
   resumedGateId?: string;
@@ -132,6 +134,7 @@ export function writeDoctorState(
     fixClasses: patch.fixClasses,
     gateId: patch.gateId,
     gateKind: patch.gateKind,
+    gateOpenedAt: patch.gateOpenedAt,
     resumedGateId: patch.resumedGateId,
     reopenedAt: patch.reopenedAt,
     dismissedAt: patch.dismissedAt,

@@ -135,6 +135,10 @@ export interface DoctorInfo {
   pipelineAtSync?: string;
   /** The forge's own rebase, the first step of a one-click rebase. */
   forge?: ForgeStep;
+  /** The escalation gate the pane last opened, and the clock of that write
+      (see doctorHeldAtGate). */
+  gateId?: string;
+  gateOpenedAt?: number;
 }
 export interface DraftInfo {
   kind: string;
