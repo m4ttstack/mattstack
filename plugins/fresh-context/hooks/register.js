@@ -113,7 +113,12 @@ async function runReset($, queued) {
   let carry = queued;
   if (carry.mode === "clear") {
     const handle = await beginChat($, carry.oldSessionId);
-    if (handle && pending === queued) {
+    if (pending !== queued) {
+      if (handle)
+        await cancelChat($, carry.oldSessionId, await $.session.id());
+      return;
+    }
+    if (handle) {
       carry = { ...carry, chatHandle: handle };
       await queue($, carry);
       isFiring = true;

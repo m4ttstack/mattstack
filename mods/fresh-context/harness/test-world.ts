@@ -20,7 +20,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   const agents: Agent[] = []
   const commandsRegistered: { name: string; description: string }[] = []
   const argv0: string[] = []
-  const state = { sessionId: OLD, compact: { skip: undefined as string | undefined }, stopBlocks: false, rtOverruns: false, overrunMs: 10_000 }
+  const state = { sessionId: OLD, compact: { skip: undefined as string | undefined }, stopBlocks: false, rtOverruns: false, overrunMs: 10_000, onBegin: undefined as undefined | (() => Promise<unknown>) }
 
   on('session.id', () => ({ value: state.sessionId }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -37,6 +37,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
     argv0.push(e.argv[0] ?? '')
     const args = e.argv.slice(3, -1)
     rt.push({ args, sessionId: e.init?.env?.CLAUDE_CODE_SESSION_ID })
+    if (args[0] === 'begin' && state.onBegin) await state.onBegin()
     if (state.rtOverruns) {
       await clock.advance(state.overrunMs)
       throw new Error('timed out')
@@ -55,6 +56,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   })
   on('command.run', (_, e) => {
     commands.push(e.args ? `${e.command} ${e.args}` : e.command)
+    order.push(`command ${e.command}`)
     return { text: '' }
   })
   on('session.compact', (_, e) => {

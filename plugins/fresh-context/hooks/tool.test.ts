@@ -29,9 +29,21 @@ test('clear mode queues the reset and begins the chat hand-off only as the clear
 
   await stop($)
   await w.clock.settle()
-  expect(w.verbs()).toEqual(['begin'])
+  expect(w.order).toEqual(['rt begin after 0 appended', 'command clear'])
   expect(w.rt[0]?.sessionId).toBe(OLD)
-  expect(w.commands).toEqual(['clear'])
+})
+
+test('a reset dropped while begin was in flight runs no clear and cancels the late hand-off', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
+  // Another turn ends while begin is still out: the clear has not happened, so the reset is dropped.
+  w.state.onBegin = () => stop($)
+  await stop($)
+  for (let i = 0; i < 3; i++) await w.clock.settle()
+  expect(w.commands).toEqual([])
+  expect(w.verbs()).toEqual(['begin', 'cancel --from sess-old'])
+  expect(w.submitted).toEqual(['fresh_context did not run: the clear did not happen'])
 })
 
 test('a running subagent refuses a clear and names it', async ($, on) => {
@@ -129,7 +141,7 @@ test('a skipped compaction is reported and nothing is handed over', async ($, on
   expect(w.submitted).toEqual(['fresh_context did not run: the compaction was skipped (nothing to compact)'])
 })
 
-test('an exit with a queued reset cancels the hand-off', async ($, on) => {
+test('an exit drops a queued reset, with no hand-off begun yet', async ($, on) => {
   const w = world(on)
   await startSession($)
 
@@ -208,12 +220,12 @@ test('the ledger is in the fresh context before complete delivers the chat welco
   w.state.sessionId = NEW
   await $.classic.SessionStart({ source: 'clear', session_id: NEW })
   await w.clock.settle()
-  expect(w.order).toEqual(['rt begin after 0 appended', 'rt complete after 1 appended'])
+  expect(w.order).toEqual(['rt begin after 0 appended', 'command clear', 'rt complete after 1 appended'])
   expect(w.submitted).toEqual(['go'])
 })
 
 for (const reason of ['aborted', 'error'] as const) {
-  test(`a turn that ends ${reason} drops the queued reset and cancels the hand-off`, async ($, on) => {
+  test(`a turn that ends ${reason} drops the queued reset before any hand-off begins`, async ($, on) => {
     const w = world(on)
     await startSession($)
     await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
