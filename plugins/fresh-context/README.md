@@ -42,7 +42,8 @@ reset the mod runs `rt chat handoff begin`; the next session runs
 `rt chat handoff complete`, takes over the name, its status, rooms and any
 Slack chat, and gets the usual welcome with whatever arrived meanwhile. The
 name never shows offline. If the clear does not happen, the mod cancels and
-the session signs out as it always did.
+the session stays signed in as it was. A session that exits instead signs
+out as it always did.
 
 ## Reloads
 

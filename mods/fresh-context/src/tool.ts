@@ -1,7 +1,7 @@
 import type { EngineInterface, On } from 'claude-code'
 
 import type { Carry, Mode } from './carry'
-import { busyNow, isQueued, queue } from './reset'
+import { busyNow, claim, queue, release } from './reset'
 
 export const TOOL = 'mcp__fresh-context__fresh_context'
 
@@ -32,18 +32,28 @@ export function registerTool(on: On): void {
   on('tool.check', { tool: TOOL }, () => ({ decision: 'allow' as const }))
 
   on('tool.call', { tool: TOOL }, async ($, e) => {
+    if (e.agentId) return { deny: 'Only the main session can reset itself; a subagent cannot.' }
     const { mode, ledger, then } = e as unknown as { mode?: unknown; ledger?: unknown; then?: unknown }
     if (mode !== 'clear' && mode !== 'compact') return { deny: 'mode must be "clear" or "compact".' }
     if (typeof ledger !== 'string' || ledger.trim() === '') return { deny: 'Write a ledger first: the reset carries nothing else.' }
     if (then !== undefined && typeof then !== 'string') return { deny: 'then must be text.' }
-    if (isQueued()) return { deny: 'A reset is already queued for the end of this turn.' }
-    if (mode === 'clear') {
-      const busy = await busyNow($)
-      if (busy.length > 0) return { deny: `Not now: still running\n${busy.join('\n')}` }
+    // Claimed before the first await, so a second call in the same message is refused.
+    if (!claim()) return { deny: 'A reset is already queued for the end of this turn.' }
+    try {
+      if (mode === 'clear') {
+        const busy = await busyNow($)
+        if (busy.length > 0) {
+          release()
+          return { deny: `Not now: still running\n${busy.join('\n')}` }
+        }
+      }
+      const oldSessionId = await $.session.id()
+      const carry: Carry = { mode: mode as Mode, ledger, oldSessionId, createdAt: await $.clock.now(), ...(then ? { then } : {}) }
+      await queue($, carry)
+    } catch (err) {
+      release()
+      throw err
     }
-    const oldSessionId = await $.session.id()
-    const carry: Carry = { mode: mode as Mode, ledger, oldSessionId, createdAt: await $.clock.now(), ...(then ? { then } : {}) }
-    await queue($, carry)
     return { result: `Reset queued: ${mode} after this turn.` }
   })
 }

@@ -34,3 +34,11 @@ test('/fresh with no mode word treats it all as the note', async ($, on) => {
   await w.clock.settle()
   expect(w.submitted).toEqual([`${LEDGER} "clear", the ledger, and then "nonsense".`])
 })
+
+test('/fresh reads its mode word in any case and keeps quotes in the note intact', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.command.run({ command: 'fresh', args: 'Compact say "done"', origin: 'user' } as never)
+  await w.clock.settle()
+  expect(w.submitted).toEqual([`${LEDGER} "compact", the ledger, and then ${JSON.stringify('say "done"')}.`])
+})
