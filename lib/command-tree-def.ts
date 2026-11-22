@@ -1807,6 +1807,18 @@ export const TREE: Record<string, CommandNode> = {
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
         ],
       },
+      handoff: {
+        description: "Keep this session's chat name across a /clear",
+        hidden: true,
+        module: "./commands/chat-handoff.ts",
+        fn: "chatHandoff",
+        omitBehavior: { exempt: "agent-facing: only the fresh-context mod runs it" },
+        args: [
+          { name: "Step", type: "select", options: [{ value: "begin", label: "begin" }, { value: "complete", label: "complete" }, { value: "cancel", label: "cancel" }], hint: "begin before the /clear, complete from the next session, cancel if the clear does not happen" },
+          { name: "From", flag: "--from", type: "text", optional: true, placeholder: "<session id>", hint: "The session the hand-off comes from (complete and cancel)" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+        ],
+      },
       "slack-open": {
         description: "Open a Slack support chat with a teammate",
         hidden: true,
