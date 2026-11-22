@@ -95,3 +95,11 @@ test("a sign-out the session asks for itself is never held back by a hand-off", 
   expect(presenceForSession("old", db)?.signedOutAt).toBeNumber();
   expect(handoffFromSession("old", db)).toBeNull();
 });
+
+test("an exit where the mod's cancel lands first: the later sign-out still signs out", async () => {
+  const { db, h } = await signedIn(STILL_OLD);
+  beginHandoff({ sessionId: "old", pid: 4242 }, db, STILL_OLD);
+  expect(await h["chat:handoff-cancel"]({ fromSessionId: "old" })).toEqual({ ok: true, data: { signedOut: false } });
+  await h["chat:sign-out"]({ sessionId: "old", reason: "prompt_input_exit" });
+  expect(presenceForSession("old", db)?.signedOutAt).toBeNumber();
+});

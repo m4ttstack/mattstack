@@ -885,7 +885,7 @@ export interface Commands {
   "chat:handoff-begin": { payload: { sessionId: string; pid: number }; data: { handle: string } };
   /** The session the process moved on to takes the identity, its status and rooms, and gets the sign-in welcome. */
   "chat:handoff-complete": { payload: { fromSessionId: string; sessionId: string }; data: { handle: string; name: string } };
-  "chat:handoff-cancel": { payload: { fromSessionId: string }; data: { signedOut: boolean } };
+  "chat:handoff-cancel": { payload: { fromSessionId: string; sessionId?: string }; data: { signedOut: boolean } };
   "chat:away": { payload: { sessionId: string; text: string }; data: Record<string, never> };
   "chat:back": { payload: { sessionId: string }; data: Record<string, never> };
   "chat:buddies": { payload: Record<string, never>; data: { buddies: Array<PresenceRow & { status: BuddyStatus }> } };

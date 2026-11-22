@@ -414,7 +414,7 @@ export function chatHandoffCancel(
   a: Commands["chat:handoff-cancel"]["payload"],
   o: RtClientOptions = {},
 ): Promise<RtResponse<Commands["chat:handoff-cancel"]["data"]>> {
-  return rtCommand<Commands["chat:handoff-cancel"]["data"]>("chat:handoff-cancel", { fromSessionId: a.fromSessionId }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+  return rtCommand<Commands["chat:handoff-cancel"]["data"]>("chat:handoff-cancel", { fromSessionId: a.fromSessionId, ...(a.sessionId ? { sessionId: a.sessionId } : {}) }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
 export function chatAway(

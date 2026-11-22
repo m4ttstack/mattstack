@@ -191,3 +191,23 @@ test("complete refuses a caller that is not the next session the hand-off record
 function handleOf(db: Database): string {
   return presenceForSession("old", db)!.handle;
 }
+
+test("cancel refuses a caller that is neither the old session nor the one its process moved to", () => {
+  const db = freshDb();
+  signedIn(db);
+  beginHandoff({ sessionId: "old", pid: PID }, db, ON_OLD);
+  expect(cancelHandoff({ fromSessionId: "old", sessionId: "stranger" }, db, fakeDeps("new"))).toEqual({ refused: "not-this-session" });
+  expect(handoffFromSession("old", db)).not.toBeNull();
+  expect(cancelHandoff({ fromSessionId: "old", sessionId: "new" }, db, fakeDeps("new"))).toEqual({ signedOut: true });
+});
+
+test("the session the process moved on to can take the name back with a continue sign-in", () => {
+  const db = freshDb();
+  const handle = signedIn(db);
+  // A live pid the registry does not list reads as still handing off; "new" is recorded as next.
+  beginHandoff({ sessionId: "old", pid: process.pid }, db, { sessionForPid: () => "old", pidAlive: () => true });
+  pendingHandoffFor(handle, db, { sessionForPid: () => "new", pidAlive: () => true });
+  db.run("UPDATE chat_presence SET last_seen_at = 0 WHERE session_id = 'old'");
+  expect(signIn({ sessionId: "new", continueId: handle }, db, NO_BINDING)?.handle).toBe(handle);
+  expect(handoffFromSession("old", db)).toBeNull();
+});

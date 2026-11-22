@@ -28,7 +28,7 @@ import {
   type IdentityRow,
 } from "./identity-store.ts";
 import { getKvValue, setKvValue } from "./kv-blob.ts";
-import { defaultHandoffDeps, pendingHandoffFor, type HandoffDeps } from "./chat-handoff.ts";
+import { defaultHandoffDeps, dropHandoffFrom, pendingHandoffFor, type HandoffDeps } from "./chat-handoff.ts";
 
 export type BuddyStatus = "live" | "idle" | "offline";
 
@@ -331,6 +331,14 @@ export function signIn(
     if (ownPriorRow) db.query(DELETE_PRESENCE_BY_SESSION_SQL).run(sessionId);
 
     const continued = typeof target === "object";
+    // The session a cleared process moved on to may take its name back when the hand-off never completed.
+    if (continued) {
+      const stranded = pendingHandoffFor(target.id, db);
+      if (stranded?.nextSessionId === sessionId) {
+        dropHandoffFrom(stranded.fromSessionId, db);
+        db.query(UPDATE_SIGN_OUT_SQL).run(now, stranded.fromSessionId);
+      }
+    }
     if (continued && !claimIdentitySeat(target.id, sessionStaleCutoff, scoped, db)) throw heldByAnotherSession(target.id);
     let identity: IdentityRow | undefined = continued
       ? target
