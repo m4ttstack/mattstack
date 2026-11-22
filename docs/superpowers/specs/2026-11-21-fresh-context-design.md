@@ -111,8 +111,11 @@ the tool list.
    - `compact`: `$.session.compact({ instructions })`, with the ledger as
      the instructions, so the summary keeps what the caller cares about.
 6. **On `session.end` with `reason: "clear"`** for the saved old id (clear
-   mode), or when the compaction resolves (compact mode): finish the chat
-   hand-off under the current session id, then submit the first prompt.
+   mode): finish the chat hand-off under the current session id, then hand
+   over the ledger. Compact mode keeps the session id, so it needs no chat
+   hand-off and hands over the ledger once the compaction resolves (to be
+   confirmed live). Background shells and monitors are reported only to the
+   turn-end Stop hook, so the busy check runs again there before the reset.
 7. **Hand over the ledger.** Add the ledger to the fresh context with
    `$.session.append`, so it is there before any turn. Then, if `then` was
    given, submit it on its own with `$.prompt.submit`. A `then` that starts
