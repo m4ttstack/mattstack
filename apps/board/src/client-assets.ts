@@ -1,5 +1,13 @@
-import { mkdirSync, watch, writeFileSync, type FSWatcher } from 'fs';
+import {
+  mkdirSync,
+  readFileSync,
+  watch,
+  writeFileSync,
+  type FSWatcher,
+} from 'fs';
 import { join } from 'path';
+
+import { buildIdOf } from '@mattstack/app-server/host-signal';
 
 import {
   buildClientBundle,
@@ -31,6 +39,21 @@ export function fixedUrlResponse(body: string, contentType: string): Response {
   return new Response(body, {
     headers: { 'content-type': contentType, 'cache-control': 'no-cache' },
   });
+}
+
+export function readStyleOr(path: string, lastGood: string): string {
+  try {
+    return readFileSync(path, 'utf-8');
+  } catch {
+    return lastGood;
+  }
+}
+
+export function boardBuildId(
+  assets: Pick<ClientBundle, 'appJs' | 'appCss'>,
+  style: string
+): string {
+  return buildIdOf(assets.appJs, assets.appCss, style);
 }
 
 export function clientChunkResponse(
