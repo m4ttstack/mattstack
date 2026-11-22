@@ -256,6 +256,7 @@ import { applyReviewLatch } from './latch/review-step.ts';
 import {
   dedupInFlight,
   DOCTOR_IN_FLIGHT,
+  doctorDedupLane,
   RESPOND_IN_FLIGHT,
   REVIEW_IN_FLIGHT,
 } from './launch-dedup.ts';
@@ -3471,7 +3472,7 @@ const httpServer = Bun.serve({
         );
         {
           const dedup = await dedupInFlight(
-            existing,
+            doctorDedupLane(existing, focusOnly, Date.now()),
             DOCTOR_IN_FLIGHT,
             focusOnly
           );

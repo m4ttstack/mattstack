@@ -1359,6 +1359,23 @@ describe('rowStatus: doctor lane', () => {
     expect(line).toMatchObject({ tone: 'work', word: 'watching CI…' });
   });
 
+  test('a gate an older board opened, with no open stamp, still holds', () => {
+    const [line] = candidateLines(
+      own({
+        doctor: {
+          status: 'watching',
+          origin: 'manual',
+          updatedAt: NOW - 3 * 60 * 60_000,
+          gateId: 'g-legacy',
+        },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ tone: 'work', word: 'watching CI…' });
+  });
+
   test('a quiet doctor counts as interrupted for the row menus', () => {
     const quiet = own({
       doctor: { status: 'fixing', updatedAt: NOW - 50 * 60_000 },
@@ -1513,6 +1530,7 @@ describe('rowStatus: doctor lane', () => {
     for (const doctor of [
       { status: 'done', updatedAt: NOW - 60_000 },
       { status: 'error' },
+      { status: 'watching', updatedAt: NOW - 46 * 60_000 },
     ]) {
       const [line] = candidateLines(
         mr({ doctor, handoffs: { 'pipeline-red': handoff() } } as Over),

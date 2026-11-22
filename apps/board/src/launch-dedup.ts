@@ -1,3 +1,4 @@
+import { doctorGoneQuiet, type QuietFields } from './doctor-quiet.ts';
 import { focusPane as realFocusPane } from './focus-pane.ts';
 
 export interface DedupLane {
@@ -39,6 +40,19 @@ export async function dedupInFlight(
       ? { kind: 'refused', reason: 'pane is gone' }
       : { kind: 'launch' };
   }
+}
+
+/** The doctor lane the dedup sees. A quiet doctor's pane may still be open
+    but is not working, and its row offers redo, so a launch starts fresh
+    instead of focusing it; a focus click still reaches the pane. */
+export function doctorDedupLane<T extends DedupLane & QuietFields>(
+  existing: T | undefined,
+  focusOnly: boolean,
+  now: number
+): T | undefined {
+  return existing && !focusOnly && doctorGoneQuiet(existing, now)
+    ? undefined
+    : existing;
 }
 
 export const REVIEW_IN_FLIGHT: ReadonlySet<string> = new Set([

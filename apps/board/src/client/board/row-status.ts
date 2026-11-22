@@ -762,7 +762,8 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
   const inFlight =
     d &&
     !laneDismissed(d) &&
-    (d.status === 'queued' || DOCTOR_WORKING.has(d.status));
+    (d.status === 'queued' ||
+      (DOCTOR_WORKING.has(d.status) && !doctorGoneQuiet(d, now)));
   const handoff = inFlight ? null : handoffLine(mr);
   if (handoff) return handoff;
   if (!d || laneDismissed(d)) return null;

@@ -231,6 +231,25 @@ describe('the status writer the board hands out', () => {
       expect(written).toMatchObject({ status: 'watching', watchedSha: head });
     });
 
+    test('a later watching write that cannot read HEAD clears the earlier commit', async () => {
+      const root = mkdtempSync(join(tmpdir(), 'board-watch-'));
+      const handle = seedRow(root, 'doctor', 'https://x/mr/5', 5, {
+        status: 'fixing',
+        watchedSha: 'old1234',
+      });
+      const cwd = mkdtempSync(join(tmpdir(), 'board-watch-norepo-'));
+      const proc = Bun.spawn(
+        [statusBinPath(), 'doctor-status', handle, 'watching'],
+        { cwd, stdout: 'pipe', stderr: 'pipe', env: NO_LIVE_BOARD }
+      );
+      expect(await proc.exited).toBe(0);
+      const written = readByHandle(
+        handle,
+        openStateDb(dbPathForRoot(root), 'cli')
+      ) as { watchedSha?: string };
+      expect(written.watchedSha).toBeUndefined();
+    });
+
     test('outside a git tree, nothing is recorded', async () => {
       const cwd = mkdtempSync(join(tmpdir(), 'board-watch-norepo-'));
       const root = mkdtempSync(join(tmpdir(), 'board-watch-'));

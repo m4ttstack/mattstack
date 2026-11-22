@@ -55,7 +55,9 @@ const merged = updateByHandle(
   {
     status: status as DoctorStatus,
     ...(message ? { message } : {}),
-    ...(watched ? { watchedSha: watched } : {}),
+    // A watching write that cannot read HEAD clears the last one, so an older
+    // watch's commit never settles this one.
+    ...(status === 'watching' ? { watchedSha: watched ?? null } : {}),
   },
   Date.now(),
   db

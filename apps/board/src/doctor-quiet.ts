@@ -17,9 +17,11 @@ export interface QuietFields {
 /** A doctor waiting on its escalation gate writes nothing while a human
     decides. Opening the gate stamps `gateOpenedAt` with the same clock as
     that write's `updatedAt`, so any later write (a status, a resume) ends
-    the hold. */
+    the hold. A gate a board older than the stamp opened has no
+    `gateOpenedAt`, so it holds as it always did. */
 export function doctorHeldAtGate(d: QuietFields): boolean {
-  return !!d.gateId && d.gateOpenedAt === d.updatedAt;
+  if (!d.gateId) return false;
+  return d.gateOpenedAt === undefined || d.gateOpenedAt === d.updatedAt;
 }
 
 /** A running doctor that has written nothing for DOCTOR_QUIET_MS. */
