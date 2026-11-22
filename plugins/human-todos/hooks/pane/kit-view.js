@@ -884,7 +884,7 @@ function toTodo(id, input) {
     ...input.kind === "link" && input.url !== undefined && { url: input.url },
     ...input.kind === "image" && input.paths !== undefined && { paths: [...input.paths] },
     ...input.kind === "run" && input.cwd !== undefined && { cwd: input.cwd },
-    ...input.doneLabel?.trim() && { doneLabel: input.doneLabel.trim().slice(0, DONE_LABEL_MAX) }
+    ...input.kind !== "run" && input.doneLabel?.trim() && { doneLabel: input.doneLabel.trim().slice(0, DONE_LABEL_MAX) }
   };
 }
 function buttonsFor(todo) {
@@ -1006,6 +1006,7 @@ var LABELS = {
   sendDone: "Send & mark done",
   cancelMessage: "Cancel"
 };
+var RUN_DONE_LABEL = "Done without running";
 var TONES = {
   run: "primary",
   open: "primary",
@@ -1044,7 +1045,7 @@ function markFor(todo) {
 function buttonsOf(todo, messages, isComposing = false) {
   const ids = buttonsFor(todo);
   const main = ids.find((id) => id === "stop" || id === "forceStop") ?? ids[0];
-  const label = (id) => id === "done" && todo.doneLabel ? todo.doneLabel : LABELS[id];
+  const label = (id) => id !== "done" ? LABELS[id] : todo.kind === "run" ? RUN_DONE_LABEL : todo.doneLabel ?? LABELS.done;
   const own = ids.map((id) => ({ id, label: label(id), tone: id === main || id === "done" ? TONES[id] : "quiet", todoId: todo.id }));
   return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: "quiet", todoId: todo.id }] : own;
 }

@@ -26,7 +26,7 @@ Claude adds steps with the `add` tool, reads them with `list` and removes one it
 | Kind | For | Buttons |
 |---|---|---|
 | `task` | Something you do by hand | Done, Skip |
-| `run` | A command you can run from the pane | Run, Copy, Done, Skip |
+| `run` | A command you can run from the pane | Run, Copy, Done without running, Skip |
 | `terminal` | A command that needs your own terminal (sudo, a login) | Copy, Done, Skip |
 | `link` | A web page to open | Open, Done, Skip |
 | `image` | Screenshots or other images to look at | Open, Done, Skip |

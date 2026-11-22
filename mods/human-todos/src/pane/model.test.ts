@@ -27,7 +27,7 @@ test('an open run item clips the script to two rows, then offers Show all, the c
       buttons: [
         { id: 'run', label: 'Run', tone: 'primary', todoId: '1' },
         { id: 'copy', label: 'Copy', tone: 'quiet', todoId: '1' },
-        { id: 'done', label: 'Done', tone: 'secondary', todoId: '1' },
+        { id: 'done', label: 'Done without running', tone: 'secondary', todoId: '1' },
         { id: 'skip', label: 'Skip', tone: 'quiet', todoId: '1' },
       ],
     },
@@ -263,4 +263,10 @@ test('the item whose message card is open gets its draft rows, then Cancel, Send
 test("an agent's doneLabel replaces the Done button's word, and Done keeps its fill", () => {
   const row = build([todo({ doneLabel: "I've signed in" })]).rows.find(r => r.kind === 'buttons') as { buttons: { id: string; label: string; tone: string }[] }
   expect(row.buttons[0]).toMatchObject({ id: 'done', label: "I've signed in", tone: 'secondary' })
+})
+
+test("a run item's Done reads as not running, even when a stored item carries a doneLabel", () => {
+  const doneOf = (over: Partial<Todo>) => (build([todo({ kind: 'run', script: 'ls', ...over })]).rows.find(r => r.kind === 'buttons') as { buttons: { id: string; label: string }[] }).buttons.find(b => b.id === 'done')
+  expect(doneOf({})?.label).toBe('Done without running')
+  expect(doneOf({ doneLabel: 'Ran it' })?.label).toBe('Done without running')
 })
