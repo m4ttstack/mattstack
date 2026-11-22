@@ -1298,7 +1298,19 @@ describe('rowStatus: doctor lane', () => {
     });
   });
 
-  test('a watching doctor with no write past the quiet limit reads interrupted and offers redo', () => {
+  const goneDoctorPane = {
+    agentId: 'ag-doc',
+    repo: null,
+    subject: 'agent:ag-doc',
+    surface: 'herdr',
+    sessionId: null,
+    paneRef: null,
+    state: 'gone',
+    since: NOW,
+    openGateIds: [],
+  };
+
+  test('a watching doctor with no write past the quiet limit reads interrupted; with its pane still open it offers focus', () => {
     const [line] = candidateLines(
       own({
         doctor: {
@@ -1317,11 +1329,29 @@ describe('rowStatus: doctor lane', () => {
       detail: 'no update for 46m',
     });
     expect(line!.spin).toBeUndefined();
-    expect(line!.verbs).toContainEqual({
-      kind: 'redo',
-      label: 'redo',
-      domain: 'doctor',
-    });
+    expect(line!.verbs).toEqual([
+      { kind: 'focus', label: 'focus', domain: 'doctor' },
+    ]);
+  });
+
+  test('a quiet doctor whose pane is gone offers redo', () => {
+    const line = candidateLines(
+      own({
+        doctor: {
+          status: 'watching',
+          origin: 'manual',
+          agentId: 'ag-doc',
+          updatedAt: NOW - 46 * 60_000,
+        },
+        orphan: goneDoctorPane,
+      } as never),
+      NOW,
+      NONE,
+      ME
+    ).find(l => l.word === 'doctor interrupted');
+    expect(line!.verbs).toEqual([
+      { kind: 'redo', label: 'redo', domain: 'doctor' },
+    ]);
   });
 
   test('a watching doctor that wrote inside the quiet limit is still working', () => {
@@ -1376,17 +1406,16 @@ describe('rowStatus: doctor lane', () => {
     expect(line).toMatchObject({ tone: 'work', word: 'watching CI…' });
   });
 
-  test('a quiet doctor counts as interrupted for the row menus', () => {
-    const quiet = own({
-      doctor: { status: 'fixing', updatedAt: NOW - 50 * 60_000 },
-    });
-    expect(doctorInterrupted(quiet, NOW)).toBe(true);
+  test('a quiet doctor with its pane open is not interrupted for the row menus; with its pane gone it is', () => {
+    const quiet = {
+      status: 'fixing',
+      agentId: 'ag-doc',
+      updatedAt: NOW - 50 * 60_000,
+    };
+    expect(doctorInterrupted(own({ doctor: quiet }))).toBe(false);
     expect(
-      doctorInterrupted(
-        own({ doctor: { status: 'fixing', updatedAt: NOW - 60_000 } }),
-        NOW
-      )
-    ).toBe(false);
+      doctorInterrupted(own({ doctor: quiet, orphan: goneDoctorPane } as never))
+    ).toBe(true);
   });
 
   test('a doctor queued a moment ago is a quiet queued line', () => {

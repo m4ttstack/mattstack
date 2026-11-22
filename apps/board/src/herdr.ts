@@ -490,48 +490,6 @@ export async function mrTabOpen(
   }
 }
 
-/** Close this MR's tabs and return how many closed: the stored tab, plus
-    every tab in the workspace labelled exactly mrTabLabel(iid, author),
-    bare or behind one marker (↺, RE). The launcher dedups by label, so a
-    redo has to clear them all, a resume tab's original included; matching
-    the whole label leaves another repo's same-numbered MR alone.
-    Best-effort: never starts herdr, a failure closes nothing. */
-export async function closeMrTabs(
-  workspaceLabel: string,
-  iid: number,
-  author: string | undefined,
-  storedTabId: string | undefined,
-  runner: HerdrRunner = defaultRunner
-): Promise<number> {
-  const label = mrTabLabel(iid, author);
-  const ids = new Set<string>(storedTabId ? [storedTabId] : []);
-  try {
-    const workspaceId = findWorkspaceIdByLabel(
-      await runner(['workspace', 'list']),
-      workspaceLabel
-    );
-    if (workspaceId) {
-      for (const t of parseTabList(
-        await runner(['tab', 'list', '--workspace', workspaceId])
-      )) {
-        const bare = t.label.startsWith('!')
-          ? t.label
-          : t.label.slice(t.label.indexOf(' ') + 1);
-        if (t.workspaceId === workspaceId && bare === label) ids.add(t.tabId);
-      }
-    }
-  } catch {
-    // herdr unreachable: the stored tab is still worth a try below.
-  }
-  let closed = 0;
-  for (const id of ids) {
-    await runner(['tab', 'close', id])
-      .then(() => closed++)
-      .catch(() => {});
-  }
-  return closed;
-}
-
 /** Ensure the named workspace exists, open a labelled tab in it, and run
     `prompt` inside claude in that tab. Shared launcher for review and respond;
     the caller supplies the prompt so each feature keeps its own skill wiring. */

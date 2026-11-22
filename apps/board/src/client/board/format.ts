@@ -1,7 +1,6 @@
 import { getReviewDisplayState } from '@mattstack/glance';
 import type { BoardMR } from '../../data.ts';
 import { stripDraftPrefix } from '../../data.ts';
-import { doctorGoneQuiet } from '../../doctor-quiet.ts';
 import type { ReviewerLatch } from '../../latch/discussions.ts';
 import { mrNouns, type ForgeKind, type MrLinkTarget } from '../../mr-ref.ts';
 import { canonicalUsername } from '../../peer/envelope.ts';
@@ -483,18 +482,15 @@ function doctorItemLabel(
   return 'focus doctor';
 }
 
-/** Whether a running doctor stopped: it went quiet (doctorGoneQuiet), or
-    its own pane is gone. A doctor with an agent on file must match the gone
-    pane's agent; one without (still queued) only counts when no review or
-    response on the row could own the pane. */
-function doctorInterrupted(
-  mr: BoardMRWithReview,
-  now: number = Date.now()
-): boolean {
+/** Whether a running doctor's own pane is gone, so redo can launch fresh. A
+    doctor with an agent on file must match the gone pane's agent; one without
+    (still queued) only counts when no review or response on the row could own
+    the pane. A quiet doctor whose pane is still open is not interrupted here:
+    the launcher would focus that pane, so its row offers focus instead. */
+function doctorInterrupted(mr: BoardMRWithReview): boolean {
   const orphan = mr.orphan;
   const d = mr.doctor;
   if (!d || !DOCTOR_ACTIVE.has(d.status)) return false;
-  if (doctorGoneQuiet(d, now)) return true;
   if (orphan?.state !== 'gone') return false;
   if (d.agentId) return orphan.agentId === d.agentId;
   return (

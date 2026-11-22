@@ -1,11 +1,8 @@
 import { expect, test } from 'bun:test';
 
-import { DOCTOR_QUIET_MS } from '../doctor-quiet.ts';
 import {
   dedupInFlight,
   DOCTOR_IN_FLIGHT,
-  doctorDedupLane,
-  quietDoctorRedo,
   REVIEW_IN_FLIGHT,
 } from '../launch-dedup.ts';
 
@@ -63,50 +60,4 @@ test('a focus click never launches: it refuses with the reason', async () => {
 
 test('a rebase waiting on the forge is a doctor in flight', () => {
   expect(DOCTOR_IN_FLIGHT.has('forge-rebasing')).toBe(true);
-});
-
-test('redo on a quiet doctor launches fresh even with its pane still open; a focus click still focuses', async () => {
-  const now = 10 * 60 * 60_000;
-  const quiet = {
-    status: 'watching',
-    tabId: 't1',
-    paneId: 'p1',
-    updatedAt: now - DOCTOR_QUIET_MS - 60_000,
-  };
-  const redo = await dedupInFlight(
-    doctorDedupLane(quiet, false, now),
-    DOCTOR_IN_FLIGHT,
-    false,
-    focusOk
-  );
-  expect(redo).toEqual({ kind: 'launch' });
-  const focus = await dedupInFlight(
-    doctorDedupLane(quiet, true, now),
-    DOCTOR_IN_FLIGHT,
-    true,
-    focusOk
-  );
-  expect(focus).toEqual({ kind: 'focused' });
-  const working = await dedupInFlight(
-    doctorDedupLane({ ...quiet, updatedAt: now - 60_000 }, false, now),
-    DOCTOR_IN_FLIGHT,
-    false,
-    focusOk
-  );
-  expect(working).toEqual({ kind: 'focused' });
-});
-
-test('only a launch click on a quiet doctor is a redo; a focus click or a working doctor is not', () => {
-  const now = 10 * 60 * 60_000;
-  const quiet = {
-    status: 'fixing',
-    tabId: 't9',
-    updatedAt: now - DOCTOR_QUIET_MS - 60_000,
-  };
-  expect(quietDoctorRedo(quiet, false, now)).toBe(true);
-  expect(quietDoctorRedo(quiet, true, now)).toBe(false);
-  expect(
-    quietDoctorRedo({ ...quiet, updatedAt: now - 60_000 }, false, now)
-  ).toBe(false);
-  expect(quietDoctorRedo(undefined, false, now)).toBe(false);
 });

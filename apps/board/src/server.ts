@@ -223,7 +223,6 @@ import { type GateAnswers } from './gates/store.ts';
 import { domainForKind, planSweep, pruneOffBoardGates } from './gates/sweep.ts';
 import { gateOrigin } from './gates/wait-meta.ts';
 import {
-  closeMrTabs,
   closeTab,
   dispatchPrompt,
   launchDoctor,
@@ -257,8 +256,6 @@ import { applyReviewLatch } from './latch/review-step.ts';
 import {
   dedupInFlight,
   DOCTOR_IN_FLIGHT,
-  doctorDedupLane,
-  quietDoctorRedo,
   RESPOND_IN_FLIGHT,
   REVIEW_IN_FLIGHT,
 } from './launch-dedup.ts';
@@ -3474,7 +3471,7 @@ const httpServer = Bun.serve({
         );
         {
           const dedup = await dedupInFlight(
-            doctorDedupLane(existing, focusOnly, Date.now()),
+            existing,
             DOCTOR_IN_FLIGHT,
             focusOnly
           );
@@ -3485,7 +3482,6 @@ const httpServer = Bun.serve({
           if (dedup.kind === 'refused')
             return new Response(dedup.reason, { status: 409 });
         }
-        const redo = quietDoctorRedo(existing, focusOnly, Date.now());
         // A running rebase chain's row carries no tabId, so dedup lets an
         // ordinary launch through.
         if (parsed.mode !== 'rebase' && LOCAL_SYNCS.has(parsed.mrUrl))
@@ -3668,14 +3664,7 @@ const httpServer = Bun.serve({
                   .filter(Boolean)
                   .join('. ')
               : note;
-          if (redo)
-            await closeMrTabs(
-              config.doctorsWorkspace,
-              parsed.iid,
-              author,
-              existing?.tabId
-            );
-          const queuedAt = writeDoctorState(statePath, {
+          writeDoctorState(statePath, {
             mrUrl: parsed.mrUrl,
             iid: parsed.iid,
             status: 'queued',
@@ -3685,7 +3674,7 @@ const httpServer = Bun.serve({
             boardTabId: boardTabId ?? '',
             noPack: !launchPack(boardTabId),
             ...(parsed.mode === 'rebase' ? {} : NO_SYNC_CARRY),
-          }).updatedAt;
+          });
           launched = launchDoctor({
             mrUrl: parsed.mrUrl,
             iid: parsed.iid,
@@ -3705,19 +3694,6 @@ const httpServer = Bun.serve({
           })
             .then(result => {
               void clearHandoffsAfterLaunch(parsed.mrUrl);
-              // A redo whose old tab would not close: the launcher focused it,
-              // so nothing will move this queued row on. Say so, but only over
-              // this launch's own queued write: a concurrent launch may own it.
-              if (result.focusedExisting && redo) {
-                const now = readDoctorStates().get(parsed.mrUrl);
-                if (now?.status === 'queued' && now.updatedAt === queuedAt)
-                  writeDoctorState(statePath, {
-                    status: 'error',
-                    message:
-                      'an earlier doctor tab for this MR is still open; close it, then redo',
-                  });
-                return;
-              }
               if (result.focusedExisting) return;
               // Race guard: the row may have closed out (operator stand-down)
               // while this launch was in flight -- readDoctorStates() here is
