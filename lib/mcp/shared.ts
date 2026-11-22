@@ -7,6 +7,7 @@
 import { chatBuddies, DAEMON_UNREACHABLE_PREFIX, herdList } from "../../packages/rt-client/src/index.ts";
 import type { RtResponse } from "../../packages/rt-client/src/index.ts";
 import { readChatSession, sessionName, type ChatSession } from "../chat-session.ts";
+import { sessionForPid } from "../claude-registry.ts";
 import { explainError } from "../explain-error.ts";
 import { liveSelfPaneRef } from "../self-pane.ts";
 
@@ -154,6 +155,23 @@ export async function resolveSoleHerd(): Promise<{ herd: string } | { error: str
 
 export const SIGN_IN_HINT = "no signed-in chat session for this session; call chat_sign_in first, or, if this session was /cleared, run `rt chat sign-in` and the other chat verbs in Bash";
 
+/**
+ * The session the Claude process that started this server is on now. The
+ * server outlives a /clear, which moves Claude to a new session id, while
+ * its own environment keeps the one it was launched under. Only the direct
+ * parent is asked: the server is Claude's own child, and a grandparent
+ * lookup would find whatever Claude a test run happens to sit under.
+ */
+export function parentClaudeSession(): string | null {
+  return sessionForPid(process.ppid);
+}
+
+/** `env` with CLAUDE_CODE_SESSION_ID moved to the parent Claude's current session, when the registry names one. */
+export function currentSessionEnv(env: NodeJS.ProcessEnv, sessionOf: () => string | null = parentClaudeSession): NodeJS.ProcessEnv {
+  const current = sessionOf();
+  return current && current !== env.CLAUDE_CODE_SESSION_ID ? { ...env, CLAUDE_CODE_SESSION_ID: current } : env;
+}
+
 export type ChatBuddiesFn = (o?: { timeoutMs?: number }) => ReturnType<typeof chatBuddies>;
 
 const PANE_LOOKUP_TIMEOUT_MS = 2000;
@@ -168,7 +186,9 @@ export async function requireChatHandle(
   env: NodeJS.ProcessEnv,
   read: (id: string | undefined) => ChatSession | null = readChatSession,
   buddies: ChatBuddiesFn = chatBuddies,
+  sessionOf: () => string | null = parentClaudeSession,
 ): Promise<{ handle: string; name: string; sessionId: string } | { error: string }> {
+  env = currentSessionEnv(env, sessionOf);
   const session = read(env.CLAUDE_CODE_SESSION_ID);
   if (session) return { handle: session.handle, name: sessionName(session), sessionId: session.sessionId };
   const pane = await liveSelfPaneRef(env);
