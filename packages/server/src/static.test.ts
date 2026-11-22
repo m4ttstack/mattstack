@@ -23,6 +23,7 @@ function fakeFs(files: Record<string, string>): SnapshotFs {
       return new TextEncoder().encode(files[path]);
     },
     mtimeMs: () => 1,
+    isFile: path => path in files,
   };
 }
 
@@ -179,6 +180,9 @@ const unreadable: SnapshotFs = {
     throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
   },
   mtimeMs: () => {
+    throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+  },
+  isFile: () => {
     throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
   },
 };

@@ -9,6 +9,7 @@ export interface SnapshotFs {
   list(root: string): string[];
   read(path: string): Uint8Array;
   mtimeMs(path: string): number;
+  isFile(path: string): boolean;
 }
 
 export interface StaticSnapshot {
@@ -35,6 +36,7 @@ export const nodeSnapshotFs: SnapshotFs = {
   },
   read: path => readFileSync(path),
   mtimeMs: path => statSync(path).mtimeMs,
+  isFile: path => statSync(path).isFile(),
 };
 
 const isMissing = (err: unknown) =>
@@ -112,8 +114,7 @@ export function createMemoryStatic(
   const existsOnDisk = (path: string): boolean => {
     if (path.includes('..')) return false;
     try {
-      fs.mtimeMs(`${distRoot}${path}`);
-      return true;
+      return fs.isFile(`${distRoot}${path}`);
     } catch {
       return false;
     }
@@ -148,6 +149,12 @@ export function createMemoryStatic(
             headers: { 'content-type': 'text/html; charset=utf-8' },
           });
     },
-    health: () => state,
+    // The window polls health alone while a tab is down, so health itself
+    // has to notice files that became readable or were rebuilt.
+    health() {
+      if (state.ok) refreshIfRebuilt();
+      else load();
+      return state;
+    },
   };
 }

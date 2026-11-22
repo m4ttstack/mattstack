@@ -15,7 +15,7 @@ function fakeFs(files: Record<string, string> = {}) {
   const disk = new Map(
     Object.entries(files).map(([p, body]) => [p, { body, mtime: 1 }])
   );
-  const state = { broken: false, present: true };
+  const state = { broken: false, present: true, lists: 0 };
   const guard = () => {
     if (state.broken) throw fsError('EACCES');
     if (!state.present) throw fsError('ENOENT');
@@ -23,6 +23,7 @@ function fakeFs(files: Record<string, string> = {}) {
   const fs: SnapshotFs = {
     list(root) {
       guard();
+      state.lists += 1;
       return [...disk.keys()]
         .filter(p => p.startsWith(`${root}/`))
         .map(p => p.slice(root.length + 1));
@@ -38,6 +39,12 @@ function fakeFs(files: Record<string, string> = {}) {
       const file = disk.get(path);
       if (!file) throw fsError('ENOENT');
       return file.mtime;
+    },
+    isFile(path) {
+      guard();
+      if (disk.has(path)) return true;
+      if ([...disk.keys()].some(p => p.startsWith(`${path}/`))) return false;
+      throw fsError('ENOENT');
     },
   };
   const write = (path: string, body: string) =>
@@ -132,6 +139,34 @@ test('a failed reload on an asset miss keeps the last good copy', async () => {
   expect(mem.serve('/assets/late.js')).toBeNull();
   expect(await mem.index()?.text()).toContain('<title>app</title>');
   expect(mem.health()).toEqual({ ok: true, buildId: buildIdOf(INDEX) });
+});
+
+test('a dist folder unreadable at boot reports ok once it can be read', () => {
+  const { fs, state } = fakeFs({ 'dist/index.html': INDEX });
+  state.broken = true;
+  const mem = createMemoryStatic('dist', fs);
+  expect(mem.health()).toEqual({ ok: false, buildId: null });
+  state.broken = false;
+  expect(mem.health()).toEqual({ ok: true, buildId: buildIdOf(INDEX) });
+});
+
+test('health reports a rebuilt build id without a page load', () => {
+  const { fs, write } = fakeFs({ 'dist/index.html': INDEX });
+  const mem = createMemoryStatic('dist', fs);
+  const rebuilt = INDEX.replace('app', 'app v2');
+  write('dist/index.html', rebuilt);
+  expect(mem.health()).toEqual({ ok: true, buildId: buildIdOf(rebuilt) });
+});
+
+test('a request for a folder under dist does not re-read dist', () => {
+  const { fs, state } = fakeFs({
+    'dist/index.html': INDEX,
+    'dist/assets/a.js': 'a',
+  });
+  const mem = createMemoryStatic('dist', fs);
+  const before = state.lists;
+  expect(mem.serve('/assets')).toBeNull();
+  expect(state.lists).toBe(before);
 });
 
 test('a dist folder that appears after boot is picked up', async () => {
