@@ -318,7 +318,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 self?.deckLifecycle?.servedAppsRestarting = true
                 await registrar.restartServedApps()
                 self?.deckLifecycle?.servedAppsRestarting = false
-                await self?.windowModel?.retryFailedTabsAfterServedAppsRestart()
             }
         }
     }

@@ -35,26 +35,17 @@ final class WindowNavigationDelegate: NSObject, WKNavigationDelegate, WKUIDelega
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         model?.store.noteFailedLoad(appName, url: (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL)
-        model?.loadFailures[appName] = true
-        model?.loadingApps.remove(appName)
+        model?.tabEvent(appName, .navigationFailed(reason: error.localizedDescription))
     }
 
-    /// Clears the overlay as soon as a new attempt starts, not just on
-    /// success: a stuck-forever failure state otherwise survives right up
-    /// until the retry completes.
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        model?.loadFailures[appName] = false
-        model?.loadingApps.insert(appName)
+        guard let model else { return }
+        model.tabEvent(appName, .navigationStarted(byRecovery: model.takeRecoveryFlag(appName)))
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         model?.store.noteLoaded(appName)
-        model?.loadFailures[appName] = false
-        model?.loadingApps.remove(appName)
-        webView.evaluateJavaScript(StylesheetProbe.script) { [weak self] result, _ in
-            guard let self else { return }
-            self.model?.noteStylesheetProbe(self.appName, failed: StylesheetProbe.failed(result: result))
-        }
+        model?.tabEvent(appName, .navigationFinished)
     }
 
     /// WebKit treats any HTTP answer as a finished navigation, so without
@@ -75,8 +66,7 @@ final class WindowNavigationDelegate: NSObject, WKNavigationDelegate, WKUIDelega
             "server": http?.value(forHTTPHeaderField: "Server") ?? "(none)",
         ])
         model?.store.noteFailedLoad(appName, url: http?.url)
-        model?.loadFailures[appName] = true
-        model?.loadingApps.remove(appName)
+        model?.tabEvent(appName, .navigationFailed(reason: "HTTP \(status)"))
         decisionHandler(.cancel)
     }
 
@@ -134,17 +124,13 @@ final class WindowNavigationDelegate: NSObject, WKNavigationDelegate, WKUIDelega
 
 @MainActor
 final class WindowModel: ObservableObject {
-    static let deckApp = DiscoveryApp(name: "deck", displayName: "Deck", description: nil,
-                                       url: "https://deck.mattstack", icon: nil)
+    nonisolated static let deckApp = DiscoveryApp(name: "deck", displayName: "Deck", description: nil,
+                                                  url: "https://deck.mattstack", icon: nil)
 
     @Published private(set) var apps: [DiscoveryApp] = []
     @Published private(set) var catalogFresh = false
     @Published var activeApp: String = ""
-    @Published var loadFailures: [String: Bool] = [:]
-    private var stylesheetFailures: [String: Int] = [:]
-    /// Apps whose webview has a navigation in flight, so the content area can
-    /// say "loading" instead of showing a blank page.
-    @Published var loadingApps: Set<String> = []
+    @Published private(set) var tabStates: [String: TabState] = [:]
     @Published private(set) var icons: [String: NSImage] = [:]
     @Published private(set) var splashVisible = false
     @Published private(set) var splashOpacity: Double = 1
@@ -167,6 +153,10 @@ final class WindowModel: ObservableObject {
     private var deckWaitTask: Task<Void, Never>?
     private var deckWaitGeneration = 0
     private var activeAppIsFallback = false
+    /// Apps whose next navigation is a reload the health rule asked for.
+    private var recoveryReloads: Set<String> = []
+    private var backstops: [String: Task<Void, Never>] = [:]
+    private var healthLoop: Task<Void, Never>?
 
     /// Process-lifetime, not instance-lifetime: only one `WindowModel` is
     /// ever constructed per process in practice, but the gate is spelled at
@@ -179,6 +169,10 @@ final class WindowModel: ObservableObject {
         self.store = store ?? WebViewStore()
         self.backends = backends
         self.catalog = backends.catalog
+        self.store.onHostSignal = { [weak self] name, body in
+            guard let signal = HostSignal.parse(body) else { return }
+            self?.tabEvent(name, .signal(signal))
+        }
         fetchIcon(url: backends.deckFaviconURL, into: Self.deckApp.name)
     }
 
@@ -375,7 +369,6 @@ final class WindowModel: ObservableObject {
         switch phase {
         case .ready:
             TrayLog.info("window: deck ready", ["seconds": Int(seconds)])
-            reloadFailedTabs()
         case .unreachable(let reason):
             TrayLog.warn("window: deck unreachable", ["seconds": Int(seconds), "reason": reason])
         case .waiting:
@@ -388,42 +381,74 @@ final class WindowModel: ObservableObject {
         if splashContent == .dismiss { dismissSplash() }
     }
 
-    /// Tabs mount under the splash, so one can fail against an app that
-    /// was still starting before deck was ready.
-    private func reloadFailedTabs() {
-        for (name, failed) in loadFailures where failed { store.reload(name) }
+    func overlay(for name: String) -> TabOverlay {
+        TabReadiness.overlay(tabStates[name] ?? TabState())
     }
 
-    /// Each finished load reports its own probe, so a failure that lands after
-    /// a restart retry has already looked still gets its reloads.
-    func noteStylesheetProbe(_ name: String, failed: Bool) {
-        guard failed else {
-            stylesheetFailures[name] = nil
-            return
-        }
-        let failures = (stylesheetFailures[name] ?? 0) + 1
-        stylesheetFailures[name] = failures
-        guard let delay = StylesheetRetry.delay(afterFailures: failures) else {
-            TrayLog.warn("window stylesheet still failing; leaving the tab as it is", ["app": name])
-            return
-        }
-        TrayLog.warn("window stylesheet failed to load; reloading", ["app": name, "attempt": "\(failures)"])
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard self.stylesheetFailures[name] == failures else { return }
-            self.store.reload(name)
-        }
+    func retry(_ name: String) {
+        recoveryReloads.remove(name)
+        store.reload(name)
     }
 
-    /// A served-app restart runs after deck's ready reload, so a tab that
-    /// failed against a restarting app has nothing else to reload it.
-    func retryFailedTabsAfterServedAppsRestart() async {
-        await FailedTabRetry.run(sleep: { try? await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) },
-                                 anyFailed: { self.loadFailures.values.contains(true) },
-                                 reload: {
-                                     TrayLog.info("window: reloading tabs that failed during a served-app restart")
-                                     self.reloadFailedTabs()
-                                 })
+    func takeRecoveryFlag(_ name: String) -> Bool {
+        recoveryReloads.remove(name) != nil
+    }
+
+    func tabEvent(_ name: String, _ event: TabEvent) {
+        let before = tabStates[name] ?? TabState()
+        let (after, effects) = TabReadiness.reduce(before, event)
+        if after != before { tabStates[name] = after }
+        if after.phase != before.phase {
+            switch after.phase {
+            case .notReady(let reason): TrayLog.warn("window tab not ready", ["app": name, "reason": reason])
+            case .fatal: TrayLog.warn("window tab not ready", ["app": name, "reason": "fatal"])
+            case .loading, .ready: break
+            }
+        }
+        for effect in effects {
+            switch effect {
+            case .reload:
+                TrayLog.info("window tab reloading", ["app": name, "token": after.lastHealth?.token ?? "(none)"])
+                recoveryReloads.insert(name)
+                if !store.reload(name) { recoveryReloads.remove(name) }
+            case .startBackstop:
+                backstops[name]?.cancel()
+                backstops[name] = Task { [weak self] in
+                    do {
+                        try await Task.sleep(nanoseconds: UInt64(TabReadinessTuning.backstop * 1_000_000_000))
+                    } catch { return }
+                    self?.backstops[name] = nil
+                    self?.tabEvent(name, .backstopElapsed)
+                }
+            case .cancelBackstop:
+                backstops.removeValue(forKey: name)?.cancel()
+            }
+        }
+        startHealthLoopIfNeeded()
+    }
+
+    /// One loop for every tab, ending itself once no tab is waiting on its app.
+    private func startHealthLoopIfNeeded() {
+        guard healthLoop == nil, TabReadiness.needsHealthLoop(Array(tabStates.values)) else { return }
+        let source = backends.health
+        healthLoop = Task { [weak self] in
+            while true {
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(TabReadinessTuning.healthInterval * 1_000_000_000))
+                } catch { return }
+                guard let self else { return }
+                let waiting = self.tabStates.filter { TabReadiness.needsHealthLoop([$0.value]) }
+                    .compactMap { self.app(named: $0.key) }
+                guard !waiting.isEmpty else {
+                    self.healthLoop = nil
+                    return
+                }
+                for app in waiting {
+                    let health = await source.check(app)
+                    self.tabEvent(app.name, .health(health))
+                }
+            }
+        }
     }
 
     /// Deterministic fade, not a conditional-removal `.transition`: a plain
@@ -489,7 +514,11 @@ final class WindowModel: ObservableObject {
         // a moment before this delegate exists. Seeding from the webview's own
         // state, rather than assuming, keeps the indicator honest for a view
         // that somehow arrives already idle.
-        if view.isLoading { loadingApps.insert(appName) }
+        if tabStates[appName] == nil, !view.isLoading {
+            var idle = TabState()
+            idle.phase = .ready
+            tabStates[appName] = idle
+        }
     }
 
     /// A failure is retried, and what came back is logged well enough to

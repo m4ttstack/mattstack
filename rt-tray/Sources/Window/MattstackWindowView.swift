@@ -342,10 +342,10 @@ private struct ContentArea: View {
         ZStack {
             if let app = model.app(named: model.activeApp) {
                 WindowWebView(model: model, app: app)
-                if model.loadFailures[app.name] == true {
-                    FailureOverlay(model: model, app: app)
-                } else if model.loadingApps.contains(app.name) {
-                    LoadingOverlay()
+                switch model.overlay(for: app.name) {
+                case .failure: FailureOverlay(model: model, app: app)
+                case .loading: LoadingOverlay()
+                case .none: EmptyView()
                 }
             } else {
                 // Before the catalog resolves there is no app to mount, and
@@ -399,20 +399,22 @@ private struct LoadingOverlay: View {
     }
 }
 
+/// On the same opaque ground as LoadingOverlay, so a half-loaded page never
+/// shows around the card.
 private struct FailureOverlay: View {
     @ObservedObject var model: WindowModel
     let app: DiscoveryApp
 
     var body: some View {
-        VStack(spacing: 12) {
-            Text("Can't reach \(app.displayName)")
-                .font(.headline)
-            Button("Retry") {
-                model.store.reload(app.name)
-                model.loadFailures[app.name] = nil
+        ZStack {
+            barFill
+            VStack(spacing: 12) {
+                Text("Can't reach \(app.displayName)")
+                    .font(.headline)
+                Button("Retry") { model.retry(app.name) }
             }
+            .padding(24)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
-        .padding(24)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
