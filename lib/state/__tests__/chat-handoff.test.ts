@@ -211,3 +211,21 @@ test("the session the process moved on to can take the name back with a continue
   expect(signIn({ sessionId: "new", continueId: handle }, db, NO_BINDING)?.handle).toBe(handle);
   expect(handoffFromSession("old", db)).toBeNull();
 });
+
+test("the next session's fallback cancel goes through while the registry still names the old session", () => {
+  const db = freshDb();
+  signedIn(db);
+  beginHandoff({ sessionId: "old", pid: PID }, db, ON_OLD);
+  markOldSessionEnded("old", db);
+  expect(cancelHandoff({ fromSessionId: "old", sessionId: "new" }, db, fakeDeps("old"))).toEqual({ signedOut: true });
+  expect(handoffFromSession("old", db)).toBeNull();
+  expect(presenceForSession("old", db)?.signedOutAt).toBeNumber();
+});
+
+test("the next session's fallback cancel goes through while the registry reads nothing", () => {
+  const db = freshDb();
+  signedIn(db);
+  beginHandoff({ sessionId: "old", pid: PID }, db, ON_OLD);
+  markOldSessionEnded("old", db);
+  expect(cancelHandoff({ fromSessionId: "old", sessionId: "new" }, db, fakeDeps(null))).toEqual({ signedOut: true });
+});
