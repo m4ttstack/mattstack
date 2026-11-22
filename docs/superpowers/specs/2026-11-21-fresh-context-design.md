@@ -87,17 +87,23 @@ the tool list.
 |---|---|---|
 | `mode` | `"clear"` or `"compact"` | `clear`: a brand-new conversation. `compact`: the engine's compaction, a summary plus recent turns. |
 | `ledger` | string, required | Free text the caller wrote. Carried as is. |
-| `then` | string, optional | The instruction the fresh context starts on. |
+| `then` | string, optional | The instruction the fresh context starts on. Left out, the fresh context holds the ledger and starts no turn; something else (a pending wakeup, a chat message) starts the next one. |
 
 ### What a call does
 
-1. **Refuse while busy.** If a subagent or background task is still running
-   in this session, return an error naming each one and do nothing else.
-   The caller tries again later.
+1. **Refuse while busy** (clear mode only; compaction never drops work, so
+   compact mode never refuses). Busy means a running subagent, a
+   `run_in_background` shell or a `Monitor` watcher: the call returns an
+   error naming each one and does nothing else, and the caller tries again
+   later. A pending `ScheduleWakeup` is not busy: the spike showed it firing
+   on time after a `/clear`. *My call.*
 2. **Save the carry.** Write `{ mode, ledger, then, oldSessionId, chat? }`
    to the mod's data folder (`CLAUDE_PLUGIN_DATA`), keyed by the old
    session id, and also hold it in memory. The file is what survives a hot
-   reload; the in-memory copy is the fast path.
+   reload: a `session.start` that finds a carry for a session id that is no
+   longer current finishes the hand-off and the first prompt from it. The
+   carry is the mod's working file only; the caller's durable ledger stays
+   wherever its skill keeps it.
 3. **Start the chat hand-off** if the session is signed in (see below).
 4. **Return at once**, saying what will happen.
 5. **Just after the turn ends** (`$.clock.after`), run the reset:
@@ -107,10 +113,12 @@ the tool list.
 6. **On `session.end` with `reason: "clear"`** for the saved old id (clear
    mode), or when the compaction resolves (compact mode): finish the chat
    hand-off under the current session id, then submit the first prompt.
-7. **First prompt** (`$.prompt.submit`): the ledger inline, the path of the
-   saved ledger file, then the `then` text. Inline, so the session doesn't
-   need a read before it can act.
-8. Delete the carry file once the first prompt is submitted.
+7. **Hand over the ledger.** Add the ledger to the fresh context with
+   `$.session.append`, so it is there before any turn. Then, if `then` was
+   given, submit it on its own with `$.prompt.submit`. A `then` that starts
+   with `/` therefore runs as a slash command, which it would not if it were
+   buried at the end of a longer prompt. *My call.*
+8. Delete the carry file once the ledger is handed over.
 
 If the reset is refused or the session ends any other way (exit, resume,
 logout), the carry is dropped and the hand-off cancelled, so the identity
@@ -136,22 +144,41 @@ MCP tool:
   as handing off from this session id.
 - **Complete**, run by the new session after the reset: moves the identity,
   status, room memberships and any held Slack conversation from the old
-  session id to the new one.
+  session id to the new one, then delivers the usual sign-in welcome frame
+  with its unread catch-up (`deliverWelcome`). The fresh context learns its
+  handle the normal way, and messages that arrived during the reset come in
+  with the catch-up. *My call.*
 - **Cancel**, run by the mod when the reset does not happen.
 
-While an identity is handing off, the sign-out that fires when the old
-session ends (the spike saw it fire on `/clear`) leaves the presence row
-live and does not close a held Slack conversation (today's
-`chat:sign-out` handler calls `finishClose` with `pane-gone`). It still
-deletes the old session's local session file.
+Begin records the Claude process (its pid) beside the old session id.
+While an identity is handing off:
 
-The hand-off ends in exactly one of three ways, with no clock:
+- The sign-out that fires when the old session ends (the spike saw it fire
+  on `/clear`) leaves the presence row signed in and does not close a held
+  Slack conversation (today's `chat:sign-out` handler calls `finishClose`
+  with `pane-gone`). It still deletes the old session's local session file.
+- The roster reads the row as live while that pid is alive. Today
+  `buddyStatus` (`lib/state/presence-store.ts`) checks the row's session id
+  against the Claude registry, which names the new id after a `/clear`, so
+  without this the row would read offline until Complete.
+- Messages to the identity are held for it as for any signed-in identity
+  that isn't reachable, and come in with Complete's catch-up.
+
+The hand-off ends in exactly one of these ways, with no clock:
 
 - **Completed** by the new session's call.
 - **Cancelled** by the mod.
-- **The old session ended for a reason other than `clear`**, or the process
+- **The old session ended for a reason other than `clear`**, or the pid
   died: the existing liveness rules treat the row like any other session
   that went away.
+- **The pid's registry entry moved past the expected hand-off**: it now
+  names a session that signed in or out of chat on its own, or a third
+  session id. The mod failed to complete, so the row signs out as today.
+  *My call.*
+
+A mod that loses its in-memory state mid-way finishes from the carry file
+at its next `session.start` (step 2), so a hot reload does not strand the
+hand-off.
 
 Complete is refused unless the caller is a session in the same process
 lineage (same pane where there is one) and the identity is handing off
@@ -160,12 +187,14 @@ inheriting an identity is CLI-typed or daemon-internal.
 
 ## Who uses it
 
-- **pr-usher**: ends each tick with
-  `fresh_context({ mode: "clear", ledger: <its PR ledger>, then: "/mattstack:pr-usher" })`,
-  only when no Opus review is in flight. Its ledger moves out of the
-  scratchpad, whose path changes with the session id. Its existing
-  `ScheduleWakeup` still paces the ticks: the spike showed a pending wakeup
-  firing on time after a `/clear`.
+- **pr-usher**: ends each tick with its `ScheduleWakeup`, then
+  `fresh_context({ mode: "clear", ledger: <its PR ledger> })` with no
+  `then`, only when no Opus review is in flight. The fresh context sits
+  idle with the ledger until the wakeup fires `/mattstack:pr-usher`, so the
+  5 to 20 minute pacing holds and no extra tick starts. The usher's durable
+  ledger moves out of the scratchpad (whose path changes with the session
+  id) to a stable path the usher skill names; each tick reads it from
+  there. *My call.*
 - **matt:self-compact**: keeps steps 1 to 3 (read state, commit, write the
   ledger) and replaces step 4's `rt pane send self` with a
   `fresh_context({ mode: "compact", ... })` call. The "type these two
@@ -193,9 +222,12 @@ These two skill edits ship separately from the mod and the rt verb.
   there.
 - The verb names and flags (`rt chat handoff begin|complete|cancel` is a
   placeholder).
-- How the mod detects running subagents and background tasks (`$.agent`,
-  `$.session` reads).
+- How the mod detects running subagents, background shells and monitors
+  (`$.agent`, `$.session` reads).
 - Whether `/clear` kills background work. The busy refusal makes this
   moot for correctness, but the answer belongs in the mod's README.
+- Confirming `$.session.append` puts text the model reads into the fresh
+  context; if it does not, fall back to one submitted prompt holding the
+  ledger, then `then` as a second prompt.
 - The carry file's exact shape and name.
 - Testing a DM sent to the identity during the reset, to show none is lost.
