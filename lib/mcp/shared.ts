@@ -146,7 +146,10 @@ const daemonHerdLookups: HerdJobLookups = { list: () => herdList({}), status: (h
  * `env` with HERD_ID and HERD_JOB filled in from the daemon when they are
  * missing. A reboot restores a worker's pane and resumes its Claude session,
  * but the pane's environment is gone; the daemon still records the session
- * behind each job, so the job this session runs is found from that.
+ * behind each job, so the job this session runs is found from that. It
+ * matches the launch session, never the post-/clear one: the daemon writes a
+ * job's agentSession only when it launches the job, and herd gates check
+ * against that same id.
  */
 export async function withHerdJob(env: NodeJS.ProcessEnv, lookups: HerdJobLookups = daemonHerdLookups): Promise<NodeJS.ProcessEnv> {
   if (env.HERD_ID && env.HERD_JOB) return env;
