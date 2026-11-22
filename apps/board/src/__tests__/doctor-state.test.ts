@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
   attachDoctors,
-  type DoctorState,
   doctorFilePath,
   doctorResumeDispatchFields,
   failOrphanedSyncs,
@@ -15,6 +14,7 @@ import {
   planStandDown,
   readDoctorStates,
   writeDoctorState,
+  type DoctorState,
 } from '../doctor-state.ts';
 import { dispatchPrompt } from '../herdr.ts';
 import { openStateDb } from '../state/db.ts';

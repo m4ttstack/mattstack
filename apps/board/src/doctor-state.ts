@@ -185,18 +185,20 @@ export function settleWatchedDoctor(
     !!d.watchedSha &&
     mr.pipelineState === 'passed' &&
     mr.pipeline?.sha === d.watchedSha;
-  return passed ? { ...d, status: 'done', message: d.message ?? 'CI passed' } : d;
+  return passed
+    ? { ...d, status: 'done', message: d.message ?? 'CI passed' }
+    : d;
 }
 
-export function attachDoctors<
-  T extends { webUrl?: string | null } & PipelineFacts,
->(
+export function attachDoctors<T extends { webUrl?: string | null }>(
   mrs: T[],
   doctors: Map<string, DoctorState>
 ): Array<T & { doctor?: DoctorState }> {
   return mrs.map(mr => {
     const d = mr.webUrl ? doctors.get(mr.webUrl) : undefined;
-    return d ? { ...mr, doctor: settleWatchedDoctor(d, mr) } : mr;
+    return d
+      ? { ...mr, doctor: settleWatchedDoctor(d, mr as PipelineFacts) }
+      : mr;
   });
 }
 

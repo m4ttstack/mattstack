@@ -387,10 +387,7 @@ function upstreamBlocker(
   const { ancestors, unresolvedParentBranch } = chainOf(mrs, edge.mrUrl);
   for (const anc of ancestors) {
     const doc = doctors.get(anc.mrUrl);
-    if (
-      attendants?.read(anc.mrUrl, anc.iid) ||
-      (doc && inFlight(doc, now))
-    ) {
+    if (attendants?.read(anc.mrUrl, anc.iid) || (doc && inFlight(doc, now))) {
       return { reason: 'attended-upstream', upstreamMr: anc.mrUrl };
     }
     if (anc.pipelineState === 'failed')
