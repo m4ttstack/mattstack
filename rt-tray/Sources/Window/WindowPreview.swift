@@ -122,6 +122,7 @@ enum WindowPreview {
     private static func markActiveTabStale() async {
         await waitFor { model.deckWait == .ready && model.overlay(for: model.activeApp) == .none }
         let name = model.activeApp
+        model.tabEvent(name, .signal(.booting))
         model.tabEvent(name, .signal(.ready(buildId: "preview-old")))
         await model.checkFreshness(name)
     }

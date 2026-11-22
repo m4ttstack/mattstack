@@ -98,11 +98,16 @@ public enum TabReadiness {
             return (next, [])
 
         case .signal(.ready(let buildId)):
+            guard state.speaksProtocol else { return (state, []) }
             next.phase = .ready
             next.buildId = buildId
             return (next, [.cancelBackstop])
 
-        case .signal(.failed(let reason)), .navigationFailed(let reason):
+        case .signal(.failed(let reason)):
+            guard state.speaksProtocol, state.phase == .loading else { return (state, []) }
+            return (failing(state, into: .notReady(reason: reason)), [.cancelBackstop])
+
+        case .navigationFailed(let reason):
             guard state.phase == .loading else { return (state, []) }
             return (failing(state, into: .notReady(reason: reason)), [.cancelBackstop])
 
@@ -111,6 +116,7 @@ public enum TabReadiness {
             return (failing(state, into: .notReady(reason: "no ready signal")), [.cancelBackstop])
 
         case .signal(.fatal):
+            guard state.speaksProtocol else { return (state, []) }
             return (failing(state, into: .fatal), [.cancelBackstop])
 
         case .health(let health):

@@ -236,6 +236,40 @@ let tabReadinessChecks: [Check] = [
         c.expect(TabReadiness.needsHealthLoop([readyTab, failedTab]))
         c.expect(TabReadiness.needsHealthLoop([readyTab, fatal]))
     },
+    Check("tab readiness: ready, failed or fatal before the new page's booting changes nothing") { c in
+        let (loading, _) = TabReadiness.reduce(readyTab, .navigationStarted(byRecovery: false))
+        let leftovers: [TabEvent] = [.signal(.ready(buildId: "b1")), .signal(.failed(reason: "x")), .signal(.fatal)]
+        for leftover in leftovers {
+            let (state, effects) = TabReadiness.reduce(loading, leftover)
+            c.expectEqual(state, loading, "\(leftover)")
+            c.expectEqual(effects, [], "\(leftover)")
+        }
+    },
+    Check("tab readiness: a failed signal or a failed navigation on a ready tab is ignored") { c in
+        for event in [TabEvent.signal(.failed(reason: "x")), .navigationFailed(reason: "502")] {
+            let (state, effects) = TabReadiness.reduce(readyTab, event)
+            c.expectEqual(state, readyTab, "\(event)")
+            c.expectEqual(effects, [], "\(event)")
+        }
+    },
+    Check("tab readiness: WebKit finishing a not-ready or fatal tab changes nothing") { c in
+        let fatal = run([.navigationStarted(byRecovery: false), .signal(.booting), .signal(.fatal)]).0
+        for start in [failedTab, fatal] {
+            let (state, effects) = TabReadiness.reduce(start, .navigationFinished)
+            c.expectEqual(state, start)
+            c.expectEqual(effects, [])
+        }
+    },
+    Check("tab readiness: fatal cancels the backstop") { c in
+        let (_, effects) = run([.navigationStarted(byRecovery: false), .signal(.booting), .navigationFinished,
+                                .signal(.fatal)])
+        c.expectEqual(effects, [.cancelBackstop])
+    },
+    Check("tab readiness: the reload credit survives an app that does not answer") { c in
+        let (state, _) = run([.health(down), .health(down)], from: failedTab)
+        c.expect(state.reloadCredit)
+        c.expectEqual(TabReadiness.reduce(state, .health(up)).1, [.reload])
+    },
     Check("host signal: parses the four messages and rejects anything else") { c in
         c.expectEqual(HostSignal.parse(["type": "booting"]), .booting)
         c.expectEqual(HostSignal.parse(["type": "ready", "buildId": "abc"]), .ready(buildId: "abc"))
