@@ -19,6 +19,8 @@
  * between a boot failure and a blank white page.
  */
 
+import { hostSignal } from './host';
+
 const PANEL_TEST_ID = 'simple-alerts-panel';
 
 let mounted = false;
@@ -90,6 +92,7 @@ function injectPanelOnce(message: string): void {
   if (panelInjected) return;
   document.body.appendChild(buildPanel(message));
   panelInjected = true;
+  hostSignal()?.fatal();
 }
 
 function handleWindowError(event: ErrorEvent): void {
