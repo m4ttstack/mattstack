@@ -38,28 +38,24 @@ export function mountStatic(
   opts: MountStaticOptions = {}
 ): { health(): HealthState } {
   const fs = opts.fs ?? nodeSnapshotFs;
-  let serveIndex: (c: Context) => Promise<Response | null>;
+  let serveIndex: () => Response | null;
   let health: () => HealthState;
 
   if (opts.embedded) {
-    const manifestIndex = mountEmbeddedStatic(
-      app,
-      opts.embedded,
-      opts.toResponse ?? bunToResponse
-    );
+    mountEmbeddedStatic(app, opts.embedded, opts.toResponse ?? bunToResponse);
     try {
       const raw = new TextDecoder().decode(
         fs.read(opts.embedded.indexHtmlPath)
       );
       const buildId = buildIdOf(raw);
       const html = injectHostSignal(raw, buildId);
-      serveIndex = async () =>
+      serveIndex = () =>
         new Response(html, {
           headers: { 'content-type': 'text/html; charset=utf-8' },
         });
       health = () => ({ ok: true, buildId });
     } catch {
-      serveIndex = async c => manifestIndex(c);
+      serveIndex = () => null;
       health = () => ({ ok: false, buildId: null });
     }
   } else {
@@ -69,14 +65,19 @@ export function mountStatic(
     app.use('/assets/*', serveOrNext);
     app.use('/fonts/*', serveOrNext);
     for (const icon of ICON_FILES) app.get(`/${icon}`, serveOrNext);
-    serveIndex = async () => memory.index();
+    serveIndex = memory.index;
     health = memory.health;
   }
 
   app.use('*', async (c, next) => {
     if (c.req.path.startsWith('/api')) return c.notFound();
     if (c.req.path === '/ws') return next();
-    return (await serveIndex(c)) ?? c.notFound();
+    const page = serveIndex();
+    if (page) return page;
+    // A loaded error page would read as a ready tab; a 503 marks it not ready.
+    return health().ok
+      ? c.notFound()
+      : c.json({ error: 'app files unreadable' }, 503);
   });
   return { health };
 }

@@ -107,15 +107,12 @@ test('embedded mode serves from the manifest and falls back to its index', async
   mountStatic(app, {
     embedded: manifest,
     toResponse: asset => new Response(`EMBEDDED:${asset.path}`),
+    fs: fakeFs({ '/$bunfs/root/index.html': 'INDEX' }),
   });
   expect(await (await app.request('/assets/a.js')).text()).toBe(
     'EMBEDDED:/$bunfs/root/assets/a.js'
   );
-  // No fs seam: the real read of a $bunfs path fails under vitest, so the
-  // index falls back to the manifest's own response.
-  expect(await (await app.request('/anything')).text()).toBe(
-    'EMBEDDED:/$bunfs/root/index.html'
-  );
+  expect(await (await app.request('/anything')).text()).toBe('INDEX');
   expect((await app.request('/api/nope')).status).toBe(404);
 });
 
@@ -131,6 +128,7 @@ test('embedded mode serves the same icons as disk mode, falling back to its inde
       },
     },
     toResponse: asset => new Response(`EMBEDDED:${asset.path}`),
+    fs: fakeFs({ '/$bunfs/root/index.html': 'INDEX' }),
   });
   for (const icon of [
     'favicon.ico',
@@ -141,9 +139,7 @@ test('embedded mode serves the same icons as disk mode, falling back to its inde
       `EMBEDDED:/$bunfs/root/${icon}`
     );
   }
-  expect(await (await app.request('/icon-512.png')).text()).toBe(
-    'EMBEDDED:/$bunfs/root/index.html'
-  );
+  expect(await (await app.request('/icon-512.png')).text()).toBe('INDEX');
 });
 
 test('embedded index html carries the host signal script', async () => {
@@ -173,4 +169,38 @@ test('an embedded index without the opt-in marker is served unchanged', async ()
     fs: fakeFs({ '/$bunfs/root/index.html': indexHtml }),
   });
   expect(await (await app.request('/anything')).text()).toBe(indexHtml);
+});
+
+const unreadable: SnapshotFs = {
+  list: () => {
+    throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+  },
+  read: () => {
+    throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+  },
+  mtimeMs: () => {
+    throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+  },
+};
+
+test('disk mode with dist unreadable at boot answers pages with a 503 envelope', async () => {
+  const app = new Hono();
+  const { health } = mountStatic(app, { fs: unreadable });
+  expect(health().ok).toBe(false);
+  const res = await app.request('/some/page');
+  expect(res.status).toBe(503);
+  expect(await res.json()).toEqual({ error: expect.any(String) });
+});
+
+test('embedded mode with an unreadable index answers pages with a 503 envelope', async () => {
+  const app = new Hono();
+  const { health } = mountStatic(app, {
+    embedded: { indexHtmlPath: '/$bunfs/root/index.html', files: {} },
+    toResponse: asset => new Response(`EMBEDDED:${asset.path}`),
+    fs: unreadable,
+  });
+  expect(health().ok).toBe(false);
+  const res = await app.request('/anything');
+  expect(res.status).toBe(503);
+  expect(await res.json()).toEqual({ error: expect.any(String) });
 });
