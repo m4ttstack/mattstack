@@ -1,0 +1,13 @@
+{
+  "plugin": {
+    "name": "fresh-context",
+    "version": "0.1.0",
+    "description": "Clear or compact a session and pick up where it left off, keeping its rt chat name.",
+    "author": {
+      "name": "Matthew Goodwin"
+    },
+    "license": "MIT"
+  },
+  "clients": [],
+  "files": ["LICENSE", "README.md"]
+}
