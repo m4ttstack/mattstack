@@ -47,8 +47,55 @@ vi.mock('@mattstack/app-server/event-bridge', async importOriginal => ({
   deckAppUrl: vi.fn(async () => 'https://board.mattstack'),
 }));
 
-const { routes } = await import('./routes');
+const { routes: appRoutes } = await import('./routes');
 const { runsRoutes } = await import('./runs');
+
+/** A browser on this Mac: a request that names no Host gets a local one. */
+const withLocalHost = (req: Request): Request => {
+  if (req.headers.has('host')) return req;
+  const headers = new Headers(req.headers);
+  headers.set('host', 'console.localhost');
+  return new Request(req, { headers });
+};
+const routes = { fetch: (req: Request) => appRoutes.fetch(withLocalHost(req)) };
+
+describe('run file reads answer local requests only', () => {
+  const runFiles = [
+    '/api/runs/repo-tools/run-1/evidence/transcript',
+    '/api/runs/repo-tools/run-1/evidence/case-a/before',
+    `/api/runs/repo-tools/run-1/evidence-file?path=${encodeURIComponent('/Users/x/.mattstack/evidence/a/before.png')}`,
+    `/api/runs/repo-tools/run-1/artifact?path=${encodeURIComponent('/Users/x/.mattstack/runs/a.log')}`,
+  ];
+  const outside: Record<string, Record<string, string>> = {
+    'a public Host': { host: 'console.example.com' },
+    'a forwarded public host': {
+      host: 'console.localhost',
+      'x-forwarded-host': 'console.example.com',
+    },
+    'the deck edge marker': {
+      host: 'console.localhost',
+      'x-mattstack-edge': '1',
+    },
+  };
+  beforeEach(() => {
+    vi.mocked(rt.getRun).mockClear();
+    vi.mocked(rt.runEvidence).mockClear();
+    vi.mocked(rt.runEvidenceAt).mockClear();
+  });
+  for (const path of runFiles) {
+    for (const [name, headers] of Object.entries(outside)) {
+      it(`${path.split('?')[0]} through ${name} answers 404`, async () => {
+        const res = await appRoutes.fetch(
+          new Request(`http://localhost${path}`, { headers })
+        );
+        expect(res.status).toBe(404);
+        expect(rt.getRun).not.toHaveBeenCalled();
+        expect(rt.runEvidence).not.toHaveBeenCalled();
+        expect(rt.runEvidenceAt).not.toHaveBeenCalled();
+      });
+    }
+  }
+});
 const { runsFixture } = await import('./fixtures/design/runsFixture');
 const rt = await import('@mattstack/rt-client');
 

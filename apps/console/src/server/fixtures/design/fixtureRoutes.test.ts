@@ -47,7 +47,8 @@ function appFor(scenario: 'runs' | 'runs-empty' | 'runs-outage' | 'clean') {
 
 const app = appFor('runs');
 const RUN = '/api/runs/remote%3Aacme%2Fweb';
-const get = (path: string) => app.request(path);
+const get = (path: string) =>
+  app.request(path, { headers: { host: 'console.localhost' } });
 const at = (local: string) => Date.parse(`2026-10-08T${local}-05:00`);
 
 describe('the routes under the design fixture', () => {
