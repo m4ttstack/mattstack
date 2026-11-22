@@ -1,6 +1,5 @@
 import type { EngineInterface, On } from 'claude-code'
 
-import { beginChat } from './chat'
 import type { Carry, Mode } from './carry'
 import { busyNow, isQueued, queue } from './reset'
 
@@ -44,10 +43,6 @@ export function registerTool(on: On): void {
     }
     const oldSessionId = await $.session.id()
     const carry: Carry = { mode: mode as Mode, ledger, oldSessionId, createdAt: await $.clock.now(), ...(then ? { then } : {}) }
-    if (mode === 'clear') {
-      const handle = await beginChat($, oldSessionId)
-      if (handle) carry.chatHandle = handle
-    }
     await queue($, carry)
     return { result: `Reset queued: ${mode} after this turn.` }
   })

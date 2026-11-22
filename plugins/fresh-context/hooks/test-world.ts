@@ -20,7 +20,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   const agents: Agent[] = []
   const commandsRegistered: { name: string; description: string }[] = []
   const argv0: string[] = []
-  const state = { sessionId: OLD, compact: { skip: undefined as string | undefined }, stopBlocks: false, rtOverruns: false }
+  const state = { sessionId: OLD, compact: { skip: undefined as string | undefined }, stopBlocks: false, rtOverruns: false, overrunMs: 10_000 }
 
   on('session.id', () => ({ value: state.sessionId }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -35,12 +35,12 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   on('agent.list', () => ({ value: agents }))
   on('process.run', async (_, e) => {
     argv0.push(e.argv[0] ?? '')
-    if (state.rtOverruns) {
-      await clock.advance(10_000)
-      throw new Error('timed out')
-    }
     const args = e.argv.slice(3, -1)
     rt.push({ args, sessionId: e.init?.env?.CLAUDE_CODE_SESSION_ID })
+    if (state.rtOverruns) {
+      await clock.advance(state.overrunMs)
+      throw new Error('timed out')
+    }
     order.push(`rt ${args[0]} after ${session.appended().length} appended`)
     const verb = args[0]
     const reply =

@@ -1,7 +1,7 @@
 import type { EngineInterface, On } from 'claude-code'
 
 import { busyTasks, type TaskLike } from './busy'
-import { cancelChat, completeChat } from './chat'
+import { beginChat, cancelChat, completeChat } from './chat'
 import { ledgerMessage, type Carry } from './carry'
 
 const CARRY = { plugin: 'fresh-context', key: 'carry' } as const
@@ -60,8 +60,16 @@ async function handOver($: EngineInterface, carry: Carry, sessionId: string): Pr
   if (carry.then) await submit($, carry.then)
 }
 
-async function runReset($: EngineInterface, carry: Carry): Promise<void> {
+async function runReset($: EngineInterface, queued: Carry): Promise<void> {
+  let carry = queued
   if (carry.mode === 'clear') {
+    // Begun right before the clear, so no earlier exit path leaves a hand-off waiting on a clear that never runs.
+    const handle = await beginChat($, carry.oldSessionId)
+    if (handle && pending === queued) {
+      carry = { ...carry, chatHandle: handle }
+      await queue($, carry)
+      isFiring = true
+    }
     try {
       await $.command.run({ command: 'clear' })
     } catch (err) {

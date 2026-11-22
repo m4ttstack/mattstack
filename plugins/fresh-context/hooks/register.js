@@ -1,40 +1,3 @@
-// mods/fresh-context/src/chat.ts
-var RT_MS = 1e4;
-var EXIT_RT_MS = 1000;
-var START_FAILURE_MS = 2000;
-async function handoff($, sessionId, args, timeoutMs = RT_MS) {
-  const home = await $.env.get("HOME");
-  for (const rt of ["rt", `${home ?? ""}/.local/bin/rt`]) {
-    const started = await $.clock.now();
-    let stdout;
-    try {
-      stdout = (await $.process.run([rt, "chat", "handoff", ...args, "--json"], { env: { CLAUDE_CODE_SESSION_ID: sessionId }, timeoutMs })).stdout;
-    } catch {
-      if (await $.clock.now() - started >= START_FAILURE_MS)
-        return null;
-      continue;
-    }
-    try {
-      const last = stdout.trim().split(`
-`).pop();
-      return last ? JSON.parse(last) : null;
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-async function beginChat($, sessionId) {
-  const reply = await handoff($, sessionId, ["begin"]);
-  return reply?.ok && typeof reply.handle === "string" ? reply.handle : null;
-}
-async function completeChat($, fromSessionId, sessionId) {
-  return (await handoff($, sessionId, ["complete", "--from", fromSessionId]))?.ok === true;
-}
-async function cancelChat($, fromSessionId, sessionId, opts = {}) {
-  await handoff($, sessionId, ["cancel", "--from", fromSessionId], opts.onExit ? EXIT_RT_MS : RT_MS);
-}
-
 // mods/fresh-context/src/busy.ts
 var BLOCKING_TYPES = new Set(["shell", "monitor", "subagent", "workflow"]);
 var ACTIVE = new Set(["running", "pending"]);
@@ -50,6 +13,47 @@ function busyTasks(agents, tasks) {
       lines.push(`${t.type}: ${t.description ?? "no description"}`);
   }
   return [...new Set(lines)];
+}
+
+// mods/fresh-context/src/chat.ts
+var RT_MS = 1e4;
+var EXIT_RT_MS = 1000;
+var START_FAILURE_MS = 2000;
+async function handoff($, sessionId, args, timeoutMs = RT_MS) {
+  const home = await $.env.get("HOME");
+  for (const rt of ["rt", `${home ?? ""}/.local/bin/rt`]) {
+    const started = await $.clock.now();
+    let stdout;
+    try {
+      stdout = (await $.process.run([rt, "chat", "handoff", ...args, "--json"], { env: { CLAUDE_CODE_SESSION_ID: sessionId }, timeoutMs })).stdout;
+    } catch {
+      if (await $.clock.now() - started >= Math.min(timeoutMs, START_FAILURE_MS))
+        return null;
+      continue;
+    }
+    try {
+      const last = stdout.trim().split(`
+`).pop();
+      return last ? JSON.parse(last) : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+async function beginChat($, sessionId) {
+  const reply = await handoff($, sessionId, ["begin"]);
+  if (reply?.ok && typeof reply.handle === "string")
+    return reply.handle;
+  if (reply === null)
+    await handoff($, sessionId, ["cancel", "--from", sessionId]);
+  return null;
+}
+async function completeChat($, fromSessionId, sessionId) {
+  return (await handoff($, sessionId, ["complete", "--from", fromSessionId]))?.ok === true;
+}
+async function cancelChat($, fromSessionId, sessionId, opts = {}) {
+  await handoff($, sessionId, ["cancel", "--from", fromSessionId], opts.onExit ? EXIT_RT_MS : RT_MS);
 }
 
 // mods/fresh-context/src/carry.ts
@@ -105,8 +109,15 @@ async function handOver($, carry, sessionId) {
   if (carry.then)
     await submit($, carry.then);
 }
-async function runReset($, carry) {
+async function runReset($, queued) {
+  let carry = queued;
   if (carry.mode === "clear") {
+    const handle = await beginChat($, carry.oldSessionId);
+    if (handle && pending === queued) {
+      carry = { ...carry, chatHandle: handle };
+      await queue($, carry);
+      isFiring = true;
+    }
     try {
       await $.command.run({ command: "clear" });
     } catch (err) {
@@ -244,11 +255,6 @@ ${busy.join(`
     }
     const oldSessionId = await $.session.id();
     const carry = { mode, ledger, oldSessionId, createdAt: await $.clock.now(), ...then ? { then } : {} };
-    if (mode === "clear") {
-      const handle = await beginChat($, oldSessionId);
-      if (handle)
-        carry.chatHandle = handle;
-    }
     await queue($, carry);
     return { result: `Reset queued: ${mode} after this turn.` };
   });

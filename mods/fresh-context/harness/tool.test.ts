@@ -18,18 +18,19 @@ test('the tool is registered, not deferred, and allowed', async ($, on) => {
   expect(await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })).toMatchObject({ decision: 'ask' })
 })
 
-test('clear mode begins the chat hand-off and queues the reset', async ($, on) => {
+test('clear mode queues the reset and begins the chat hand-off only as the clear runs', async ($, on) => {
   const w = world(on)
   await startSession($)
 
   const called = await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'Goal: x' })
   expect(called.result).toBe('Reset queued: clear after this turn.')
-  expect(w.verbs()).toEqual(['begin'])
-  expect(w.rt[0]?.sessionId).toBe(OLD)
+  expect(w.verbs()).toEqual([])
   expect(w.commands).toEqual([])
 
   await stop($)
   await w.clock.settle()
+  expect(w.verbs()).toEqual(['begin'])
+  expect(w.rt[0]?.sessionId).toBe(OLD)
   expect(w.commands).toEqual(['clear'])
 })
 
@@ -51,7 +52,7 @@ test('a background shell at turn end abandons the reset', async ($, on) => {
   await stop($, [{ id: 't1', type: 'shell', status: 'running', description: 'npm run dev' }])
   await w.clock.settle()
   expect(w.commands).toEqual([])
-  expect(w.verbs()).toEqual(['begin', 'cancel --from sess-old'])
+  expect(w.verbs()).toEqual([])
   expect(w.submitted).toEqual(['fresh_context did not run: still running\nshell: npm run dev'])
 })
 
@@ -134,7 +135,10 @@ test('an exit with a queued reset cancels the hand-off', async ($, on) => {
 
   await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
   await $.session.end({ reason: 'prompt_input_exit', sessionId: OLD, resume: undefined as never })
-  expect(w.verbs()).toEqual(['begin', 'cancel --from sess-old'])
+  expect(w.verbs()).toEqual([])
+  await stop($)
+  await w.clock.settle()
+  expect(w.commands).toEqual([])
 })
 
 test('a reset queued before a reload of the mod is handed over at session.start', async ($, on) => {
@@ -145,7 +149,7 @@ test('a reset queued before a reload of the mod is handed over at session.start'
   w.state.sessionId = NEW
   await startSession($)
   await w.clock.settle()
-  expect(w.verbs()).toEqual(['begin', 'complete --from sess-old'])
+  expect(w.verbs()).toEqual([])
   expect(w.appended()).toEqual(['Ledger carried from before the reset:\n\nGoal: x'])
   expect(w.submitted).toEqual(['go'])
 })
@@ -161,6 +165,8 @@ test('rt runs by argv with no shell, rt on PATH first', async ($, on) => {
   const w = world(on)
   await startSession($)
   await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
+  await stop($)
+  await w.clock.settle()
   expect(w.argv0).toEqual(['rt'])
 })
 
@@ -213,7 +219,7 @@ for (const reason of ['aborted', 'error'] as const) {
     await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
     await $.turn.complete({ answer: '', durationMs: 1, isAborted: reason === 'aborted', turnId: 't1', reason } as never)
     await w.clock.settle()
-    expect(w.verbs()).toEqual(['begin', 'cancel --from sess-old'])
+    expect(w.verbs()).toEqual([])
     await stop($)
     await w.clock.settle()
     expect(w.commands).toEqual([])
@@ -231,10 +237,26 @@ test('a subagent turn that aborts leaves the main reset queued', async ($, on) =
   expect(w.commands).toEqual(['clear'])
 })
 
-test('an rt run that overran is not sent again to the second rt', async ($, on) => {
+test('a begin that overran is not sent again, and is cancelled in case it landed', async ($, on) => {
   const w = world(on)
   w.state.rtOverruns = true
   await startSession($)
   await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
-  expect(w.argv0).toEqual(['rt'])
+  await stop($)
+  for (let i = 0; i < 5; i++) await w.clock.settle()
+  expect(w.verbs()).toEqual(['begin', 'cancel --from sess-old'])
+  expect(w.argv0).toEqual(['rt', 'rt'])
+  expect(w.commands).toEqual(['clear'])
+})
+
+test('an exit-time cancel that times out under a second is not re-sent', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
+  await stop($)
+  await w.clock.settle()
+  w.state.rtOverruns = true
+  w.state.overrunMs = 1_000
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: OLD, resume: undefined as never })
+  expect(w.argv0).toEqual(['rt', 'rt'])
 })

@@ -20,7 +20,7 @@ async function handoff($: EngineInterface, sessionId: string, args: string[], ti
     try {
       stdout = (await $.process.run([rt, 'chat', 'handoff', ...args, '--json'], { env: { CLAUDE_CODE_SESSION_ID: sessionId }, timeoutMs })).stdout
     } catch {
-      if ((await $.clock.now()) - started >= START_FAILURE_MS) return null
+      if ((await $.clock.now()) - started >= Math.min(timeoutMs, START_FAILURE_MS)) return null
       continue
     }
     try {
@@ -36,7 +36,10 @@ async function handoff($: EngineInterface, sessionId: string, args: string[], ti
 /** The handle that is handing off, or null when the session is not signed in to chat (or rt is missing). */
 export async function beginChat($: EngineInterface, sessionId: string): Promise<string | null> {
   const reply = await handoff($, sessionId, ['begin'])
-  return reply?.ok && typeof reply.handle === 'string' ? reply.handle : null
+  if (reply?.ok && typeof reply.handle === 'string') return reply.handle
+  // No answer may still be a begin that landed; a stray record would hold a later /clear's sign-out.
+  if (reply === null) await handoff($, sessionId, ['cancel', '--from', sessionId])
+  return null
 }
 
 export async function completeChat($: EngineInterface, fromSessionId: string, sessionId: string): Promise<boolean> {
