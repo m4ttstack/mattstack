@@ -18,7 +18,7 @@ metadata:
 
 Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:doctor` and whose folder sits in the same plugin version folder as the loaded skill's own directory, use it; otherwise call `skills_resolve {id: "skills:board:doctor", dir: "<the loaded skill's own directory>"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-577 -->
+<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-584 -->
 # mr-board doctor runner
 
 The board launched this pane because an MR has mechanical breakage (CI red
@@ -164,6 +164,13 @@ What the graph cannot show:
   shapes and phrasing"); a stand-down's message is `another CI attendant
   holds !<iid>: <holder>`. Hold and gate gone write no status. Under
   `--tier api` every status write names the action and its fix class.
+- **Work after an error.** The pane stays open after `error`, and the
+  human may ask for more there (a rebase, a push, a watch). Work asked for
+  this way runs the same stages: once it writes a working status again
+  (`diagnosing`, `rebasing`, `fixing`, `watching`), it ends with its own
+  `done` or `error`, never a stop in the middle. Without that last write
+  the row reads as still working until the board ages it out as
+  interrupted.
 
 ### Launch and resume entry (entry.md)
 

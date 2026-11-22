@@ -158,6 +158,13 @@ What the graph cannot show:
   shapes and phrasing"); a stand-down's message is `another CI attendant
   holds !<iid>: <holder>`. Hold and gate gone write no status. Under
   `--tier api` every status write names the action and its fix class.
+- **Work after an error.** The pane stays open after `error`, and the
+  human may ask for more there (a rebase, a push, a watch). Work asked for
+  this way runs the same stages: once it writes a working status again
+  (`diagnosing`, `rebasing`, `fixing`, `watching`), it ends with its own
+  `done` or `error`, never a stop in the middle. Without that last write
+  the row reads as still working until the board ages it out as
+  interrupted.
 
 ### Launch and resume entry (entry.md)
 
