@@ -165,6 +165,9 @@ final class WindowModel: ObservableObject {
     @Published private(set) var catalogFresh = false
     @Published var activeApp: String = ""
     @Published private(set) var tabStates: [String: TabState] = [:]
+    /// Lasts until the tab next loads, so a dismissed notice stays away for
+    /// the page it was dismissed on.
+    @Published private(set) var dismissedStale: Set<String> = []
     @Published private(set) var icons: [String: NSImage] = [:]
     @Published private(set) var splashVisible = false
     @Published private(set) var splashOpacity: Double = 1
@@ -429,6 +432,16 @@ final class WindowModel: ObservableObject {
         tabStates[name]?.stale == true
     }
 
+    /// A tab that failed to boot keeps its stale mark, but its own error
+    /// panel is what the person needs to see there.
+    func showsStaleNotice(_ name: String) -> Bool {
+        isStale(name) && tabStates[name]?.phase == .ready && !dismissedStale.contains(name)
+    }
+
+    func dismissStale(_ name: String) {
+        dismissedStale.insert(name)
+    }
+
     func checkFreshness(_ name: String) async {
         guard tabStates[name]?.phase == .ready, let app = app(named: name) else { return }
         let health = await backends.health.check(app)
@@ -452,6 +465,7 @@ final class WindowModel: ObservableObject {
         let before = tabStates[name] ?? TabState()
         let (after, effects) = TabReadiness.reduce(before, event)
         if after != before { tabStates[name] = after }
+        if !after.stale { dismissedStale.remove(name) }
         if after.phase != before.phase {
             switch after.phase {
             case .notReady(let reason): TrayLog.warn("window tab not ready", ["app": name, "reason": reason])

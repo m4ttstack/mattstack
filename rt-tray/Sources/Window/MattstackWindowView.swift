@@ -339,13 +339,7 @@ private struct ContentArea: View {
     @ObservedObject var model: WindowModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            if let app = model.app(named: model.activeApp), model.isStale(app.name) {
-                StaleNotice(model: model, app: app)
-                Rectangle().fill(separatorColor).frame(height: 1)
-            }
-            pages
-        }
+        pages
     }
 
     private var pages: some View {
@@ -356,6 +350,11 @@ private struct ContentArea: View {
                 case .failure: FailureOverlay(model: model, app: app)
                 case .loading: LoadingOverlay()
                 case .none: EmptyView()
+                }
+                if model.showsStaleNotice(app.name) {
+                    StaleNotice(model: model, app: app)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 }
             } else {
                 // Before the catalog resolves there is no app to mount, and
@@ -368,22 +367,50 @@ private struct ContentArea: View {
     }
 }
 
+/// Floats over the page's corner instead of taking height, so the page never
+/// shifts under the person reading it; tinted to the page's scheme rather
+/// than the always-dark chrome.
 private struct StaleNotice: View {
     @ObservedObject var model: WindowModel
     let app: DiscoveryApp
+    @Environment(\.colorScheme) private var scheme
+
+    private struct Palette { let fill, stroke, text, link, dismiss: Color }
+
+    private static func rgb(_ hex: UInt32, _ alpha: Double = 1) -> Color {
+        Color(red: Double(hex >> 16 & 0xff) / 255, green: Double(hex >> 8 & 0xff) / 255,
+              blue: Double(hex & 0xff) / 255, opacity: alpha)
+    }
+
+    private static let light = Palette(fill: rgb(0xEEF2FF, 0.96), stroke: rgb(0xD5DCF5), text: rgb(0x3D4256),
+                                       link: rgb(0x3A63E0), dismiss: rgb(0x8A90A8))
+    private static let dark = Palette(fill: rgb(0x232A40, 0.95), stroke: rgb(0x33405E), text: rgb(0xC3C8DA),
+                                      link: rgb(0x9DB3FF), dismiss: rgb(0x6F7590))
 
     var body: some View {
+        let p = scheme == .dark ? Self.dark : Self.light
         HStack(spacing: 10) {
-            Text("A new version of \(app.displayName) is available")
-                .font(.system(size: 12))
-                .foregroundColor(activeLabelColor)
+            Text("New version of \(app.displayName)")
+                .foregroundColor(p.text)
                 .lineLimit(1)
-            Spacer(minLength: 0)
             Button("Reload") { model.reloadStale(app.name) }
+                .buttonStyle(.plain)
+                .foregroundColor(p.link)
+                .fontWeight(.medium)
+            Button { model.dismissStale(app.name) } label: {
+                Image(systemName: "xmark").font(.system(size: 9, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(p.dismiss)
+            .help("Dismiss")
         }
-        .padding(.horizontal, 12)
-        .frame(height: barHeight)
-        .background(barFill)
+        .font(.system(size: 11.5))
+        .padding(.leading, 12)
+        .padding(.trailing, 10)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 8).fill(p.fill))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(p.stroke, lineWidth: 1))
+        .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
     }
 }
 
