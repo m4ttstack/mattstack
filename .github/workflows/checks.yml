@@ -530,6 +530,33 @@ jobs:
           claude plugin test plugins/human-todos
           claude plugin validate plugins/human-todos
 
+  # The fresh-context mod's tests and manifest check, run when plugins/fresh-context
+  # changed (every push to main runs them). The comma wrap makes the match exact.
+  plugin-fresh-context:
+    needs: scope
+    if: contains(format(',{0},', needs.scope.outputs.plugins), ',plugins/fresh-context,')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      # A PR checkout is the merge commit, so HEAD^1 is the base branch tip,
+      # the same base the scope job diffs against.
+      - name: plugin.json version bumped
+        if: github.event_name == 'pull_request'
+        run: bun scripts/ci/plugin-version-bumped.ts --base HEAD^1 --plugin plugins/fresh-context
+      # No login or secret is needed: the tests run against the mod API's testing helpers.
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code@2.1.322
+      - name: Mod tests and manifest validation
+        run: |
+          claude plugin test plugins/fresh-context
+          claude plugin validate plugins/fresh-context
+
   # The gate form spike's tests and manifest check, run when plugins/gate-form,
   # mods/gate-form/ or packages/mod-kit/ changes.
   plugin-gate-form:
@@ -597,7 +624,7 @@ jobs:
   # would skip unit and this job too, and a skipped required check reads as
   # passing on GitHub.
   checks:
-    needs: [scope, static, go, deck-macos, deck-dom, tray-compile, unit, unit-macos, guards, plugin-herdr-chat, plugin-mattstack, plugin-human-todos, plugin-gate-form, plugin-kit-gallery, website]
+    needs: [scope, static, go, deck-macos, deck-dom, tray-compile, unit, unit-macos, guards, plugin-herdr-chat, plugin-mattstack, plugin-human-todos, plugin-fresh-context, plugin-gate-form, plugin-kit-gallery, website]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -616,6 +643,7 @@ jobs:
           HERDR_CHAT: ${{ needs.plugin-herdr-chat.result }}
           MATTSTACK: ${{ needs.plugin-mattstack.result }}
           HUMAN_TODOS: ${{ needs.plugin-human-todos.result }}
+          FRESH_CONTEXT: ${{ needs.plugin-fresh-context.result }}
           GATE_FORM: ${{ needs.plugin-gate-form.result }}
           KIT_GALLERY: ${{ needs.plugin-kit-gallery.result }}
           WEBSITE: ${{ needs.website.result }}
@@ -625,7 +653,7 @@ jobs:
           RUN_TRAY: ${{ needs.scope.outputs.tray }}
           RUN_MACOS: ${{ needs.scope.outputs.macos }}
         run: |
-          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK deck-dom=$DECK_DOM tray-compile=$TRAY unit=$UNIT unit-macos=$UNIT_MACOS guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK human-todos=$HUMAN_TODOS gate-form=$GATE_FORM kit-gallery=$KIT_GALLERY website=$WEBSITE mode=$MODE"
+          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK deck-dom=$DECK_DOM tray-compile=$TRAY unit=$UNIT unit-macos=$UNIT_MACOS guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK human-todos=$HUMAN_TODOS fresh-context=$FRESH_CONTEXT gate-form=$GATE_FORM kit-gallery=$KIT_GALLERY website=$WEBSITE mode=$MODE"
           [ "$SCOPE" = success ] || { echo "scope did not succeed"; exit 1; }
           [ "$STATIC" = success ] || { echo "static did not succeed"; exit 1; }
           # skipped is the untouched case: a needed job whose if: is false.
@@ -639,6 +667,7 @@ jobs:
           [ "$HERDR_CHAT" = success ] || [ "$HERDR_CHAT" = skipped ] || { echo "plugin-herdr-chat did not succeed"; exit 1; }
           [ "$MATTSTACK" = success ] || [ "$MATTSTACK" = skipped ] || { echo "plugin-mattstack did not succeed"; exit 1; }
           [ "$HUMAN_TODOS" = success ] || [ "$HUMAN_TODOS" = skipped ] || { echo "plugin-human-todos did not succeed"; exit 1; }
+          [ "$FRESH_CONTEXT" = success ] || [ "$FRESH_CONTEXT" = skipped ] || { echo "plugin-fresh-context did not succeed"; exit 1; }
           [ "$GATE_FORM" = success ] || [ "$GATE_FORM" = skipped ] || { echo "plugin-gate-form did not succeed"; exit 1; }
           [ "$KIT_GALLERY" = success ] || [ "$KIT_GALLERY" = skipped ] || { echo "plugin-kit-gallery did not succeed"; exit 1; }
           [ "$WEBSITE" = success ] || [ "$WEBSITE" = skipped ] || { echo "website did not succeed"; exit 1; }

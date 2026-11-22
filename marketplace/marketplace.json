@@ -30,6 +30,11 @@
       "description": "A pane of steps only you can do: Claude adds a step, you tick it, run it or skip it, and Claude hears back."
     },
     {
+      "name": "fresh-context",
+      "source": "./plugins/fresh-context",
+      "description": "Clear or compact a session and pick up where it left off, keeping its rt chat name."
+    },
+    {
       "name": "mattstack",
       "source": "./plugins/mattstack",
       "description": "The mattstack skills pack: the work orchestrator and pipeline stages, orchestration skills, the review cluster, the GitLab CI forge adapter, and the parameterized-skill primitive with its authoring skill."

@@ -175,5 +175,14 @@
     "installPath": "/Users/user/.claude/plugins/cache/mattstack/human-todos/0.5.0",
     "installedAt": "2026-11-18T16:04:44.751Z",
     "lastUpdated": "2026-11-18T16:04:44.751Z"
+  },
+  {
+    "id": "fresh-context@mattstack",
+    "version": "0.1.0",
+    "scope": "user",
+    "enabled": true,
+    "installPath": "/Users/user/.claude/plugins/cache/mattstack/fresh-context/0.1.0",
+    "installedAt": "2026-11-18T16:04:44.751Z",
+    "lastUpdated": "2026-11-18T16:04:44.751Z"
   }
 ]

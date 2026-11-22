@@ -356,7 +356,7 @@ describe("plugins", () => {
   });
   test("a kit change names every plugin built from a mod and runs no unit shards", () => {
     const changed = ["packages/mod-kit/src/draw/theme.ts"];
-    expect(pluginDirs(changed)).toEqual(["plugins/gate-form", "plugins/human-todos", "plugins/kit-gallery"]);
+    expect(pluginDirs(changed)).toEqual(["plugins/fresh-context", "plugins/gate-form", "plugins/human-todos", "plugins/kit-gallery"]);
     expect(decide(pr(changed)).mode).toBe("skip");
   });
   test("a kit change names only plugins whose mod exists", () => {
@@ -524,7 +524,7 @@ describe("workflow wiring", () => {
   });
 
   describe("the checks gate on unit-macos", () => {
-    const passing = { SCOPE: "success", STATIC: "success", GO: "success", DECK: "success", DECK_DOM: "success", TRAY: "success", UNIT: "success", UNIT_MACOS: "success", GUARDS: "success", HERDR_CHAT: "success", MATTSTACK: "success", HUMAN_TODOS: "success", GATE_FORM: "success", KIT_GALLERY: "success", WEBSITE: "success", MODE: "full", RUN_GO: "true", RUN_DECK: "true", RUN_TRAY: "true", RUN_MACOS: "./a.test.ts" };
+    const passing = { SCOPE: "success", STATIC: "success", GO: "success", DECK: "success", DECK_DOM: "success", TRAY: "success", UNIT: "success", UNIT_MACOS: "success", GUARDS: "success", HERDR_CHAT: "success", MATTSTACK: "success", HUMAN_TODOS: "success", FRESH_CONTEXT: "success", GATE_FORM: "success", KIT_GALLERY: "success", WEBSITE: "success", MODE: "full", RUN_GO: "true", RUN_DECK: "true", RUN_TRAY: "true", RUN_MACOS: "./a.test.ts" };
     function gate(env: Record<string, string>): number {
       const script = jobs("checks.yml").checks!.steps!.find((step) => step.name === "Every gate passed")!.run!;
       return Bun.spawnSync(["bash", "-c", script], { env: { PATH: process.env.PATH ?? "", ...passing, ...env }, stdout: "pipe", stderr: "pipe" }).exitCode;
