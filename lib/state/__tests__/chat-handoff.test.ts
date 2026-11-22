@@ -10,6 +10,7 @@ import {
   cancelHandoff,
   completeHandoff,
   handoffFromSession,
+  markOldSessionEnded,
   pendingHandoffFor,
   type HandoffDeps,
 } from "../chat-handoff.ts";
@@ -136,4 +137,13 @@ test("settle keeps a hand-off whose pid moved to its first new session", () => {
   expect(pendingHandoffFor(handle, db, fakeDeps("new"))).toMatchObject({ handle, nextSessionId: "new" });
   expect(handoffFromSession("old", db)?.nextSessionId).toBe("new");
   expect(presenceForSession("old", db)?.signedOutAt).toBeUndefined();
+});
+
+test("cancel after the old session already ended signs the row out", () => {
+  const db = freshDb();
+  signedIn(db);
+  beginHandoff({ sessionId: "old", pid: PID }, db);
+  expect(markOldSessionEnded("old", db)).toBe(true);
+  expect(cancelHandoff({ fromSessionId: "old" }, db, fakeDeps("old"))).toEqual({ signedOut: true });
+  expect(presenceForSession("old", db)?.signedOutAt).toBeNumber();
 });

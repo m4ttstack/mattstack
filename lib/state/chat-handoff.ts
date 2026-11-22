@@ -17,7 +17,15 @@ import { movePresenceSession, presenceForSession, signOut } from "./presence-sto
 
 const NS = "chat.handoff";
 
-export interface Handoff { handle: string; fromSessionId: string; pid: number; nextSessionId?: string; startedAt: number }
+export interface Handoff {
+  handle: string;
+  fromSessionId: string;
+  pid: number;
+  nextSessionId?: string;
+  startedAt: number;
+  /** The old session's own sign-out already came and was held back for the hand-off. */
+  oldEnded?: boolean;
+}
 
 export interface HandoffDeps { sessionForPid(pid: number): string | null; pidAlive(pid: number): boolean }
 
@@ -47,6 +55,14 @@ export function beginHandoff(a: { sessionId: string; pid: number; now?: number }
 function end(h: Handoff, db: Database): void {
   deleteKvValue(NS, h.handle, db);
   signOut(h.fromSessionId, Date.now(), db);
+}
+
+/** Records that the old session's sign-out arrived and was held back; true when a pending hand-off from it exists. */
+export function markOldSessionEnded(sessionId: string, db: Database = getStateDb()): boolean {
+  const h = handoffFromSession(sessionId, db);
+  if (!h) return false;
+  setKvValue(NS, h.handle, { ...h, oldEnded: true }, db);
+  return true;
 }
 
 export function pendingHandoffFor(handle: string, db: Database = getStateDb(), deps: HandoffDeps = defaultHandoffDeps): Handoff | null {
@@ -93,7 +109,8 @@ export function cancelHandoff(
   const h = handoffFromSession(a.fromSessionId, db);
   if (!h) return { refused: "no-handoff" };
   deleteKvValue(NS, h.handle, db);
-  if (deps.sessionForPid(h.pid) === h.fromSessionId) return { signedOut: false };
+  // An exit's sign-out and the mod's cancel race; whichever comes second signs the row out.
+  if (!h.oldEnded && deps.sessionForPid(h.pid) === h.fromSessionId) return { signedOut: false };
   signOut(h.fromSessionId, Date.now(), db);
   return { signedOut: true };
 }

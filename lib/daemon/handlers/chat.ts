@@ -10,6 +10,8 @@ import {
   cancelHandoff,
   completeHandoff,
   defaultHandoffDeps,
+  handoffFromSession,
+  markOldSessionEnded,
   pendingHandoffFor,
   type HandoffDeps,
   type HandoffRefusal,
@@ -1091,6 +1093,15 @@ export function createChatHandlers(opts: {
     return ids.map((id) => names.get(id) ?? id);
   };
 
+  /** A session that signed out leaves its Slack chat; not awaited, since sign-out runs on SessionEnd's short budget. finishClose marks the row closed before its first Slack send. */
+  function closeHeldSlack(handle: string): void {
+    const held = conversationForAgent(handle, db);
+    if (!held) return;
+    finishClose(held.id, "pane-gone", undefined, slackCloseDeps).catch((err) => {
+      log.warn({ err, conversation: held.id }, "chat: sign-out could not close its Slack chat");
+    });
+  }
+
   /** The sign-in welcome: the session's rooms and its unread catch-up, delivered once the caller has answered. */
   function queueWelcome(sessionId: string, handle: string, name: string): void {
     const rooms = listRooms(handle, db).map((r) => r.room);
@@ -1473,15 +1484,12 @@ export function createChatHandlers(opts: {
       if (!presence) return { ok: true, data: { sessionId } };
       // A session clearing itself hands its identity to the next one; the
       // hand-off signs the row out itself if it never completes.
-      if (pendingHandoffFor(presence.handle, db, handoffDeps)?.fromSessionId === sessionId) return { ok: true, data: { sessionId } };
-      signOut(sessionId, undefined, db);
-      // Not awaited: this runs on SessionEnd's short budget. finishClose marks the row closed before its first Slack send.
-      const held = conversationForAgent(presence.handle, db);
-      if (held) {
-        finishClose(held.id, "pane-gone", undefined, slackCloseDeps).catch((err) => {
-          log.warn({ err, conversation: held.id }, "chat: sign-out could not close its Slack chat");
-        });
+      if (pendingHandoffFor(presence.handle, db, handoffDeps)?.fromSessionId === sessionId) {
+        markOldSessionEnded(sessionId, db);
+        return { ok: true, data: { sessionId } };
       }
+      signOut(sessionId, undefined, db);
+      closeHeldSlack(presence.handle);
       return { ok: true, data: { sessionId } };
     },
 
@@ -1503,8 +1511,10 @@ export function createChatHandlers(opts: {
 
     "chat:handoff-cancel": async (rawPayload: unknown): Promise<CommandResult<"chat:handoff-cancel">> => {
       const payload = rawPayload as Commands["chat:handoff-cancel"]["payload"];
+      const handle = handoffFromSession(payload.fromSessionId, db)?.handle;
       const r = cancelHandoff({ fromSessionId: payload.fromSessionId }, db, handoffDeps);
       if ("refused" in r) return handoffRefusal(r);
+      if (r.signedOut && handle) closeHeldSlack(handle);
       return { ok: true, data: r };
     },
 
