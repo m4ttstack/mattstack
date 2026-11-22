@@ -41,8 +41,8 @@ async function handoff($, sessionId, args, timeoutMs = RT_MS) {
   }
   return null;
 }
-async function beginChat($, sessionId) {
-  const reply = await handoff($, sessionId, ["begin"]);
+async function beginChat($, sessionId, since) {
+  const reply = await handoff($, sessionId, ["begin", "--since", String(Math.floor(since))]);
   if (reply?.ok && typeof reply.handle === "string")
     return reply.handle;
   if (reply === null)
@@ -140,7 +140,7 @@ async function handOver($, carry, sessionId) {
 async function runReset($, queued) {
   let carry = queued;
   if (carry.mode === "clear") {
-    const handle = await beginChat($, carry.oldSessionId);
+    const handle = await beginChat($, carry.oldSessionId, carry.createdAt);
     if (pending !== queued) {
       if (handle)
         await cancelChat($, carry.oldSessionId, await $.session.id());

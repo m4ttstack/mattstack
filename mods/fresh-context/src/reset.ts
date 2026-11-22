@@ -91,7 +91,7 @@ async function runReset($: EngineInterface, queued: Carry): Promise<void> {
   let carry = queued
   if (carry.mode === 'clear') {
     // Begun right before the clear, so no earlier exit path leaves a hand-off waiting on a clear that never runs.
-    const handle = await beginChat($, carry.oldSessionId)
+    const handle = await beginChat($, carry.oldSessionId, carry.createdAt)
     // The reset was dropped while begin was in flight (an interrupted turn, an exit): no clear,
     // and a hand-off that did begin is cancelled.
     if (pending !== queued) {

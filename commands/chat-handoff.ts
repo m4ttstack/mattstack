@@ -4,7 +4,7 @@
  * the session the process moves on to, and cancel when the clear does not
  * happen. CLI only: no MCP tool may move an identity between sessions.
  *
- *   rt chat handoff begin [--json]
+ *   rt chat handoff begin [--since <ms>] [--json]
  *   rt chat handoff complete --from <sessionId> [--quiet] [--json]
  *   rt chat handoff cancel --from <sessionId> [--json]
  */
@@ -59,7 +59,9 @@ export async function chatHandoff(args: string[]): Promise<void> {
     // Claude, and a mod's child has none.
     const pid = resolveInbox(sessionId)?.pid ?? (process.env.CLAUDE_PID ? Number(process.env.CLAUDE_PID) : NaN);
     if (!Number.isInteger(pid) || pid <= 0) failUsage("rt cannot tell which Claude process this is", USAGE, "Claude Code sets CLAUDE_PID and lists its session in its registry; a hand-off only runs inside a Claude session.");
-    const { handle } = settle(await chatHandoffBegin({ sessionId, pid }, sockOpts(args)), json);
+    const sinceFlag = flagValue(args, "--since");
+    const since = sinceFlag !== undefined && /^\d+$/.test(sinceFlag) ? Number(sinceFlag) : undefined;
+    const { handle } = settle(await chatHandoffBegin({ sessionId, pid, ...(since !== undefined ? { since } : {}) }, sockOpts(args)), json);
     if (json) out.json({ ok: true, handle });
     else say(`✓ handing off ${handle}`);
     return;

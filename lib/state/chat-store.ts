@@ -606,6 +606,11 @@ export function markRead(handle: string, room?: string, upto?: number, db: Datab
   }
 }
 
+/** Moves `handle`'s read cursor in every room back to the last message posted before `sinceMs`, so what arrived since reads as unread again. */
+export function rewindReadCursors(handle: string, sinceMs: number, db: Database = getStateDb()): void {
+  db.query(REWIND_LAST_READ_SQL).run(sinceMs, handle);
+}
+
 /**
  * A delivered body is the read surface: the daemon calls this in place of
  * markRead once a Claude inbox socket confirms the frame landed, bounded to
@@ -615,11 +620,6 @@ export function markRead(handle: string, room?: string, upto?: number, db: Datab
  * message), and the slower one completing second must never walk the cursor
  * backwards past what the faster one already confirmed delivered.
  */
-/** Moves `handle`'s read cursor in every room back to the last message posted before `sinceMs`, so what arrived since reads as unread again. */
-export function rewindReadCursors(handle: string, sinceMs: number, db: Database = getStateDb()): void {
-  db.query(REWIND_LAST_READ_SQL).run(sinceMs, handle);
-}
-
 export function markDelivered(room: string, handle: string, upToId: number, db: Database = getStateDb()): void {
   db.query(UPDATE_LAST_READ_CLAMPED_SQL).run(upToId, room, handle);
 }

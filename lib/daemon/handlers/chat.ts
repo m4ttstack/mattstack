@@ -1109,7 +1109,7 @@ export function createChatHandlers(opts: {
   }
 
   /** The sign-in welcome: the session's rooms and its unread catch-up, and the read cursors it shows up to. */
-  function composeWelcome(handle: string, name: string): { content: string; cursors: Array<{ room: string; upToId: number }> } {
+  function composeWelcome(handle: string, name: string): { content: string; cursors: Array<{ room: string; upToId: number }>; newestAt: number } {
     const rooms = listRooms(handle, db).map((r) => r.room);
     // A non-advancing peek, not readUnread: the welcome is composed BEFORE
     // delivery is attempted, and readUnread's cursor write happens
@@ -1123,7 +1123,8 @@ export function createChatHandlers(opts: {
       r.messages.map((m) => ({ handle: m.handle, name: m.name, room: r.room, passedOn: resolveHandle(m.handle, db) !== m.handle })),
     );
     const cursors = peeked.map((r) => ({ room: r.room, upToId: r.messages[r.messages.length - 1]!.id }));
-    return { content: wrapCrossSession("rt chat", renderWelcome(name, rooms, catchup, senders)), cursors };
+    const newestAt = Math.max(0, ...peeked.flatMap((r) => r.messages.map((m) => m.postedAt)));
+    return { content: wrapCrossSession("rt chat", renderWelcome(name, rooms, catchup, senders)), cursors, newestAt };
   }
 
   /** Delivers the welcome once the caller has answered. */
@@ -1511,7 +1512,10 @@ export function createChatHandlers(opts: {
     "chat:handoff-begin": async (rawPayload: unknown): Promise<CommandResult<"chat:handoff-begin">> => {
       const payload = rawPayload as Commands["chat:handoff-begin"]["payload"];
       if (!isSessionId(payload?.sessionId) || !Number.isSafeInteger(payload.pid) || payload.pid <= 0) return { ok: false, error: "chat:handoff-begin requires a sessionId and a positive pid" };
-      const r = beginHandoff({ sessionId: payload.sessionId, pid: payload.pid }, db, handoffDeps);
+      const now = Date.now();
+      // Dated from when the reset was asked for, so the catch-up also covers what reached the old session before begin.
+      const since = typeof payload.since === "number" && Number.isFinite(payload.since) && payload.since <= now ? payload.since : now;
+      const r = beginHandoff({ sessionId: payload.sessionId, pid: payload.pid, now: since }, db, handoffDeps);
       if ("refused" in r) return handoffRefusal(r);
       return { ok: true, data: { handle: r.handle } };
     },
@@ -1525,10 +1529,13 @@ export function createChatHandlers(opts: {
       // What reached the old session during the reset went with its context; the catch-up shows it again.
       rewindReadCursors(r.handle, r.startedAt, db);
       if (payload.quiet) {
-        // The caller adds the welcome to the new session itself, so it lands without starting a turn.
-        const { content, cursors } = composeWelcome(r.handle, name);
-        for (const { room, upToId } of cursors) markDelivered(room, r.handle, upToId, db);
-        return { ok: true, data: { handle: r.handle, name, welcome: content } };
+        // The caller adds the welcome to the new session itself, so it lands without starting a turn,
+        // unless something arrived during the reset: that is owed a wake like any other delivery.
+        const { content, cursors, newestAt } = composeWelcome(r.handle, name);
+        if (newestAt < r.startedAt) {
+          for (const { room, upToId } of cursors) markDelivered(room, r.handle, upToId, db);
+          return { ok: true, data: { handle: r.handle, name, welcome: content } };
+        }
       }
       queueWelcome(payload.sessionId, r.handle, name);
       return { ok: true, data: { handle: r.handle, name } };
