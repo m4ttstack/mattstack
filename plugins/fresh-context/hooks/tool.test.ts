@@ -297,3 +297,39 @@ test('a reset restored after a reload runs a slash-command then outside the sess
   expect(w.appended()).toEqual(['Ledger carried from before the reset:\n\nGoal: x'])
   expect(w.commands).toEqual(['review now'])
 })
+
+test('a subagent cannot reset the main session', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  const refused = await $.tool.call({ tool: TOOL, mode: 'compact', ledger: 'x', agentId: 'a1' } as never)
+  expect(refused).toMatchObject({ deny: 'Only the main session can reset itself; a subagent cannot.' })
+  await stop($)
+  await w.clock.settle()
+  expect(w.compactions).toEqual([])
+})
+
+test('two calls in one message: the second is refused, even while the first is still checking', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  const [a, b] = await Promise.all([
+    $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' }),
+    $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'y' }),
+  ])
+  expect([a.result, (b as { deny?: string }).deny].sort()).toEqual(['A reset is already queued for the end of this turn.', 'Reset queued: clear after this turn.'])
+  await stop($)
+  await w.clock.settle()
+  expect(w.commands).toEqual(['clear'])
+})
+
+test('a then that only starts with a slash, like a path, is sent as a prompt', async ($, on) => {
+  const w = world(on, { signedIn: false })
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x', then: '/tmp/notes.md has the plan; read it' })
+  await stop($)
+  await w.clock.settle()
+  w.state.sessionId = NEW
+  await $.classic.SessionStart({ source: 'clear', session_id: NEW })
+  await w.clock.settle()
+  expect(w.commands).toEqual(['clear'])
+  expect(w.submitted).toEqual(['Next step from before the reset: /tmp/notes.md has the plan; read it'])
+})

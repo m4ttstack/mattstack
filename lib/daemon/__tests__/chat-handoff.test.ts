@@ -99,3 +99,18 @@ test("begin refuses a session that is not signed in", async () => {
   expect(r.ok).toBe(false);
   if (!r.ok) expect(r.failure?.code).toBe("not-signed-in");
 });
+
+test("a refusal's message is plain copy, and malformed payloads are refused", async () => {
+  const { h } = await world();
+  const r = await h["chat:handoff-begin"]({ sessionId: "stranger", pid: 4242 });
+  expect(r.ok).toBe(false);
+  if (!r.ok) {
+    expect(r.error.startsWith("chat: ")).toBe(true);
+    expect(r.failure?.message.startsWith("chat: ")).toBe(false);
+  }
+  for (const bad of [{ sessionId: "old" }, { sessionId: "old", pid: 0 }, { sessionId: "old", pid: -3 }, { sessionId: 7, pid: 4242 }]) {
+    expect((await h["chat:handoff-begin"](bad)).ok).toBe(false);
+  }
+  expect((await h["chat:handoff-complete"]({ fromSessionId: "old" })).ok).toBe(false);
+  expect((await h["chat:handoff-cancel"]({})).ok).toBe(false);
+});

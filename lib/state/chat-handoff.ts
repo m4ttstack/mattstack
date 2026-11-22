@@ -75,10 +75,15 @@ export function dropHandoffFrom(sessionId: string, db: Database = getStateDb()):
 
 /** Records that the old session's sign-out arrived and was held back; true when a pending hand-off from it exists. */
 export function markOldSessionEnded(sessionId: string, db: Database = getStateDb()): boolean {
-  const h = handoffFromSession(sessionId, db);
-  if (!h) return false;
-  setKvValue(NS, h.handle, { ...h, oldEnded: true }, db);
-  return true;
+  let marked = false;
+  const mark = db.transaction(() => {
+    const h = handoffFromSession(sessionId, db);
+    if (!h) return;
+    setKvValue(NS, h.handle, { ...h, oldEnded: true }, db);
+    marked = true;
+  });
+  mark.immediate();
+  return marked;
 }
 
 export function pendingHandoffFor(handle: string, db: Database = getStateDb(), deps: HandoffDeps = defaultHandoffDeps): Handoff | null {
@@ -126,15 +131,21 @@ export function completeHandoff(
 }
 
 export function cancelHandoff(
-  a: { fromSessionId: string },
+  a: { fromSessionId: string; sessionId?: string },
   db: Database = getStateDb(),
   deps: HandoffDeps = defaultHandoffDeps,
 ): { signedOut: boolean } | HandoffRefusal {
   const h = handoffFromSession(a.fromSessionId, db);
   if (!h) return { refused: "no-handoff" };
+  const current = deps.sessionForPid(h.pid);
+  // Right after a /clear the registry can still name the old session, or nothing, while the new
+  // session's fallback cancel arrives; the old session's held sign-out vouches for that window.
+  const registryLags = h.oldEnded === true && (current === null || current === h.fromSessionId);
+  const callerKnown = a.sessionId === undefined || a.sessionId === h.fromSessionId || a.sessionId === h.nextSessionId || a.sessionId === current;
+  if (!callerKnown && !registryLags) return { refused: "not-this-session" };
   deleteKvValue(NS, h.handle, db);
   // An exit's sign-out and the mod's cancel race; whichever comes second signs the row out.
-  if (!h.oldEnded && deps.sessionForPid(h.pid) === h.fromSessionId) return { signedOut: false };
+  if (!h.oldEnded && current === h.fromSessionId) return { signedOut: false };
   signOut(h.fromSessionId, Date.now(), db);
   return { signedOut: true };
 }

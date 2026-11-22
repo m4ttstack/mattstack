@@ -68,12 +68,22 @@ var CARRY = { plugin: "fresh-context", key: "carry" };
 var pending = null;
 var lastStopTasks = [];
 var isFiring = false;
-var isQueued = () => pending !== null;
+var isClaiming = false;
+function claim() {
+  if (pending !== null || isClaiming)
+    return false;
+  isClaiming = true;
+  return true;
+}
+function release() {
+  isClaiming = false;
+}
 async function busyNow($) {
   return busyTasks(await $.agent.list(), lastStopTasks);
 }
 async function queue($, carry) {
   pending = carry;
+  isClaiming = false;
   isFiring = false;
   await $.state.set(CARRY, carry);
 }
@@ -88,11 +98,11 @@ function notice($, text) {
   });
 }
 async function submit($, text) {
-  const slash = /^\/(\S+)\s*([\s\S]*)$/.exec(text);
+  const slash = /^\/([\w:-]+)(?:\s+([\s\S]*))?$/.exec(text);
   if (slash?.[1])
-    await $.command.run({ command: slash[1], ...slash[2] ? { args: slash[2] } : {} });
+    await $.command.run({ command: slash[1], ...slash[2] ? { args: slash[2].trim() } : {} });
   else
-    await $.prompt.submit({ text });
+    await $.prompt.submit({ text: text.startsWith("/") ? `Next step from before the reset: ${text}` : text });
 }
 async function abandon($, carry, why) {
   await drop($);
@@ -251,6 +261,8 @@ async function registerToolDef($) {
 function registerTool(on) {
   on("tool.check", { tool: "mcp__fresh-context__fresh_context" }, () => ({ decision: "allow" }));
   on("tool.call", { tool: "mcp__fresh-context__fresh_context" }, async ($, e) => {
+    if (e.agentId)
+      return { deny: "Only the main session can reset itself; a subagent cannot." };
     const { mode, ledger, then } = e;
     if (mode !== "clear" && mode !== "compact")
       return { deny: 'mode must be "clear" or "compact".' };
@@ -258,18 +270,25 @@ function registerTool(on) {
       return { deny: "Write a ledger first: the reset carries nothing else." };
     if (then !== undefined && typeof then !== "string")
       return { deny: "then must be text." };
-    if (isQueued())
+    if (!claim())
       return { deny: "A reset is already queued for the end of this turn." };
-    if (mode === "clear") {
-      const busy = await busyNow($);
-      if (busy.length > 0)
-        return { deny: `Not now: still running
+    try {
+      if (mode === "clear") {
+        const busy = await busyNow($);
+        if (busy.length > 0) {
+          release();
+          return { deny: `Not now: still running
 ${busy.join(`
 `)}` };
+        }
+      }
+      const oldSessionId = await $.session.id();
+      const carry = { mode, ledger, oldSessionId, createdAt: await $.clock.now(), ...then ? { then } : {} };
+      await queue($, carry);
+    } catch (err) {
+      release();
+      throw err;
     }
-    const oldSessionId = await $.session.id();
-    const carry = { mode, ledger, oldSessionId, createdAt: await $.clock.now(), ...then ? { then } : {} };
-    await queue($, carry);
     return { result: `Reset queued: ${mode} after this turn.` };
   });
 }
@@ -279,13 +298,14 @@ async function registerCommandDef($) {
   await $.command.register({ name: "fresh", description: "Write your ledger, then start fresh (clear by default)", argumentHint: "[clear|compact] [note]" });
 }
 function freshPrompt(mode, note) {
-  const then = note ? `and then "${note}".` : "and no then.";
+  const then = note ? `and then ${JSON.stringify(note)}.` : "and no then.";
   return `Write your ledger now: the one your current skill keeps, or if none does, these sections: Goal, Where, Done, In progress, Next step, Decisions, Learned, Waiting on the user. Then call ${TOOL} with mode "${mode}", the ledger, ${then}`;
 }
 function parse(args) {
   const [first = "", ...rest] = args.trim().split(/\s+/);
-  if (first === "clear" || first === "compact")
-    return { mode: first, note: rest.join(" ") };
+  const word = first.toLowerCase();
+  if (word === "clear" || word === "compact")
+    return { mode: word, note: rest.join(" ") };
   return { mode: "clear", note: args.trim() };
 }
 function registerCommand(on) {

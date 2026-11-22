@@ -12,7 +12,18 @@ let pending: Carry | null = null
 let lastStopTasks: TaskLike[] = []
 let isFiring = false
 
-export const isQueued = () => pending !== null
+let isClaiming = false
+
+/** Holds the single queued-reset slot while a call checks and queues; false when it is taken. */
+export function claim(): boolean {
+  if (pending !== null || isClaiming) return false
+  isClaiming = true
+  return true
+}
+
+export function release(): void {
+  isClaiming = false
+}
 
 export async function busyNow($: EngineInterface): Promise<string[]> {
   return busyTasks(await $.agent.list(), lastStopTasks)
@@ -20,6 +31,7 @@ export async function busyNow($: EngineInterface): Promise<string[]> {
 
 export async function queue($: EngineInterface, carry: Carry): Promise<void> {
   pending = carry
+  isClaiming = false
   isFiring = false
   await $.state.set(CARRY, carry)
 }
@@ -37,11 +49,11 @@ function notice($: EngineInterface, text: string): void {
   })
 }
 
-// A prompt that starts with / would run as the person; the command API runs it as the mod.
+// The host refuses a prompt from a mod that starts with /, so a slash command goes through the command API.
 async function submit($: EngineInterface, text: string): Promise<void> {
-  const slash = /^\/(\S+)\s*([\s\S]*)$/.exec(text)
-  if (slash?.[1]) await $.command.run({ command: slash[1], ...(slash[2] ? { args: slash[2] } : {}) })
-  else await $.prompt.submit({ text })
+  const slash = /^\/([\w:-]+)(?:\s+([\s\S]*))?$/.exec(text)
+  if (slash?.[1]) await $.command.run({ command: slash[1], ...(slash[2] ? { args: slash[2].trim() } : {}) })
+  else await $.prompt.submit({ text: text.startsWith('/') ? `Next step from before the reset: ${text}` : text })
 }
 
 async function abandon($: EngineInterface, carry: Carry, why: string): Promise<void> {

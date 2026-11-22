@@ -133,17 +133,19 @@ const CHAT_COMMANDS = [
 ] as const;
 
 const HANDOFF_REFUSALS: Record<HandoffRefusal["refused"], string> = {
-  "not-signed-in": "chat: this session is not signed in, so it has no chat name to hand off",
-  "already-handing-off": "chat: this chat name is already handing off",
-  "no-handoff": "chat: no hand-off is waiting from that session",
-  "not-this-session": "chat: that hand-off belongs to another session",
-  busy: "chat: the chat database is busy, so the hand-off did not start",
+  "not-signed-in": "This session is not signed in, so it has no chat name to hand off.",
+  "already-handing-off": "This chat name is already handing off.",
+  "no-handoff": "No hand-off is waiting from that session.",
+  "not-this-session": "That hand-off belongs to another session.",
+  busy: "The chat database is busy, so the hand-off did not start.",
 };
 
 function handoffRefusal(r: HandoffRefusal): { ok: false; error: string; failure: { code: string; message: string } } {
   const message = HANDOFF_REFUSALS[r.refused];
-  return { ok: false, error: message, failure: { code: r.refused, message } };
+  return { ok: false, error: `chat: ${message.charAt(0).toLowerCase()}${message.slice(1, -1)}`, failure: { code: r.refused, message } };
 }
+
+const isSessionId = (v: unknown): v is string => typeof v === "string" && v.length > 0;
 
 function failureFrom(err: unknown): { ok: false; error: string; failure?: { code: string; message: string } } {
   const error = err instanceof Error ? err.message : String(err);
@@ -935,11 +937,12 @@ function unreachableSenderRefusal(
   origin: { pane?: string; sessionId?: string },
   db: Database,
   registryDeps: RegistryDeps | undefined,
+  handoffDeps: HandoffDeps = defaultHandoffDeps,
 ): { ok: false; error: string; failure: { code: string; message: string } } | null {
   if (fixedIdentityRefusal(handle) !== undefined || getIdentity(handle, db) || presenceForHandle(handle, db)) return null;
   const now = Date.now();
   const th = presenceThresholds();
-  const live = (row: PresenceRow | null): row is PresenceRow => row !== null && row.handle !== handle && buddyStatus(row, now, th, registryDeps, (h) => pendingHandoffFor(h, db) !== null) !== "offline";
+  const live = (row: PresenceRow | null): row is PresenceRow => row !== null && row.handle !== handle && buddyStatus(row, now, th, registryDeps, (h) => pendingHandoffFor(h, db, handoffDeps) !== null) !== "offline";
   const byPane = typeof origin.pane === "string" ? signedInPresenceForPane(origin.pane, db) : null;
   const bySession = typeof origin.sessionId === "string" ? presenceForSession(origin.sessionId, db) : null;
   const holder = live(byPane) ? { row: byPane, where: "pane" } : live(bySession) ? { row: bySession, where: "session" } : null;
@@ -1170,7 +1173,7 @@ export function createChatHandlers(opts: {
       if (conversation?.agentHandle === handle) {
         return slackRefusal(`A post here never reaches Slack, so reply to ${identityName(conversation.slackHandle, db)} with chat_dm`);
       }
-      const unreachable = unreachableSenderRefusal(handle, { pane: payload.pane }, db, registryDeps);
+      const unreachable = unreachableSenderRefusal(handle, { pane: payload.pane }, db, registryDeps, handoffDeps);
       if (unreachable) return unreachable;
       const mentions = payload.mentions?.map(resolveMention);
       // A typo'd room previously no-op'd through postMessage's REVIVE (a
@@ -1500,6 +1503,7 @@ export function createChatHandlers(opts: {
 
     "chat:handoff-begin": async (rawPayload: unknown): Promise<CommandResult<"chat:handoff-begin">> => {
       const payload = rawPayload as Commands["chat:handoff-begin"]["payload"];
+      if (!isSessionId(payload?.sessionId) || !Number.isSafeInteger(payload.pid) || payload.pid <= 0) return { ok: false, error: "chat:handoff-begin requires a sessionId and a positive pid" };
       const r = beginHandoff({ sessionId: payload.sessionId, pid: payload.pid }, db, handoffDeps);
       if ("refused" in r) return handoffRefusal(r);
       return { ok: true, data: { handle: r.handle } };
@@ -1507,6 +1511,7 @@ export function createChatHandlers(opts: {
 
     "chat:handoff-complete": async (rawPayload: unknown): Promise<CommandResult<"chat:handoff-complete">> => {
       const payload = rawPayload as Commands["chat:handoff-complete"]["payload"];
+      if (!isSessionId(payload?.fromSessionId) || !isSessionId(payload.sessionId)) return { ok: false, error: "chat:handoff-complete requires fromSessionId and sessionId" };
       const r = completeHandoff({ fromSessionId: payload.fromSessionId, sessionId: payload.sessionId }, db, handoffDeps);
       if ("refused" in r) return handoffRefusal(r);
       const name = identityName(r.handle, db);
@@ -1516,8 +1521,9 @@ export function createChatHandlers(opts: {
 
     "chat:handoff-cancel": async (rawPayload: unknown): Promise<CommandResult<"chat:handoff-cancel">> => {
       const payload = rawPayload as Commands["chat:handoff-cancel"]["payload"];
+      if (!isSessionId(payload?.fromSessionId) || (payload.sessionId !== undefined && !isSessionId(payload.sessionId))) return { ok: false, error: "chat:handoff-cancel requires fromSessionId" };
       const handle = handoffFromSession(payload.fromSessionId, db)?.handle;
-      const r = cancelHandoff({ fromSessionId: payload.fromSessionId }, db, handoffDeps);
+      const r = cancelHandoff({ fromSessionId: payload.fromSessionId, ...(payload.sessionId ? { sessionId: payload.sessionId } : {}) }, db, handoffDeps);
       if ("refused" in r) return handoffRefusal(r);
       if (r.signedOut && handle) closeHeldSlack(handle);
       return { ok: true, data: r };
@@ -1551,7 +1557,7 @@ export function createChatHandlers(opts: {
       if (!isValidBody(body)) return { ok: false, error: `body must be a non-empty string under ${MAX_BODY_BYTES} bytes` };
       const fromId = resolveHandle(from, db);
       const toId = resolveHandle(to, db);
-      const refused = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db)) ?? unreachableSenderRefusal(fromId, { pane: payload.pane, sessionId }, db, registryDeps);
+      const refused = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db)) ?? unreachableSenderRefusal(fromId, { pane: payload.pane, sessionId }, db, registryDeps, handoffDeps);
       if (refused) return refused;
       const route = slackRoute(fromId, toId, sessionId, db);
       if (route.refused) return route.refused;

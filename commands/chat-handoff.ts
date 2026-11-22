@@ -77,7 +77,8 @@ export async function chatHandoff(args: string[]): Promise<void> {
 
   if (verb === "cancel") {
     const from = fromSessionId(args);
-    const { signedOut } = settle(await chatHandoffCancel({ fromSessionId: from }, sockOpts(args)), json);
+    const caller = process.env.CLAUDE_CODE_SESSION_ID;
+    const { signedOut } = settle(await chatHandoffCancel({ fromSessionId: from, ...(caller && isValidSessionId(caller) ? { sessionId: caller } : {}) }, sockOpts(args)), json);
     if (json) out.json({ ok: true, signedOut });
     else say(signedOut ? "✓ hand-off cancelled, signed out" : "✓ hand-off cancelled");
     return;
