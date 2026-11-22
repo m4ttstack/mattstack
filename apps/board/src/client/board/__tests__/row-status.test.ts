@@ -1310,7 +1310,7 @@ describe('rowStatus: doctor lane', () => {
     openGateIds: [],
   };
 
-  test('a watching doctor with no write past the quiet limit reads interrupted; with its pane still open it offers focus', () => {
+  test('a watching doctor with no write past the quiet limit reads interrupted; with its pane still open it offers focus and dismiss', () => {
     const [line] = candidateLines(
       own({
         doctor: {
@@ -1331,6 +1331,7 @@ describe('rowStatus: doctor lane', () => {
     expect(line!.spin).toBeUndefined();
     expect(line!.verbs).toEqual([
       { kind: 'focus', label: 'focus', domain: 'doctor' },
+      { kind: 'dismiss', label: 'dismiss', domain: 'doctor' },
     ]);
   });
 

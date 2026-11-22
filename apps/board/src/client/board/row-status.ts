@@ -827,12 +827,14 @@ function doctorStatusLine(
           word: 'doctor interrupted',
           detail: `no update for ${ago(new Date(d.updatedAt!).toISOString(), now)}`,
           // Redo only once the pane is gone: while it lives, the launcher
-          // would focus it, so the row offers that instead.
-          verbs: [
-            doctorInterrupted(mr)
-              ? { kind: 'redo', label: 'redo', domain: 'doctor' }
-              : { kind: 'focus', label: 'focus', domain: 'doctor' },
-          ],
+          // would focus it, so the row offers that instead, and dismiss for a
+          // pane that is gone but never reported so.
+          verbs: doctorInterrupted(mr)
+            ? [{ kind: 'redo', label: 'redo', domain: 'doctor' }]
+            : [
+                { kind: 'focus', label: 'focus', domain: 'doctor' },
+                { kind: 'dismiss', label: 'dismiss', domain: 'doctor' },
+              ],
         };
       return {
         tone: 'work',
