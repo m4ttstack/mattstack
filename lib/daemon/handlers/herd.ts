@@ -4,7 +4,7 @@
  * delivery, CAS, or spawn semantics of its own.
  */
 import { chmodSync, existsSync, readFileSync, rmSync } from "fs";
-import { join } from "path";
+import { join, resolve } from "path";
 import type { Logger } from "pino";
 import type { Commands, GateQuestion, GateRow, GateStatus, HerdLaneRow, HerdStatusData } from "../../../packages/rt-client/src/commands.ts";
 import { formatPaneRef, gatePresentation, parsePaneRef } from "../../../packages/rt-client/src/index.ts";
@@ -690,7 +690,9 @@ export function createHerdHandlers(deps: HerdDeps) {
       // decisions and wrap-up's disposal key on, so it carries over only to a
       // respawn that stays in that same tree.
       let worktree = str(p?.dir); let branch: string | null = prior?.branch ?? null;
-      let tree: string | null = worktree !== undefined && worktree === prior?.worktree ? prior.tree : null;
+      const sameTree = worktree !== undefined && prior !== null && resolve(worktree) === resolve(prior.worktree);
+      if (sameTree) worktree = prior.worktree;
+      let tree: string | null = sameTree ? prior.tree : null;
       // null = no provisioning happened (--dir or a tree); false is the
       // cold-create case the caller should announce, since it can take minutes.
       let wasOnDeck: boolean | null = null;

@@ -1290,6 +1290,10 @@ describe("herd:spawn", () => {
     if (!again.ok) throw new Error(again.error);
     expect(worktreeCalls.filter((c) => c.verb === "provision")).toHaveLength(1);
     expect(store.getJob(herd, "job-a")!.tree).toBe("job-a");
+    const slashed = await h["herd:spawn"]({ herd, job: "job-a", dir: "/w/job-a/" });
+    if (!slashed.ok) throw new Error(slashed.error);
+    expect(store.getJob(herd, "job-a")!.tree).toBe("job-a");
+    expect(store.getJob(herd, "job-a")!.worktree).toBe("/w/job-a");
   });
 
   test("a respawn with neither --dir nor a tree provisions again and records the fresh tree", async () => {
