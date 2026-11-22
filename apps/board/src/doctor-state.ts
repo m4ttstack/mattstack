@@ -96,6 +96,9 @@ export interface DoctorState {
   /** The pipeline the MR showed when a sync pushed: its result predates the
       push, so it says nothing about the rebased branch. */
   pipelineAtSync?: string;
+  /** The commit a `watching` write named: the pane's HEAD when it started
+      watching, so a passing pipeline on it settles the row (attachDoctors). */
+  watchedSha?: string;
   /** The forge's own rebase, the first step of a one-click rebase. */
   forge?: ForgeStep;
   startedAt: number;
@@ -165,15 +168,36 @@ export function pruneDoctorStates(
   pruneStates('doctor', keepUrls, db);
 }
 
-export function attachDoctors<T extends { webUrl?: string | null }>(
+interface PipelineFacts {
+  pipeline?: { sha?: string | null } | null;
+  pipelineState?: string;
+}
+
+/** A pane that stopped without its final write leaves `watching` behind, so
+    the row reads done once the commit it watched has passed. Read-side only:
+    the pane's own write, when it comes, still lands. */
+export function settleWatchedDoctor(
+  d: DoctorState,
+  mr: PipelineFacts
+): DoctorState {
+  const passed =
+    d.status === 'watching' &&
+    !!d.watchedSha &&
+    mr.pipelineState === 'passed' &&
+    mr.pipeline?.sha === d.watchedSha;
+  return passed ? { ...d, status: 'done', message: d.message ?? 'CI passed' } : d;
+}
+
+export function attachDoctors<
+  T extends { webUrl?: string | null } & PipelineFacts,
+>(
   mrs: T[],
   doctors: Map<string, DoctorState>
 ): Array<T & { doctor?: DoctorState }> {
-  return mrs.map(mr =>
-    mr.webUrl && doctors.has(mr.webUrl)
-      ? { ...mr, doctor: doctors.get(mr.webUrl) }
-      : mr
-  );
+  return mrs.map(mr => {
+    const d = mr.webUrl ? doctors.get(mr.webUrl) : undefined;
+    return d ? { ...mr, doctor: settleWatchedDoctor(d, mr) } : mr;
+  });
 }
 
 /** The tier/fixClasses/draftBin fields a resumed doctor pane's dispatch
