@@ -17,6 +17,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   const compactions: (string | undefined)[] = []
   const submitted: string[] = []
   const agents: Agent[] = []
+  const commandsRegistered: { name: string; description: string }[] = []
   const state = { sessionId: OLD, compact: { skip: undefined as string | undefined } }
 
   on('session.id', () => ({ value: state.sessionId }))
@@ -40,6 +41,10 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
       : { ok: true, signedOut: false }
     return { value: { exitCode: reply.ok ? 0 : 2, stdout: `${JSON.stringify(reply)}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
+  on('command.register', (_, e) => {
+    commandsRegistered.push({ name: e.name, description: e.description })
+    return { value: { command: e.name } }
+  })
   on('command.run', (_, e) => {
     commands.push(e.args ? `${e.command} ${e.args}` : e.command)
     return { text: '' }
@@ -56,6 +61,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   const clock = mock.clock(on, { now: 1_000_000 })
   return {
     registered,
+    commandsRegistered,
     rt,
     commands,
     compactions,
