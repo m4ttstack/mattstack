@@ -15,7 +15,7 @@ import { flattenContext } from "../gates/form.ts";
 import { GATE_MODE_ERROR, parseMode } from "../gates/mode.ts";
 import { resolveRepoTarget } from "./mr-target.ts";
 import { runRtVerb } from "./rt-verb.ts";
-import { checkOptional, checkRequired, checkStringArray, err, fromResponse, ok, requireWorkerEnv, resolveSoleHerd, type McpToolDef } from "./shared.ts";
+import { checkOptional, checkRequired, checkStringArray, err, fromResponse, ok, requireWorkerEnv, resolveSoleHerd, withHerdJob, type McpToolDef } from "./shared.ts";
 import { liveSelfPaneId, withLivePane } from "../self-pane.ts";
 import { checkReadRootPath, checkTempRootPath, readRootsForThisProcess, tempRootsForThisProcess, type ReadRoots } from "./temp-root-guard.ts";
 
@@ -504,7 +504,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       inputSchema: { type: "object", properties: { artifact: { type: "string" }, summary: { type: "string" } }, required: ["artifact"], additionalProperties: false },
       shellForms: ["rt herd milestone"],
       async handler(input, env) {
-        const w = requireWorkerEnv(await withLivePane(env));
+        const w = requireWorkerEnv(await withLivePane(await withHerdJob(env)));
         if ("error" in w) return err(w.error);
         const bad = checkRequired(input, [{ name: "artifact", type: "string" }]) ?? checkOptional(input, [{ name: "summary", type: "string" }]);
         if (bad) return err(bad);

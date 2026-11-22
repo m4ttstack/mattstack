@@ -4,7 +4,7 @@
  * commands/chat.ts (both pull in TUI-adjacent modules that lib/mcp must
  * stay clear of).
  */
-import { chatBuddies, DAEMON_UNREACHABLE_PREFIX, herdList } from "../../packages/rt-client/src/index.ts";
+import { chatBuddies, DAEMON_UNREACHABLE_PREFIX, herdList, herdStatus } from "../../packages/rt-client/src/index.ts";
 import type { RtResponse } from "../../packages/rt-client/src/index.ts";
 import { readChatSession, sessionName, type ChatSession } from "../chat-session.ts";
 import { sessionForPid } from "../claude-registry.ts";
@@ -133,6 +133,33 @@ export function requireJobEnv(env: NodeJS.ProcessEnv): { herd: string; job: stri
   const herd = env.HERD_ID, job = env.HERD_JOB;
   if (!herd || !job) return { error: HERD_ENV_ERROR };
   return { herd, job };
+}
+
+export interface HerdJobLookups {
+  list: () => ReturnType<typeof herdList>;
+  status: (herd: string) => ReturnType<typeof herdStatus>;
+}
+
+const daemonHerdLookups: HerdJobLookups = { list: () => herdList({}), status: (herd) => herdStatus({ herd }) };
+
+/**
+ * `env` with HERD_ID and HERD_JOB filled in from the daemon when they are
+ * missing. A reboot restores a worker's pane and resumes its Claude session,
+ * but the pane's environment is gone; the daemon still records the session
+ * behind each job, so the job this session runs is found from that.
+ */
+export async function withHerdJob(env: NodeJS.ProcessEnv, lookups: HerdJobLookups = daemonHerdLookups): Promise<NodeJS.ProcessEnv> {
+  if (env.HERD_ID && env.HERD_JOB) return env;
+  const session = env.CLAUDE_CODE_SESSION_ID;
+  if (!session) return env;
+  const herds = await lookups.list();
+  if (!herds.ok) return env;
+  for (const herd of herds.data?.herds ?? []) {
+    const status = await lookups.status(herd.id);
+    const job = status.ok ? status.data?.jobs.find((j) => j.agentSession === session && j.status !== "closed") : undefined;
+    if (job) return { ...env, HERD_ID: herd.id, HERD_JOB: job.name };
+  }
+  return env;
 }
 
 export function requireWorkerEnv(env: NodeJS.ProcessEnv): { herd: string; job: string; session: string; pane?: string } | { error: string } {

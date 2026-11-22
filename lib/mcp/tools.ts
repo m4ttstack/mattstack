@@ -38,7 +38,7 @@ import {
   checkOptional, checkPositiveInts, checkRequired, checkStringArray,
   err, fromResponse, HERD_ENV_ERROR, isTimeoutError, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok, PR_URL_NOTE,
   REPO_NAME_RULE, REPO_PR_URL_NOTE, REPO_TARGET_PROPS, REPO_TARGET_RULE, requireChatHandle, requireJobEnv, requireWorkerEnv,
-  resolveSoleHerd, withLandingHint,
+  resolveSoleHerd, withHerdJob, withLandingHint,
   type McpToolDef, type ToolResult,
 } from "./shared.ts";
 import { MERGE_WAIT_DEFAULT_SECONDS, MERGE_WAIT_MAX_SECONDS, mergeOnGitHub, resolveGithubTarget } from "./github-merge.ts";
@@ -901,7 +901,7 @@ export function mcpTools(): McpToolDef[] {
       },
       shellForms: ["rt herd ask"],
       async handler(input, env) {
-        const w = requireWorkerEnv(await withLivePane(env));
+        const w = requireWorkerEnv(await withLivePane(await withHerdJob(env)));
         if ("error" in w) return err(w.error);
         const bad = checkRequired(input, [{ name: "questions", type: "array" }]);
         if (bad) return err(bad);
@@ -937,7 +937,7 @@ export function mcpTools(): McpToolDef[] {
       },
       shellForms: ["rt herd report"],
       async handler(input, env) {
-        const j = requireJobEnv(env);
+        const j = requireJobEnv(await withHerdJob(env));
         if ("error" in j) return err(j.error);
         const bad = checkRequired(input, [{ name: "body", type: "string" }]);
         if (bad) return err(bad);
