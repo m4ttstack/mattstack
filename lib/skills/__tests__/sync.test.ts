@@ -60,6 +60,7 @@ type World = {
   checkThrows?: boolean;
   compileOk?: boolean;
   compileErrors?: string[];
+  compileThrows?: string;
   /** What the fake compile reports it wrote and removed. */
   compileWrites?: { written: string[]; removed: string[] };
   pullFail?: Record<string, string>;
@@ -273,7 +274,10 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
       if (next === undefined) throw new Error("checkPack: fixture ran out of configured drift answers");
       return { drift: next, lintHits: lintHitsAnswers.shift() ?? 0, strict: lintStrictAnswers.shift() ?? false, handErrors: handErrorAnswers.shift() ?? [], pointerErrors: pointerErrorAnswers.shift() ?? [], pointerConflicts: pointerConflictAnswers.shift() ?? [], brokenSkills: brokenSkillAnswers.shift() ?? [] };
     },
-    compilePack: async () => ({ ok: world.compileOk ?? true, errors: world.compileErrors ?? [], written: world.compileWrites?.written ?? [], removed: world.compileWrites?.removed ?? [] }),
+    compilePack: async () => {
+      if (world.compileThrows) throw new Error(world.compileThrows);
+      return { ok: world.compileOk ?? true, errors: world.compileErrors ?? [], written: world.compileWrites?.written ?? [], removed: world.compileWrites?.removed ?? [] };
+    },
     materialize: async () => ({ ok: true, detail: "materialized 1" }),
     configDir: world.configDir ?? tmp("rt-sync-config-"),
     cswapSessionsDir: world.cswapSessionsDir ?? join(tmpdir(), "rt-sync-no-such-cswap-dir"),
@@ -838,6 +842,21 @@ describe("syncPack", () => {
     expect(calls).toEqual([]);
   });
 
+  test("15b: a worktrees folder in the engine checkout refuses guards too", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    mkdirSync(join(engine.dir, ".claude", "worktrees"), { recursive: true });
+    const calls: Call[] = [];
+    const deps = makeDeps(pack, engine, { calls });
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(stepNames(report.steps)).toEqual(["guards"]);
+    expect(report.steps[0]!.status).toBe("refused");
+    expect(report.steps[0]!.detail).toContain(join(engine.dir, ".claude", "worktrees"));
+    expect(calls).toEqual([]);
+  });
+
   test("16: a pull that rewrites the manifest to a higher version is read post-pull, not stale from guards", async () => {
     const pack = fixturePack("acme", "local", "0.5.2");
     const engine = fixturePack("beacon", "local", "2.0.0");
@@ -967,6 +986,26 @@ describe("syncPack", () => {
     expect(compile.detail).toContain("rt put the version back to 0.5.2");
     expect(readVersion(pack.dir)).toBe("0.5.2");
     expect(report.ok).toBe(false);
+  });
+
+  test("21b: a compile that throws puts the version back too", async () => {
+    const pack = fixturePack("acme", "local", "0.5.2");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = makeDeps(pack, engine, {
+      calls,
+      installed: { [pluginId(pack)]: "0.5.2", [pluginId(engine)]: "2.0.0" },
+      drift: [true],
+      compileThrows: "ENOENT: no such file or directory, open 'pack/skills.jsonc'",
+    });
+
+    const report = await syncPack(pack, engine, deps);
+
+    const compile = report.steps.find((s) => s.name === "compile")!;
+    expect(compile.status).toBe("failed");
+    expect(compile.detail).toContain("ENOENT");
+    expect(compile.detail).toContain("rt put the version back to 0.5.2");
+    expect(readVersion(pack.dir)).toBe("0.5.2");
   });
 
   test("22: a recheck refusal names the uncommitted bump and compiled output", async () => {
