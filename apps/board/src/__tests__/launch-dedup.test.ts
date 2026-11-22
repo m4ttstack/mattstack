@@ -5,8 +5,8 @@ import {
   dedupInFlight,
   DOCTOR_IN_FLIGHT,
   doctorDedupLane,
+  quietDoctorRedo,
   REVIEW_IN_FLIGHT,
-  staleDoctorTab,
 } from '../launch-dedup.ts';
 
 const live = { status: 'reviewing', tabId: 't1', paneId: 'p1' };
@@ -96,17 +96,17 @@ test('redo on a quiet doctor launches fresh even with its pane still open; a foc
   expect(working).toEqual({ kind: 'focused' });
 });
 
-test('redo on a quiet doctor names its open tab to close first; a focus click or a working doctor names none', () => {
+test('only a launch click on a quiet doctor is a redo; a focus click or a working doctor is not', () => {
   const now = 10 * 60 * 60_000;
   const quiet = {
     status: 'fixing',
     tabId: 't9',
     updatedAt: now - DOCTOR_QUIET_MS - 60_000,
   };
-  expect(staleDoctorTab(quiet, false, now)).toBe('t9');
-  expect(staleDoctorTab(quiet, true, now)).toBeUndefined();
+  expect(quietDoctorRedo(quiet, false, now)).toBe(true);
+  expect(quietDoctorRedo(quiet, true, now)).toBe(false);
   expect(
-    staleDoctorTab({ ...quiet, updatedAt: now - 60_000 }, false, now)
-  ).toBeUndefined();
-  expect(staleDoctorTab(undefined, false, now)).toBeUndefined();
+    quietDoctorRedo({ ...quiet, updatedAt: now - 60_000 }, false, now)
+  ).toBe(false);
+  expect(quietDoctorRedo(undefined, false, now)).toBe(false);
 });

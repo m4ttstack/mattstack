@@ -17,6 +17,7 @@ import type { AgentIo } from '../agent-launch.ts';
 import { repoIdentityField } from '../config.ts';
 import {
   buildResumePaneCommand,
+  closeMrTabs,
   dispatchPrompt,
   doctorPrompt,
   draftBinPath,
@@ -109,6 +110,40 @@ describe('mrTabOpen', () => {
     expect(await mrTabOpen('reviews', 482, runnerWith(TAB_LIST_WITH_DUP))).toBe(
       false
     );
+  });
+
+  test('closeMrTabs closes every tab of the MR in the workspace, under any marker', async () => {
+    const tabs = JSON.stringify({
+      result: {
+        type: 'tab_list',
+        tabs: [
+          {
+            tab_id: 'w40:t2',
+            label: '!4821 Grace Hopper',
+            workspace_id: 'w40',
+          },
+          {
+            tab_id: 'w40:t9',
+            label: '↺ !4821 Grace Hopper',
+            workspace_id: 'w40',
+          },
+          { tab_id: 'w40:t4', label: '!48210 Ada', workspace_id: 'w40' },
+        ],
+      },
+    });
+    const closed: string[] = [];
+    const runner: HerdrRunner = async args => {
+      if (args[0] === 'workspace') return WS_LIST;
+      if (args[0] === 'tab' && args[1] === 'close') closed.push(args[2]!);
+      return tabs;
+    };
+    expect(await closeMrTabs('reviews', 4821, runner)).toBe(2);
+    expect(closed).toEqual(['w40:t2', 'w40:t9']);
+    expect(
+      await closeMrTabs('reviews', 4821, async () => {
+        throw new Error('herdr is not running');
+      })
+    ).toBe(0);
   });
 
   test('a missing workspace or an unreachable herdr reads as no tab', async () => {

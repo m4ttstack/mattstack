@@ -223,6 +223,7 @@ import { type GateAnswers } from './gates/store.ts';
 import { domainForKind, planSweep, pruneOffBoardGates } from './gates/sweep.ts';
 import { gateOrigin } from './gates/wait-meta.ts';
 import {
+  closeMrTabs,
   closeTab,
   dispatchPrompt,
   launchDoctor,
@@ -257,9 +258,9 @@ import {
   dedupInFlight,
   DOCTOR_IN_FLIGHT,
   doctorDedupLane,
+  quietDoctorRedo,
   RESPOND_IN_FLIGHT,
   REVIEW_IN_FLIGHT,
-  staleDoctorTab,
 } from './launch-dedup.ts';
 import { launchErrorMessage } from './launch-error.ts';
 import {
@@ -3483,9 +3484,8 @@ const httpServer = Bun.serve({
             });
           if (dedup.kind === 'refused')
             return new Response(dedup.reason, { status: 409 });
-          const stale = staleDoctorTab(existing, focusOnly, Date.now());
-          if (stale) await closeTab(stale).catch(() => {});
         }
+        const redo = quietDoctorRedo(existing, focusOnly, Date.now());
         // A running rebase chain's row carries no tabId, so dedup lets an
         // ordinary launch through.
         if (parsed.mode !== 'rebase' && LOCAL_SYNCS.has(parsed.mrUrl))
@@ -3668,6 +3668,7 @@ const httpServer = Bun.serve({
                   .filter(Boolean)
                   .join('. ')
               : note;
+          if (redo) await closeMrTabs(config.doctorsWorkspace, parsed.iid);
           writeDoctorState(statePath, {
             mrUrl: parsed.mrUrl,
             iid: parsed.iid,
@@ -3698,6 +3699,16 @@ const httpServer = Bun.serve({
           })
             .then(result => {
               void clearHandoffsAfterLaunch(parsed.mrUrl);
+              // A redo whose old tab would not close: the launcher focused it,
+              // so nothing will move this queued row on. Say so instead.
+              if (result.focusedExisting && redo) {
+                writeDoctorState(statePath, {
+                  status: 'error',
+                  message:
+                    'an earlier doctor tab for this MR is still open; close it, then redo',
+                });
+                return;
+              }
               if (result.focusedExisting) return;
               // Race guard: the row may have closed out (operator stand-down)
               // while this launch was in flight -- readDoctorStates() here is

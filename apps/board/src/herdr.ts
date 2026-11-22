@@ -490,6 +490,40 @@ export async function mrTabOpen(
   }
 }
 
+/** Close every tab in the workspace whose label names this MR, under any
+    marker or author (the match mrTabOpen uses), and return how many closed.
+    The launcher dedups by label, so a redo has to clear them all, a resume
+    tab's original included. Best-effort: never starts herdr, a failure
+    closes nothing. */
+export async function closeMrTabs(
+  workspaceLabel: string,
+  iid: number,
+  runner: HerdrRunner = defaultRunner
+): Promise<number> {
+  try {
+    const workspaceId = findWorkspaceIdByLabel(
+      await runner(['workspace', 'list']),
+      workspaceLabel
+    );
+    if (!workspaceId) return 0;
+    const core = `!${iid}`;
+    const tabs = parseTabList(
+      await runner(['tab', 'list', '--workspace', workspaceId])
+    ).filter(
+      t => t.workspaceId === workspaceId && t.label.split(' ').includes(core)
+    );
+    let closed = 0;
+    for (const t of tabs) {
+      await runner(['tab', 'close', t.tabId])
+        .then(() => closed++)
+        .catch(() => {});
+    }
+    return closed;
+  } catch {
+    return 0;
+  }
+}
+
 /** Ensure the named workspace exists, open a labelled tab in it, and run
     `prompt` inside claude in that tab. Shared launcher for review and respond;
     the caller supplies the prompt so each feature keeps its own skill wiring. */

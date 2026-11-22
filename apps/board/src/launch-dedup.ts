@@ -55,17 +55,15 @@ export function doctorDedupLane<T extends DedupLane & QuietFields>(
     : existing;
 }
 
-/** The tab a redo of a quiet doctor must close first: the launcher dedups by
-    tab label, so a still-open pane of the same MR would be focused instead of
-    replaced, and the new run's row would wait on a launch that never came. */
-export function staleDoctorTab(
+/** A launch click on a quiet doctor: a redo. The launcher dedups by tab
+    label, so the route closes the MR's doctor tabs before launching
+    (closeMrTabs), or a still-open pane would be focused instead of replaced. */
+export function quietDoctorRedo(
   existing: (DedupLane & QuietFields) | undefined,
   focusOnly: boolean,
   now: number
-): string | undefined {
-  return existing?.tabId && !focusOnly && doctorGoneQuiet(existing, now)
-    ? existing.tabId
-    : undefined;
+): boolean {
+  return !!existing && !focusOnly && doctorGoneQuiet(existing, now);
 }
 
 export const REVIEW_IN_FLIGHT: ReadonlySet<string> = new Set([
