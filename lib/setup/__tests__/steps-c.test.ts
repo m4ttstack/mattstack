@@ -2978,6 +2978,38 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       await linearMcpStep.run(ctx);
       expect(redacted).toContain(KEY);
     });
+
+    test("what Claude Code saves while the key is read survives the write", async () => {
+      const path = `${home}/.claude.json`;
+      const p = fakeProbes({ home, env: {}, files: { [path]: JSON.stringify({ numStartups: 7 }) } });
+      const savedMeanwhile = {
+        has: async () => {
+          p.writeFile(path, JSON.stringify({ numStartups: 8, oauthAccount: { emailAddress: "a@b.c" } }));
+          return KEY;
+        },
+      };
+      const { ctx } = makeCtx(p, { secretPresence: savedMeanwhile });
+      expect((await linearMcpStep.run(ctx)).state).toBe("done");
+      const written = JSON.parse(p.readFile(path)!);
+      expect(written.oauthAccount).toEqual({ emailAddress: "a@b.c" });
+      expect(written.numStartups).toBe(8);
+      expect(written.mcpServers.linear).toEqual(hosted);
+    });
+
+    test("a linear entry added while the key is read is left as it is", async () => {
+      const path = `${home}/.claude.json`;
+      const theirs = { type: "http", url: "https://example.com/mcp" };
+      const p = fakeProbes({ home, env: {} });
+      const addedMeanwhile = {
+        has: async () => {
+          p.writeFile(path, JSON.stringify({ mcpServers: { linear: theirs } }));
+          return KEY;
+        },
+      };
+      const { ctx } = makeCtx(p, { secretPresence: addedMeanwhile });
+      expect(await linearMcpStep.run(ctx)).toEqual({ state: "skipped", detail: "Already set up" });
+      expect(JSON.parse(p.readFile(path)!).mcpServers.linear).toEqual(theirs);
+    });
   });
 
   describe("claude.permissions", () => {
