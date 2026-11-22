@@ -42,7 +42,9 @@ clear runs, the mod starts `rt chat handoff begin`; the next session runs
 `rt chat handoff complete`, takes over the name, its status, rooms and any
 Slack chat. The chat welcome, with everything that arrived during the reset
 (messages the old session saw included), lands in the fresh context after
-the ledger without starting a turn. The name never shows offline. If the
+the ledger without starting a turn, unless a message arrived during the reset
+(that wakes the session, like any delivery) or Claude Code refuses the quiet
+append (then it goes in as a prompt). The name never shows offline. If the
 clear does not happen, the mod cancels and the session stays signed in as it
 was. A session that exits instead signs out as it always did.
 
