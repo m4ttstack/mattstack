@@ -147,6 +147,7 @@ const DELETE_PRESENCE_BY_SESSION_SQL = `DELETE FROM chat_presence WHERE session_
 const RELEASE_PANE_SQL = `UPDATE chat_presence SET pane = NULL WHERE pane = ? AND session_id <> ?;`;
 const INSERT_PRESENCE_SQL =`INSERT INTO chat_presence (session_id, handle, base_handle, cwd, repo, branch, pane, status_text, signed_in_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`;
 const UPDATE_SIGN_OUT_SQL = `UPDATE chat_presence SET signed_out_at = ? WHERE session_id = ?;`;
+const UPDATE_SESSION_ID_SQL = `UPDATE chat_presence SET session_id = ?, signed_out_at = NULL WHERE session_id = ?;`;
 const UPDATE_STATUS_TEXT_SQL = `UPDATE chat_presence SET status_text = ? WHERE session_id = ?;`;
 const UPDATE_LAST_SEEN_SQL = `UPDATE chat_presence SET last_seen_at = ? WHERE session_id = ?;`;
 
@@ -393,6 +394,11 @@ export function reserveAgentHandle(db: Database = getStateDb(), now: number = Da
   // BEGIN IMMEDIATE: read-then-write must lock up front or SQLITE_BUSY_SNAPSHOT
   // bypasses busy_timeout (same reason as signIn's).
   return run.immediate();
+}
+
+/** Re-keys a presence row onto the session that continues it, keeping its handle, status and timestamps. */
+export function movePresenceSession(fromSessionId: string, toSessionId: string, db: Database = getStateDb()): void {
+  runCriticalWrite("movePresenceSession", () => { db.query(UPDATE_SESSION_ID_SQL).run(toSessionId, fromSessionId); }, { sessionId: fromSessionId });
 }
 
 export function signOut(sessionId: string, now: number = Date.now(), db: Database = getStateDb()): void {
