@@ -62,22 +62,27 @@ async function abandon($: EngineInterface, carry: Carry, why: string): Promise<v
   notice($, `fresh_context did not run: ${why}`)
 }
 
+// Adds text to the fresh context without starting a turn; a refused append still gets it in, as a prompt.
+async function hold($: EngineInterface, text: string): Promise<void> {
+  let appended: Awaited<ReturnType<EngineInterface['session']['append']>> | undefined
+  try {
+    appended = await $.session.append({ message: { type: 'user', content: [{ type: 'text', text }] } })
+  } catch {
+    appended = undefined
+  }
+  if (!appended || appended.deny !== undefined) await $.prompt.submit({ text })
+}
+
 async function handOver($: EngineInterface, carry: Carry, sessionId: string): Promise<void> {
   // One hand-over per carry, whichever cue arrives first.
   if (pending !== carry) return
   pending = null
-  // Before complete: its chat welcome can start the fresh context's first turn.
-  let appended: Awaited<ReturnType<EngineInterface['session']['append']>> | undefined
-  try {
-    appended = await $.session.append({ message: { type: 'user', content: [{ type: 'text', text: ledgerMessage(carry.ledger) }] } })
-  } catch {
-    appended = undefined
-  }
-  // A refused append still gets the ledger in, as a prompt.
-  if (!appended || appended.deny !== undefined) await $.prompt.submit({ text: ledgerMessage(carry.ledger) })
+  await hold($, ledgerMessage(carry.ledger))
   await drop($)
-  if (carry.chatHandle && !(await completeChat($, carry.oldSessionId, sessionId))) {
-    await cancelChat($, carry.oldSessionId, sessionId)
+  if (carry.chatHandle) {
+    const welcome = await completeChat($, carry.oldSessionId, sessionId)
+    if (welcome === null) await cancelChat($, carry.oldSessionId, sessionId)
+    else if (welcome) await hold($, welcome)
   }
   if (carry.then) await submit($, carry.then)
 }
@@ -86,7 +91,7 @@ async function runReset($: EngineInterface, queued: Carry): Promise<void> {
   let carry = queued
   if (carry.mode === 'clear') {
     // Begun right before the clear, so no earlier exit path leaves a hand-off waiting on a clear that never runs.
-    const handle = await beginChat($, carry.oldSessionId)
+    const handle = await beginChat($, carry.oldSessionId, carry.createdAt)
     // The reset was dropped while begin was in flight (an interrupted turn, an exit): no clear,
     // and a hand-off that did begin is cancelled.
     if (pending !== queued) {

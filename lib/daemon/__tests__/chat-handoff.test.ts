@@ -114,3 +114,55 @@ test("a refusal's message is plain copy, and malformed payloads are refused", as
   expect((await h["chat:handoff-complete"]({ fromSessionId: "old" })).ok).toBe(false);
   expect((await h["chat:handoff-cancel"]({})).ok).toBe(false);
 });
+
+test("a DM delivered to the old session during the reset comes back in complete's catch-up", async () => {
+  const { h, handle, frames, clear } = await world();
+  await h["chat:handoff-begin"]({ sessionId: "old", pid: 4242 });
+  await h["chat:dm"]({ from: "kai", to: handle, body: "seen by the old session only", sessionId: "kai" });
+  await waitFor(() => (frames.get("old") ?? []).some((f) => f.includes("seen by the old session only")));
+  clear();
+  await h["chat:handoff-complete"]({ fromSessionId: "old", sessionId: "new" });
+  const welcome = () => (frames.get("new") ?? []).find((f) => f.includes("You're signed in to rt chat as"));
+  await waitFor(() => welcome() !== undefined);
+  expect(welcome()).toContain("kai: seen by the old session only");
+});
+
+test("a quiet complete hands the welcome back when nothing new arrived during the reset", async () => {
+  const { h, handle, frames, clear } = await world();
+  await h["chat:dm"]({ from: "kai", to: handle, body: "from before the reset", sessionId: "kai" });
+  await Bun.sleep(5);
+  await h["chat:handoff-begin"]({ sessionId: "old", pid: 4242 });
+  clear();
+  const r = await h["chat:handoff-complete"]({ fromSessionId: "old", sessionId: "new", quiet: true });
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.data.welcome).toContain("You're signed in to rt chat as");
+  await Bun.sleep(30);
+  expect((frames.get("new") ?? []).some((f) => f.includes("You're signed in to rt chat as"))).toBe(false);
+});
+
+test("a quiet complete still wakes the new session when a message arrived during the reset", async () => {
+  const { h, handle, frames, clear } = await world();
+  await h["chat:handoff-begin"]({ sessionId: "old", pid: 4242 });
+  clear();
+  await h["chat:dm"]({ from: "kai", to: handle, body: "pr-usher handoff: please ack", sessionId: "kai" });
+  const r = await h["chat:handoff-complete"]({ fromSessionId: "old", sessionId: "new", quiet: true });
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.data.welcome).toBeUndefined();
+  const welcome = () => (frames.get("new") ?? []).find((f) => f.includes("You're signed in to rt chat as"));
+  await waitFor(() => welcome() !== undefined);
+  expect(welcome()).toContain("kai: pr-usher handoff: please ack");
+});
+
+test("begin can date the hand-off from when the reset was asked for, so a DM in between is caught up", async () => {
+  const { h, handle, frames, clear } = await world();
+  const askedAt = Date.now();
+  await Bun.sleep(5);
+  await h["chat:dm"]({ from: "kai", to: handle, body: "between the call and begin", sessionId: "kai" });
+  await waitFor(() => (frames.get("old") ?? []).some((f) => f.includes("between the call and begin")));
+  await h["chat:handoff-begin"]({ sessionId: "old", pid: 4242, since: askedAt });
+  clear();
+  await h["chat:handoff-complete"]({ fromSessionId: "old", sessionId: "new" });
+  const welcome = () => (frames.get("new") ?? []).find((f) => f.includes("You're signed in to rt chat as"));
+  await waitFor(() => welcome() !== undefined);
+  expect(welcome()).toContain("kai: between the call and begin");
+});

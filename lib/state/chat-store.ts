@@ -169,6 +169,7 @@ const SELECT_MESSAGES_SQL = `SELECT ${MESSAGE_COLUMNS} FROM chat_messages WHERE 
 const SELECT_MESSAGES_BEFORE_SQL = `SELECT ${MESSAGE_COLUMNS} FROM chat_messages WHERE room = ? AND id < ? ORDER BY id DESC LIMIT ?;`;
 const SELECT_PENDING_SQL = `SELECT ${MESSAGE_COLUMNS} FROM chat_messages WHERE room = ? AND id > ? AND id <= ? ORDER BY id ASC;`;
 const UPDATE_LAST_READ_CLAMPED_SQL = `UPDATE chat_members SET last_read_id = MAX(last_read_id, ?) WHERE room = ? AND handle = ?;`;
+const REWIND_LAST_READ_SQL = `UPDATE chat_members SET last_read_id = MIN(last_read_id, COALESCE((SELECT MAX(id) FROM chat_messages m WHERE m.room = chat_members.room AND m.posted_at < ?), 0)) WHERE handle = ?;`;
 // One query, cheap when idle (both joins are on indexed/PK columns and the
 // per-room MAX collapses to a handful of rows): every (room, handle) whose
 // member cursor sits behind that room's newest message, in a non-archived
@@ -603,6 +604,11 @@ export function markRead(handle: string, room?: string, upto?: number, db: Datab
       { op: "markRead", room: member.room, handle },
     );
   }
+}
+
+/** Moves `handle`'s read cursor in every room back to the last message posted before `sinceMs`, so what arrived since reads as unread again. */
+export function rewindReadCursors(handle: string, sinceMs: number, db: Database = getStateDb()): void {
+  db.query(REWIND_LAST_READ_SQL).run(sinceMs, handle);
 }
 
 /**

@@ -42,7 +42,7 @@ test('a reset dropped while begin was in flight runs no clear and cancels the la
   await stop($)
   for (let i = 0; i < 3; i++) await w.clock.settle()
   expect(w.commands).toEqual([])
-  expect(w.verbs()).toEqual(['begin', 'cancel --from sess-old'])
+  expect(w.verbs()).toEqual(['begin --since 1000000', 'cancel --from sess-old'])
   expect(w.submitted).toEqual(['fresh_context did not run: the clear did not happen'])
 })
 
@@ -80,9 +80,9 @@ test('after the clear, complete runs and the ledger is appended before then is s
   await $.classic.SessionStart({ source: 'clear', session_id: NEW })
   await w.clock.settle()
 
-  expect(w.verbs()).toEqual(['begin', 'complete --from sess-old'])
+  expect(w.verbs()).toEqual(['begin --since 1000000', 'complete --from sess-old --quiet'])
   expect(w.rt[1]?.sessionId).toBe(NEW)
-  expect(w.appended()).toEqual(['Ledger carried from before the reset:\n\nGoal: x'])
+  expect(w.appended()).toEqual(['Ledger carried from before the reset:\n\nGoal: x', 'WELCOME FRAME'])
   expect(w.submitted).toEqual(['carry on'])
 })
 
@@ -110,7 +110,7 @@ test('no then: the ledger is appended and no turn is started', async ($, on) => 
   w.state.sessionId = NEW
   await $.classic.SessionStart({ source: 'clear', session_id: NEW })
   await w.clock.settle()
-  expect(w.verbs()).toEqual(['begin'])
+  expect(w.verbs()).toEqual(['begin --since 1000000'])
   expect(w.appended()).toHaveLength(1)
   expect(w.submitted).toEqual([])
 })
@@ -206,7 +206,7 @@ test('a clear that never happens is abandoned at the next turn end, and the tool
 
   await stop($)
   await w.clock.settle()
-  expect(w.verbs()).toEqual(['begin', 'cancel --from sess-old'])
+  expect(w.verbs()).toEqual(['begin --since 1000000', 'cancel --from sess-old'])
   expect(w.submitted).toEqual(['fresh_context did not run: the clear did not happen'])
   expect((await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'y' })).result).toBe('Reset queued: clear after this turn.')
 })
@@ -256,7 +256,7 @@ test('a begin that overran is not sent again, and is cancelled in case it landed
   await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
   await stop($)
   for (let i = 0; i < 5; i++) await w.clock.settle()
-  expect(w.verbs()).toEqual(['begin', 'cancel --from sess-old'])
+  expect(w.verbs()).toEqual(['begin --since 1000000', 'cancel --from sess-old'])
   expect(w.argv0).toEqual(['rt', 'rt'])
   expect(w.commands).toEqual(['clear'])
 })
@@ -332,4 +332,27 @@ test('a then that only starts with a slash, like a path, is sent as a prompt', a
   await w.clock.settle()
   expect(w.commands).toEqual(['clear'])
   expect(w.submitted).toEqual(['Next step from before the reset: /tmp/notes.md has the plan; read it'])
+})
+
+test('the chat welcome lands in the fresh context quietly, after the ledger, and starts no turn', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'Goal: x' })
+  await stop($)
+  await w.clock.settle()
+  w.state.sessionId = NEW
+  await $.classic.SessionStart({ source: 'clear', session_id: NEW })
+  await w.clock.settle()
+  expect(w.verbs()).toEqual(['begin --since 1000000', 'complete --from sess-old --quiet'])
+  expect(w.appended()).toEqual(['Ledger carried from before the reset:\n\nGoal: x', 'WELCOME FRAME'])
+  expect(w.submitted).toEqual([])
+})
+
+test('begin dates the hand-off from when the reset was asked for', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
+  await stop($)
+  await w.clock.settle()
+  expect(w.rt[0]?.args).toEqual(['begin', '--since', '1000000'])
 })

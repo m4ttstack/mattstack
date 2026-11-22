@@ -400,14 +400,14 @@ export function chatHandoffBegin(
   a: Commands["chat:handoff-begin"]["payload"],
   o: RtClientOptions = {},
 ): Promise<RtResponse<Commands["chat:handoff-begin"]["data"]>> {
-  return rtCommand<Commands["chat:handoff-begin"]["data"]>("chat:handoff-begin", { sessionId: a.sessionId, pid: a.pid }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+  return rtCommand<Commands["chat:handoff-begin"]["data"]>("chat:handoff-begin", { sessionId: a.sessionId, pid: a.pid, ...(a.since !== undefined ? { since: a.since } : {}) }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
 export function chatHandoffComplete(
   a: Commands["chat:handoff-complete"]["payload"],
   o: RtClientOptions = {},
 ): Promise<RtResponse<Commands["chat:handoff-complete"]["data"]>> {
-  return rtCommand<Commands["chat:handoff-complete"]["data"]>("chat:handoff-complete", { fromSessionId: a.fromSessionId, sessionId: a.sessionId }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+  return rtCommand<Commands["chat:handoff-complete"]["data"]>("chat:handoff-complete", { fromSessionId: a.fromSessionId, sessionId: a.sessionId, ...(a.quiet ? { quiet: true } : {}) }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
 export function chatHandoffCancel(

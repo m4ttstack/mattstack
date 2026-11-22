@@ -41,8 +41,8 @@ async function handoff($, sessionId, args, timeoutMs = RT_MS) {
   }
   return null;
 }
-async function beginChat($, sessionId) {
-  const reply = await handoff($, sessionId, ["begin"]);
+async function beginChat($, sessionId, since) {
+  const reply = await handoff($, sessionId, ["begin", "--since", String(Math.floor(since))]);
   if (reply?.ok && typeof reply.handle === "string")
     return reply.handle;
   if (reply === null)
@@ -50,7 +50,8 @@ async function beginChat($, sessionId) {
   return null;
 }
 async function completeChat($, fromSessionId, sessionId) {
-  return (await handoff($, sessionId, ["complete", "--from", fromSessionId]))?.ok === true;
+  const reply = await handoff($, sessionId, ["complete", "--from", fromSessionId, "--quiet"]);
+  return reply?.ok === true ? reply.welcome ?? "" : null;
 }
 async function cancelChat($, fromSessionId, sessionId, opts = {}) {
   await handoff($, sessionId, ["cancel", "--from", fromSessionId], opts.onExit ? EXIT_RT_MS : RT_MS);
@@ -110,21 +111,28 @@ async function abandon($, carry, why) {
     await cancelChat($, carry.oldSessionId, await $.session.id());
   notice($, `fresh_context did not run: ${why}`);
 }
-async function handOver($, carry, sessionId) {
-  if (pending !== carry)
-    return;
-  pending = null;
+async function hold($, text) {
   let appended;
   try {
-    appended = await $.session.append({ message: { type: "user", content: [{ type: "text", text: ledgerMessage(carry.ledger) }] } });
+    appended = await $.session.append({ message: { type: "user", content: [{ type: "text", text }] } });
   } catch {
     appended = undefined;
   }
   if (!appended || appended.deny !== undefined)
-    await $.prompt.submit({ text: ledgerMessage(carry.ledger) });
+    await $.prompt.submit({ text });
+}
+async function handOver($, carry, sessionId) {
+  if (pending !== carry)
+    return;
+  pending = null;
+  await hold($, ledgerMessage(carry.ledger));
   await drop($);
-  if (carry.chatHandle && !await completeChat($, carry.oldSessionId, sessionId)) {
-    await cancelChat($, carry.oldSessionId, sessionId);
+  if (carry.chatHandle) {
+    const welcome = await completeChat($, carry.oldSessionId, sessionId);
+    if (welcome === null)
+      await cancelChat($, carry.oldSessionId, sessionId);
+    else if (welcome)
+      await hold($, welcome);
   }
   if (carry.then)
     await submit($, carry.then);
@@ -132,7 +140,7 @@ async function handOver($, carry, sessionId) {
 async function runReset($, queued) {
   let carry = queued;
   if (carry.mode === "clear") {
-    const handle = await beginChat($, carry.oldSessionId);
+    const handle = await beginChat($, carry.oldSessionId, carry.createdAt);
     if (pending !== queued) {
       if (handle)
         await cancelChat($, carry.oldSessionId, await $.session.id());
