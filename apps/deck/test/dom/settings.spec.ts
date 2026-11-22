@@ -226,11 +226,11 @@ test('a row vanishing while its modal is open closes the modal and focus lands o
       timeout: 8000,
     });
 
-    expect(
-      await page.evaluate(
+    await waitUntil(async () =>
+      page.evaluate(
         () => document.activeElement === document.querySelector('main.board')
       )
-    ).toBe(true);
+    );
     expect(consoleErrors(page)).toEqual([]);
   });
 }, 15000);
