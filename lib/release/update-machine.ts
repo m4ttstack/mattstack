@@ -12,6 +12,7 @@
 import { homedir } from "os";
 import { join } from "path";
 import { UserActionableError } from "../errors.ts";
+import type { RunResult } from "../subprocess.ts";
 import {
   DEV_APP_ANCHOR,
   DEV_APP_PATH,
@@ -631,17 +632,32 @@ function servedAppManifest(seams: UpdateMachineSeams, app: string): ServedAppMan
   }
 }
 
-/** deck restart keeps an app's last browser bundle, and a checkout that never built one serves "not found", so every served app builds first. */
-async function buildServedApps(seams: UpdateMachineSeams): Promise<LegResult | null> {
+/** tsc reports on stdout and vite on stderr, so a build's failure reads from both, last lines only. */
+function buildOutputTail(r: RunResult, lines = 15): string {
+  const all = `${r.stdout}\n${r.stderr}`.split("\n").filter((line) => line.trim() !== "");
+  return all.slice(-lines).join("\n") || "no output";
+}
+
+/**
+ * deck restart keeps an app's last browser bundle, and a checkout that never
+ * built one serves "not found", so every served app builds first. One failed
+ * build does not stop the others: the restart still has to put every built
+ * bundle under its matching server.
+ */
+async function buildServedApps(seams: UpdateMachineSeams): Promise<string[]> {
+  const failures: string[] = [];
   for (const app of REGISTERED_APPS) {
     const build = servedAppManifest(seams, app).dev?.build;
     if (!build) continue;
     const cwd = `${seams.sharedCheckoutPath}/apps/${app}`;
     const r = await seams.exec(["/bin/sh", "-c", build], { cwd });
-    if (r.exitCode !== 0) return errorLeg("served-suite", SERVED_SUITE_LABEL, `${app} did not build (${build} in ${cwd}): ${execTail(r)}`);
+    if (r.exitCode !== 0) failures.push(`${app} did not build (${build} in ${cwd}):\n${buildOutputTail(r)}`);
   }
-  return null;
+  return failures;
 }
+
+/** Only a checkout-sync that ran clean this run proves the checkout is on main with its packages installed. */
+const NOT_BUILT = "; rt built nothing, since the shared checkout sync did not run clean this time";
 
 /** A fresh pid only proves the server started; the page itself answers only once the app's build is in place. */
 async function rootUrlProblems(seams: UpdateMachineSeams, apps: string[]): Promise<string[]> {
@@ -661,12 +677,20 @@ async function rootUrlProblems(seams: UpdateMachineSeams, apps: string[]): Promi
   return problems;
 }
 
-async function runServedSuiteLeg(seams: UpdateMachineSeams, deck: string): Promise<{ result: LegResult; witness: RestartWitness | null }> {
+async function runServedSuiteLeg(seams: UpdateMachineSeams, deck: string, checkoutSynced: boolean): Promise<{ result: LegResult; witness: RestartWitness | null }> {
   const registerFailure = await reregisterMovedApps(seams, deck);
   if (registerFailure) return { result: registerFailure, witness: null };
-  const buildFailure = await buildServedApps(seams);
-  if (buildFailure) return { result: buildFailure, witness: null };
+  const buildFailures = checkoutSynced ? await buildServedApps(seams) : [];
+  const restart = await restartManagedApps(seams, deck);
+  if (buildFailures.length > 0) {
+    const after = restart.result.status === "ok" ? "rt restarted the managed apps anyway, so the ones that built serve their new bundles" : restart.result.detail;
+    return { result: errorLeg("served-suite", SERVED_SUITE_LABEL, `${buildFailures.join("\n")}\n${after}`), witness: restart.witness };
+  }
+  if (checkoutSynced || restart.result.status !== "ok") return restart;
+  return { ...restart, result: { ...restart.result, detail: `${restart.result.detail}${NOT_BUILT}` } };
+}
 
+async function restartManagedApps(seams: UpdateMachineSeams, deck: string): Promise<{ result: LegResult; witness: RestartWitness | null }> {
   const namesResult = await managedAppNames(seams, deck);
   if ("error" in namesResult) return { result: errorLeg("served-suite", SERVED_SUITE_LABEL, namesResult.error), witness: null };
   const liveNow = await liveAppNames(seams, deck);
@@ -783,9 +807,9 @@ function describePlannedLeg(id: LegId, tag: string): string {
     case "daemon":
       return `Announce in #${CHAT_ROOM}, then restart the rt daemon and check that it runs ${tag}`;
     case "served-suite":
-      return "Register any app whose entry does not match the shared checkout, then restart every managed app";
+      return "Register any app whose entry does not match the shared checkout, build board, console, chat and boxscore there if the checkout sync ran clean, then restart every managed app; a failed build fails this step after the restart";
     case "verify":
-      return "Check the app version, the dev app, the daemon, deck and every managed app";
+      return "Check the app version, the dev app, the daemon, deck and every managed app, including that each app's page answers";
   }
 }
 
@@ -894,7 +918,8 @@ export async function runUpdateMachine(seams: UpdateMachineSeams, options: Updat
 
   let witness: RestartWitness | null = null;
   await runGatedLeg("served-suite", SERVED_SUITE_LABEL, async () => {
-    const { result, witness: w } = await runServedSuiteLeg(seams, bundleDeck(devNotRunning));
+    const checkoutSynced = legs.find((l) => l.id === "checkout-sync")?.status === "ok";
+    const { result, witness: w } = await runServedSuiteLeg(seams, bundleDeck(devNotRunning), checkoutSynced);
     witness = w;
     return result;
   });

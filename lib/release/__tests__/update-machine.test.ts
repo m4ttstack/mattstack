@@ -198,7 +198,8 @@ function fakeSeams(opts: Options = {}): {
       if (cmd.startsWith("scripts/fetch-deps.sh")) return ok("", opts.fetchDepsExit ?? 0);
       if (cmd === "bun install --frozen-lockfile") return ok("");
       if (cmd === "/bin/sh -c bun run build") {
-        return opts.buildFails && execOptions?.cwd?.endsWith(`/apps/${opts.buildFails}`) ? fail("vite: build failed") : ok("");
+        if (!opts.buildFails || !execOptions?.cwd?.endsWith(`/apps/${opts.buildFails}`)) return ok("");
+        return Promise.resolve({ stdout: "src/app.tsx(3,1): error TS2304: Cannot find name 'x'.\n", stderr: "vite: build failed\n", exitCode: 2 });
       }
       if (argv[0] === "curl") {
         const port = Number(new URL(argv.at(-1)!).port);
@@ -891,15 +892,29 @@ describe("rt release update-machine", () => {
       expect(lastBuild).toBeLessThan(restart);
     });
 
-    test("a failed build stops the leg before the restart, naming the app", async () => {
-      const { seams, calls } = fakeSeams({ buildFails: "console" });
+    test("a failed build still builds the rest and restarts, then fails the leg naming the app and both output streams", async () => {
+      const { seams, calls, execOpts } = fakeSeams({ buildFails: "console" });
       const report = await runUpdateMachine(seams, { yes: true });
       const leg = report.legs.find((l) => l.id === "served-suite")!;
       expect(leg.status).toBe("error");
-      expect(leg.detail).toContain("console");
+      expect(leg.detail).toContain("console did not build");
+      expect(leg.detail).toContain("error TS2304");
       expect(leg.detail).toContain("vite: build failed");
+      expect(leg.detail).toContain("rt restarted the managed apps anyway");
+      expect(execOpts.filter((e) => e.cmd === "/bin/sh -c bun run build")).toHaveLength(4);
       const served = calls.findIndex((c) => c.startsWith("readFile") && c.includes("registry.json"));
-      expect(calls.slice(served)).not.toContain(`${DEV_DECK} restart --managed`);
+      expect(calls.slice(served)).toContain(`${DEV_DECK} restart --managed`);
+      expect(report.haltedAfter).toBe("served suite restart");
+    });
+
+    test("builds nothing when the shared checkout sync did not run clean, and says so", async () => {
+      const { seams, calls } = fakeSeams();
+      seams.confirm = async (message) => !message.toLowerCase().includes("shared checkout sync");
+      const report = await runUpdateMachine(seams, {});
+      const leg = report.legs.find((l) => l.id === "served-suite")!;
+      expect(leg.status).toBe("ok");
+      expect(leg.detail).toContain("rt built nothing");
+      expect(calls).not.toContain("/bin/sh -c bun run build");
     });
   });
 

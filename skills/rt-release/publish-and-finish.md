@@ -305,8 +305,11 @@ legs, in order:
   the daemon's `sourceRev` against the released commit (a prod daemon's null `sourceRev` counts as
   a mismatch).
 - **Served suite**: re-registers board, console, chat, boxscore and deck from the shared checkout,
-  restarts deck's managed apps and restarts stragglers; user-managed rows are left alone.
-- **Verify**: a read-only sweep of all of the above.
+  builds board, console, chat and boxscore there (each manifest's `dev.build`, only after a clean
+  checkout sync this run), restarts deck's managed apps and restarts stragglers; user-managed rows
+  are left alone. A failed build still restarts, then fails the leg with the app's build output.
+- **Verify**: a read-only sweep of all of the above, including a 200 from each managed app's root
+  URL.
 
 A leg that ends aborted or in error halts every later state-changing leg, except a failed dev app
 publish, which halts none; the verify sweep still runs and the envelope's `haltedAfter` names the leg that halted. `--verify-only` runs the sweep
@@ -316,7 +319,8 @@ leg's prompt himself; declining a prompt skips only that leg.
 ### Fix what the halted leg names
 
 Only transient halts are fixed here: a download that failed, or a deck-managed app that did not
-come back after the restart. Confirm the cause is gone, then rerun. Read the daemon's state with
+come back after the restart. A served app that did not build is not transient: quote its build
+output to Matt. Confirm the cause is gone, then rerun. Read the daemon's state with
 `rt_verb {args: ["daemon", "status"]}`. Never restart the daemon, post the #rt announce, or pull
 or switch the shared checkout by hand: the legs own those moves, and the halts only Matt can clear
 have their own edges.

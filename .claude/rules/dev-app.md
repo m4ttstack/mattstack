@@ -25,7 +25,7 @@ The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
   builds and then restarts; `deck restart <app>` alone restarts the server
   and keeps the old browser bundle.
   `rt release update-machine` also re-registers, builds (each manifest's
-  `dev.build`) and restarts them, as its
+  `dev.build`, after a clean checkout sync) and restarts them, as its
   `checkout-sync` (labelled "shared checkout sync") and served-suite legs
   (`REGISTERED_APPS` in `lib/release/update-machine.ts` is exactly this
   list plus deck); its verify leg then wants a 200 from each app's root
