@@ -33,6 +33,7 @@ import type { InboxBinding } from "../../claude-registry.ts";
 import { AGENT_NAMES } from "../../chat-names.ts";
 import { getKvValue, setKvValue } from "../kv-blob.ts";
 import { getIdentity, identityForSession, mintIdentity } from "../identity-store.ts";
+import { beginHandoff, type HandoffDeps } from "../chat-handoff.ts";
 
 /** No binding for any session id: the default in every test that doesn't care about the registry (matches the real resolver's behavior for a fake test session id it will never find on disk). */
 const NO_BINDING: RegistryDeps = { resolve: () => null, alive: () => false, resolveAll: () => new Map() };
@@ -735,4 +736,21 @@ test("fixed identities carry identity-fixed with unchanged words", () => {
       expect((err as Error & { code?: string }).code).toBe("identity-fixed");
     }
   }
+});
+
+test("a row handing off reads idle while the registry has moved on", () => {
+  const row = { sessionId: "old", handle: "pansy", lastSeenAt: now };
+  expect(buddyStatus(row, now, presenceThresholds(), NO_BINDING, () => true)).toBe("idle");
+  expect(buddyStatus(row, now, presenceThresholds(), NO_BINDING, () => false)).toBe("offline");
+  expect(buddyStatus({ ...row, signedOutAt: now }, now, presenceThresholds(), NO_BINDING, () => true)).toBe("offline");
+});
+
+test("prune spares a row handing off", () => {
+  const db = fresh();
+  mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
+  beginHandoff({ sessionId: "s1", pid: 4242 }, db);
+  const handingOff: HandoffDeps = { sessionForPid: () => "s1", pidAlive: () => true };
+  expect(prunePresence(now + 25 * HOUR, db, NO_BINDING, handingOff)).toBe(0);
+  const gone: HandoffDeps = { sessionForPid: () => null, pidAlive: () => false };
+  expect(prunePresence(now + 25 * HOUR, db, NO_BINDING, gone)).toBe(1);
 });

@@ -28,6 +28,7 @@ import {
   type IdentityRow,
 } from "./identity-store.ts";
 import { getKvValue, setKvValue } from "./kv-blob.ts";
+import { defaultHandoffDeps, pendingHandoffFor, type HandoffDeps } from "./chat-handoff.ts";
 
 export type BuddyStatus = "live" | "idle" | "offline";
 
@@ -184,15 +185,20 @@ export function presenceThresholds(): PresenceThresholds {
  * signature stability with every existing call site.
  */
 export function buddyStatus(
-  row: Partial<Pick<PresenceRow, "signedOutAt" | "lastSeenAt" | "sessionId">>,
+  row: Partial<Pick<PresenceRow, "signedOutAt" | "lastSeenAt" | "sessionId" | "handle">>,
   now: number,
   th: PresenceThresholds = presenceThresholds(),
   deps: RegistryDeps = defaultRegistryDeps,
+  handingOff: (handle: string) => boolean = (handle) => pendingHandoffFor(handle) !== null,
 ): BuddyStatus {
   if (row.signedOutAt !== undefined) return "offline";
   if (!row.sessionId) return "offline";
   const binding = deps.resolve(row.sessionId);
-  if (!binding || !deps.alive(binding)) return "offline";
+  if (!binding || !deps.alive(binding)) {
+    // Across a /clear the registry already names the next session, so the
+    // row would read offline until the hand-off completes.
+    return row.handle && handingOff(row.handle) ? "idle" : "offline";
+  }
   return binding.status === "busy" ? "live" : "idle";
 }
 
@@ -430,6 +436,7 @@ export function listBuddies(
   now: number,
   db: Database = getStateDb(),
   deps: RegistryDeps = defaultRegistryDeps,
+  handoffDeps: HandoffDeps = defaultHandoffDeps,
 ): Array<PresenceRow & { status: BuddyStatus }> {
   const th = presenceThresholds();
   const dayAgo = now - th.pruneMs;
@@ -439,7 +446,7 @@ export function listBuddies(
   const scoped = snapshotRegistryDeps(deps);
   return rows.map((raw) => {
     const presence = rowToPresence(raw, names.get(raw.handle)!);
-    return { ...presence, status: buddyStatus(presence, now, th, scoped) };
+    return { ...presence, status: buddyStatus(presence, now, th, scoped, (handle) => pendingHandoffFor(handle, db, handoffDeps) !== null) };
   });
 }
 
@@ -495,13 +502,19 @@ export function assertSessionSignedIn(sessionId: string, db: Database = getState
  * (one directory read per candidate); pass a `snapshotRegistryDeps` result
  * from a caller that already paid for one scan this call (signIn does).
  */
-export function prunePresence(now: number, db: Database = getStateDb(), deps: RegistryDeps = defaultRegistryDeps): number {
+export function prunePresence(
+  now: number,
+  db: Database = getStateDb(),
+  deps: RegistryDeps = defaultRegistryDeps,
+  handoffDeps: HandoffDeps = defaultHandoffDeps,
+): number {
   const th = presenceThresholds();
   const dayAgo = now - th.pruneMs;
   const candidates = db.query(SELECT_PRUNE_CANDIDATES_SQL).all(dayAgo, dayAgo) as PresenceRawRow[];
   let deleted = 0;
   for (const row of candidates) {
     if (row.signed_out_at === null && bindingAlive(row.session_id, deps)) continue;
+    if (row.signed_out_at === null && pendingHandoffFor(row.handle, db, handoffDeps) !== null) continue;
     db.query(DELETE_PRESENCE_BY_SESSION_SQL).run(row.session_id);
     deleted++;
   }

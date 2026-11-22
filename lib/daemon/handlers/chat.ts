@@ -5,6 +5,7 @@
  */
 
 import type { Database } from "bun:sqlite";
+import { defaultHandoffDeps, pendingHandoffFor, type HandoffDeps } from "../../state/chat-handoff.ts";
 import type { Logger } from "pino";
 import {
   ackMessage,
@@ -911,7 +912,7 @@ function unreachableSenderRefusal(
   if (fixedIdentityRefusal(handle) !== undefined || getIdentity(handle, db) || presenceForHandle(handle, db)) return null;
   const now = Date.now();
   const th = presenceThresholds();
-  const live = (row: PresenceRow | null): row is PresenceRow => row !== null && row.handle !== handle && buddyStatus(row, now, th, registryDeps) !== "offline";
+  const live = (row: PresenceRow | null): row is PresenceRow => row !== null && row.handle !== handle && buddyStatus(row, now, th, registryDeps, (h) => pendingHandoffFor(h, db) !== null) !== "offline";
   const byPane = typeof origin.pane === "string" ? signedInPresenceForPane(origin.pane, db) : null;
   const bySession = typeof origin.sessionId === "string" ? presenceForSession(origin.sessionId, db) : null;
   const holder = live(byPane) ? { row: byPane, where: "pane" } : live(bySession) ? { row: bySession, where: "session" } : null;
@@ -999,6 +1000,8 @@ export function createChatHandlers(opts: {
   inboxDeps?: InboxDeps;
   /** The registry probe behind buddyStatus (chat:who, chat:buddies) and signIn's reclaim check; real by default, fakeable the same way inboxDeps is. */
   registryDeps?: RegistryDeps;
+  /** The registry probe behind a pending chat hand-off; real by default. */
+  handoffDeps?: HandoffDeps;
   /** repo/branch/room derivation for `--pane` sign-in (lib/repo-for-cwd.ts, the same index-based, no-sync-git-spawn source pane.ts's own paneRow uses). */
   repoIndex?: () => Record<string, string>;
   exec?: typeof runCapture;
@@ -1035,6 +1038,7 @@ export function createChatHandlers(opts: {
   const herdr = opts.herdr ?? herdrRequest;
   const inboxDeps = opts.inboxDeps ?? defaultInboxDeps;
   const registryDeps = opts.registryDeps;
+  const handoffDeps = opts.handoffDeps ?? defaultHandoffDeps;
   const repoIndex = opts.repoIndex ?? (() => ({}));
   const exec = opts.exec ?? runCapture;
   const paneSessionBudgetMs = opts.paneSessionBudgetMs ?? PANE_SESSION_BUDGET_MS;
@@ -1259,7 +1263,7 @@ export function createChatHandlers(opts: {
         // left behind or a name never signed in) has no session to probe
         // the registry with, so it reads offline rather than guessing from
         // stale membership columns.
-        const status: BuddyStatus = presence ? buddyStatus(presence, now, th, scoped) : "offline";
+        const status: BuddyStatus = presence ? buddyStatus(presence, now, th, scoped, (h) => pendingHandoffFor(h, db, handoffDeps) !== null) : "offline";
         return { ...member, status };
       });
       return { ok: true, data: { members } };
@@ -1440,6 +1444,9 @@ export function createChatHandlers(opts: {
       deleteChatSession(sessionId);
       const presence = presenceForSession(sessionId, db);
       if (!presence) return { ok: true, data: { sessionId } };
+      // A session clearing itself hands its identity to the next one; the
+      // hand-off signs the row out itself if it never completes.
+      if (pendingHandoffFor(presence.handle, db, handoffDeps)?.fromSessionId === sessionId) return { ok: true, data: { sessionId } };
       signOut(sessionId, undefined, db);
       // Not awaited: this runs on SessionEnd's short budget. finishClose marks the row closed before its first Slack send.
       const held = conversationForAgent(presence.handle, db);
@@ -1468,7 +1475,7 @@ export function createChatHandlers(opts: {
     },
 
     "chat:buddies": async (): Promise<CommandResult<"chat:buddies">> => {
-      return { ok: true, data: { buddies: listBuddies(Date.now(), db, registryDeps) } };
+      return { ok: true, data: { buddies: listBuddies(Date.now(), db, registryDeps, handoffDeps) } };
     },
 
     "chat:dm": async (rawPayload: unknown): Promise<CommandResult<"chat:dm">> => {
