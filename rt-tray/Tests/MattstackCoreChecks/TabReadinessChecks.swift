@@ -270,6 +270,60 @@ let tabReadinessChecks: [Check] = [
         c.expect(state.reloadCredit)
         c.expectEqual(TabReadiness.reduce(state, .health(up)).1, [.reload])
     },
+    Check("tab readiness: an abandoned navigation restores the ready page it started from, with no effects") { c in
+        var start = readyTab
+        start.stale = true
+        let (state, effects) = run([.navigationStarted(byRecovery: false), .navigationAbandoned(reason: "cancelled")],
+                                   from: start)
+        c.expectEqual(state.phase, .ready)
+        c.expectEqual(state.buildId, "b1")
+        c.expect(state.speaksProtocol)
+        c.expect(state.stale)
+        c.expectEqual(effects, [])
+    },
+    Check("tab readiness: an abandoned navigation from a not-ready tab gives back its credit") { c in
+        let (state, effects) = run([.navigationStarted(byRecovery: false), .navigationAbandoned(reason: "cancelled")],
+                                   from: failedTab)
+        c.expectEqual(state.phase, .notReady(reason: "502"))
+        c.expect(state.reloadCredit)
+        c.expectEqual(effects, [])
+    },
+    Check("tab readiness: an abandoned first load fails as a failed navigation does") { c in
+        let abandoned = run([.navigationStarted(byRecovery: false), .navigationAbandoned(reason: "cancelled")])
+        let failed = run([.navigationStarted(byRecovery: false), .navigationFailed(reason: "cancelled")])
+        c.expectEqual(abandoned.0.phase, .notReady(reason: "cancelled"))
+        c.expectEqual(abandoned.0.phase, failed.0.phase)
+        c.expectEqual(abandoned.0.reloadCredit, failed.0.reloadCredit)
+        c.expectEqual(abandoned.1, failed.1)
+    },
+    Check("tab readiness: an abandoned navigation whose new page already said booting fails") { c in
+        let (state, _) = run([.navigationStarted(byRecovery: false), .signal(.booting),
+                              .navigationAbandoned(reason: "cancelled")], from: readyTab)
+        c.expectEqual(state.phase, .notReady(reason: "cancelled"))
+    },
+    Check("tab readiness: an abandon after the tab settled changes nothing") { c in
+        for start in [readyTab, failedTab] {
+            let (state, effects) = TabReadiness.reduce(start, .navigationAbandoned(reason: "cancelled"))
+            c.expectEqual(state, start)
+            c.expectEqual(effects, [])
+        }
+    },
+    Check("navigation failure: a cancel or a policy interruption is an abandon; other errors fail") { c in
+        c.expectEqual(NavigationFailure.kind(domain: NSURLErrorDomain, code: NSURLErrorCancelled,
+                                             cancelledServerError: false), .abandoned)
+        c.expectEqual(NavigationFailure.kind(domain: "WebKitErrorDomain", code: 102,
+                                             cancelledServerError: false), .abandoned)
+        c.expectEqual(NavigationFailure.kind(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost,
+                                             cancelledServerError: false), .failed)
+        c.expectEqual(NavigationFailure.kind(domain: NSURLErrorDomain, code: 102,
+                                             cancelledServerError: false), .failed)
+    },
+    Check("navigation failure: anything after the delegate cancelled a main-frame 5xx is already reported") { c in
+        c.expectEqual(NavigationFailure.kind(domain: "WebKitErrorDomain", code: 102,
+                                             cancelledServerError: true), .alreadyReported)
+        c.expectEqual(NavigationFailure.kind(domain: NSURLErrorDomain, code: NSURLErrorCancelled,
+                                             cancelledServerError: true), .alreadyReported)
+    },
     Check("host signal: parses the four messages and rejects anything else") { c in
         c.expectEqual(HostSignal.parse(["type": "booting"]), .booting)
         c.expectEqual(HostSignal.parse(["type": "ready", "buildId": "abc"]), .ready(buildId: "abc"))

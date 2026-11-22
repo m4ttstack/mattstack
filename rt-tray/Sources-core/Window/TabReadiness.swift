@@ -50,19 +50,48 @@ public struct TabState: Equatable, Sendable {
     /// The app now serves a different build than the page in the tab.
     public var stale = false
     fileprivate var navigationIsRecovery = false
+    fileprivate var beforeNavigation: PageState?
     public init() {}
+}
+
+/// What a tab said about the page it showed before a navigation began.
+fileprivate struct PageState: Equatable, Sendable {
+    var phase: TabPhase
+    var speaksProtocol: Bool
+    var buildId: String?
+    var stale: Bool
+    var reloadCredit: Bool
+    var navigationIsRecovery: Bool
 }
 
 public enum TabEvent: Equatable, Sendable {
     case navigationStarted(byRecovery: Bool)
     case navigationFinished
     case navigationFailed(reason: String)
+    /// Cancelled, or interrupted by a policy decision such as a download:
+    /// the page shown before it is still there.
+    case navigationAbandoned(reason: String)
     case signal(HostSignal)
     case backstopElapsed
     case health(AppHealth)
 }
 
 public enum TabEffect: Equatable, Sendable { case reload, startBackstop, cancelBackstop }
+
+public enum NavigationFailureKind: Equatable, Sendable { case failed, abandoned, alreadyReported }
+
+public enum NavigationFailure {
+    /// WebKitErrorFrameLoadInterruptedByPolicyChange: the window cancelled
+    /// the response, as it does for a MIME type WebKit cannot show.
+    static let frameLoadInterrupted = 102
+
+    public static func kind(domain: String, code: Int, cancelledServerError: Bool) -> NavigationFailureKind {
+        if cancelledServerError { return .alreadyReported }
+        if domain == NSURLErrorDomain, code == NSURLErrorCancelled { return .abandoned }
+        if domain == "WebKitErrorDomain", code == frameLoadInterrupted { return .abandoned }
+        return .failed
+    }
+}
 
 public enum TabOverlay: Equatable, Sendable { case none, loading, failure }
 
@@ -79,6 +108,10 @@ public enum TabReadiness {
         var next = state
         switch event {
         case .navigationStarted(let byRecovery):
+            next.beforeNavigation = PageState(phase: state.phase, speaksProtocol: state.speaksProtocol,
+                                              buildId: state.buildId, stale: state.stale,
+                                              reloadCredit: state.reloadCredit,
+                                              navigationIsRecovery: state.navigationIsRecovery)
             next.phase = .loading
             next.speaksProtocol = false
             next.buildId = nil
@@ -110,6 +143,20 @@ public enum TabReadiness {
         case .navigationFailed(let reason):
             guard state.phase == .loading else { return (state, []) }
             return (failing(state, into: .notReady(reason: reason)), [.cancelBackstop])
+
+        case .navigationAbandoned(let reason):
+            guard state.phase == .loading else { return (state, []) }
+            guard let page = state.beforeNavigation, page.phase != .loading, !state.speaksProtocol else {
+                return reduce(state, .navigationFailed(reason: reason))
+            }
+            next.phase = page.phase
+            next.speaksProtocol = page.speaksProtocol
+            next.buildId = page.buildId
+            next.stale = page.stale
+            next.reloadCredit = page.reloadCredit
+            next.navigationIsRecovery = page.navigationIsRecovery
+            next.beforeNavigation = nil
+            return (next, [])
 
         case .backstopElapsed:
             guard state.phase == .loading else { return (state, []) }
