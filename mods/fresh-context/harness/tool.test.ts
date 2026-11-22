@@ -156,3 +156,39 @@ test('a second call in the same turn is refused', async ($, on) => {
   await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
   expect(await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })).toMatchObject({ deny: 'A reset is already queued for the end of this turn.' })
 })
+
+test('rt runs by argv with no shell, rt on PATH first', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
+  expect(w.argv0).toEqual(['rt'])
+})
+
+test('a Stop hook that keeps the turn going holds the reset for the real end of the turn', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
+  w.state.stopBlocks = true
+  await stop($)
+  await w.clock.settle()
+  expect(w.commands).toEqual([])
+  w.state.stopBlocks = false
+  await stop($)
+  await w.clock.settle()
+  expect(w.commands).toEqual(['clear'])
+})
+
+test('a clear that never happens is abandoned at the next turn end, and the tool works again', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })
+  await stop($)
+  await w.clock.settle()
+  expect(w.commands).toEqual(['clear'])
+
+  await stop($)
+  await w.clock.settle()
+  expect(w.verbs()).toEqual(['begin', 'cancel --from sess-old'])
+  expect(w.submitted).toEqual(['fresh_context did not run: the clear did not happen'])
+  expect((await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'y' })).result).toBe('Reset queued: clear after this turn.')
+})

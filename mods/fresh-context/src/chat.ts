@@ -2,20 +2,30 @@ import type { EngineInterface } from 'claude-code'
 
 type Reply = { ok: boolean; handle?: string; signedOut?: boolean }
 
-const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
+const RT_MS = 10_000
+// session.end hooks share a 1.5 s budget; a cancel that overran it would be cut off anyway.
+const EXIT_RT_MS = 1_000
 
 // rt reads the session it acts for from CLAUDE_CODE_SESSION_ID. This process's own copy still
-// names the session it started on, so each call passes the id that is current now. A login
-// shell finds rt where a person's terminal would.
-async function handoff($: EngineInterface, sessionId: string, args: string[]): Promise<Reply | null> {
-  try {
-    const command = ['rt', 'chat', 'handoff', ...args, '--json'].map(quote).join(' ')
-    const run = await $.process.run(['/bin/zsh', '-lc', command], { env: { CLAUDE_CODE_SESSION_ID: sessionId }, timeoutMs: 10_000 })
-    const last = run.stdout.trim().split('\n').pop()
-    return last ? (JSON.parse(last) as Reply) : null
-  } catch {
-    return null
+// names the session it started on, so each call passes the id that is current now.
+// rt on PATH first, then where mattstack installs it; only a name that could not start moves on.
+async function handoff($: EngineInterface, sessionId: string, args: string[], timeoutMs = RT_MS): Promise<Reply | null> {
+  const home = await $.env.get('HOME')
+  for (const rt of ['rt', `${home ?? ''}/.local/bin/rt`]) {
+    let stdout: string
+    try {
+      stdout = (await $.process.run([rt, 'chat', 'handoff', ...args, '--json'], { env: { CLAUDE_CODE_SESSION_ID: sessionId }, timeoutMs })).stdout
+    } catch {
+      continue
+    }
+    try {
+      const last = stdout.trim().split('\n').pop()
+      return last ? (JSON.parse(last) as Reply) : null
+    } catch {
+      return null
+    }
   }
+  return null
 }
 
 /** The handle that is handing off, or null when the session is not signed in to chat (or rt is missing). */
@@ -28,6 +38,6 @@ export async function completeChat($: EngineInterface, fromSessionId: string, se
   return (await handoff($, sessionId, ['complete', '--from', fromSessionId]))?.ok === true
 }
 
-export async function cancelChat($: EngineInterface, fromSessionId: string, sessionId: string): Promise<void> {
-  await handoff($, sessionId, ['cancel', '--from', fromSessionId])
+export async function cancelChat($: EngineInterface, fromSessionId: string, sessionId: string, opts: { onExit?: boolean } = {}): Promise<void> {
+  await handoff($, sessionId, ['cancel', '--from', fromSessionId], opts.onExit ? EXIT_RT_MS : RT_MS)
 }

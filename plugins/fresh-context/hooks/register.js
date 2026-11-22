@@ -1,15 +1,24 @@
 // mods/fresh-context/src/chat.ts
-var quote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
-async function handoff($, sessionId, args) {
-  try {
-    const command = ["rt", "chat", "handoff", ...args, "--json"].map(quote).join(" ");
-    const run = await $.process.run(["/bin/zsh", "-lc", command], { env: { CLAUDE_CODE_SESSION_ID: sessionId }, timeoutMs: 1e4 });
-    const last = run.stdout.trim().split(`
+var RT_MS = 1e4;
+var EXIT_RT_MS = 1000;
+async function handoff($, sessionId, args, timeoutMs = RT_MS) {
+  const home = await $.env.get("HOME");
+  for (const rt of ["rt", `${home ?? ""}/.local/bin/rt`]) {
+    let stdout;
+    try {
+      stdout = (await $.process.run([rt, "chat", "handoff", ...args, "--json"], { env: { CLAUDE_CODE_SESSION_ID: sessionId }, timeoutMs })).stdout;
+    } catch {
+      continue;
+    }
+    try {
+      const last = stdout.trim().split(`
 `).pop();
-    return last ? JSON.parse(last) : null;
-  } catch {
-    return null;
+      return last ? JSON.parse(last) : null;
+    } catch {
+      return null;
+    }
   }
+  return null;
 }
 async function beginChat($, sessionId) {
   const reply = await handoff($, sessionId, ["begin"]);
@@ -18,8 +27,8 @@ async function beginChat($, sessionId) {
 async function completeChat($, fromSessionId, sessionId) {
   return (await handoff($, sessionId, ["complete", "--from", fromSessionId]))?.ok === true;
 }
-async function cancelChat($, fromSessionId, sessionId) {
-  await handoff($, sessionId, ["cancel", "--from", fromSessionId]);
+async function cancelChat($, fromSessionId, sessionId, opts = {}) {
+  await handoff($, sessionId, ["cancel", "--from", fromSessionId], opts.onExit ? EXIT_RT_MS : RT_MS);
 }
 
 // mods/fresh-context/src/busy.ts
@@ -129,8 +138,15 @@ function registerReset(on) {
     const result = await next(e);
     lastStopTasks = e.background_tasks ?? [];
     const carry = pending;
-    if (!carry || isFiring)
+    if (!carry)
       return result;
+    if (result.block || result.preventContinuation)
+      return result;
+    if (isFiring) {
+      if (carry.mode === "clear" && carry.oldSessionId === await $.session.id())
+        await abandon($, carry, "the clear did not happen");
+      return result;
+    }
     if (carry.mode === "clear") {
       const busy = await busyNow($);
       if (busy.length > 0) {
@@ -165,7 +181,7 @@ ${busy.join(`
       return ended;
     await drop($);
     if (carry.chatHandle)
-      await cancelChat($, carry.oldSessionId, e.sessionId);
+      await cancelChat($, carry.oldSessionId, e.sessionId, { onExit: true });
     return ended;
   });
 }

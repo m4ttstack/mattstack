@@ -18,7 +18,8 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   const submitted: string[] = []
   const agents: Agent[] = []
   const commandsRegistered: { name: string; description: string }[] = []
-  const state = { sessionId: OLD, compact: { skip: undefined as string | undefined } }
+  const argv0: string[] = []
+  const state = { sessionId: OLD, compact: { skip: undefined as string | undefined }, stopBlocks: false }
 
   on('session.id', () => ({ value: state.sessionId }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -27,12 +28,12 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
     registered.push(e as Registered)
     return { value: { tool: `mcp__fresh-context__${e.name}` } }
   })
-  on('classic.Stop', () => ({}))
+  on('classic.Stop', () => (state.stopBlocks ? { block: 'keep going' } : {}))
   on('classic.SessionStart', () => ({}))
   on('agent.list', () => ({ value: agents }))
   on('process.run', (_, e) => {
-    const words = (e.argv.at(-1) ?? '').split(' ').map(w => w.replace(/^'|'$/g, ''))
-    const args = words.slice(3, -1)
+    argv0.push(e.argv[0] ?? '')
+    const args = e.argv.slice(3, -1)
     rt.push({ args, sessionId: e.init?.env?.CLAUDE_CODE_SESSION_ID })
     const verb = args[0]
     const reply =
@@ -57,11 +58,13 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
     submitted.push(e.text)
     return { text: e.text }
   })
+  mock.env(on, { HOME: '/home/me' })
   const session = mock.session(on)
   const clock = mock.clock(on, { now: 1_000_000 })
   return {
     registered,
     commandsRegistered,
+    argv0,
     rt,
     commands,
     compactions,

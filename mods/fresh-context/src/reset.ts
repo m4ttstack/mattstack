@@ -97,7 +97,14 @@ export function registerReset(on: On): void {
     const result = await next(e)
     lastStopTasks = e.background_tasks ?? []
     const carry = pending
-    if (!carry || isFiring) return result
+    if (!carry) return result
+    // A hook beneath that keeps the turn going means this was not the turn's end.
+    if (result.block || result.preventContinuation) return result
+    if (isFiring) {
+      // A turn ended again in the session that asked for the clear: the clear never happened.
+      if (carry.mode === 'clear' && carry.oldSessionId === (await $.session.id())) await abandon($, carry, 'the clear did not happen')
+      return result
+    }
     if (carry.mode === 'clear') {
       const busy = await busyNow($)
       if (busy.length > 0) {
@@ -131,7 +138,7 @@ export function registerReset(on: On): void {
     if (!carry || carry.oldSessionId !== e.sessionId) return ended
     if (carry.mode === 'clear' && e.reason === 'clear') return ended
     await drop($)
-    if (carry.chatHandle) await cancelChat($, carry.oldSessionId, e.sessionId)
+    if (carry.chatHandle) await cancelChat($, carry.oldSessionId, e.sessionId, { onExit: true })
     return ended
   })
 }
