@@ -118,7 +118,7 @@ Answer an open gate's questions as this pane. Answer values must be option VALUE
 ### gate_list
 
 <!-- mcp-lint: allow -->
-List gates in all statuses unless open is true, optionally filtered by subject prefix or kind and capped by limit. Pass the previous response's cursor to continue paging; an empty gates array means there is nothing more to page.
+List gates in all statuses unless open is true, which lists the unanswered ones (open and parked), optionally filtered by subject prefix or kind and capped by limit. Pass the previous response's cursor to continue paging; an empty gates array means there is nothing more to page.
 
 ```json
 {

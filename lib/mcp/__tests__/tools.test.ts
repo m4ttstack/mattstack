@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -117,6 +117,23 @@ describe("mcpTools", () => {
     const tool = mcpTools().find((t) => t.name === "gate_list")!;
     expect(tool.description).not.toContain("defaulting to open");
     expect(tool.description).toContain("all statuses");
+  });
+
+  test("gate_list open lists parked gates too", async () => {
+    const rt = await import("../../../packages/rt-client/src/index.ts");
+    const seen: unknown[] = [];
+    const spy = spyOn(rt, "gateList").mockImplementation(async (payload) => {
+      seen.push(payload);
+      return { ok: true, data: { gates: [], cursor: 0 } };
+    });
+    try {
+      const tool = mcpTools().find((t) => t.name === "gate_list")!;
+      await tool.handler({ open: true }, {} as NodeJS.ProcessEnv);
+      expect(seen).toEqual([{ status: ["open", "parked"] }]);
+      expect(tool.description).toContain("parked");
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test("gate_answer accepts a write-in object, alone", () => {
