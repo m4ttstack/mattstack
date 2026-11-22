@@ -262,14 +262,21 @@ export const FRESH_SYNC_ROW = {
   dismissedAt: null,
   gateId: null,
   gateKind: null,
+  gateOpenedAt: null,
+  watchedSha: null,
 } as unknown as Partial<DoctorState>;
 
 /** A doctor launch that is not a sync's hand-off starts with no paused
-    tree, no sync output and no forge step from an earlier run. */
+    tree, no sync output, no forge step, no gate and no watched commit from
+    an earlier run, so an old gate never holds the new run (doctorHeldAtGate). */
 export const NO_SYNC_CARRY = {
   pausedTree: null,
   syncLog: null,
   forge: null,
+  gateId: null,
+  gateKind: null,
+  gateOpenedAt: null,
+  watchedSha: null,
 } as unknown as Partial<DoctorState>;
 
 /** A sync and its forge wait run inside this server's request, so a

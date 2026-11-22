@@ -259,6 +259,7 @@ import {
   doctorDedupLane,
   RESPOND_IN_FLIGHT,
   REVIEW_IN_FLIGHT,
+  staleDoctorTab,
 } from './launch-dedup.ts';
 import { launchErrorMessage } from './launch-error.ts';
 import {
@@ -3482,6 +3483,8 @@ const httpServer = Bun.serve({
             });
           if (dedup.kind === 'refused')
             return new Response(dedup.reason, { status: 409 });
+          const stale = staleDoctorTab(existing, focusOnly, Date.now());
+          if (stale) await closeTab(stale).catch(() => {});
         }
         // A running rebase chain's row carries no tabId, so dedup lets an
         // ordinary launch through.

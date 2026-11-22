@@ -382,6 +382,33 @@ test('a launch with NO_SYNC_CARRY drops an earlier forge step', () => {
   expect(next.forge).toBeUndefined();
 });
 
+test("a launch with NO_SYNC_CARRY drops an earlier run's gate and watched commit", () => {
+  const path = doctorFilePath('u/7');
+  writeDoctorState(
+    path,
+    {
+      mrUrl: 'u/7',
+      iid: 1,
+      status: 'watching',
+      gateId: 'g-old',
+      gateKind: 'escalation',
+      watchedSha: 'old1234',
+    },
+    1,
+    db
+  );
+  const next = writeDoctorState(
+    path,
+    { status: 'queued', ...NO_SYNC_CARRY },
+    2,
+    db
+  );
+  expect(next.gateId).toBeUndefined();
+  expect(next.gateKind).toBeUndefined();
+  expect(next.gateOpenedAt).toBeUndefined();
+  expect(next.watchedSha).toBeUndefined();
+});
+
 test('dispatchPrompt carries the paused tree', async () => {
   const prompt = await dispatchPrompt(
     'board:doctor',
