@@ -100,6 +100,14 @@ const GITLAB_REQUEST_LIMIT_MS = 60_000;
 const PUBLISH_TIMEOUT_MS = 90_000;
 /** Every other request a review submit makes (drafts, reviewer states, diff refs). */
 const DRAFT_TIMEOUT_MS = 15_000;
+/**
+ * One comment write attempt. An inline comment can take three writes (post,
+ * delete a degraded note, post again), and all of them plus the daemon's
+ * refresh must end inside the MCP client's MR_WRITE_TIMEOUT_MS, or the client
+ * reports a failure for a comment that still lands and the agent posts it
+ * again. A 429 wait is not counted: GitLab refused, so nothing posted.
+ */
+const COMMENT_WRITE_TIMEOUT_MS = 20_000;
 
 /** A GitLab refusal: the message names the op and status, `status` carries it for callers. */
 export type HttpStatusError = Error & { status: number };
@@ -168,6 +176,7 @@ export class NoteMutator {
     const res = await this.send('createNote', 'POST', path, {
       headers: { "Content-Type": "application/json", "PRIVATE-TOKEN": this.token },
       body: JSON.stringify({ body }),
+      timeoutMs: COMMENT_WRITE_TIMEOUT_MS,
     });
 
     if (!res.ok) {
@@ -195,6 +204,7 @@ export class NoteMutator {
     const res = await this.send('createDiscussion', 'POST', path, {
       headers: { "Content-Type": "application/json", "PRIVATE-TOKEN": this.token },
       body: JSON.stringify({ body }),
+      timeoutMs: COMMENT_WRITE_TIMEOUT_MS,
     });
 
     if (!res.ok) {
@@ -223,6 +233,7 @@ export class NoteMutator {
     const res = await this.send('createPositionedDiscussion', 'POST', path, {
       headers: { "Content-Type": "application/json", "PRIVATE-TOKEN": this.token },
       body: JSON.stringify({ body, position }),
+      timeoutMs: COMMENT_WRITE_TIMEOUT_MS,
     });
 
     if (!res.ok) {
@@ -274,6 +285,7 @@ export class NoteMutator {
     const res = await this.send('updateNote', 'PUT', path, {
       headers: { "Content-Type": "application/json", "PRIVATE-TOKEN": this.token },
       body: JSON.stringify({ body }),
+      timeoutMs: COMMENT_WRITE_TIMEOUT_MS,
     });
 
     if (!res.ok) {
@@ -287,7 +299,10 @@ export class NoteMutator {
   /** Permanently delete a note. */
   async deleteNote(project: number | string, mrIid: number, noteId: number): Promise<void> {
     const path = `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/notes/${noteId}`;
-    const res = await this.send('deleteNote', 'DELETE', path, { headers: { "PRIVATE-TOKEN": this.token } });
+    const res = await this.send('deleteNote', 'DELETE', path, {
+      headers: { "PRIVATE-TOKEN": this.token },
+      timeoutMs: COMMENT_WRITE_TIMEOUT_MS,
+    });
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");

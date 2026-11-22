@@ -101,6 +101,26 @@ describe('fetchDiffRefs', () => {
   });
 });
 
+describe('comment writes are bounded', () => {
+  const position = { base_sha: 'b', start_sha: 's', head_sha: 'h', position_type: 'text' as const, new_path: 'a.ts', old_path: 'a.ts', new_line: 3 };
+  const discussion = { id: 'd1', notes: [{ id: 5, body: 'b', type: 'DiffNote' }] };
+  const writes: [string, (m: NoteMutator) => Promise<unknown>, number, unknown][] = [
+    ['createNote', m => m.createNote(42, 9, 'b'), 201, { id: 5, body: 'b' }],
+    ['createNote reply', m => m.createNote(42, 9, 'b', 'd1'), 201, { id: 5, body: 'b' }],
+    ['createDiscussion', m => m.createDiscussion(42, 9, 'b'), 201, discussion],
+    ['createPositionedDiscussion', m => m.createPositionedDiscussion(42, 9, 'b', position), 201, discussion],
+    ['updateNote', m => m.updateNote(42, 9, 5, 'b'), 200, { id: 5 }],
+    ['deleteNote', m => m.deleteNote(42, 9, 5), 204, null],
+  ];
+  for (const [name, call, status, payload] of writes) {
+    test(`${name} carries an abort signal, so a slow GitLab cannot outlast the caller`, async () => {
+      const calls = stub(status, payload);
+      await call(new NoteMutator('https://gitlab.example.com', 'tok'));
+      expect(calls[0]!.signal).toBeInstanceOf(AbortSignal);
+    });
+  }
+});
+
 describe('createDiscussion', () => {
   test('posts to /discussions and returns the thread id', async () => {
     const calls = stub(201, {
