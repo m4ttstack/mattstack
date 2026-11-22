@@ -294,6 +294,7 @@ final class WindowModel: ObservableObject {
     func select(_ name: String) {
         activeApp = name
         activeAppIsFallback = false
+        Task { await checkFreshness(name) }
     }
 
     /// Opens the oldest counted decision.
@@ -386,6 +387,27 @@ final class WindowModel: ObservableObject {
     }
 
     func retry(_ name: String) {
+        recoveryReloads.remove(name)
+        store.reload(name)
+    }
+
+    func isStale(_ name: String) -> Bool {
+        tabStates[name]?.stale == true
+    }
+
+    /// Asks a ready tab's app which build it serves now.
+    func checkFreshness(_ name: String) async {
+        guard tabStates[name]?.phase == .ready, let app = app(named: name) else { return }
+        let health = await backends.health.check(app)
+        let wasStale = isStale(name)
+        tabEvent(name, .health(health))
+        if isStale(name), !wasStale {
+            TrayLog.info("window tab stale", ["app": name, "page": tabStates[name]?.buildId ?? "(none)",
+                                              "served": health.buildId ?? "(none)"])
+        }
+    }
+
+    func reloadStale(_ name: String) {
         recoveryReloads.remove(name)
         store.reload(name)
     }

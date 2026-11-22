@@ -339,6 +339,16 @@ private struct ContentArea: View {
     @ObservedObject var model: WindowModel
 
     var body: some View {
+        VStack(spacing: 0) {
+            if let app = model.app(named: model.activeApp), model.isStale(app.name) {
+                StaleNotice(model: model, app: app)
+                Rectangle().fill(separatorColor).frame(height: 1)
+            }
+            pages
+        }
+    }
+
+    private var pages: some View {
         ZStack {
             if let app = model.app(named: model.activeApp) {
                 WindowWebView(model: model, app: app)
@@ -355,6 +365,25 @@ private struct ContentArea: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct StaleNotice: View {
+    @ObservedObject var model: WindowModel
+    let app: DiscoveryApp
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("A new version of \(app.displayName) is available")
+                .font(.system(size: 12))
+                .foregroundColor(activeLabelColor)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Button("Reload") { model.reloadStale(app.name) }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: barHeight)
+        .background(barFill)
     }
 }
 
