@@ -78,7 +78,10 @@ export interface DiscussionHandlerSeams {
   refresh?: (repoName: string, iid: number) => Promise<Pick<RefreshResult, "discussions" | "fetchedAt"> | undefined>;
   readCached?: (repoName: string, iid: number) => { discussions: Discussion[]; fetchedAt: number } | undefined;
   selfUsername?: () => string | null;
+  refreshTimeoutMs?: number;
 }
+
+const POST_WRITE_REFRESH_TIMEOUT_MS = 15_000;
 
 const COMMENT_FILE_GITHUB_ONLY = "unsupported: mr:comment-file needs a GitHub repo";
 
@@ -210,7 +213,18 @@ export function createDiscussionHandlers(
   const repoContextFn = seams.repoContext ?? ((repoName: string, repoPath?: string): Promise<ThreadContext> => getRepoContext(repoName, repoPath));
   const diffsFn = seams.diffs ?? fetchMrDiffs;
   const warnFn = seams.warn ?? ((obj: object, msg: string) => log.warn(obj, msg));
-  const refreshFn = seams.refresh ?? ((repoName: string, iid: number) => refreshDiscussions(deps, repoName, iid));
+  const fullRefreshFn = seams.refresh ?? ((repoName: string, iid: number) => refreshDiscussions(deps, repoName, iid));
+  const refreshBoundMs = seams.refreshTimeoutMs ?? POST_WRITE_REFRESH_TIMEOUT_MS;
+  // After a write the refresh only freshens the cache, and every caller
+  // already treats its failure as success; bounded, so a slow forge cannot
+  // hold a landed write past the MCP client's timeout and invite a retry.
+  const refreshFn = (repoName: string, iid: number): ReturnType<typeof fullRefreshFn> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`discussions refresh took longer than ${refreshBoundMs}ms`)), refreshBoundMs);
+    });
+    return Promise.race([fullRefreshFn(repoName, iid), late]).finally(() => clearTimeout(timer));
+  };
   const readCachedFn = seams.readCached ?? ((repoName: string, iid: number) => getDiscussionsFileStore().read(repoName, iid));
   const selfUsernameFn = seams.selfUsername ?? getSelfUsername;
 
@@ -298,7 +312,7 @@ export function createDiscussionHandlers(
         } else {
           await repoCtx.provider.unresolveDiscussion(repoCtx.projectPath, iid, discussionId);
         }
-        const res = await refreshFn(repoName, iid);
+        const res = await fullRefreshFn(repoName, iid);
         if (!res) return { ok: false, error: "discussions refresh returned nothing" };
         return { ok: true, data: { discussions: res.discussions, fetchedAt: res.fetchedAt } };
       } catch (err) {
@@ -474,6 +488,9 @@ export function createDiscussionHandlers(
           return { ok: false, error: `could not delete stray note ${first.noteId}: ${String(err)}` };
         }
 
+        if (signal?.aborted) {
+          return { ok: false, error: `request aborted after GitLab dropped the position; note ${first.noteId} was deleted and nothing was posted` };
+        }
         let second: InlineCommentResult;
         try {
           second = await postOnce();

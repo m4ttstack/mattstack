@@ -404,6 +404,46 @@ describe("mr:comment-inline", () => {
     expect(res).toEqual({ ok: true, data: { discussionId: "d1", noteId: 101, verified: true } });
   });
 
+  test("a caller who aborts after a degraded post gets the stray note deleted and no retry post", async () => {
+    const controller = new AbortController();
+    const deleted: unknown[][] = [];
+    let createCalls = 0;
+    const seams = makeSeams({
+      createInlineComment: async () => {
+        createCalls++;
+        controller.abort();
+        return inlineResult("d1", 101, null);
+      },
+      deleteComment: async (...a) => { deleted.push(a); },
+    });
+
+    const h = createDiscussionHandlers(fakeCtx, () => {}, seams);
+    const res = await h["mr:comment-inline"]!(basePayload(), controller.signal);
+
+    expect(res.ok).toBe(false);
+    expect(!res.ok && res.error).toContain("note 101 was deleted and nothing was posted");
+    expect(deleted).toEqual([["42", 7, { id: 101 }]]);
+    expect(createCalls).toBe(1);
+  });
+
+  test("a refresh that never settles still returns the landed comment, once its bound passes", async () => {
+    const seams = {
+      ...makeSeams(
+        {
+          createInlineComment: async () => inlineResult("d1", 101, "DiffNote"),
+          deleteComment: async () => { throw new Error("should not be called"); },
+        },
+        () => new Promise<never>(() => {}),
+      ),
+      refreshTimeoutMs: 20,
+    };
+
+    const h = createDiscussionHandlers(fakeCtx, () => {}, seams);
+    const res = await h["mr:comment-inline"]!(basePayload());
+
+    expect(res).toEqual({ ok: true, data: { discussionId: "d1", noteId: 101, verified: true } });
+  });
+
   test("the refresh call completes before the handler resolves", async () => {
     let refreshFinished = false;
     const seams = makeSeams(
