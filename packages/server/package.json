@@ -26,7 +26,8 @@
     "./event-bridge": "./src/event-bridge.ts",
     "./canonical-host": "./src/canonical-host.ts",
     "./local-request": "./src/local-request.ts",
-    "./shell-handoff": "./src/shell-handoff.ts"
+    "./shell-handoff": "./src/shell-handoff.ts",
+    "./host-signal": "./src/host-signal.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

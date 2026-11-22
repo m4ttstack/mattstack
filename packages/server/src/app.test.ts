@@ -3,6 +3,7 @@ import { HTTPException } from 'hono/http-exception';
 import { afterEach, expect, it, test, vi } from 'vitest';
 
 import { createApp } from './app';
+import { bootId } from './instance';
 
 vi.mock('@mattstack/rt-client', () => ({
   daemonHealth: vi.fn(async () => ({
@@ -50,11 +51,45 @@ test('a fixture server neither reads nor writes the shared color scheme', async 
 test('/api/health names the app and version', async () => {
   const res = await app().request('/api/health');
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({
+  expect(await res.json()).toMatchObject({
     ok: true,
     name: 'probe',
     version: '1.2.3',
   });
+});
+
+test('health carries bootId and the build id from the health option', async () => {
+  const res = await createApp({
+    name: 'probe',
+    version: '1.2.3',
+    routes: new Hono(),
+    health: () => ({ ok: true, buildId: 'abc' }),
+  }).request('/api/health');
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({
+    ok: true,
+    name: 'probe',
+    version: '1.2.3',
+    bootId,
+    buildId: 'abc',
+  });
+});
+
+test('health answers 503 when the health option says not ok', async () => {
+  const res = await createApp({
+    name: 'probe',
+    version: '1.2.3',
+    routes: new Hono(),
+    health: () => ({ ok: false, buildId: null }),
+  }).request('/api/health');
+  expect(res.status).toBe(503);
+  expect(await res.json()).toMatchObject({ ok: false, buildId: null });
+});
+
+test('health with no option is ok with a null build id', async () => {
+  const res = await app().request('/api/health');
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({ ok: true, bootId, buildId: null });
 });
 
 test('/api/daemon relays the down envelope with 200', async () => {
