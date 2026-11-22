@@ -17,6 +17,8 @@ final class WebViewStore {
     private var containers: [String: FindBarContainer] = [:]
     private var homeURLs: [String: URL] = [:]
     private var failedURLs: [String: URL] = [:]
+    /// The app name and the raw message body a tab's page posted to `mattstackHost`.
+    var onHostSignal: ((String, Any) -> Void)?
 
     /// What the window actually mounts: the webview wrapped in its own find
     /// bar container, so every tab carries its own ⌘F state for the window's
@@ -35,6 +37,9 @@ final class WebViewStore {
         let config = WKWebViewConfiguration()
         config.applicationNameForUserAgent = Self.shellUserAgentSuffix
         config.websiteDataStore = .default()
+        config.userContentController.add(HostSignalHandler(appName: app.name) { [weak self] name, body in
+            self?.onHostSignal?(name, body)
+        }, name: HostSignalHandler.name)
         let view = WKWebView(frame: .zero, configuration: config)
         view.allowsBackForwardNavigationGestures = true
         // Every flavor, prod included: a freeze on a teammate's Mac can only be
@@ -61,14 +66,17 @@ final class WebViewStore {
 
     func noteLoaded(_ name: String) { failedURLs[name] = nil }
 
-    func reload(_ name: String) {
-        guard let view = views[name] else { return }
+    /// False when there was nothing to load, so no navigation will start.
+    @discardableResult
+    func reload(_ name: String) -> Bool {
+        guard let view = views[name] else { return false }
         switch WindowReload.action(failedURL: failedURLs.removeValue(forKey: name),
                                    hasCommittedPage: view.backForwardList.currentItem != nil,
                                    home: homeURLs[name]) {
         case .reload: view.reload()
         case .load(let url): view.load(URLRequest(url: url))
-        case .nothing: break
+        case .nothing: return false
         }
+        return true
     }
 }

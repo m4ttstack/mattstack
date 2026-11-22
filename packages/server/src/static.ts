@@ -1,4 +1,4 @@
-import type { Context, Hono, MiddlewareHandler, Next } from 'hono';
+import type { Context, Hono, Next } from 'hono';
 
 import { mountEmbeddedStatic } from './embedded/mount';
 import {
@@ -6,12 +6,14 @@ import {
   type ResolvedAsset,
 } from './embedded/serve';
 import type { EmbeddedManifest } from './embedded/types';
+import { injectHostSignal } from './host-signal';
 import { ICON_FILES } from './icon-files';
-
-export type ServeStaticFn = (options: {
-  root?: string;
-  path?: string;
-}) => MiddlewareHandler;
+import { buildIdOf, type HealthState } from './instance';
+import {
+  createMemoryStatic,
+  nodeSnapshotFs,
+  type SnapshotFs,
+} from './memory-static';
 
 export interface MountStaticOptions {
   /** Present in a compiled binary; null or absent means serve `distRoot` off disk. */
@@ -20,44 +22,64 @@ export interface MountStaticOptions {
   distRoot?: string;
   /** Test seam for embedded mode; defaults to the Bun.file-backed response. */
   toResponse?: (asset: ResolvedAsset) => Response;
+  /** Test seam; defaults to node:fs. */
+  fs?: SnapshotFs;
 }
 
 /**
- * `serveStatic` is injected (hono/bun's in production) so this module and
- * its path rules stay importable under vitest. The SPA fallback checks the
- * request path itself rather than relying on registration order: a bare '*'
+ * Disk mode holds `dist/` in memory, so a page keeps loading while the
+ * folder is mid-rebuild or unreadable. The SPA fallback checks the request
+ * path itself rather than relying on registration order: a bare '*'
  * fallback would answer an unmatched /api route with 200 and index.html, and
  * /ws with 200 instead of an upgrade.
  */
 export function mountStatic(
   app: Hono,
-  serveStatic: ServeStaticFn,
   opts: MountStaticOptions = {}
-): void {
-  const distRoot = opts.distRoot ?? './dist';
-  let serveIndex: (c: Context, next: Next) => Promise<Response | void>;
+): { health(): HealthState } {
+  const fs = opts.fs ?? nodeSnapshotFs;
+  let serveIndex: () => Response | null;
+  let health: () => HealthState;
 
   if (opts.embedded) {
-    const index = mountEmbeddedStatic(
-      app,
-      opts.embedded,
-      opts.toResponse ?? bunToResponse
-    );
-    serveIndex = async c => index(c);
-  } else {
-    app.use('/assets/*', serveStatic({ root: distRoot }));
-    app.use('/fonts/*', serveStatic({ root: distRoot }));
-    for (const icon of ICON_FILES) {
-      app.get(`/${icon}`, serveStatic({ path: `${distRoot}/${icon}` }));
+    mountEmbeddedStatic(app, opts.embedded, opts.toResponse ?? bunToResponse);
+    try {
+      const raw = new TextDecoder().decode(
+        fs.read(opts.embedded.indexHtmlPath)
+      );
+      const buildId = buildIdOf(raw);
+      const html = injectHostSignal(raw, buildId);
+      serveIndex = () =>
+        new Response(html, {
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        });
+      health = () => ({ ok: true, buildId });
+    } catch {
+      serveIndex = () => null;
+      health = () => ({ ok: false, buildId: null });
     }
-    serveIndex = serveStatic({ path: `${distRoot}/index.html` });
+  } else {
+    const memory = createMemoryStatic(opts.distRoot ?? './dist', fs);
+    const serveOrNext = async (c: Context, next: Next) =>
+      memory.serve(c.req.path) ?? next();
+    app.use('/assets/*', serveOrNext);
+    app.use('/fonts/*', serveOrNext);
+    for (const icon of ICON_FILES) app.get(`/${icon}`, serveOrNext);
+    serveIndex = memory.index;
+    health = memory.health;
   }
 
   app.use('*', async (c, next) => {
     if (c.req.path.startsWith('/api')) return c.notFound();
     if (c.req.path === '/ws') return next();
-    return (await serveIndex(c, next)) ?? c.notFound();
+    const page = serveIndex();
+    if (page) return page;
+    // A loaded error page would read as a ready tab; a 503 marks it not ready.
+    return health().ok
+      ? c.notFound()
+      : c.json({ error: 'app files unreadable' }, 503);
   });
+  return { health };
 }
 
 export { decideServingMode } from './serving-mode';

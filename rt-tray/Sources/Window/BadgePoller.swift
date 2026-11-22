@@ -49,6 +49,7 @@ final class BadgePoller {
         for (name, reading) in results { book.record(app: name, reading: reading) }
         if model.badges != book.readings { model.badges = book.readings }
         NSApp.dockTile.badgeLabel = BadgeBook.label(book.total)
+        await model.checkFreshness(model.activeApp)
     }
 
     /// Every *.mattstack host is the same local proxy, so on a shared session

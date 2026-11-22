@@ -246,7 +246,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
 
         Task { @MainActor in
             setHealth(.starting)
-            var launch: (registration: LaunchRegistration, progress: VersionChangeProgress, version: String)?
+            var launch: (registration: LaunchRegistration, progress: VersionChangeProgress, identity: String)?
             if BundleFlavor.isStubActive {
                 TrayLog.info("stub mode: skipping real service registration and version-change restart")
             } else {
@@ -256,11 +256,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     await lifecycle.reregisterDaemon(origin: DaemonOrigin.plistChanged)
                 }
                 let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+                let executableModified = try? Bundle.main.executableURL?
+                    .resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+                let identity = LaunchIdentity.current(version: version, executableModified: executableModified)
                 let progress = await servicesRegistrar.handleVersionChange(
-                    current: version, store: UserDefaults.standard,
+                    current: identity, store: UserDefaults.standard,
                     registeredThisLaunch: registration.registeredThisLaunch)
                 TrayLog.info("version change evaluated", ["change": String(describing: progress.change)])
-                launch = (registration, progress, version)
+                launch = (registration, progress, identity)
             }
             await recordAppPath()
 
@@ -273,7 +276,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 if let takeover = launchTakeover, let failure = await takeover.value {
                     TrayLog.warn("takeover failed; launch records wait for the next launch", ["failure": failure])
                 } else {
-                    await settleAgentsAfterLaunch(launch.registration, launch.progress, version: launch.version)
+                    await settleAgentsAfterLaunch(launch.registration, launch.progress, identity: launch.identity)
                 }
             } else {
                 for _ in 0..<8 {
@@ -289,7 +292,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
 
     @MainActor
     private func settleAgentsAfterLaunch(_ registration: LaunchRegistration, _ progress: VersionChangeProgress,
-                                         version: String) async {
+                                         identity: String) async {
         guard let registrar = servicesRegistrar else { return }
         let lifecycle = daemonLifecycle
         let client = daemonClient
@@ -305,7 +308,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             })
         let report = await registrar.settleLaunch(probes, latch: spawnHealLatch)
         registrar.recordAfterSettle(LaunchRecording.plan(registration: registration, progress: progress, report: report),
-                                    progress: progress, current: version, store: UserDefaults.standard)
+                                    progress: progress, current: identity, store: UserDefaults.standard)
         Task { @MainActor [weak self] in
             await self?.runSetupUpdateAfterLaunch()
             await self?.runHerdrStartAfterLaunch()
@@ -318,7 +321,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 self?.deckLifecycle?.servedAppsRestarting = true
                 await registrar.restartServedApps()
                 self?.deckLifecycle?.servedAppsRestarting = false
-                await self?.windowModel?.retryFailedTabsAfterServedAppsRestart()
             }
         }
     }

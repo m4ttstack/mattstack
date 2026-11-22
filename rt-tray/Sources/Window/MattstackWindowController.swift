@@ -45,6 +45,11 @@ final class MattstackWindowController: NSWindowController, NSWindowDelegate {
         model.activeFindContainer?.performTextFinderAction(sender)
     }
 
+    func windowDidBecomeKey(_ notification: Notification) {
+        let name = model.activeApp
+        Task { await model.checkFreshness(name) }
+    }
+
     func show() {
         let splashing = model.presentSplashIfNeeded()
         // Apps turned on or off outside Settings (rt apps, deck, a setup run) reach the tabs only through a fresh catalog.

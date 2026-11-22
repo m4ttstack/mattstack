@@ -6,6 +6,7 @@ import {
   deckAppUrl,
   type EventBridgeRule,
 } from '@mattstack/app-server/event-bridge';
+import { bootId, injectHostSignal } from '@mattstack/app-server/host-signal';
 import { shellHandoff } from '@mattstack/app-server/shell-handoff';
 import {
   GitLabProvider,
@@ -55,9 +56,11 @@ import {
 import { IS_PACKAGED } from './app-root.ts';
 import { SnapshotCache } from './cache.ts';
 import {
+  boardBuildId,
   clientChunkResponse,
   fixedUrlResponse,
   getClientAssets,
+  readStyleOr,
   watchClientAssets,
   withEarlierChunks,
 } from './client-assets.ts';
@@ -565,9 +568,11 @@ if (Bun.argv.includes('--version')) {
   process.exit(0);
 }
 
-// Baked at build/boot via text imports (embedded in the compiled binary); the
-// /style.css route re-reads from disk in dev so CSS edits land on refresh.
+// Baked at build/boot via text imports (embedded in the compiled binary) and
+// served from memory, so a page loads while the file is mid-write; in dev the
+// watcher re-reads it into `style`.
 const cssPath = join(import.meta.dir, 'style.css');
+let style: string = styleCss;
 const favicon = faviconSvg;
 
 // First open of state.db in this process: the 'server' flavor's short busy
@@ -2274,13 +2279,19 @@ void refreshMemberNames();
 // bundle is rebuilt on every client edit and open browsers are told to
 // reload (see sseReload below); the binary carries one bundle for life.
 let clientAssets = await getClientAssets();
+let buildId = boardBuildId(clientAssets, style);
 if (!IS_PACKAGED) {
   watchClientAssets({
     onBundle: assets => {
       clientAssets = withEarlierChunks(clientAssets, assets);
+      buildId = boardBuildId(clientAssets, style);
       sseReload();
     },
-    onStyle: sseReload,
+    onStyle: () => {
+      style = readStyleOr(cssPath, style);
+      buildId = boardBuildId(clientAssets, style);
+      sseReload();
+    },
   });
 }
 
@@ -2290,6 +2301,7 @@ const shell = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
+<meta name="mattstack-host-signal">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>${config.title.replace(/</g, '&lt;')}</title>
 <script>
@@ -2393,6 +2405,14 @@ const httpServer = Bun.serve({
     switch (pathname) {
       case '/healthz':
         return new Response('ok');
+      case '/api/health':
+        return Response.json({
+          ok: true,
+          name: 'board',
+          version: pkg.version,
+          bootId,
+          buildId,
+        });
       case '/api/badge':
         return Response.json(
           decisionBadge(
@@ -2424,17 +2444,18 @@ const httpServer = Bun.serve({
         });
       }
       case '/':
-        return fixedUrlResponse(shell, 'text/html; charset=utf-8');
+        return fixedUrlResponse(
+          injectHostSignal(shell, buildId),
+          'text/html; charset=utf-8'
+        );
       // tui-kit's tokens + page canvas, bundled out of client/main.tsx. Linked
       // ahead of /style.css: the token block lives in @layer soribashi.tokens,
       // and canvas.css is unlayered but earlier, so the board's own unlayered
       // rules still win every conflict.
       case '/app.css':
         return fixedUrlResponse(clientAssets.appCss, 'text/css; charset=utf-8');
-      case '/style.css': {
-        const css = IS_PACKAGED ? styleCss : readFileSync(cssPath, 'utf-8');
-        return fixedUrlResponse(css, 'text/css; charset=utf-8');
-      }
+      case '/style.css':
+        return fixedUrlResponse(style, 'text/css; charset=utf-8');
       case '/favicon.svg':
         return new Response(favicon, {
           headers: { 'content-type': 'image/svg+xml; charset=utf-8' },

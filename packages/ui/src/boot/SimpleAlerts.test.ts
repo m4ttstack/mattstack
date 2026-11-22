@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+import './host';
 
 import {
   __resetSimpleAlertsForTests,
@@ -76,5 +78,24 @@ describe('SimpleAlerts', () => {
     dispatchUnhandledRejection(new Error('rejected'));
 
     expect(document.querySelector(PANEL_SELECTOR)).toBeNull();
+  });
+
+  describe('host signal', () => {
+    afterEach(() => {
+      delete window.__mattstackHost;
+    });
+
+    test('showing the fatal panel reports fatal to the host once', () => {
+      const fatal = vi.fn();
+      window.__mattstackHost = { ready: vi.fn(), failed: vi.fn(), fatal };
+      dispatchWindowError('boom');
+      dispatchWindowError('again');
+      expect(fatal).toHaveBeenCalledTimes(1);
+    });
+
+    test('showing the fatal panel with no host object does not throw', () => {
+      expect(() => dispatchWindowError('boom')).not.toThrow();
+      expect(document.querySelector(PANEL_SELECTOR)).not.toBeNull();
+    });
   });
 });

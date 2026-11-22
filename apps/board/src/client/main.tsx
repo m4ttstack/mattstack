@@ -16,6 +16,12 @@ import { boardDiffSource } from './board/board-diff-source.ts';
 import { Board } from './board/Board.tsx';
 import { DiffSourceContext } from './board/diff-source.ts';
 
+declare global {
+  interface Window {
+    __mattstackHost?: { ready(): void };
+  }
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <TuiKitProvider>
@@ -25,3 +31,4 @@ createRoot(document.getElementById('root')!).render(
     </TuiKitProvider>
   </StrictMode>
 );
+window.__mattstackHost?.ready();

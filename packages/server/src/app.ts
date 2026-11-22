@@ -3,6 +3,7 @@ import { HTTPException } from 'hono/http-exception';
 
 import { daemonHealth, getSetting, setSetting } from '@mattstack/rt-client';
 import { canonicalHostRedirect } from './canonical-host';
+import { bootId, type HealthState } from './instance';
 import {
   hasLocalOrigin,
   isLocalRequest,
@@ -26,7 +27,13 @@ export interface CreateAppOptions {
   sharedColorScheme?: boolean;
   /** Test seam; production always uses the real helper. */
   shellHandoff?: (req: Request) => Promise<Response | null>;
+  /** Read on every `/api/health`; absent means ok with no build id. */
+  health?: () => HealthState;
 }
+
+export type { HealthState };
+
+const ALWAYS_OK = (): HealthState => ({ ok: true, buildId: null });
 
 /**
  * The JSON floor under every failure and every miss: an RPC client checks
@@ -39,6 +46,7 @@ export function createApp({
   routes,
   sharedColorScheme = true,
   shellHandoff = defaultShellHandoff,
+  health = ALWAYS_OK,
 }: CreateAppOptions): Hono {
   const app = new Hono()
     .use(async (c, next) => {
@@ -48,7 +56,10 @@ export function createApp({
       if (handoff) return handoff;
       await next();
     })
-    .get('/api/health', c => c.json({ ok: true, name, version }, 200))
+    .get('/api/health', c => {
+      const { ok, buildId } = health();
+      return c.json({ ok, name, version, bootId, buildId }, ok ? 200 : 503);
+    })
     .get('/api/daemon', async c =>
       c.json(await daemonHealth({ sockPath: process.env.RT_SOCK_PATH }), 200)
     )

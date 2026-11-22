@@ -41,6 +41,28 @@ test('brackets the render with the boot alerts', async () => {
   );
 });
 
+test('reports ready to the host after mounting', async () => {
+  const ready = vi.fn();
+  window.__mattstackHost = { ready, failed: vi.fn(), fatal: vi.fn() };
+  try {
+    await act(async () => {
+      mountMattstackApp(<span />, { container: fresh() });
+    });
+    expect(ready).toHaveBeenCalledTimes(1);
+  } finally {
+    delete window.__mattstackHost;
+  }
+});
+
+test('mounting with no host object does not throw', async () => {
+  delete window.__mattstackHost;
+  await act(async () => {
+    expect(() =>
+      mountMattstackApp(<span />, { container: fresh() })
+    ).not.toThrow();
+  });
+});
+
 test('merges a theme override on top of Tokyo', async () => {
   await act(async () => {
     mountMattstackApp(<span data-testid="probe" />, {

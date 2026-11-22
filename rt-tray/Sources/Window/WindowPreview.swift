@@ -5,7 +5,7 @@ import SwiftUI
 
 private let crashedDeckPrint = "\tstate = not running\n\tlast exit code = 78: EX_CONFIG\n"
 
-/// `rt-tray --window-preview <waiting|ready|tab-5xx> --port <n>
+/// `rt-tray --window-preview <waiting|ready|tab-5xx|stale> --port <n>
 /// [--appearance dark|light] [--deadline <seconds>] [--capture-dir <dir>]`
 ///
 /// The real window view and model against a scripted deck, for looking at
@@ -13,7 +13,8 @@ private let crashedDeckPrint = "\tstate = not running\n\tlast exit code = 78: EX
 /// cannot open a second mattstack window on a Mac another flavor owns, and
 /// the real app registers launchd jobs, so this mode boots none of the tray.
 /// Apps come from a local server on `--port` answering /ok with a page,
-/// /fail with a 502 and /icon.svg with an icon.
+/// /fail with a 502 and /icon.svg with an icon. `stale` marks the first tab's
+/// page as an older build than its app serves, to show the new-version notice.
 @MainActor
 enum WindowPreview {
     private static var window: NSWindow!
@@ -36,6 +37,12 @@ enum WindowPreview {
             port = value("--port").flatMap { Int($0) } ?? port
             deadline = value("--deadline").flatMap { TimeInterval($0) } ?? deadline
             captureDir = value("--capture-dir")
+        }
+    }
+
+    private struct NewerBuildHealth: AppHealthSource {
+        func check(_ app: DiscoveryApp) async -> AppHealth {
+            AppHealth(answering: true, buildId: "preview-new")
         }
     }
 
@@ -73,7 +80,7 @@ enum WindowPreview {
         // falls back to the deck tab, which would load this Mac's real deck.
         try? json.write(to: URL(fileURLWithPath: cachePath))
 
-        model = WindowModel(backends: WindowBackends(
+        var backends = WindowBackends(
             catalog: AppCatalog(fetcher: ScriptedFetcher(json: json, deckUp: deckUp), cachePath: cachePath),
             deckFaviconURL: base + "/icon.svg",
             deckProbe: { deckUp() ? .healthy(pid: "preview") : .answered(status: 502) },
@@ -82,7 +89,9 @@ enum WindowPreview {
                     label: "com.mattstack.deck", registration: .enabled,
                     lookup: LaunchdPrint.parse(CommandOutcome(exitCode: 0, stdout: crashedDeckPrint, stderr: "")))
             },
-            deckWaitDeadline: options.deadline))
+            deckWaitDeadline: options.deadline)
+        if options.scenario == "stale" { backends.health = NewerBuildHealth() }
+        model = WindowModel(backends: backends)
 
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -98,6 +107,7 @@ enum WindowPreview {
         window.makeKeyAndOrderFront(nil)
         model.presentSplashIfNeeded()
         Task { await model.ensureCatalogLoaded() }
+        if options.scenario == "stale" { Task { await markActiveTabStale() } }
         Task { if await capture(options) { exit(0) } }
         app.run()
         exit(0)
@@ -107,6 +117,14 @@ enum WindowPreview {
     private static func accountHome() -> String {
         guard let entry = getpwuid(getuid()), let dir = entry.pointee.pw_dir else { return NSHomeDirectory() }
         return String(cString: dir)
+    }
+
+    private static func markActiveTabStale() async {
+        await waitFor { model.deckWait == .ready && model.overlay(for: model.activeApp) == .none }
+        let name = model.activeApp
+        model.tabEvent(name, .signal(.booting))
+        model.tabEvent(name, .signal(.ready(buildId: "preview-old")))
+        await model.checkFreshness(name)
     }
 
     private static func appsJSON(base: String, failFirst: Bool) -> Data {
@@ -138,6 +156,10 @@ enum WindowPreview {
             await waitFor { if case .unreachable = model.deckWait { return true } else { return false } }
             await pause(0.6)
             shoot("cant-reach")
+        case "stale":
+            await waitFor { model.isStale(model.activeApp) }
+            await pause(0.6)
+            shoot("notice")
         default:
             await waitFor { model.deckWait == .ready }
             await pause(3)

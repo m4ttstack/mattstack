@@ -1,6 +1,13 @@
-import { mkdirSync, watch, writeFileSync, type FSWatcher } from 'fs';
+import {
+  mkdirSync,
+  readFileSync,
+  watch,
+  writeFileSync,
+  type FSWatcher,
+} from 'fs';
 import { join } from 'path';
 
+import { buildIdOf } from '@mattstack/app-server/host-signal';
 import {
   buildClientBundle,
   type ClientBundle,
@@ -31,6 +38,21 @@ export function fixedUrlResponse(body: string, contentType: string): Response {
   return new Response(body, {
     headers: { 'content-type': contentType, 'cache-control': 'no-cache' },
   });
+}
+
+export function readStyleOr(path: string, lastGood: string): string {
+  try {
+    return readFileSync(path, 'utf-8');
+  } catch {
+    return lastGood;
+  }
+}
+
+export function boardBuildId(
+  assets: Pick<ClientBundle, 'appJs' | 'appCss'>,
+  style: string
+): string {
+  return buildIdOf(assets.appJs, assets.appCss, style);
 }
 
 export function clientChunkResponse(
@@ -163,9 +185,8 @@ export function createRebuilder<T>(opts: {
 
 /**
  * Dev only: rebuild the client bundle whenever a file under src/client
- * changes, and report a stylesheet save (which /style.css already re-reads
- * from disk) so the caller can tell browsers to reload either way. Returns
- * the stop function.
+ * changes, and report a stylesheet save so the caller can re-read it and
+ * tell browsers to reload either way. Returns the stop function.
  */
 export function watchClientAssets(handlers: {
   onBundle: (assets: ClientBundle) => void;

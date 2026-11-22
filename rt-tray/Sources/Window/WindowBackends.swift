@@ -10,6 +10,7 @@ struct WindowBackends {
     var deckProbe: @Sendable () async -> DeckProbeResult
     var diagnoseDeckAgent: @Sendable () async -> String
     var deckWaitDeadline: TimeInterval
+    var health: any AppHealthSource = URLSessionAppHealthSource()
 
     static func live() -> WindowBackends {
         WindowBackends(
@@ -18,7 +19,8 @@ struct WindowBackends {
             deckFaviconURL: "https://deck.mattstack/favicon.svg",
             deckProbe: { await LiveDeckProbe.probe() },
             diagnoseDeckAgent: { await LiveDeckDiagnosis.describe() },
-            deckWaitDeadline: DeckWaitTuning.deadline)
+            deckWaitDeadline: DeckWaitTuning.deadline,
+            health: URLSessionAppHealthSource())
     }
 }
 
