@@ -202,6 +202,14 @@ inheriting an identity is CLI-typed or daemon-internal.
 
 These two skill edits ship separately from the mod and the rt verb.
 
+## Distribution
+
+On by default (Matt's decision): the mod ships like `human-todos`, as a
+built copy under `plugins/fresh-context` listed in
+`marketplace/marketplace.json`, and `rt setup` installs it, so every
+session has `fresh_context`. The two skills keep a short fallback, today's
+herdr route, for a session where the tool is missing.
+
 ## Constraints
 
 - Mods follow the `human-todos` layout: `mod.json`,
