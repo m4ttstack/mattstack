@@ -1367,7 +1367,8 @@ async function runSignOut(args: string[]): Promise<void> {
   const session = readChatSession(sessionId);
   // Bounded well under the SessionEnd hook's 5s budget, so a slow/wedged
   // daemon can't eat the budget local cleanup (below) still needs to run.
-  const res = await chatSignOut({ sessionId }, { timeoutMs: 3000 });
+  const reason = flagValue(args, "--reason");
+  const res = await chatSignOut({ sessionId, ...(reason ? { reason } : {}) }, { timeoutMs: 3000 });
 
   deleteChatSession(sessionId);
 

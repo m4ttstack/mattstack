@@ -877,9 +877,15 @@ export interface Commands {
    * such a caller learns which session file to delete locally.
    */
   "chat:sign-out": {
-    payload: { sessionId?: string; pane?: string; viaPane?: boolean };
+    /** `reason` is the SessionEnd reason when the hook signs out; only "clear" can be held for a hand-off. */
+    payload: { sessionId?: string; pane?: string; viaPane?: boolean; reason?: string };
     data: { sessionId: string };
   };
+  /** A signed-in session about to clear itself marks its identity as handing off to the next session its Claude process starts. */
+  "chat:handoff-begin": { payload: { sessionId: string; pid: number }; data: { handle: string } };
+  /** The session the process moved on to takes the identity, its status and rooms, and gets the sign-in welcome. */
+  "chat:handoff-complete": { payload: { fromSessionId: string; sessionId: string }; data: { handle: string; name: string } };
+  "chat:handoff-cancel": { payload: { fromSessionId: string }; data: { signedOut: boolean } };
   "chat:away": { payload: { sessionId: string; text: string }; data: Record<string, never> };
   "chat:back": { payload: { sessionId: string }; data: Record<string, never> };
   "chat:buddies": { payload: Record<string, never>; data: { buddies: Array<PresenceRow & { status: BuddyStatus }> } };
@@ -1348,6 +1354,9 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "chat:messages",
   "chat:sign-in",
   "chat:sign-out",
+  "chat:handoff-begin",
+  "chat:handoff-complete",
+  "chat:handoff-cancel",
   "chat:away",
   "chat:back",
   "chat:buddies",

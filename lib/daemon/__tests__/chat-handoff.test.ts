@@ -1,0 +1,101 @@
+import { beforeEach, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { openStateDb, presenceForSession } from "../../state/index.ts";
+import type { HandoffDeps } from "../../state/chat-handoff.ts";
+import { setSetting } from "../../settings/write.ts";
+import { createChatHandlers, type InboxDeps } from "../handlers/chat.ts";
+
+let n = 0;
+
+function fakeSocketPath(): string {
+  const p = join(mkdtempSync(join(tmpdir(), "chat-handoff-sock-")), "s.sock");
+  writeFileSync(p, "");
+  return p;
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error("waitFor: timed out");
+    await Bun.sleep(5);
+  }
+}
+
+beforeEach(() => {
+  setSetting("chat.humanHandle", "matt", "user");
+});
+
+/** "old" signs in, then clears: its inbox is gone and the pid now names "new". */
+async function world() {
+  const db = openStateDb(join(tmpdir(), `chat-handoff-daemon-${process.pid}-${n++}.db`));
+  const sockets = new Map<string, string>([["old", fakeSocketPath()], ["kai", fakeSocketPath()]]);
+  const frames = new Map<string, string[]>();
+  const inboxDeps: InboxDeps = {
+    resolve: (sessionId) => {
+      const socketPath = sockets.get(sessionId);
+      return socketPath ? { pid: process.pid, socketPath, status: "idle" } : null;
+    },
+    deliver: async (socketPath, content) => {
+      const session = [...sockets].find(([, path]) => path === socketPath)![0];
+      frames.set(session, [...(frames.get(session) ?? []), content]);
+      return { ok: true };
+    },
+  };
+  const pid: { session: string } = { session: "old" };
+  const handoffDeps: HandoffDeps = { sessionForPid: () => pid.session, pidAlive: () => true };
+  const h = createChatHandlers({ db, emitEvent: () => 0, inboxDeps, handoffDeps, retryDelayMs: 0 });
+  const old = await h["chat:sign-in"]({ sessionId: "old" });
+  if (!old.ok) throw new Error(old.error);
+  const kai = await h["chat:sign-in"]({ sessionId: "kai", continue: "kai" });
+  if (!kai.ok) throw new Error(kai.error);
+  const clear = () => {
+    sockets.delete("old");
+    sockets.set("new", fakeSocketPath());
+    pid.session = "new";
+  };
+  return { db, h, handle: old.data.handle, name: old.data.name, frames, clear };
+}
+
+test("begin then complete keeps the handle on the new session", async () => {
+  const { db, h, handle, name, clear } = await world();
+  expect(await h["chat:handoff-begin"]({ sessionId: "old", pid: 4242 })).toEqual({ ok: true, data: { handle } });
+  clear();
+  expect(await h["chat:handoff-complete"]({ fromSessionId: "old", sessionId: "new" })).toEqual({ ok: true, data: { handle, name } });
+  expect(presenceForSession("new", db)?.handle).toBe(handle);
+  expect(presenceForSession("old", db)).toBeNull();
+});
+
+test("complete delivers a welcome with the catch-up", async () => {
+  const { h, handle, frames, clear } = await world();
+  await h["chat:handoff-begin"]({ sessionId: "old", pid: 4242 });
+  clear();
+  await h["chat:dm"]({ from: "kai", to: handle, body: "sent during the reset", sessionId: "kai" });
+  await h["chat:handoff-complete"]({ fromSessionId: "old", sessionId: "new" });
+  const welcome = () => (frames.get("new") ?? []).find((f) => f.includes("You're signed in to rt chat as"));
+  await waitFor(() => welcome() !== undefined);
+  expect(welcome()).toContain("kai: sent during the reset");
+});
+
+test("complete refuses another session", async () => {
+  const { h, clear } = await world();
+  await h["chat:handoff-begin"]({ sessionId: "old", pid: 4242 });
+  clear();
+  const r = await h["chat:handoff-complete"]({ fromSessionId: "old", sessionId: "intruder" });
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.failure?.code).toBe("not-this-session");
+});
+
+test("cancel returns signedOut false before the clear", async () => {
+  const { h } = await world();
+  await h["chat:handoff-begin"]({ sessionId: "old", pid: 4242 });
+  expect(await h["chat:handoff-cancel"]({ fromSessionId: "old" })).toEqual({ ok: true, data: { signedOut: false } });
+});
+
+test("begin refuses a session that is not signed in", async () => {
+  const { h } = await world();
+  const r = await h["chat:handoff-begin"]({ sessionId: "stranger", pid: 4242 });
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.failure?.code).toBe("not-signed-in");
+});

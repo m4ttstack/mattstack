@@ -1,6 +1,6 @@
 {
   "name": "chat",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "rt chat presence: sign-in/join/sign-out/away skills the hooks that confirm a signed-in session across resumes, and auto sign-in where chat.autoSignIn is on.",
   "author": {
     "name": "Matthew Goodwin"

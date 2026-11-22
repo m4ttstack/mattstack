@@ -5,6 +5,18 @@
  */
 
 import type { Database } from "bun:sqlite";
+import {
+  beginHandoff,
+  cancelHandoff,
+  completeHandoff,
+  defaultHandoffDeps,
+  dropHandoffFrom,
+  handoffFromSession,
+  markOldSessionEnded,
+  pendingHandoffFor,
+  type HandoffDeps,
+  type HandoffRefusal,
+} from "../../state/chat-handoff.ts";
 import type { Logger } from "pino";
 import {
   ackMessage,
@@ -108,6 +120,9 @@ const CHAT_COMMANDS = [
   "chat:messages",
   "chat:sign-in",
   "chat:sign-out",
+  "chat:handoff-begin",
+  "chat:handoff-complete",
+  "chat:handoff-cancel",
   "chat:away",
   "chat:back",
   "chat:buddies",
@@ -116,6 +131,19 @@ const CHAT_COMMANDS = [
   "chat:archive",
   "chat:dm-open",
 ] as const;
+
+const HANDOFF_REFUSALS: Record<HandoffRefusal["refused"], string> = {
+  "not-signed-in": "chat: this session is not signed in, so it has no chat name to hand off",
+  "already-handing-off": "chat: this chat name is already handing off",
+  "no-handoff": "chat: no hand-off is waiting from that session",
+  "not-this-session": "chat: that hand-off belongs to another session",
+  busy: "chat: the chat database is busy, so the hand-off did not start",
+};
+
+function handoffRefusal(r: HandoffRefusal): { ok: false; error: string; failure: { code: string; message: string } } {
+  const message = HANDOFF_REFUSALS[r.refused];
+  return { ok: false, error: message, failure: { code: r.refused, message } };
+}
 
 function failureFrom(err: unknown): { ok: false; error: string; failure?: { code: string; message: string } } {
   const error = err instanceof Error ? err.message : String(err);
@@ -911,7 +939,7 @@ function unreachableSenderRefusal(
   if (fixedIdentityRefusal(handle) !== undefined || getIdentity(handle, db) || presenceForHandle(handle, db)) return null;
   const now = Date.now();
   const th = presenceThresholds();
-  const live = (row: PresenceRow | null): row is PresenceRow => row !== null && row.handle !== handle && buddyStatus(row, now, th, registryDeps) !== "offline";
+  const live = (row: PresenceRow | null): row is PresenceRow => row !== null && row.handle !== handle && buddyStatus(row, now, th, registryDeps, (h) => pendingHandoffFor(h, db) !== null) !== "offline";
   const byPane = typeof origin.pane === "string" ? signedInPresenceForPane(origin.pane, db) : null;
   const bySession = typeof origin.sessionId === "string" ? presenceForSession(origin.sessionId, db) : null;
   const holder = live(byPane) ? { row: byPane, where: "pane" } : live(bySession) ? { row: bySession, where: "session" } : null;
@@ -999,6 +1027,8 @@ export function createChatHandlers(opts: {
   inboxDeps?: InboxDeps;
   /** The registry probe behind buddyStatus (chat:who, chat:buddies) and signIn's reclaim check; real by default, fakeable the same way inboxDeps is. */
   registryDeps?: RegistryDeps;
+  /** The registry probe behind a pending chat hand-off; real by default. */
+  handoffDeps?: HandoffDeps;
   /** repo/branch/room derivation for `--pane` sign-in (lib/repo-for-cwd.ts, the same index-based, no-sync-git-spawn source pane.ts's own paneRow uses). */
   repoIndex?: () => Record<string, string>;
   exec?: typeof runCapture;
@@ -1035,6 +1065,7 @@ export function createChatHandlers(opts: {
   const herdr = opts.herdr ?? herdrRequest;
   const inboxDeps = opts.inboxDeps ?? defaultInboxDeps;
   const registryDeps = opts.registryDeps;
+  const handoffDeps = opts.handoffDeps ?? defaultHandoffDeps;
   const repoIndex = opts.repoIndex ?? (() => ({}));
   const exec = opts.exec ?? runCapture;
   const paneSessionBudgetMs = opts.paneSessionBudgetMs ?? PANE_SESSION_BUDGET_MS;
@@ -1063,6 +1094,38 @@ export function createChatHandlers(opts: {
     const names = identityNames(ids, db);
     return ids.map((id) => names.get(id) ?? id);
   };
+
+  /** A session that signed out leaves its Slack chat; not awaited, since sign-out runs on SessionEnd's short budget. finishClose marks the row closed before its first Slack send. */
+  function closeHeldSlack(handle: string): void {
+    const held = conversationForAgent(handle, db);
+    if (!held) return;
+    finishClose(held.id, "pane-gone", undefined, slackCloseDeps).catch((err) => {
+      log.warn({ err, conversation: held.id }, "chat: sign-out could not close its Slack chat");
+    });
+  }
+
+  /** The sign-in welcome: the session's rooms and its unread catch-up, delivered once the caller has answered. */
+  function queueWelcome(sessionId: string, handle: string, name: string): void {
+    const rooms = listRooms(handle, db).map((r) => r.room);
+    // A non-advancing peek, not readUnread: the welcome is composed BEFORE
+    // delivery is attempted, and readUnread's cursor write happens
+    // unconditionally at read time -- a failed or unresolvable welcome
+    // would then have permanently skipped whatever it "showed". The
+    // cursor only actually advances, per room, once deliverWelcomeOnce
+    // confirms the frame was sent.
+    const peeked = peekUnread({ handle, limit: WELCOME_CATCHUP_LIMIT }, db);
+    const catchup = peeked.map((r) => ({ room: r.room, lines: r.messages.map((m) => `${m.name}: ${m.body}`) }));
+    const senders = peeked.flatMap((r) =>
+      r.messages.map((m) => ({ handle: m.handle, name: m.name, room: r.room, passedOn: resolveHandle(m.handle, db) !== m.handle })),
+    );
+    const catchupCursors = peeked.map((r) => ({ room: r.room, upToId: r.messages[r.messages.length - 1]!.id }));
+    const welcomeContent = wrapCrossSession("rt chat", renderWelcome(name, rooms, catchup, senders));
+    queueMicrotask(() => {
+      deliverWelcome(db, deliveryChains, inboxDeps, sessionId, handle, welcomeContent, catchupCursors).catch((err) => {
+        log.warn({ err, handle }, "chat: welcome delivery failed");
+      });
+    });
+  }
 
   return {
     "chat:join": async (rawPayload: unknown): Promise<CommandResult<"chat:join">> => {
@@ -1259,7 +1322,7 @@ export function createChatHandlers(opts: {
         // left behind or a name never signed in) has no session to probe
         // the registry with, so it reads offline rather than guessing from
         // stale membership columns.
-        const status: BuddyStatus = presence ? buddyStatus(presence, now, th, scoped) : "offline";
+        const status: BuddyStatus = presence ? buddyStatus(presence, now, th, scoped, (h) => pendingHandoffFor(h, db, handoffDeps) !== null) : "offline";
         return { ...member, status };
       });
       return { ok: true, data: { members } };
@@ -1393,26 +1456,7 @@ export function createChatHandlers(opts: {
         }
       }
 
-      const rooms = listRooms(data.handle, db).map((r) => r.room);
-      // A non-advancing peek, not readUnread: the welcome is composed BEFORE
-      // delivery is attempted, and readUnread's cursor write happens
-      // unconditionally at read time -- a failed or unresolvable welcome
-      // would then have permanently skipped whatever it "showed". The
-      // cursor only actually advances, per room, once deliverWelcomeOnce
-      // confirms the frame was sent.
-      const peeked = peekUnread({ handle: data.handle, limit: WELCOME_CATCHUP_LIMIT }, db);
-      const catchup = peeked.map((r) => ({ room: r.room, lines: r.messages.map((m) => `${m.name}: ${m.body}`) }));
-      const senders = peeked.flatMap((r) =>
-        r.messages.map((m) => ({ handle: m.handle, name: m.name, room: r.room, passedOn: resolveHandle(m.handle, db) !== m.handle })),
-      );
-      const catchupCursors = peeked.map((r) => ({ room: r.room, upToId: r.messages[r.messages.length - 1]!.id }));
-      const welcomeContent = wrapCrossSession("rt chat", renderWelcome(data.name, rooms, catchup, senders));
-      const welcomeSessionId = sessionId;
-      queueMicrotask(() => {
-        deliverWelcome(db, deliveryChains, inboxDeps, welcomeSessionId, data.handle, welcomeContent, catchupCursors).catch((err) => {
-          log.warn({ err, handle: data.handle }, "chat: welcome delivery failed");
-        });
-      });
+      queueWelcome(sessionId, data.handle, data.name);
 
       return { ok: true, data: { ...data, sessionId, room: derivedRoom } };
     },
@@ -1440,15 +1484,43 @@ export function createChatHandlers(opts: {
       deleteChatSession(sessionId);
       const presence = presenceForSession(sessionId, db);
       if (!presence) return { ok: true, data: { sessionId } };
-      signOut(sessionId, undefined, db);
-      // Not awaited: this runs on SessionEnd's short budget. finishClose marks the row closed before its first Slack send.
-      const held = conversationForAgent(presence.handle, db);
-      if (held) {
-        finishClose(held.id, "pane-gone", undefined, slackCloseDeps).catch((err) => {
-          log.warn({ err, conversation: held.id }, "chat: sign-out could not close its Slack chat");
-        });
+      // A session clearing itself hands its identity to the next one; the
+      // hand-off signs the row out itself if it never completes.
+      // Only a /clear's sign-out waits for the next session to take the name; an exit or a
+      // sign-out the session asked for ends the hand-off and signs out as always.
+      if (payload.reason === "clear" && pendingHandoffFor(presence.handle, db, handoffDeps)?.fromSessionId === sessionId) {
+        markOldSessionEnded(sessionId, db);
+        return { ok: true, data: { sessionId } };
       }
+      dropHandoffFrom(sessionId, db);
+      signOut(sessionId, undefined, db);
+      closeHeldSlack(presence.handle);
       return { ok: true, data: { sessionId } };
+    },
+
+    "chat:handoff-begin": async (rawPayload: unknown): Promise<CommandResult<"chat:handoff-begin">> => {
+      const payload = rawPayload as Commands["chat:handoff-begin"]["payload"];
+      const r = beginHandoff({ sessionId: payload.sessionId, pid: payload.pid }, db, handoffDeps);
+      if ("refused" in r) return handoffRefusal(r);
+      return { ok: true, data: { handle: r.handle } };
+    },
+
+    "chat:handoff-complete": async (rawPayload: unknown): Promise<CommandResult<"chat:handoff-complete">> => {
+      const payload = rawPayload as Commands["chat:handoff-complete"]["payload"];
+      const r = completeHandoff({ fromSessionId: payload.fromSessionId, sessionId: payload.sessionId }, db, handoffDeps);
+      if ("refused" in r) return handoffRefusal(r);
+      const name = identityName(r.handle, db);
+      queueWelcome(payload.sessionId, r.handle, name);
+      return { ok: true, data: { handle: r.handle, name } };
+    },
+
+    "chat:handoff-cancel": async (rawPayload: unknown): Promise<CommandResult<"chat:handoff-cancel">> => {
+      const payload = rawPayload as Commands["chat:handoff-cancel"]["payload"];
+      const handle = handoffFromSession(payload.fromSessionId, db)?.handle;
+      const r = cancelHandoff({ fromSessionId: payload.fromSessionId }, db, handoffDeps);
+      if ("refused" in r) return handoffRefusal(r);
+      if (r.signedOut && handle) closeHeldSlack(handle);
+      return { ok: true, data: r };
     },
 
     "chat:away": async (rawPayload: unknown): Promise<CommandResult<"chat:away">> => {
@@ -1468,7 +1540,7 @@ export function createChatHandlers(opts: {
     },
 
     "chat:buddies": async (): Promise<CommandResult<"chat:buddies">> => {
-      return { ok: true, data: { buddies: listBuddies(Date.now(), db, registryDeps) } };
+      return { ok: true, data: { buddies: listBuddies(Date.now(), db, registryDeps, handoffDeps) } };
     },
 
     "chat:dm": async (rawPayload: unknown): Promise<CommandResult<"chat:dm">> => {

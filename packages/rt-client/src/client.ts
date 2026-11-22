@@ -392,7 +392,29 @@ export function chatSignOut(
   if (a.sessionId !== undefined) payload.sessionId = a.sessionId;
   if (a.pane !== undefined) payload.pane = a.pane;
   if (a.viaPane !== undefined) payload.viaPane = a.viaPane;
+  if (a.reason !== undefined) payload.reason = a.reason;
   return rtCommand<Commands["chat:sign-out"]["data"]>("chat:sign-out", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
+export function chatHandoffBegin(
+  a: Commands["chat:handoff-begin"]["payload"],
+  o: RtClientOptions = {},
+): Promise<RtResponse<Commands["chat:handoff-begin"]["data"]>> {
+  return rtCommand<Commands["chat:handoff-begin"]["data"]>("chat:handoff-begin", { sessionId: a.sessionId, pid: a.pid }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
+export function chatHandoffComplete(
+  a: Commands["chat:handoff-complete"]["payload"],
+  o: RtClientOptions = {},
+): Promise<RtResponse<Commands["chat:handoff-complete"]["data"]>> {
+  return rtCommand<Commands["chat:handoff-complete"]["data"]>("chat:handoff-complete", { fromSessionId: a.fromSessionId, sessionId: a.sessionId }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
+export function chatHandoffCancel(
+  a: Commands["chat:handoff-cancel"]["payload"],
+  o: RtClientOptions = {},
+): Promise<RtResponse<Commands["chat:handoff-cancel"]["data"]>> {
+  return rtCommand<Commands["chat:handoff-cancel"]["data"]>("chat:handoff-cancel", { fromSessionId: a.fromSessionId }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
 export function chatAway(

@@ -28,6 +28,7 @@ import {
   type IdentityRow,
 } from "./identity-store.ts";
 import { getKvValue, setKvValue } from "./kv-blob.ts";
+import { defaultHandoffDeps, pendingHandoffFor, type HandoffDeps } from "./chat-handoff.ts";
 
 export type BuddyStatus = "live" | "idle" | "offline";
 
@@ -116,10 +117,12 @@ function bindingAlive(sessionId: string, deps: RegistryDeps): boolean {
  * while the agent is very much still there, so staleness alone must never
  * reclaim a seat the registry still vouches for.
  */
-function isReclaimable(row: PresenceRawRow, sessionStaleCutoff: number, deps: RegistryDeps): boolean {
+function isReclaimable(row: PresenceRawRow, sessionStaleCutoff: number, deps: RegistryDeps, db: Database): boolean {
   if (row.signed_out_at !== null) return true;
   if (row.last_seen_at >= sessionStaleCutoff) return false;
-  return !bindingAlive(row.session_id, deps);
+  if (bindingAlive(row.session_id, deps)) return false;
+  // Mid-hand-off the registry already names the next session, so the old row's binding reads dead.
+  return pendingHandoffFor(row.handle, db) === null;
 }
 
 /**
@@ -147,6 +150,7 @@ const DELETE_PRESENCE_BY_SESSION_SQL = `DELETE FROM chat_presence WHERE session_
 const RELEASE_PANE_SQL = `UPDATE chat_presence SET pane = NULL WHERE pane = ? AND session_id <> ?;`;
 const INSERT_PRESENCE_SQL =`INSERT INTO chat_presence (session_id, handle, base_handle, cwd, repo, branch, pane, status_text, signed_in_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`;
 const UPDATE_SIGN_OUT_SQL = `UPDATE chat_presence SET signed_out_at = ? WHERE session_id = ?;`;
+const UPDATE_SESSION_ID_SQL = `UPDATE chat_presence SET session_id = ?, signed_out_at = NULL WHERE session_id = ?;`;
 const UPDATE_STATUS_TEXT_SQL = `UPDATE chat_presence SET status_text = ? WHERE session_id = ?;`;
 const UPDATE_LAST_SEEN_SQL = `UPDATE chat_presence SET last_seen_at = ? WHERE session_id = ?;`;
 
@@ -183,15 +187,20 @@ export function presenceThresholds(): PresenceThresholds {
  * signature stability with every existing call site.
  */
 export function buddyStatus(
-  row: Partial<Pick<PresenceRow, "signedOutAt" | "lastSeenAt" | "sessionId">>,
+  row: Partial<Pick<PresenceRow, "signedOutAt" | "lastSeenAt" | "sessionId" | "handle">>,
   now: number,
   th: PresenceThresholds = presenceThresholds(),
   deps: RegistryDeps = defaultRegistryDeps,
+  handingOff: (handle: string) => boolean = (handle) => pendingHandoffFor(handle) !== null,
 ): BuddyStatus {
   if (row.signedOutAt !== undefined) return "offline";
   if (!row.sessionId) return "offline";
   const binding = deps.resolve(row.sessionId);
-  if (!binding || !deps.alive(binding)) return "offline";
+  if (!binding || !deps.alive(binding)) {
+    // Across a /clear the registry already names the next session, so the
+    // row would read offline until the hand-off completes.
+    return row.handle && handingOff(row.handle) ? "idle" : "offline";
+  }
   return binding.status === "busy" ? "live" : "idle";
 }
 
@@ -219,7 +228,7 @@ function seatsByName(db: Database, sessionStaleCutoff: number, deps: RegistryDep
   const seats = new Map<string, Seat>();
   for (const row of rows) {
     const name = names.get(row.handle)!;
-    seats.set(name, { ...row, name, reclaimable: isReclaimable(row, sessionStaleCutoff, deps) });
+    seats.set(name, { ...row, name, reclaimable: isReclaimable(row, sessionStaleCutoff, deps, db) });
   }
   return seats;
 }
@@ -251,7 +260,7 @@ function pickDisplayName(
 function claimIdentitySeat(id: string, sessionStaleCutoff: number, deps: RegistryDeps, db: Database): boolean {
   const holder = db.query(SELECT_PRESENCE_BY_HANDLE_SQL).get(id) as PresenceRawRow | null;
   if (!holder) return true;
-  if (!isReclaimable(holder, sessionStaleCutoff, deps)) return false;
+  if (!isReclaimable(holder, sessionStaleCutoff, deps, db)) return false;
   db.query(DELETE_PRESENCE_BY_SESSION_SQL).run(holder.session_id);
   return true;
 }
@@ -395,6 +404,11 @@ export function reserveAgentHandle(db: Database = getStateDb(), now: number = Da
   return run.immediate();
 }
 
+/** Re-keys a presence row onto the session that continues it, keeping its handle, status and timestamps. */
+export function movePresenceSession(fromSessionId: string, toSessionId: string, db: Database = getStateDb()): number {
+  return runCriticalWrite("movePresenceSession", () => db.query(UPDATE_SESSION_ID_SQL).run(toSessionId, fromSessionId).changes, { sessionId: fromSessionId }) ?? 0;
+}
+
 export function signOut(sessionId: string, now: number = Date.now(), db: Database = getStateDb()): void {
   // A sign-out lost to a busy write is not re-derivable later the way a
   // cache-class status write is (R057): retry rather than warn-and-drop.
@@ -424,6 +438,7 @@ export function listBuddies(
   now: number,
   db: Database = getStateDb(),
   deps: RegistryDeps = defaultRegistryDeps,
+  handoffDeps: HandoffDeps = defaultHandoffDeps,
 ): Array<PresenceRow & { status: BuddyStatus }> {
   const th = presenceThresholds();
   const dayAgo = now - th.pruneMs;
@@ -433,7 +448,7 @@ export function listBuddies(
   const scoped = snapshotRegistryDeps(deps);
   return rows.map((raw) => {
     const presence = rowToPresence(raw, names.get(raw.handle)!);
-    return { ...presence, status: buddyStatus(presence, now, th, scoped) };
+    return { ...presence, status: buddyStatus(presence, now, th, scoped, (handle) => pendingHandoffFor(handle, db, handoffDeps) !== null) };
   });
 }
 
@@ -489,13 +504,19 @@ export function assertSessionSignedIn(sessionId: string, db: Database = getState
  * (one directory read per candidate); pass a `snapshotRegistryDeps` result
  * from a caller that already paid for one scan this call (signIn does).
  */
-export function prunePresence(now: number, db: Database = getStateDb(), deps: RegistryDeps = defaultRegistryDeps): number {
+export function prunePresence(
+  now: number,
+  db: Database = getStateDb(),
+  deps: RegistryDeps = defaultRegistryDeps,
+  handoffDeps: HandoffDeps = defaultHandoffDeps,
+): number {
   const th = presenceThresholds();
   const dayAgo = now - th.pruneMs;
   const candidates = db.query(SELECT_PRUNE_CANDIDATES_SQL).all(dayAgo, dayAgo) as PresenceRawRow[];
   let deleted = 0;
   for (const row of candidates) {
     if (row.signed_out_at === null && bindingAlive(row.session_id, deps)) continue;
+    if (row.signed_out_at === null && pendingHandoffFor(row.handle, db, handoffDeps) !== null) continue;
     db.query(DELETE_PRESENCE_BY_SESSION_SQL).run(row.session_id);
     deleted++;
   }
