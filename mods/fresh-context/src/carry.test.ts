@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 
-import { carryPath, ledgerMessage, parseCarry, type Carry } from './carry.ts'
+import { ledgerMessage, parseCarry, type Carry } from './carry.ts'
 
 test('parseCarry round-trips a carry', () => {
   const carry: Carry = { mode: 'clear', ledger: 'Goal: ship it', then: '/mattstack:pr-usher', oldSessionId: 's-old', chatHandle: 'pansy.ab12', createdAt: 1 }
@@ -18,8 +18,4 @@ test('parseCarry rejects bad JSON and a carry missing its fields', () => {
 
 test('ledgerMessage wraps the ledger in its fixed header', () => {
   expect(ledgerMessage('x')).toBe('Ledger carried from before the reset:\n\nx')
-})
-
-test('carryPath names one file per old session', () => {
-  expect(carryPath('/data', 'abc')).toBe('/data/carry-abc.json')
 })

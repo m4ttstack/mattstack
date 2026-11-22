@@ -1,6 +1,6 @@
 export type Mode = 'clear' | 'compact'
 
-/** What survives the reset: the mod's working file, keyed by the session that asked for it. */
+/** What survives the reset: the ledger and where it goes, for the session that asked for it. */
 export interface Carry {
   mode: Mode
   ledger: string
@@ -8,10 +8,6 @@ export interface Carry {
   oldSessionId: string
   chatHandle?: string
   createdAt: number
-}
-
-export function carryPath(dataDir: string, sessionId: string): string {
-  return `${dataDir}/carry-${sessionId}.json`
 }
 
 export function parseCarry(text: string): Carry | null {

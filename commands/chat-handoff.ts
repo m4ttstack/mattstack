@@ -10,6 +10,7 @@
  */
 
 import { baseOfHandle } from "../lib/chat-names.ts";
+import { resolveInbox } from "../lib/claude-registry.ts";
 import { isValidSessionId, writeChatSession } from "../lib/chat-session.ts";
 import * as out from "../lib/ui/out.ts";
 import { chatHandoffBegin, chatHandoffCancel, chatHandoffComplete, type RtResponse } from "../packages/rt-client/src/index.ts";
@@ -54,8 +55,9 @@ export async function chatHandoff(args: string[]): Promise<void> {
 
   if (verb === "begin") {
     const sessionId = envSessionId();
-    const pid = Number(process.env.CLAUDE_PID);
-    if (!Number.isInteger(pid) || pid <= 0) failUsage("rt cannot tell which Claude process this is", USAGE, "Claude Code sets CLAUDE_PID; a hand-off only runs inside a Claude session.");
+    // A mod's child has no CLAUDE_PID; the Claude registry names the process its session runs in.
+    const pid = process.env.CLAUDE_PID ? Number(process.env.CLAUDE_PID) : (resolveInbox(sessionId)?.pid ?? NaN);
+    if (!Number.isInteger(pid) || pid <= 0) failUsage("rt cannot tell which Claude process this is", USAGE, "Claude Code sets CLAUDE_PID and lists its session in its registry; a hand-off only runs inside a Claude session.");
     const { handle } = settle(await chatHandoffBegin({ sessionId, pid }, sockOpts(args)), json);
     if (json) out.json({ ok: true, handle });
     else say(`✓ handing off ${handle}`);

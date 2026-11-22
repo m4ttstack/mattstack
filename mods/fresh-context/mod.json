@@ -6,7 +6,8 @@
     "author": {
       "name": "Matthew Goodwin"
     },
-    "license": "MIT"
+    "license": "MIT",
+    "types": "./types/index.d.ts"
   },
   "clients": [],
   "files": ["LICENSE", "README.md"]
