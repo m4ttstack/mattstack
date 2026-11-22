@@ -26,6 +26,10 @@ function deckListTable(rtApps: string[]): string {
 
 interface Options {
   branch?: string;
+  /** The served app whose manifest build exits nonzero. */
+  buildFails?: string;
+  /** Each root-URL probe of an app takes the next status; the last one repeats. Omitted apps answer 200. */
+  rootStatus?: Record<string, string[]>;
   announceOk?: boolean;
   /** The announce fails this many times before it succeeds (the daemon still coming back from the dev app's relaunch). */
   announceFailures?: number;
@@ -125,6 +129,13 @@ function registryJson(registry: Record<string, string> | undefined): string | nu
   return JSON.stringify({ version: 1, apps });
 }
 
+/** The ports and dev commands the served apps' mattstack.deck.json files declare; deck's own manifest has no build and no port. */
+const SERVED_PORTS: Record<string, number> = { board: 11006, console: 11001, chat: 11002, boxscore: 11005 };
+function manifestJson(app: string): string {
+  const port = SERVED_PORTS[app];
+  return JSON.stringify(port ? { dev: { start: "bun src/server.ts", build: "bun run build", deploy: "bun run deploy" }, port } : { dev: { deploy: "bun run deploy" } });
+}
+
 /** A seam set representing a fully healthy machine: every leg succeeds cleanly. */
 function fakeSeams(opts: Options = {}): {
   seams: UpdateMachineSeams & { calls: string[][]; deckBin: string };
@@ -143,6 +154,7 @@ function fakeSeams(opts: Options = {}): {
   const deckBin = (opts.devPidsBefore ?? [111]).length > 0 ? DEV_DECK : PROD_DECK;
   let failExactSeen = 0;
   const psChecks = new Map<string, number>();
+  const rootProbes = new Map<string, number>();
 
   const seams: UpdateMachineSeams & { calls: string[][]; deckBin: string } = {
     repoRoot: "/repo",
@@ -185,6 +197,17 @@ function fakeSeams(opts: Options = {}): {
       if (cmd.startsWith("git checkout")) return opts.checkoutExit ? fail("checkout failed", opts.checkoutExit) : ok("");
       if (cmd.startsWith("scripts/fetch-deps.sh")) return ok("", opts.fetchDepsExit ?? 0);
       if (cmd === "bun install --frozen-lockfile") return ok("");
+      if (cmd === "/bin/sh -c bun run build") {
+        return opts.buildFails && execOptions?.cwd?.endsWith(`/apps/${opts.buildFails}`) ? fail("vite: build failed") : ok("");
+      }
+      if (argv[0] === "curl") {
+        const port = Number(new URL(argv.at(-1)!).port);
+        const app = Object.entries(SERVED_PORTS).find(([, p]) => p === port)?.[0];
+        const replies = (app && opts.rootStatus?.[app]) || ["200"];
+        const seen = rootProbes.get(String(port)) ?? 0;
+        rootProbes.set(String(port), seen + 1);
+        return ok(replies[Math.min(seen, replies.length - 1)]!);
+      }
       if (cmd === "bun scripts/build-apps.ts --arch arm64") return ok("");
       if (cmd === "bun run build" || cmd.startsWith("bunx vsce package --no-dependencies --out ")) return ok("");
       if (cmd.startsWith("rt-tray/build.sh")) return ok("", opts.buildExit ?? 0);
@@ -278,6 +301,8 @@ function fakeSeams(opts: Options = {}): {
       calls.push(`readFile ${path}`);
       if (path.endsWith("SHA256SUMS")) return "cafefeed  mattstack-2.11.0.dmg\n";
       if (path.endsWith("registry.json")) return registryJson(opts.registry);
+      const manifest = /\/apps\/([^/]+)\/mattstack\.deck\.json$/.exec(path);
+      if (manifest) return manifestJson(manifest[1]!);
       return null;
     },
     writeFile: async (path, content) => {
@@ -851,6 +876,54 @@ describe("rt release update-machine", () => {
       const leg = report.legs.find((l) => l.id === "served-suite")!;
       expect(leg.status).toBe("error");
       expect(leg.detail).toContain("board");
+    });
+  });
+
+  describe("served suite: builds each app before the restart", () => {
+    test("runs every served app's manifest build in its folder, before deck restart --managed", async () => {
+      const { seams, execOpts } = fakeSeams();
+      const report = await runUpdateMachine(seams, { yes: true });
+      expect(report.legs.find((l) => l.id === "served-suite")!.status).toBe("ok");
+      const builds = execOpts.filter((e) => e.cmd === "/bin/sh -c bun run build").map((e) => (e.opts as { cwd?: string } | undefined)?.cwd);
+      expect(builds).toEqual(["board", "console", "chat", "boxscore"].map((app) => `/Users/x/Documents/GitHub/repo-tools/apps/${app}`));
+      const lastBuild = execOpts.findLastIndex((e) => e.cmd === "/bin/sh -c bun run build");
+      const restart = execOpts.findLastIndex((e) => e.cmd === `${DEV_DECK} restart --managed`);
+      expect(lastBuild).toBeLessThan(restart);
+    });
+
+    test("a failed build stops the leg before the restart, naming the app", async () => {
+      const { seams, calls } = fakeSeams({ buildFails: "console" });
+      const report = await runUpdateMachine(seams, { yes: true });
+      const leg = report.legs.find((l) => l.id === "served-suite")!;
+      expect(leg.status).toBe("error");
+      expect(leg.detail).toContain("console");
+      expect(leg.detail).toContain("vite: build failed");
+      const served = calls.findIndex((c) => c.startsWith("readFile") && c.includes("registry.json"));
+      expect(calls.slice(served)).not.toContain(`${DEV_DECK} restart --managed`);
+    });
+  });
+
+  describe("verify: each managed app's root URL", () => {
+    test("a managed app whose root URL does not answer 200 fails verify, naming it", async () => {
+      const { seams } = fakeSeams({ rootStatus: { chat: ["404"] } });
+      const report = await runUpdateMachine(seams, { yes: true });
+      const verify = report.legs.find((l) => l.id === "verify")!;
+      expect(verify.status).toBe("error");
+      expect(verify.detail).toContain("chat");
+      expect(verify.detail).toContain("404");
+    });
+
+    test("an app still coming up gets a few tries before it counts", async () => {
+      const { seams } = fakeSeams({ rootStatus: { board: ["000", "000", "200"] } });
+      const report = await runUpdateMachine(seams, { yes: true });
+      expect(report.legs.find((l) => l.id === "verify")!.status).toBe("ok");
+    });
+
+    test("probes each managed app on its manifest port", async () => {
+      const { seams, calls } = fakeSeams();
+      await runUpdateMachine(seams, { yes: true });
+      const probed = calls.filter((c) => c.startsWith("curl ")).map((c) => c.split(" ").at(-1));
+      expect(new Set(probed)).toEqual(new Set(["http://127.0.0.1:11006/", "http://127.0.0.1:11002/"]));
     });
   });
 

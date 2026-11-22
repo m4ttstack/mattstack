@@ -616,9 +616,56 @@ async function reregisterMovedApps(seams: UpdateMachineSeams, deck: string): Pro
   return null;
 }
 
+interface ServedAppManifest {
+  dev?: { build?: string };
+  port?: number;
+}
+
+function servedAppManifest(seams: UpdateMachineSeams, app: string): ServedAppManifest {
+  const raw = seams.readFile(`${seams.sharedCheckoutPath}/apps/${app}/mattstack.deck.json`);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as ServedAppManifest;
+  } catch {
+    return {};
+  }
+}
+
+/** deck restart keeps an app's last browser bundle, and a checkout that never built one serves "not found", so every served app builds first. */
+async function buildServedApps(seams: UpdateMachineSeams): Promise<LegResult | null> {
+  for (const app of REGISTERED_APPS) {
+    const build = servedAppManifest(seams, app).dev?.build;
+    if (!build) continue;
+    const cwd = `${seams.sharedCheckoutPath}/apps/${app}`;
+    const r = await seams.exec(["/bin/sh", "-c", build], { cwd });
+    if (r.exitCode !== 0) return errorLeg("served-suite", SERVED_SUITE_LABEL, `${app} did not build (${build} in ${cwd}): ${execTail(r)}`);
+  }
+  return null;
+}
+
+/** A fresh pid only proves the server started; the page itself answers only once the app's build is in place. */
+async function rootUrlProblems(seams: UpdateMachineSeams, apps: string[]): Promise<string[]> {
+  const problems: string[] = [];
+  for (const app of apps) {
+    const port = servedAppManifest(seams, app).port;
+    if (!port) continue;
+    const url = `http://127.0.0.1:${port}/`;
+    let code = "";
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt > 0) await seams.sleep(1000);
+      code = (await seams.exec(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", url])).stdout.trim();
+      if (code === "200") break;
+    }
+    if (code !== "200") problems.push(`${app} answered ${code || "nothing"} at ${url}`);
+  }
+  return problems;
+}
+
 async function runServedSuiteLeg(seams: UpdateMachineSeams, deck: string): Promise<{ result: LegResult; witness: RestartWitness | null }> {
   const registerFailure = await reregisterMovedApps(seams, deck);
   if (registerFailure) return { result: registerFailure, witness: null };
+  const buildFailure = await buildServedApps(seams);
+  if (buildFailure) return { result: buildFailure, witness: null };
 
   const namesResult = await managedAppNames(seams, deck);
   if ("error" in namesResult) return { result: errorLeg("served-suite", SERVED_SUITE_LABEL, namesResult.error), witness: null };
@@ -651,7 +698,7 @@ async function runServedSuiteLeg(seams: UpdateMachineSeams, deck: string): Promi
     }
   }
 
-  return { result: okLeg("served-suite", SERVED_SUITE_LABEL, `managed apps restarted and every pid cycled${liveNote(live)}`), witness };
+  return { result: okLeg("served-suite", SERVED_SUITE_LABEL, `managed apps built, restarted and every pid cycled${liveNote(live)}`), witness };
 }
 
 /** The dev app, its daemon and its source rev are this Mac's only when the dev app was running. */
@@ -704,6 +751,7 @@ async function runVerifyLeg(
       const checked = namesResult.apps.filter((a) => !liveNow.has(a));
       const stale = await staleManagedApps(seams, checked, witness);
       if (stale.length > 0) problems.push(`managed app pid predates the restart: ${stale.join(", ")}`);
+      problems.push(...(await rootUrlProblems(seams, checked)));
     }
   } else {
     staleNote = " (no restart marker this run; managed-app freshness not checked)";
