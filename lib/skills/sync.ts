@@ -620,9 +620,9 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (!engine.marketplace) {
       return refused(`The ${engine.name} engine was not installed from a marketplace. Install it from one, then run this again`);
     }
-    // A git-subdir install carries only committed files, so a worktrees folder never reaches an org clone's pack.
-    for (const rel of orgClone === null ? [".worktrees", join(".claude", "worktrees")] : []) {
-      const dir = join(pack.dir, rel);
+    // A git-subdir install carries only committed files, so a worktrees folder never reaches an org clone's pack or an in-tree or cached engine.
+    const copiedRoots = [...(orgClone === null ? [pack.dir] : []), ...(engineGit && !sameCheckout ? [engine.dir] : [])];
+    for (const dir of copiedRoots.flatMap((root) => [join(root, ".worktrees"), join(root, ".claude", "worktrees")])) {
       if (existsSync(dir)) {
         return refused(`There is a worktrees folder at ${dir}, and an update would copy it into the plugin. Remove it, then run this again`);
       }
@@ -936,16 +936,24 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   const compile = await tryStep(async () => {
     if (!mine) return skipped(NOT_YOURS);
     if (!rebuild) return skipped("nothing changed, so there is nothing to recompile");
-    const result = await deps.compilePack(pack.name);
+    const putBack = (): void => {
+      if (!bumpBefore) return;
+      writeManifestVersion(pack.dir, bumpBefore);
+      packSourceVersion = bumpBefore;
+    };
+    let result: Awaited<ReturnType<SyncDeps["compilePack"]>>;
+    try {
+      result = await deps.compilePack(pack.name);
+    } catch (e) {
+      putBack();
+      return failed(`${e instanceof Error ? e.message : String(e)}. rt put the version back to ${bumpBefore}`);
+    }
     if (!result.ok) {
       // A refused compile must leave the checkout as the guard found it
       // (clean, or holding only the pending edits commit-pending staged) so a
       // re-run does not strand a bare-file bump the guard cannot see committed
       // anywhere -- revert the write-back, no git.
-      if (bumpBefore) {
-        writeManifestVersion(pack.dir, bumpBefore);
-        packSourceVersion = bumpBefore;
-      }
+      putBack();
       const leftAs = published ? "your pack edits are still staged, not committed" : "the checkout stays clean";
       return refused(`${result.errors.join("; ")}. rt put the version back to ${bumpBefore}, so ${leftAs}`);
     }

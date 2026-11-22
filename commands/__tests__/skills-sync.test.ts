@@ -15,6 +15,7 @@ import * as out from "../../lib/ui/out.ts";
 import { RELOAD_NEEDED } from "../../lib/skills/sync.ts";
 import { deriveEngine, skillsSync, manifestTarget, syncBlocks, syncCheckOf, syncFailure, syncMaterializeVerdict, syncOptions, syncRefusal } from "../skills-sync.ts";
 import { checkPack } from "../skills.ts";
+import * as skillsCommand from "../skills.ts";
 import * as syncCommand from "../skills-sync.ts";
 
 function pack(name: string): PackInfo {
@@ -109,6 +110,52 @@ describe("manifestTarget", () => {
 
   test("omits what was not passed", () => {
     expect(manifestTarget(["--pack", "acme", "--json"])).toEqual({});
+  });
+});
+
+describe("skillsSync's check and compile, run from inside another copy of the pack", () => {
+  function widgets(root: string, folder: string, skillMd: string): string {
+    const dir = join(root, folder);
+    mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "1.0.0", skills: ["./skills"] }));
+    writeFileSync(join(dir, "surface.jsonc"), "{}\n");
+    mkdirSync(join(dir, "skills", "gadgets"), { recursive: true });
+    writeFileSync(join(dir, "skills", "gadgets", "SKILL.md"), skillMd);
+    return dir;
+  }
+
+  test("read the discovered checkout that sync bumps and pushes", async () => {
+    const savedHome = process.env.HOME;
+    const savedCwd = process.cwd();
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-sync-target-")));
+    process.env.HOME = home;
+    const registry = widgets(home, "registry", "---\nname: gadgets\ndescription: \"Use when x\"\n---\nDo the gadget thing.\n");
+    const worktree = widgets(home, "worktree", "---\nname: gadgets\ndescription: Use when: x\n---\nDo the gadget thing.\n");
+    const io = captureSkills();
+    const packs = [{ ...pack("widgets"), dir: registry }, { ...pack("mattstack"), dir: join(home, "engine") }];
+    const discovery = spyOn(packsModule, "discoverPacks").mockReturnValue(packs);
+    const compiled: unknown[] = [];
+    const compile = spyOn(skillsCommand, "compilePackAll").mockImplementation(async (opts) => {
+      compiled.push(opts);
+      return { ok: true, errors: [], written: [], removed: [] };
+    });
+    let handErrors: string[] | undefined;
+    const seam = spyOn(syncModule, "syncPack").mockImplementation(async (p, _e, deps) => {
+      handErrors = (await deps.checkPack(p.name)).handErrors;
+      await deps.compilePack(p.name);
+      return { ok: true, pack: p.name, steps: [], versions: {}, warnings: [], restartNeeded: false } as unknown as SyncReport;
+    });
+    try {
+      process.chdir(worktree);
+      await skillsSync(["--pack", "widgets", "--repo", "github.com/acme/widgets", "--json"]);
+      expect(handErrors).toEqual([]);
+      expect(compiled).toEqual([{ pack: "widgets", packDir: registry, repo: "github.com/acme/widgets" }]);
+    } finally {
+      process.chdir(savedCwd);
+      seam.mockRestore(); compile.mockRestore(); discovery.mockRestore(); io.restore();
+      process.env.HOME = savedHome; process.exitCode = 0;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 

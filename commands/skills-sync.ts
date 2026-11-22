@@ -89,6 +89,16 @@ export function manifestTarget(args: string[]): { manifest?: string; repo?: stri
   return { ...(manifest ? { manifest } : {}), ...(repo ? { repo } : {}) };
 }
 
+/**
+ * The pack folder sync's check and compile read is the same discovered
+ * checkout its guards, bump, commit and push act on; resolving by name alone
+ * would prefer a same-named pack enclosing cwd, such as a worktree.
+ */
+export function syncPackTarget(packs: PackInfo[], name: string, target: { manifest?: string; repo?: string }): { pack: string; packDir?: string; manifest?: string; repo?: string } {
+  const dir = packs.find((p) => p.name === name)?.dir;
+  return { pack: name, ...(dir ? { packDir: dir } : {}), ...target };
+}
+
 export class ExpectFlagError extends Error {}
 
 /** Throws ExpectFlagError when --expect carries no signature: a missing one would otherwise sync with no check at all. */
@@ -253,8 +263,8 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
     run: (cmd, cmdArgs, opts) => spawnCapture([cmd, ...cmdArgs], opts?.cwd),
     runOrigin: (gitArgs, opts) => runSkillsOrigin(gitArgs, opts),
     claudeBin: resolveClaudeBin(),
-    checkPack: async (name) => syncCheckOf(await checkPack({ pack: name, ...target })),
-    compilePack: (name) => compilePackAll({ pack: name, ...target }),
+    checkPack: async (name) => syncCheckOf(await checkPack(syncPackTarget(packs, name, target))),
+    compilePack: (name) => compilePackAll(syncPackTarget(packs, name, target)),
     materialize: async (name) => syncMaterializeVerdict(await materializeSkills(createRealProbes(), {}), name),
     configDir,
     cswapSessionsDir: join(process.env.HOME ?? homedir(), ".claude-swap-backup", "sessions"),
