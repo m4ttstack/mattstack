@@ -1,12 +1,8 @@
 import type { Server, ServerWebSocket } from 'bun';
 import type { Hono } from 'hono';
-import {
-  createBunWebSocket,
-  serveStatic,
-  type BunWebSocketData,
-} from 'hono/bun';
+import { createBunWebSocket, type BunWebSocketData } from 'hono/bun';
 
-import { createApp } from './app';
+import { createApp, type HealthState } from './app';
 import { startRelays, type RelaySpec } from './relays';
 import {
   decideServingMode,
@@ -46,11 +42,13 @@ export async function serveMattstackApp(
     console.log(opts.version);
     process.exit(0);
   }
+  const staticHealth: { read?: () => HealthState } = {};
   const app = createApp({
     name: opts.name,
     version: opts.version,
     routes: opts.routes,
     sharedColorScheme: opts.sharedColorScheme,
+    health: () => staticHealth.read?.() ?? { ok: true, buildId: null },
   });
   const relays = opts.relay ?? [];
 
@@ -73,7 +71,7 @@ export async function serveMattstackApp(
       },
     }))
   );
-  mountStatic(app, serveStatic, { embedded: manifest });
+  staticHealth.read = mountStatic(app, { embedded: manifest }).health;
 
   const port = Number(process.env.PORT ?? opts.port);
   const server = Bun.serve({
