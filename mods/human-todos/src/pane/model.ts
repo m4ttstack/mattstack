@@ -46,6 +46,9 @@ export const LABELS: Record<ButtonId, string> = {
   cancelMessage: 'Cancel',
 }
 
+// Beside Run, any other word on Done (an agent's "Ran it") reads as a second way to run the script.
+const RUN_DONE_LABEL = 'Done without running'
+
 const TONES: Record<ButtonId, ButtonTone> = {
   run: 'primary',
   open: 'primary',
@@ -91,7 +94,7 @@ function markFor(todo: Todo): { mark: string; tone: Tone } {
 function buttonsOf(todo: Todo, messages: boolean, isComposing = false): PaneButton[] {
   const ids = buttonsFor(todo)
   const main = ids.find(id => id === 'stop' || id === 'forceStop') ?? ids[0]
-  const label = (id: ButtonId) => (id === 'done' && todo.doneLabel ? todo.doneLabel : LABELS[id])
+  const label = (id: ButtonId) => (id !== 'done' ? LABELS[id] : todo.kind === 'run' ? RUN_DONE_LABEL : (todo.doneLabel ?? LABELS.done))
   const own = ids.map((id): PaneButton => ({ id, label: label(id), tone: id === main || id === 'done' ? TONES[id] : 'quiet', todoId: todo.id }))
   return messages && todo.status === 'open' ? [...own, { id: 'message', label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: 'quiet', todoId: todo.id }] : own
 }

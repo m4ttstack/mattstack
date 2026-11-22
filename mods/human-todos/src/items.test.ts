@@ -109,3 +109,8 @@ test('toTodo keeps a trimmed doneLabel, clipped to a short phrase, and drops a b
   expect(toTodo('7', { kind: 'task', title: 't', doneLabel: '   ' }).doneLabel).toBeUndefined()
   expect(toTodo('8', { kind: 'task', title: 't', doneLabel: 'x'.repeat(80) }).doneLabel).toHaveLength(32)
 })
+
+test('toTodo drops a doneLabel on a run item and keeps it on the other kinds', () => {
+  expect(toTodo('9', { kind: 'run', title: 't', script: 'ls', doneLabel: 'Ran it' }).doneLabel).toBeUndefined()
+  for (const kind of ['task', 'terminal', 'link'] as const) expect(toTodo('10', { kind, title: 't', doneLabel: 'Approved it' }).doneLabel).toBe('Approved it')
+})

@@ -44,7 +44,7 @@ export function toTodo(id: string, input: AddInput): Todo {
     ...(input.kind === 'link' && input.url !== undefined && { url: input.url }),
     ...(input.kind === 'image' && input.paths !== undefined && { paths: [...input.paths] }),
     ...(input.kind === 'run' && input.cwd !== undefined && { cwd: input.cwd }),
-    ...(input.doneLabel?.trim() && { doneLabel: input.doneLabel.trim().slice(0, DONE_LABEL_MAX) }),
+    ...(input.kind !== 'run' && input.doneLabel?.trim() && { doneLabel: input.doneLabel.trim().slice(0, DONE_LABEL_MAX) }),
   }
 }
 

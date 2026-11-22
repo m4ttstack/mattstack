@@ -36,7 +36,7 @@ test('buttons that do not fit side by side carry on to a row of their own, every
   const rows = layout.lines.filter(line => line.some(s => s.action !== undefined))
   const labels = rows.map(line => line.filter(s => s.action !== undefined).map(s => s.t.trim()))
   expect(labels.length).toBeGreaterThan(1)
-  expect(labels.flat()).toEqual(['Run', 'Copy', 'Done', 'Skip'])
+  expect(labels.flat()).toEqual(['Run', 'Copy', 'Done without running', 'Skip'])
   const roomy = kitLayout(modelAt([todo({ kind: 'run', script: 'ls' })], 60), 60, 40)
   expect(roomy.lines.filter(line => line.some(s => s.action !== undefined))).toHaveLength(1)
 })
