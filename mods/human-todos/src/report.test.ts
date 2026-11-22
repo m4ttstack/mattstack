@@ -43,5 +43,9 @@ test('a message from the pane reaches the agent; Send & mark done also finishes 
 })
 
 test("Done on an item with a doneLabel tells the agent which words the user pressed", () => {
-  expect(settle(todo({ title: 'Sign in', doneLabel: "I've signed in" }), { kind: 'done' }).text).toBe('#1 "Sign in": the user pressed "I\'ve signed in" (done).')
+  expect(settle(todo({ kind: 'task', title: 'Sign in', doneLabel: "I've signed in" }), { kind: 'done' }).text).toBe('#1 "Sign in": the user pressed "I\'ve signed in" (done).')
+})
+
+test('Done on a run item saved with a doneLabel reports a plain done, since the pane never showed that label', () => {
+  expect(settle(todo({ title: 'Deploy', doneLabel: 'Ran it' }), { kind: 'done' }).text).toBe('#1 "Deploy": the user marked it done.')
 })

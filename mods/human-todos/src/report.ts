@@ -25,7 +25,7 @@ export function settle(todo: Todo, outcome: Outcome, log?: string | null): { pat
   const output = `Output: ${outputLine(log)}`
   switch (outcome.kind) {
     case 'done':
-      return { patch: { status: 'done' }, text: todo.doneLabel ? `${who}: the user pressed "${todo.doneLabel}" (done).` : `${who}: the user marked it done.` }
+      return { patch: { status: 'done' }, text: todo.kind !== 'run' && todo.doneLabel ? `${who}: the user pressed "${todo.doneLabel}" (done).` : `${who}: the user marked it done.` }
     case 'skipped':
       return { patch: { status: 'skipped' }, text: `${who}: the user skipped it.` }
     case 'message':
