@@ -1,3 +1,8 @@
+import {
+  hasLocalOrigin,
+  isLocalRequest,
+  type LocalServer,
+} from '@mattstack/app-server/local-request';
 import { Hono } from 'hono';
 
 import { agentModels } from './agent-models';
@@ -28,6 +33,19 @@ const runsData = scenario ? runsFixture(scenario) : null;
  * and an unchained `app.get(...)` never reaches `typeof routes`.
  */
 export const routes = new Hono()
+  // Every API write acts on this Mac (a run, a pane, a pack, a setting), so
+  // none answers a request from a public edge or from another site's page;
+  // a route may still add a stricter check of its own.
+  .use('/api/*', async (c, next) => {
+    if (c.req.method === 'GET' || c.req.method === 'HEAD') return next();
+    const req = c.req.raw;
+    if (
+      !isLocalRequest(req, c.env as LocalServer | undefined) ||
+      !hasLocalOrigin(req)
+    )
+      return c.json({ error: 'forbidden' }, 403);
+    return next();
+  })
   .use('/embed/*', async (c, next) => {
     await next();
     c.header('Content-Security-Policy', EMBED_FRAME_ANCESTORS);

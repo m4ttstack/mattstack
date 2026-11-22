@@ -36,7 +36,10 @@ function post(body: unknown) {
   return routes.fetch(
     new Request('http://localhost/api/runs/enrich', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        host: 'console.localhost',
+      },
       body: JSON.stringify(body),
     })
   );

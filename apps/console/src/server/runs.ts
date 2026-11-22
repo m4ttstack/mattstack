@@ -205,6 +205,8 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
           return { path: typeof v?.path === 'string' ? v.path : undefined };
         }),
         async c => {
+          if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined))
+            return c.json({ error: 'run not found' }, 404);
           const { repo: rawRepo, runId } = c.req.param();
           const repo = canonicalRepo(rawRepo);
           const { path } = c.req.valid('query');
@@ -256,7 +258,11 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
           const { repo: rawRepo, runId } = c.req.param();
           const repo = canonicalRepo(rawRepo);
           const { path } = c.req.valid('query');
-          if (!path) return c.json({ error: 'no evidence' }, 404);
+          if (
+            !path ||
+            !isLocalRequest(c.req.raw, c.env as LocalServer | undefined)
+          )
+            return c.json({ error: 'no evidence' }, 404);
           if (fixture) {
             const file = await fixture.legacyEvidenceFile(repo, runId, path);
             if (!file) return c.json({ error: 'no evidence' }, 404);
@@ -310,7 +316,11 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
       )
       .get('/api/runs/:repo/:runId/evidence/:key', async c => {
         const { repo: rawRepo, runId, key } = c.req.param();
-        if (key !== 'transcript') return c.json({ error: 'no evidence' }, 404);
+        if (
+          key !== 'transcript' ||
+          !isLocalRequest(c.req.raw, c.env as LocalServer | undefined)
+        )
+          return c.json({ error: 'no evidence' }, 404);
         if (fixture) {
           const evidence = await fixture.transcript(
             canonicalRepo(rawRepo),
@@ -362,7 +372,8 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
         const annotated = c.req.query('annotated') === '1';
         if (
           (slot !== 'before' && slot !== 'after') ||
-          (theme !== undefined && theme !== 'light' && theme !== 'dark')
+          (theme !== undefined && theme !== 'light' && theme !== 'dark') ||
+          !isLocalRequest(c.req.raw, c.env as LocalServer | undefined)
         )
           return c.json({ error: 'no evidence' }, 404);
         if (fixture) {
