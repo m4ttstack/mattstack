@@ -6,10 +6,7 @@ import {
   deckAppUrl,
   type EventBridgeRule,
 } from '@mattstack/app-server/event-bridge';
-import {
-  bootId,
-  injectHostSignal,
-} from '@mattstack/app-server/host-signal';
+import { bootId, injectHostSignal } from '@mattstack/app-server/host-signal';
 import { shellHandoff } from '@mattstack/app-server/shell-handoff';
 import {
   GitLabProvider,

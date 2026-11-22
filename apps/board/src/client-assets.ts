@@ -8,7 +8,6 @@ import {
 import { join } from 'path';
 
 import { buildIdOf } from '@mattstack/app-server/host-signal';
-
 import {
   buildClientBundle,
   type ClientBundle,

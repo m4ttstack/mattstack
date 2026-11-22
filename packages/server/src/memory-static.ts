@@ -48,10 +48,7 @@ const emptySnapshot = (): StaticSnapshot => ({
 });
 
 /** Throws on any read failure except a `distRoot` that does not exist. */
-export function readSnapshot(
-  distRoot: string,
-  fs: SnapshotFs
-): StaticSnapshot {
+export function readSnapshot(distRoot: string, fs: SnapshotFs): StaticSnapshot {
   let paths: string[];
   try {
     paths = fs.list(distRoot);
