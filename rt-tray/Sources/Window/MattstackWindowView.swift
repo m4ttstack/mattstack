@@ -472,5 +472,7 @@ private struct FailureOverlay: View {
             .padding(24)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
+        // The ground is the always-dark chrome, so the card stays dark too.
+        .colorScheme(.dark)
     }
 }
