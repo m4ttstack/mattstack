@@ -686,7 +686,9 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (!prompt.ok) return prompt;
 
       const prior = store.getJob(herdId, name);
-      let worktree = str(p?.dir); let branch: string | null = prior?.branch ?? null; let tree: string | null = prior?.tree ?? null;
+      // tree marks a tree rt provisioned or admitted for this launch, which trust
+      // decisions key on, so it is never carried over from an earlier generation.
+      let worktree = str(p?.dir); let branch: string | null = prior?.branch ?? null; let tree: string | null = null;
       // null = no provisioning happened (--dir or a tree); false is the
       // cold-create case the caller should announce, since it can take minutes.
       let wasOnDeck: boolean | null = null;

@@ -1272,6 +1272,27 @@ describe("herd:spawn", () => {
     expect(readFileSync(jobMd, "utf8")).toBe("the brief");
   });
 
+  test("a --dir respawn of a job that ran on a provisioned tree clears the tree marker", async () => {
+    const { h, store, herd } = await started();
+    const first = await h["herd:spawn"]({ herd, job: "job-a", brief: "the brief" });
+    if (!first.ok) throw new Error(first.error);
+    expect(store.getJob(herd, "job-a")!.tree).toBe("job-a");
+    const again = await h["herd:spawn"]({ herd, job: "job-a", dir: "/somewhere/else" });
+    if (!again.ok) throw new Error(again.error);
+    expect(store.getJob(herd, "job-a")!.worktree).toBe("/somewhere/else");
+    expect(store.getJob(herd, "job-a")!.tree).toBeNull();
+  });
+
+  test("a respawn with neither --dir nor a tree provisions again and records the fresh tree", async () => {
+    const { h, store, herd, worktreeCalls } = await started();
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "the brief", dir: "/existing/tree" })).ok).toBe(true);
+    const again = await h["herd:spawn"]({ herd, job: "job-a" });
+    if (!again.ok) throw new Error(again.error);
+    expect(worktreeCalls.filter((c) => c.verb === "provision")).toHaveLength(1);
+    expect(store.getJob(herd, "job-a")!.tree).toBe("job-a");
+    expect(store.getJob(herd, "job-a")!.worktree).toBe("/w/job-a");
+  });
+
   test("--disposable is recorded on the job row", async () => {
     const { h, store, herd } = await started();
     const res = await h["herd:spawn"]({ herd, job: "review-job-a", brief: "review it", dir: "/w/job-a", disposable: true });
