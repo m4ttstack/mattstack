@@ -18,6 +18,11 @@ import {
 } from './rt-bin';
 
 const FIXTURE_READ_ONLY = 'the design fixture is read-only';
+
+/** Bun's server, as Hono passes it in `c.env`; 0 seconds lifts the idle timeout for one request. */
+interface BunTimeout {
+  timeout?: (req: Request, seconds: number) => void;
+}
 /** `rt team push` waits on the daemon's own fetch, rebase and push, up to its 180s client timeout. */
 const PUSH_TIMEOUT_MS = 190_000;
 
@@ -177,6 +182,9 @@ export function syncRoutes({
       if (typeof org !== 'string' || !orgs().includes(org)) {
         return c.json({ error: 'unknown org' }, 400);
       }
+      // A push round can outlast Bun.serve's 10s idle timeout, which would
+      // reset the connection before the result arrives.
+      (c.env as BunTimeout | undefined)?.timeout?.(c.req.raw, 0);
       const { status, body: reply } = await pushOrg(org);
       return c.json(reply, status);
     });

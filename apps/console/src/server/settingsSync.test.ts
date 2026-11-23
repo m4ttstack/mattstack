@@ -147,6 +147,32 @@ describe('POST /api/settings/sync/push', () => {
     ]);
   });
 
+  it("POST lifts Bun's idle timeout, so a push longer than 10s still answers", async () => {
+    const runRt = vi.fn<RunRt>(async () =>
+      ok({
+        contract: 1,
+        slug: 'acme',
+        committed: true,
+        pushed: true,
+        error: null,
+        skipped: null,
+      })
+    );
+    const timeout = vi.fn();
+    const server = { timeout, requestIP: () => ({ address: '127.0.0.1' }) };
+    const res = await app(runRt).request(
+      'http://localhost/api/settings/sync/push',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', host: 'localhost' },
+        body: JSON.stringify({ org: 'acme' }),
+      },
+      server
+    );
+    expect(res.status).toBe(200);
+    expect(timeout).toHaveBeenCalledWith(expect.any(Request), 0);
+  });
+
   it("POST maps a failed push to 409 with rt's message", async () => {
     const runRt = vi.fn<RunRt>(async () => ({
       code: 2,
