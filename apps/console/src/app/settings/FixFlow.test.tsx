@@ -387,7 +387,7 @@ describe('Needs fixing on the page', () => {
     });
   });
 
-  it('closing the row after a Fix that switched repo keeps that repo picked', async () => {
+  it('closing the row after a Fix that switched repo drops that repo', async () => {
     renderPage();
     await fix(
       await screen.findByText(
@@ -401,7 +401,7 @@ describe('Needs fixing on the page', () => {
       const p = new URLSearchParams(window.location.search);
       expect(p.get('explain')).toBeNull();
       expect(p.get('fix')).toBeNull();
-      expect(p.get('repo')).toBe(REPO);
+      expect(p.get('repo')).toBeNull();
     });
   });
 
