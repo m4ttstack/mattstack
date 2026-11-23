@@ -96,7 +96,7 @@ function buttonsOf(todo: Todo, messages: boolean, isComposing = false): PaneButt
   const main = ids.find(id => id === 'stop' || id === 'forceStop') ?? ids[0]
   const label = (id: ButtonId) => (id !== 'done' ? LABELS[id] : todo.kind === 'run' ? RUN_DONE_LABEL : (todo.doneLabel ?? LABELS.done))
   const own = ids.map((id): PaneButton => ({ id, label: label(id), tone: id === main || id === 'done' ? TONES[id] : 'quiet', todoId: todo.id }))
-  return messages && todo.status === 'open' ? [...own, { id: 'message', label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: 'quiet', todoId: todo.id }] : own
+  return messages && todo.status === 'open' ? [...own, { id: 'message', label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: isComposing ? 'thread' : 'quiet', todoId: todo.id }] : own
 }
 
 // Left to right as the card draws them: the quiet way out first, Send last at the edge.

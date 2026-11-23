@@ -168,7 +168,8 @@ var FILL = {
   current: { bg: "#3aa8b8", color: "black" },
   disabled: { bg: "#262626", color: "#5c5c5c" },
   field: { bg: "#2c2c2c", color: "white" },
-  brand: { bg: BRAND.pink, color: BRAND.plum }
+  brand: { bg: BRAND.pink, color: BRAND.plum },
+  thread: { bg: "#3a3150", color: "#d4cbf5" }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
 var PLACEHOLDER = { color: "#7a7a7a" };
@@ -180,7 +181,8 @@ var HOVER_FILL = {
   [FILL.neutral.bg]: "#666666",
   [FILL.caution.bg]: "#d6aa45",
   [FILL.chip.bg]: "#555555",
-  [FILL.current.bg]: "#5fcfdc"
+  [FILL.current.bg]: "#5fcfdc",
+  [FILL.thread.bg]: "#4b4068"
 };
 var PRESS_FILL = {
   [BRAND.pink]: "#ea5d8c",
@@ -190,7 +192,8 @@ var PRESS_FILL = {
   [FILL.neutral.bg]: "#424242",
   [FILL.caution.bg]: "#a58127",
   [FILL.chip.bg]: "#333333",
-  [FILL.current.bg]: "#3394a2"
+  [FILL.current.bg]: "#3394a2",
+  [FILL.thread.bg]: "#30293f"
 };
 var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
 function hoverOf(span) {
@@ -239,7 +242,7 @@ var DONE = { color: "green" };
 var WARN = { color: "yellow" };
 var DIM = { dim: true };
 var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
-var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
+var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.thread.bg]: { bg: "#332d43", color: "#b0a8cc" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
 function muted(span) {
   if (span.mark)
     return { ...span, color: MUTED[span.mark] ?? span.mark, dim: false };
@@ -252,7 +255,7 @@ function muted(span) {
   return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
 }
 // packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, thread: FILL.thread, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
 var ROOMY = { indent: 3, pad: 2, gap: 3 };
 var COMPACT = { indent: 1, pad: 1, gap: 1 };
 function buttonSpan(button, pad = ROOMY.pad) {
@@ -2183,7 +2186,7 @@ function buttonsOf(todo, messages, isComposing = false) {
   const main = ids.find((id) => id === "stop" || id === "forceStop") ?? ids[0];
   const label = (id) => id !== "done" ? LABELS[id] : todo.kind === "run" ? RUN_DONE_LABEL : todo.doneLabel ?? LABELS.done;
   const own = ids.map((id) => ({ id, label: label(id), tone: id === main || id === "done" ? TONES[id] : "quiet", todoId: todo.id }));
-  return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: "quiet", todoId: todo.id }] : own;
+  return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: isComposing ? "thread" : "quiet", todoId: todo.id }] : own;
 }
 var composeButtons = (todoId) => ["cancelMessage", "sendDone", "send"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));
 function paneModel(input) {
@@ -2510,7 +2513,7 @@ function composeHeadRows(title, width) {
   const lead = `  ${LABELS.message}  `;
   const name = ellipsize(title, Math.max(1, width - cellWidth(lead) - 1));
   const used = cellWidth(lead) + cellWidth(name);
-  const band = [sp(lead, FILL.chip), sp(name, { ...FILL.chip, bold: true }), sp(" ".repeat(Math.max(0, width - used)), { bg: FILL.chip.bg })];
+  const band = [sp(lead, FILL.thread), sp(name, { ...FILL.thread, bold: true }), sp(" ".repeat(Math.max(0, width - used)), { bg: FILL.thread.bg })];
   return [band, tinted([], width)];
 }
 function composeActionRows(id, width) {

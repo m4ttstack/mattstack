@@ -13,13 +13,13 @@ const tinted = (line: Line<PaneMessage>, width: number): Line<PaneMessage> => {
   return [...line.map(span => ({ ...span, bg: CURSOR_ROW })), sp(' '.repeat(Math.max(0, width - used)), { bg: CURSOR_ROW })]
 }
 
-// The card's header: a band a shade lighter than the card, naming the item the reply is about, then a blank tinted
+// The card's header: a band in the thread tone the open chat button wears, naming the item, then a blank tinted
 // row before the field. Not the brand pink: that is the pane's own title bar.
 export function composeHeadRows(title: string, width: number): Line<PaneMessage>[] {
   const lead = `  ${LABELS.message}  `
   const name = ellipsize(title, Math.max(1, width - cellWidth(lead) - 1))
   const used = cellWidth(lead) + cellWidth(name)
-  const band = [sp<PaneMessage>(lead, FILL.chip), sp<PaneMessage>(name, { ...FILL.chip, bold: true }), sp<PaneMessage>(' '.repeat(Math.max(0, width - used)), { bg: FILL.chip.bg })]
+  const band = [sp<PaneMessage>(lead, FILL.thread), sp<PaneMessage>(name, { ...FILL.thread, bold: true }), sp<PaneMessage>(' '.repeat(Math.max(0, width - used)), { bg: FILL.thread.bg })]
   return [band, tinted([], width)]
 }
 
