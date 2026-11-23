@@ -1307,16 +1307,26 @@ function viewLines(view, width, focus = {}, draft) {
 }
 
 // mods/human-todos/src/pane/compose-actions.tsx
+var tinted = (line, width) => {
+  const used = line.reduce((n, span) => n + cellWidth(span.t), 0);
+  return [...line.map((span) => ({ ...span, bg: CURSOR_ROW })), sp(" ".repeat(Math.max(0, width - used)), { bg: CURSOR_ROW })];
+};
+function composeHeadRows(title, width) {
+  const lead = "Message about ";
+  const about = tinted([sp(lead, DIM), sp(ellipsize(title, Math.max(1, width - cellWidth(lead))), { bold: true })], width);
+  return [tinted([], width), about, tinted([], width)];
+}
 function composeActionRows(id, width) {
-  return [...composeActionsLines(composeButtons(id), width), [sp(" ".repeat(width), { bg: CURSOR_ROW })]];
+  return [...composeActionsLines(composeButtons(id), width), tinted([], width)];
 }
 var compose_actions_default = kitClient((props, ui) => /* @__PURE__ */ h(Panel, {
   width: props.width
 }, /* @__PURE__ */ h(Lines, {
-  lines: composeActionRows(props.id, props.width),
+  lines: props.part === "head" ? composeHeadRows(props.title ?? "", props.width) : composeActionRows(props.id, props.width),
   onAction: (message) => ui.post(message)
 })));
 export {
   composeActionRows,
+  composeHeadRows,
   compose_actions_default as default
 };

@@ -2502,13 +2502,22 @@ function viewLines(view, width, focus = {}, draft) {
 }
 
 // mods/human-todos/src/pane/compose-actions.tsx
+var tinted = (line, width) => {
+  const used = line.reduce((n, span) => n + cellWidth(span.t), 0);
+  return [...line.map((span) => ({ ...span, bg: CURSOR_ROW })), sp(" ".repeat(Math.max(0, width - used)), { bg: CURSOR_ROW })];
+};
+function composeHeadRows(title, width) {
+  const lead = "Message about ";
+  const about = tinted([sp(lead, DIM), sp(ellipsize(title, Math.max(1, width - cellWidth(lead))), { bold: true })], width);
+  return [tinted([], width), about, tinted([], width)];
+}
 function composeActionRows(id, width) {
-  return [...composeActionsLines(composeButtons(id), width), [sp(" ".repeat(width), { bg: CURSOR_ROW })]];
+  return [...composeActionsLines(composeButtons(id), width), tinted([], width)];
 }
 var compose_actions_default = kitClient((props, ui) => /* @__PURE__ */ h(Panel, {
   width: props.width
 }, /* @__PURE__ */ h(Lines, {
-  lines: composeActionRows(props.id, props.width),
+  lines: props.part === "head" ? composeHeadRows(props.title ?? "", props.width) : composeActionRows(props.id, props.width),
   onAction: (message) => ui.post(message)
 })));
 
@@ -2740,14 +2749,15 @@ function registerPane(on) {
       const inner = Math.max(22, paneColumns(e) - 4);
       return drawPlainPane($, e, modelOf(pane, inner - 2, false), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE);
     }
-    const { Box, Client, Text, Input } = $.ui.resolve(e);
+    const { Box, Client, Input } = $.ui.resolve(e);
     const width = paneColumns(e);
     const paneBody = paneRows(e);
     const todo = pane.composing === null ? undefined : pane.list.find((t) => t.id === pane.composing);
     const draft = todo ? drafts.get(todo.id) ?? "" : "";
     const fieldRows = draftFieldRows(draft, width);
+    const headRows = todo ? composeHeadRows(todo.title, width).length : 0;
     const actionRows = todo ? composeActionRows(todo.id, width).length : 0;
-    const dockRows = todo ? DOCK_FIXED_ROWS + fieldRows + actionRows : 0;
+    const dockRows = todo ? DOCK_FIXED_ROWS + headRows + fieldRows + actionRows : 0;
     const bodyRows = Math.max(3, paneBody - dockRows);
     kitSizes.set(e.surface, { columns: width, bodyRows });
     const props = {
@@ -2767,15 +2777,16 @@ function registerPane(on) {
     return /* @__PURE__ */ h(Box, {
       flexDirection: "column"
     }, list, /* @__PURE__ */ h(Box, {
-      marginTop: 1,
-      marginBottom: 1
-    }, /* @__PURE__ */ h(Text, {
-      bold: true,
-      wrap: "truncate-end"
-    }, `Message about “${todo.title}”`)), /* @__PURE__ */ h(Box, {
+      marginTop: 1
+    }, /* @__PURE__ */ h(Client, {
+      key: `message-head-${id}`,
+      module: "./pane/compose-actions.js",
+      height: headRows,
+      props: { id, width, part: "head", title: todo.title }
+    })), /* @__PURE__ */ h(Box, {
       flexDirection: "column",
       backgroundColor: CURSOR_ROW,
-      paddingY: 1
+      paddingBottom: 1
     }, /* @__PURE__ */ h(Input, {
       key: `message-${id}`,
       rows: fieldRows,
@@ -2796,12 +2807,12 @@ function registerPane(on) {
       key: `message-actions-${id}`,
       module: "./pane/compose-actions.js",
       height: actionRows,
-      props: { id, width }
+      props: { id, width, part: "actions" }
     }));
   });
 }
 var MAX_FIELD_ROWS = 8;
-var DOCK_FIXED_ROWS = 5;
+var DOCK_FIXED_ROWS = 2;
 var ONE_ROW_HINT = "⏎ send  ";
 var MULTI_ROW_HINT = "⏎ send · \\⏎ new line  ";
 var drafts = new Map;
