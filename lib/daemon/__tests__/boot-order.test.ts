@@ -1,4 +1,4 @@
-import { mkdtempSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, test, expect } from "bun:test";
@@ -6,6 +6,7 @@ import type { Server } from "bun";
 import { buildUnits, makeBootContext } from "../../daemon.ts";
 import { runUnits, stopUnits } from "../lifecycle.ts";
 import { closeStateDb } from "../../state/db.ts";
+import { DAEMON_PID_PATH, DAEMON_SOCK_PATH, RT_DIR } from "../../daemon-config.ts";
 
 // The unit list records boot attempts / ready stamps into state.db and writes
 // supervision breadcrumbs, so this case runs under its own HOME to keep those
@@ -31,21 +32,22 @@ afterEach(() => {
 const EXPECTED_ORDER = [
   "logger",
   "park-gate",
+  "socket-server",
+  "rt-pid",
   "path-resolution",
   "events-db",
   "state-db",
   "background-subsystems",
   "handlers",
+  "socket-ready",
   "api-server",
-  "socket-server",
-  "rt-pid",
   "pollers",
   "ready",
 ] as const;
 
 const fakeServer = (): Server<any> => ({ stop() {} }) as unknown as Server<any>;
 
-test("units start in spec order, pid after both servers, state.db busy_timeout set, reverse stop closes state.db", async () => {
+test("units start in spec order, pid right after the socket bind, state.db busy_timeout set, reverse stop closes state.db", async () => {
   const spy: string[] = [];
   let stateClosed = 0;
 
@@ -56,7 +58,8 @@ test("units start in spec order, pid after both servers, state.db busy_timeout s
     installCrashHandlers: () => {},
     installSignalHandlers: () => {},
     bindApiServer: async () => { spy.push("api-bound"); return fakeServer(); },
-    bindSocketServer: () => { spy.push("socket-bound"); return fakeServer(); },
+    evictStaleDaemon: async () => { spy.push("evicted"); },
+    bindSocketServer: (_h, _l, availability) => { spy.push(`socket-bound:${availability.state}`); return fakeServer(); },
     writePid: () => { spy.push("pid-written"); },
     closeStateDb: () => { spy.push("closeStateDb"); stateClosed++; closeStateDb(); },
   });
@@ -79,10 +82,16 @@ test("units start in spec order, pid after both servers, state.db busy_timeout s
   const starts = spy.filter((e) => e.startsWith("start:")).map((e) => e.slice("start:".length));
   expect(starts).toEqual([...EXPECTED_ORDER]);
 
-  // (b) rt.pid is written only after BOTH server units bound.
-  expect(spy.indexOf("pid-written")).toBeGreaterThan(spy.indexOf("api-bound"));
-  expect(spy.indexOf("pid-written")).toBeGreaterThan(spy.indexOf("socket-bound"));
-  expect(spy.indexOf("pid-written")).toBeGreaterThan(spy.indexOf("start:socket-server"));
+  // (b) a stale daemon is evicted before the bind, the socket binds in the
+  // starting state, rt.pid follows the bind, and serving starts only after
+  // the handlers unit, ahead of the API bind.
+  expect(spy.indexOf("evicted")).toBeGreaterThan(-1);
+  expect(spy.indexOf("evicted")).toBeLessThan(spy.indexOf("socket-bound:starting"));
+  expect(spy.indexOf("pid-written")).toBeGreaterThan(spy.indexOf("socket-bound:starting"));
+  expect(spy.indexOf("pid-written")).toBeLessThan(spy.indexOf("start:path-resolution"));
+  expect(spy.indexOf("socket-bound:starting")).toBeLessThan(spy.indexOf("start:events-db"));
+  expect(ctx.availability.state).toBe("serving");
+  expect(spy.indexOf("api-bound")).toBeGreaterThan(spy.indexOf("start:socket-ready"));
 
   // (c) state.db opened at the daemon's contention policy (busy_timeout 250ms).
   const bt = (ctx.stateDb!.query("PRAGMA busy_timeout").get() as { timeout: number }).timeout;
@@ -95,4 +104,49 @@ test("units start in spec order, pid after both servers, state.db busy_timeout s
   expect(stops).toEqual([...EXPECTED_ORDER].reverse());
   expect(stateClosed).toBeGreaterThan(0);
   expect(spy.indexOf("closeStateDb")).toBeGreaterThan(spy.indexOf("stop:ready"));
+});
+
+test("the socket answers starting until the socket-ready unit runs", async () => {
+  const states: string[] = [];
+  const ctx = makeBootContext({
+    redirectNativeStderr: () => {},
+    parkGate: async () => {},
+    resolveUserPath: async () => "",
+    installCrashHandlers: () => {},
+    installSignalHandlers: () => {},
+    evictStaleDaemon: async () => {},
+    bindApiServer: async () => fakeServer(),
+    bindSocketServer: () => fakeServer(),
+    writePid: () => {},
+  });
+  const units = buildUnits(ctx).map((u) => ({
+    name: u.name,
+    start: async () => { await u.start(); states.push(`${u.name}:${ctx.availability.state}`); },
+    stop: () => u.stop(),
+  }));
+  await runUnits(units, ctx.log);
+  expect(states).toContain("handlers:starting");
+  expect(states).toContain("socket-ready:serving");
+  await stopUnits(units, ctx.log);
+});
+
+test("a boot that fails after the bind leaves neither rt.pid nor rt.sock behind", async () => {
+  const ctx = makeBootContext({
+    redirectNativeStderr: () => {},
+    parkGate: async () => {},
+    resolveUserPath: async () => { throw new Error("path scrape failed"); },
+    installCrashHandlers: () => {},
+    installSignalHandlers: () => {},
+    evictStaleDaemon: async () => {},
+    bindApiServer: async () => fakeServer(),
+    bindSocketServer: () => {
+      mkdirSync(RT_DIR, { recursive: true });
+      writeFileSync(DAEMON_SOCK_PATH, "");
+      return fakeServer();
+    },
+  });
+  const units = buildUnits(ctx);
+  await expect(runUnits(units, ctx.log)).rejects.toThrow("path scrape failed");
+  expect(existsSync(DAEMON_PID_PATH)).toBe(false);
+  expect(existsSync(DAEMON_SOCK_PATH)).toBe(false);
 });

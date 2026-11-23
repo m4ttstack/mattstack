@@ -73,6 +73,7 @@ import { SystemProcessScanner } from "./daemon/system-process-scanner.ts";
 
 import { parkUntilServable, probeSocketHolder, daemonFlavor, launchdLabelFromEnv } from "./daemon/park.ts";
 import { evictStaleDaemon } from "./daemon/boot-reconcile.ts";
+import { createSocketAvailability, type SocketAvailability } from "./daemon/socket-availability.ts";
 import { resolveUserPath } from "./daemon/user-path.ts";
 import { shortReqId, makeSuppressor } from "./daemon/command-attribution.ts";
 import { unknownCommandReply } from "./daemon/unknown-command.ts";
@@ -286,7 +287,9 @@ export interface BootSeams {
     wasVerbShutdown: () => boolean;
   }) => void;
   bindApiServer: (handleCommand: HandleCommand, log: Logger) => Promise<Server<any>>;
-  bindSocketServer: (handleCommand: HandleCommand, log: Logger) => Server<any>;
+  /** Seamed so the boot test never signals a pid an ambient rt.pid names. */
+  evictStaleDaemon: (log: Logger) => Promise<void>;
+  bindSocketServer: (handleCommand: HandleCommand, log: Logger, availability: SocketAvailability) => Server<any>;
   writePid: (pid: number) => void;
   closeStateDb: () => void;
 }
@@ -299,6 +302,7 @@ export interface BootSeams {
 export interface BootContext {
   seams: BootSeams;
   servers: { socket?: Server<any>; api?: Server<any> };
+  availability: SocketAvailability;
   log: Logger;
   loggerHandle?: DaemonLoggerHandle;
   stateDb?: Database;
@@ -325,7 +329,8 @@ function realSeams(): BootSeams {
     installSignalHandlers,
     bindApiServer: (handleCommand, log) =>
       withApiPortParkRetry(() => startApiServer({ handleCommand, log }), { sleep: (ms) => Bun.sleep(ms), log }),
-    bindSocketServer: (handleCommand, log) => startSocketServer({ handleCommand, log }),
+    evictStaleDaemon,
+    bindSocketServer: (handleCommand, log, availability) => startSocketServer({ handleCommand, log, availability }),
     writePid: (pid) => writeFileSync(DAEMON_PID_PATH, String(pid)),
     closeStateDb,
   };
@@ -341,6 +346,7 @@ export function makeBootContext(seamOverrides: Partial<BootSeams> = {}): BootCon
   return {
     seams: { ...realSeams(), ...seamOverrides },
     servers: {},
+    availability: createSocketAvailability(),
     log: bootstrapLogger(),
     bootPhase: "booting",
     currentPhase: "start",
@@ -669,6 +675,39 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         await seams.parkGate(log);
       },
       stop() {},
+    },
+
+    // Socket server, bound before anything slow so a client that connects
+    // during boot gets a "starting" reply it can retry instead of a refused
+    // connection. evictStaleDaemon MUST run first: the bind unlinks rt.sock,
+    // and that must never be a live daemon's socket.
+    {
+      name: "socket-server",
+      async start() {
+        await seams.evictStaleDaemon(log);
+        setPhase("socket");
+        ctx.availability.holder = { pid: process.pid, flavor: daemonFlavor() };
+        ctx.servers.socket = seams.bindSocketServer(handleCommand, log, ctx.availability);
+      },
+      stop() {
+        try { ctx.servers.socket?.stop(true); } catch { /* server already stopped */ }
+      },
+    },
+
+    // rt.pid, written as soon as the socket is held: a later daemon's
+    // evictStaleDaemon finds this process only through rt.pid, and
+    // removeRuntimeFiles unlinks rt.sock only when rt.pid names this pid, so
+    // a boot that fails after the bind needs the pid on file to clean up.
+    {
+      name: "rt-pid",
+      start() {
+        seams.writePid(process.pid);
+      },
+      stop() {
+        // Reverse-stop runs this before the socket-server unit stops; the
+        // ownership check keeps that safe (unlinks only if rt.pid still names this pid).
+        removeRuntimeFiles({ log });
+      },
     },
 
     // 3: PATH resolution, before any unit that spawns git or herdr. Phase 6
@@ -1542,14 +1581,21 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
       },
     },
 
-    // 8: API server. A failed bind exits fatally (fatal-boot handler), and
-    // binding API before the unix socket means that exit never strands a
-    // socket-bound zombie. evictStaleDaemon first, so an orphan holding the
-    // socket/port is gone before either bind.
+    // Requests dispatch only from here: every handler's subsystem is started.
+    {
+      name: "socket-ready",
+      start() {
+        ctx.availability.state = "serving";
+      },
+      stop() {},
+    },
+
+    // API server. A failed bind exits fatally (fatal-boot handler); runUnits
+    // stops the already-bound socket-server and rt-pid units on the way out,
+    // so that exit never strands a socket-bound zombie.
     {
       name: "api-server",
       async start() {
-        await evictStaleDaemon(log);
         // Auto-unlink any tagged tool link whose tool now has a genuine user
         // copy elsewhere on PATH. reconcile() is synchronous; setTimeout(0)
         // pushes it past the server binds and pid write below.
@@ -1568,32 +1614,6 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
       stop() {
         try { ctx.servers.api?.stop(true); } catch { /* server already stopped */ }
         clearWsClients();
-      },
-    },
-
-    // 9: socket server.
-    {
-      name: "socket-server",
-      start() {
-        setPhase("socket");
-        ctx.servers.socket = seams.bindSocketServer(handleCommand, log);
-      },
-      stop() {
-        try { ctx.servers.socket?.stop(true); } catch { /* server already stopped */ }
-      },
-    },
-
-    // 10: rt.pid, written only after both servers are bound: a boot that fails
-    // before this point must never leave a live-pid file with no servers.
-    {
-      name: "rt-pid",
-      start() {
-        seams.writePid(process.pid);
-      },
-      stop() {
-        // Reverse-stop runs this before the server units stop; the ownership
-        // check keeps that safe (unlinks only if rt.pid still names this pid).
-        removeRuntimeFiles({ log });
       },
     },
 
