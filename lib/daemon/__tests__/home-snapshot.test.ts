@@ -2341,6 +2341,64 @@ describe("startSnapshot: pending", () => {
   });
 });
 
+describe("startSnapshot: onUpdated", () => {
+  test("fires after a commit and after a push", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    let updates = 0;
+    const { deps, timers } = baseDeps({ exec: fn, onUpdated: () => { updates++; } });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    await handle.runNow("manual");
+    expect(updates).toBe(1);
+    timers.fire((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+    await flushAsync();
+    expect(updates).toBe(2);
+    handle.stop();
+  });
+
+  test("fires after a failed push", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0", pushExit: 1, pushStderr: "connection refused" }));
+    let updates = 0;
+    const { deps } = baseDeps({ exec: fn, onUpdated: () => { updates++; } });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    await handle.pushNow();
+    expect(updates).toBe(2);
+    handle.stop();
+  });
+
+  test("does not fire on a round with nothing new", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "" }));
+    let updates = 0;
+    const { deps } = baseDeps({ exec: fn, onUpdated: () => { updates++; } });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    await handle.runNow("manual");
+    await handle.runNow("manual");
+    expect(updates).toBe(0);
+    handle.stop();
+  });
+
+  test("fires when pending changes, and not again while it holds still", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "" }));
+    let updates = 0;
+    const { deps } = baseDeps({ exec: fn, onUpdated: () => { updates++; } });
+    const { repoDir: _repoDir, ...specDeps } = deps;
+    let list: { path: string }[] = [];
+    const spec: SnapshotSpec = { ...homeSnapshotSpec(FAKE_REPO_DIR), id: "team:acme", kvNamespace: "team-snapshot:acme", eventPrefix: "team", pendingOf: async () => list };
+    const handle = startSnapshot(spec, specDeps);
+    await handle.ready;
+    await handle.runNow("manual");
+    const afterFirstRead = updates;
+    list = [{ path: ".sops.yaml" }];
+    await handle.runNow("manual");
+    expect(updates).toBe(afterFirstRead + 1);
+    await handle.runNow("manual");
+    expect(updates).toBe(afterFirstRead + 1);
+    handle.stop();
+  });
+});
+
 describe("teamSnapshotSpec", () => {
   test("names the clone by slug, scopes to the team roots, pulls on the interval, and reads the stored forge token for origin", async () => {
     const p = { ...fakeProbes({ home: "/h" }) };

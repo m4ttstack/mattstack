@@ -124,7 +124,7 @@ export type TypedHandlers = {
 // before this map existed; hooks:status and notifications:peek join them
 // here because no caller for either was found.
 import type { Resolved, ListedSetting } from "../../../packages/rt-client/src/settings/resolve.ts";
-import type { SnapshotResult, SnapshotStatus, PullResult } from "../home-snapshot.ts";
+import type { SnapshotResult, SnapshotStatus, PullResult, PushNowResult } from "../home-snapshot.ts";
 import type { TeamSnapshotEntry } from "../team-snapshots.ts";
 import type { OrgMoveResult } from "../../team/org-folder-move.ts";
 
@@ -138,6 +138,7 @@ export interface InternalCommands {
   "hooks:status": { payload: { repo?: string }; data: unknown };
   "team:snapshot-status": { payload: Record<string, never>; data: TeamSnapshotEntry[] };
   "team:pull": { payload: { slug: string }; data: PullResult };
+  "team:snapshot-run": { payload: { slug: string }; data: PushNowResult };
   /** The org.folder step's folder move: records, folder, index row and old records under the reconciler hold with that clone's snapshot engine paused. */
   "org:move": { payload: { from: string; to: string }; data: OrgMoveResult };
 }

@@ -184,6 +184,8 @@ export interface HomeSnapshotDeps {
   readSettings?: () => HomeSnapshotSettings;
   readOwners?: (path: string) => Owners;
   db?: Database;
+  /** Called when what a person would read from status() changed: a commit, a push outcome, a conflict, a layout hold, a pull error or the waiting list. */
+  onUpdated?: () => void;
 }
 
 function pushRefusalSentence(refusal: Authorization["refusal"]): string {
@@ -982,6 +984,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       if (result.outcome !== "skipped") loggedBlockedPull = null;
     } finally {
       pullInFlight = null;
+      notifyIfChanged();
     }
     // A fresh hold on the lock, taken after the pull released its own, so the
     // move never runs beside a commit cycle. A push's pull leaves it to the
@@ -1329,6 +1332,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     } finally {
       pushInFlight = null;
       await withGitLock(() => refreshPending());
+      notifyIfChanged();
       if (pushAgainRequested) {
         pushAgainRequested = false;
         schedulePush();
@@ -1879,6 +1883,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     const p = withGitLock(async () => {
       const result = await doRun(reason);
       await refreshPending();
+      notifyIfChanged();
       return result;
     });
     runInFlight = p;
@@ -1890,6 +1895,22 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   }
 
   let pending: PendingEntry[] | undefined;
+  let lastFingerprint: string | null = null;
+
+  function fingerprint(): string {
+    return JSON.stringify([lastCommit?.sha ?? null, pushPending, lastPushAt, lastPushError, lastCommitError, lastPullError, conflicted, layoutHold, pending]);
+  }
+
+  function notifyIfChanged(): void {
+    const next = fingerprint();
+    if (next === lastFingerprint) return;
+    lastFingerprint = next;
+    try {
+      rawDeps.onUpdated?.();
+    } catch (err) {
+      deps.log.warn({ err }, `${label}: an update listener threw`);
+    }
+  }
   let lastLoggedPendingError: string | null = null;
 
   /** True when the list changed. A failed read keeps the previous list. */
@@ -2009,6 +2030,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (pullTimer) deps.clearTimeout(pullTimer);
     if (gitProbeRetryTimer) deps.clearTimeout(gitProbeRetryTimer);
   }
+
+  void readyPromise.then(() => { lastFingerprint = fingerprint(); });
 
   return { stop, runNow, pushNow, pullNow, status, settled, locked: withGitLock, ready: readyPromise };
 }

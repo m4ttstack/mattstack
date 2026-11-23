@@ -1,5 +1,5 @@
 /**
- * team:snapshot-status / team:pull, a thin IPC surface over the
+ * team:snapshot-status / team:pull / team:snapshot-run, a thin IPC surface over the
  * team-snapshot supervisor (lib/daemon/team-snapshots.ts). Same posture as
  * home.ts: no rt-client catalog entry, reached through the generic daemon
  * client.
@@ -49,7 +49,7 @@ async function afterMovedHold(
 export function createTeamSnapshotHandlers(
   teamSnapshots: TeamSnapshotsHandle,
   deps: { probes?: Probes } = {},
-): Record<"team:snapshot-status" | "team:pull", (payload: any) => Promise<any>> & HandlerMap {
+): Record<"team:snapshot-status" | "team:pull" | "team:snapshot-run", (payload: any) => Promise<any>> & HandlerMap {
   return {
     "team:snapshot-status": async () => {
       return { ok: true, data: teamSnapshots.status() };
@@ -67,6 +67,18 @@ export function createTeamSnapshotHandlers(
       } catch (err) {
         // pullNow's only throw for an out-of-band slug is UserActionableError
         // ("no-team"); anything else is a real bug and must propagate.
+        if (err instanceof UserActionableError) {
+          return { ok: false, error: err.message, failure: { code: err.code, message: err.message } };
+        }
+        throw err;
+      }
+    },
+
+    "team:snapshot-run": async (payload: any) => {
+      const slug = String(payload?.slug ?? "");
+      try {
+        return { ok: true, data: await teamSnapshots.pushNow(slug) };
+      } catch (err) {
         if (err instanceof UserActionableError) {
           return { ok: false, error: err.message, failure: { code: err.code, message: err.message } };
         }
