@@ -427,6 +427,290 @@ function gridLook(span, focus) {
   const base = focus.pressing ? pressed(span) : span;
   return focus.marked ? markButtonAt([span], 0, { pressing: focus.pressing }) : [base];
 }
+// packages/mod-kit/src/interact/pointer.ts
+function lookOf(state, focused) {
+  const hover = state?.hover;
+  const held = state?.pressed;
+  return { focused, hover, pressed: held === hover ? held : undefined };
+}
+var labelOf = (text) => text.split(SYMBOL.selectEdge).join("").trim();
+function runOf(line, n) {
+  const armed = JSON.stringify(line[n].action);
+  const carries = (m) => line[m]?.action !== undefined && JSON.stringify(line[m].action) === armed;
+  let first = n;
+  let last = n;
+  while (carries(first - 1))
+    first--;
+  while (carries(last + 1))
+    last++;
+  return { armed, label: labelOf(line.slice(first, last + 1).map((s) => s.t).join("")) };
+}
+function controlAt(line, x) {
+  if (!line)
+    return;
+  let from = 0;
+  for (let n = 0;n < line.length; n++) {
+    const to = from + cellWidth(line[n].t);
+    if (line[n].action !== undefined && x >= from && x < to)
+      return runOf(line, n);
+    from = to;
+  }
+  return line.action === undefined ? undefined : { armed: JSON.stringify(line.action), label: labelOf(line.map((s) => s.t).join("")) };
+}
+function drawnAction(lines, held) {
+  for (const line of lines) {
+    if (line.action !== undefined && JSON.stringify(line.action) === held.armed && labelOf(line.map((s) => s.t).join("")) === held.label)
+      return line.action;
+    for (let n = 0;n < line.length; n++) {
+      const run = line[n].action === undefined ? undefined : runOf(line, n);
+      if (run && run.armed === held.armed && run.label === held.label)
+        return line[n].action;
+    }
+  }
+  return;
+}
+function attachPointer(surface, lines, opts) {
+  const s = surface.state;
+  const look = lookOf(s, opts.focused);
+  if (s === undefined)
+    return { look };
+  const isActive = opts.isActive ?? (() => true);
+  surface.onPointer((ev) => {
+    const key = hoverKeyAt(lines, ev.y, ev.x);
+    if (ev.type === "down") {
+      opts.onEngage?.();
+      if (!opts.focused || ev.button !== "left" || !key || !isActive())
+        return;
+      const held = controlAt(lines[ev.y], ev.x);
+      return surface.setState({ ...s, pressed: key, hover: key, armed: held?.armed, label: held?.label, pressAt: `${ev.x},${ev.y}` });
+    }
+    if (ev.type === "up") {
+      if (s.pressed === undefined)
+        return;
+      const { armed, label, pressAt } = s;
+      surface.setState({ ...s, pressed: undefined, armed: undefined, label: undefined, pressAt: undefined });
+      if (armed === undefined || label === undefined)
+        return;
+      const here = controlAt(lines[ev.y], ev.x);
+      const isSame = here !== undefined && here.armed === armed && here.label === label;
+      const isStill = s.hover === s.pressed && pressAt === `${ev.x},${ev.y}`;
+      const action = isSame ? hitAt(lines[ev.y], ev.x) : isStill ? drawnAction(lines, { armed, label }) : undefined;
+      if (action !== undefined)
+        opts.onAction(action);
+      return;
+    }
+    const next = ev.type === "leave" ? undefined : key;
+    if (next !== s.hover && isActive())
+      surface.setState({ ...s, hover: next });
+  });
+  return { look };
+}
+
+// packages/mod-kit/src/components/core.tsx
+var current;
+function rendering(tag) {
+  if (!current)
+    throw new Error(`kit: <${tag}> draws only inside kitClient`);
+  return current;
+}
+function drawKit(frame, draw) {
+  const outer = current;
+  const render = { ...frame, entries: new Map, next: 0, handlers: new Map };
+  current = render;
+  try {
+    const tree = draw();
+    return { tree, lines: render.lines ?? [], handlers: render.handlers };
+  } finally {
+    current = outer;
+  }
+}
+function kitComponent(tag, toLines) {
+  const component = (props) => {
+    const render = rendering(tag);
+    const key = `kit:${render.next++}`;
+    render.entries.set(key, { component: kit, props });
+    const { Box } = render.elements;
+    return /* @__PURE__ */ h(Box, {
+      key
+    });
+  };
+  const kit = Object.assign(component, { toLines });
+  return kit;
+}
+function textOf(children) {
+  if (Array.isArray(children))
+    return children.map(textOf).join("");
+  if (typeof children === "string" || typeof children === "number")
+    return String(children);
+  return "";
+}
+function ctxFor(render, owner, view) {
+  const ctx = {
+    ...view,
+    bind: (name, run) => {
+      const key = `${owner}:${name}`;
+      render.handlers.set(key, run);
+      return key;
+    },
+    parts: (nodes, over) => partsOf(render, nodes, { ...view, ...over }),
+    layout: (nodes, over) => ctx.parts(nodes, over).flatMap((part) => ("text" in part) ? [[sp(part.text)]] : part.component.toLines(part.props, part.ctx))
+  };
+  return ctx;
+}
+function partsOf(render, nodes, view) {
+  const out = [];
+  const walk = (node) => {
+    if (node === null || node === undefined || typeof node === "boolean")
+      return;
+    if (Array.isArray(node))
+      return node.forEach(walk);
+    if (typeof node === "string" || typeof node === "number") {
+      out.push({ text: String(node) });
+      return;
+    }
+    const el = node;
+    const key = el.props?.key;
+    const entry = typeof key === "string" ? render.entries.get(key) : undefined;
+    if (entry && typeof key === "string") {
+      out.push({ component: entry.component, props: entry.props, ctx: ctxFor(render, key, view) });
+      return;
+    }
+    const inner = el.children ?? el.props?.children;
+    if (inner === undefined)
+      throw new Error(`kit: a Panel lays out kit components and text, not a ${String(el.type)} element`);
+    walk(inner);
+  };
+  walk(nodes);
+  return out;
+}
+
+// packages/mod-kit/src/components/client.tsx
+var KEY_PRESS_MS = 150;
+function kitClient(body, options = {}) {
+  return function KitClient(props, surface) {
+    const seed = surface.state ?? options.initial?.(props) ?? {};
+    if (surface.state === undefined)
+      surface.setState(seed);
+    let latest = seed;
+    const setState = (next) => {
+      latest = next;
+      surface.setState(next);
+    };
+    const focused = options.focused ? options.focused(props) : props?.focused !== false;
+    const engage = options.engaged && (() => surface.post(options.engaged(props)));
+    let reveal;
+    const ui = {
+      width: surface.columns || 80,
+      focused,
+      get state() {
+        return latest;
+      },
+      setState,
+      post: (message) => surface.post(message),
+      hide: () => surface.post({ type: "hide" }),
+      onKey: (fn) => void surface.onKey((event) => {
+        if (latest.keyPress)
+          return;
+        engage?.();
+        if (focused && !latest.keyboard && options.revealKeys?.includes(event.key)) {
+          setState({ ...latest, keyboard: true });
+          reveal?.();
+          return;
+        }
+        if (fn(event) === true && !latest.keyboard)
+          setState({ ...latest, keyboard: true });
+      }),
+      get keyboard() {
+        return latest.keyboard === true;
+      },
+      get keyPressing() {
+        return latest.keyPress === true;
+      },
+      onReveal: (fn) => {
+        reveal = fn;
+      },
+      pressFor: (run, ms = KEY_PRESS_MS) => {
+        if (latest.keyPress)
+          return;
+        setState({ ...latest, keyPress: true });
+        const stop = surface.every(ms, () => {
+          stop();
+          setState({ ...surface.state, keyPress: undefined });
+          run();
+        });
+      }
+    };
+    const { tree, lines, handlers } = drawKit({ elements: surface.elements, look: lookOf(latest, focused), width: ui.width, focused }, () => body(props, ui));
+    const local = {
+      get state() {
+        return latest;
+      },
+      setState,
+      onPointer: (fn) => surface.onPointer((event) => {
+        fn(event);
+        if (latest.keyboard)
+          setState({ ...latest, keyboard: undefined });
+      })
+    };
+    attachPointer(local, lines, {
+      focused,
+      onAction: (key) => handlers.get(key)?.(),
+      ...engage && { onEngage: engage },
+      ...options.isActive && { isActive: () => options.isActive(latest) }
+    });
+    return tree;
+  };
+}
+
+// packages/mod-kit/src/draw/render.tsx
+function isControl(span, line, row, key) {
+  if (span.action !== undefined)
+    return spanHoverKey(span, row) === key;
+  return span.isLabel === true && lineHoverKey(line) === key;
+}
+function styleOf(span, line, row, look) {
+  if (!look.focused)
+    return muted(span);
+  const overRow = span.rowTint === true && [look.hover, look.pressed].some((key) => key !== undefined && lineHoverKey(line) === key);
+  if (overRow)
+    return span.bg !== undefined && span.bg !== CURSOR_ROW ? span : { ...span, bg: CURSOR_ROW };
+  if (look.pressed !== undefined && isControl(span, line, row, look.pressed))
+    return pressed(span);
+  if (look.hover !== undefined && isControl(span, line, row, look.hover))
+    return hovered(span);
+  return span;
+}
+function renderLines(lines, elements, look) {
+  const { Box, Text } = elements;
+  return /* @__PURE__ */ h(Box, {
+    flexDirection: "column"
+  }, lines.map((line, n) => /* @__PURE__ */ h(Text, {
+    key: `l${n}`,
+    wrap: "truncate-end"
+  }, line.map((span, m) => {
+    const style = styleOf(span, line, n, look);
+    return /* @__PURE__ */ h(Text, {
+      key: `s${m}`,
+      ...style.color && { color: style.color },
+      ...style.bg && { backgroundColor: style.bg },
+      ...style.dim && { dimColor: true },
+      ...style.bold && { bold: true },
+      ...style.italic && { italic: true },
+      ...style.underline && { underline: true },
+      ...style.inverse && { inverse: true }
+    }, span.t);
+  }))));
+}
+
+// packages/mod-kit/src/components/panel.tsx
+function Panel(props) {
+  const render = rendering("Panel");
+  if (render.lines)
+    throw new Error("kit: a Client draws one Panel");
+  const lines = ctxFor(render, "panel", { width: props.width ?? render.width, focused: render.focused }).layout(props.children);
+  render.lines = lines;
+  return renderLines(lines, render.elements, render.look);
+}
 // packages/mod-kit/src/patterns/hideable-pane.tsx
 var DEFAULT_BAND_LABEL = "mattstack waiting";
 async function showPane($, pane, title) {
@@ -586,6 +870,36 @@ function windowLines(spec) {
     return [...clipLine([...gutter, ...lead], spec.width - spec.barCells), ...spec.bar[n] ?? []];
   });
 }
+// packages/mod-kit/src/components/buttons.tsx
+function buttonOf(props, ctx) {
+  return { label: props.label ?? textOf(props.children), tone: props.tone, disabled: props.disabled, action: ctx.bind("press", () => props.onPress?.()) };
+}
+var Button = kitComponent("Button", (props, ctx) => [buttonRow([buttonOf(props, ctx)], undefined, ctx.width)]);
+var ButtonRow = kitComponent("ButtonRow", (props, ctx) => {
+  const buttons = (nodes) => ctx.parts(nodes).flatMap((part) => ("component" in part) && part.component === Button ? [buttonOf(part.props, part.ctx)] : []);
+  return [buttonRow(buttons(props.children), buttons(props.right)[0], ctx.width)];
+});
+
+// packages/mod-kit/src/components/lines.tsx
+function keyed(lines, key) {
+  return lines.map((line) => {
+    const out = line.map(({ action, ...span }) => action === undefined ? span : { ...span, action: key(action) });
+    if (line.action !== undefined)
+      out.action = key(line.action);
+    return out;
+  });
+}
+var Lines = kitComponent("Lines", (props, ctx) => keyed(props.lines, (action) => ctx.bind(JSON.stringify(action), () => props.onAction?.(action))));
+var Span = kitComponent("Span", ({ children, ...style }) => [[sp(textOf(children), style)]]);
+var Row = kitComponent("Row", (props, ctx) => [
+  ctx.parts(props.children).flatMap((part) => {
+    if ("text" in part)
+      return [sp(part.text)];
+    if (part.component === Button)
+      return [buttonSpan(buttonOf(part.props, part.ctx))];
+    return part.component.toLines(part.props, part.ctx)[0] ?? [];
+  })
+]);
 // mods/human-todos/src/items.ts
 var PLUGIN = "human-todos";
 var TITLE = "Human Todos";
@@ -1934,7 +2248,7 @@ function paneModel(input) {
       rows.push({ kind: "buttons", buttons: buttonsOf(todo, messages, input.composing === todo.id) });
       if (isConfirming)
         lines("Are you sure you want to run this script?", width, "plain", true);
-      if (messages && todo.status === "open" && input.composing === todo.id) {
+      if (messages && todo.status === "open" && input.composing === todo.id && !input.dockedCompose) {
         blank();
         rows.push({ kind: "compose", todoId: todo.id, lines: Math.max(1, input.composeLines ?? 1) });
         rows.push({ kind: "composeActions", buttons: composeButtons(todo.id) });
@@ -2187,6 +2501,17 @@ function viewLines(view, width, focus = {}, draft) {
   return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus });
 }
 
+// mods/human-todos/src/pane/compose-actions.tsx
+function composeActionRows(id, width) {
+  return [...composeActionsLines(composeButtons(id), width), [sp(" ".repeat(width), { bg: CURSOR_ROW })]];
+}
+var compose_actions_default = kitClient((props, ui) => /* @__PURE__ */ h(Panel, {
+  width: props.width
+}, /* @__PURE__ */ h(Lines, {
+  lines: composeActionRows(props.id, props.width),
+  onAction: (message) => ui.post(message)
+})));
+
 // mods/human-todos/src/pane/plain-view.tsx
 var HEADER_ROWS = 3;
 var PRIMARY = new Set(["run", "open", "confirm", "show"]);
@@ -2299,8 +2624,8 @@ async function openPane($) {
   await $.ui.open({ id: PANE, title: TITLE });
   $.ui.invalidate("ui.render");
 }
-function modelOf(pane, width, messages = true) {
-  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? "", width, messages, composing: pane.composing, composeLines: pane.composeLines });
+function modelOf(pane, width, messages = true, dockedCompose = false) {
+  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? "", width, messages, composing: pane.composing, composeLines: pane.composeLines, dockedCompose });
 }
 async function waitingBand($) {
   const band = bandModel(await peekTodos($));
@@ -2351,8 +2676,15 @@ function registerPane(on) {
       const offset = reveal.offset;
       await scrollKit($, () => offset);
     }
-    if (e.requestId === PANE)
-      act($, e.data, e.surface);
+    const message = e.data;
+    const isDockSend = message.type === "press" && (message.button === "send" || message.button === "sendDone");
+    if (e.requestId === PANE && isDockSend)
+      sendDraft($, message.id, message.button === "sendDone", e.surface);
+    else if (e.requestId === PANE) {
+      if (message.type === "press" && message.button === "cancelMessage")
+        drafts.delete(message.id);
+      act($, message, e.surface);
+    }
     return next(e);
   });
   on("ui.scroll", { component: "Pane", requestId: "human-todos" }, async ($, e, next) => {
@@ -2408,14 +2740,19 @@ function registerPane(on) {
       const inner = Math.max(22, paneColumns(e) - 4);
       return drawPlainPane($, e, modelOf(pane, inner - 2, false), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE);
     }
-    const { Box, Client, Text, Input, Button } = $.ui.resolve(e);
+    const { Box, Client, Text, Input } = $.ui.resolve(e);
     const width = paneColumns(e);
     const paneBody = paneRows(e);
     const todo = pane.composing === null ? undefined : pane.list.find((t) => t.id === pane.composing);
-    const bodyRows = todo ? Math.max(3, paneBody - DOCK_ROWS) : paneBody;
+    const room = Math.max(10, width - GUTTER2 - BAR2);
+    const draft = todo ? drafts.get(todo.id) ?? "" : "";
+    const fieldRows = draftFieldRows(draft, room);
+    const actionRows = todo ? composeActionRows(todo.id, room).length : 0;
+    const dockRows = todo ? DOCK_FIXED_ROWS + fieldRows + actionRows : 0;
+    const bodyRows = Math.max(3, paneBody - dockRows);
     kitSizes.set(e.surface, { columns: width, bodyRows });
     const props = {
-      view: kitView(modelOf({ ...pane, composing: null }, modelWidth(width)), width, bodyRows, await read2($, scrollAtom)),
+      view: kitView(modelOf(pane, modelWidth(width), true, true), width, bodyRows, await read2($, scrollAtom)),
       focused: e.props.isFocused || await read2($, keysAtom),
       width
     };
@@ -2428,59 +2765,67 @@ function registerPane(on) {
     if (!todo)
       return list;
     const id = todo.id;
-    const send = (done) => {
-      const text = drafts.get(id) ?? "";
-      if (text.trim() === "")
-        return;
-      drafts.delete(id);
-      act($, { type: "send", id, text, done }, e.surface);
-    };
     return /* @__PURE__ */ h(Box, {
       flexDirection: "column"
-    }, list, /* @__PURE__ */ h(Text, {
-      dimColor: true
-    }, "─".repeat(Math.max(1, width - 2))), /* @__PURE__ */ h(Text, {
-      color: "suggestion",
+    }, list, /* @__PURE__ */ h(Box, {
+      flexDirection: "column",
+      marginLeft: GUTTER2,
+      marginTop: 1,
+      width: room
+    }, /* @__PURE__ */ h(Box, {
+      paddingLeft: CARD_PAD2,
+      marginBottom: 1
+    }, /* @__PURE__ */ h(Text, {
+      bold: true,
       wrap: "truncate-end"
-    }, `Message about “${todo.title}”`), /* @__PURE__ */ h(Input, {
+    }, `Message about “${todo.title}”`)), /* @__PURE__ */ h(Box, {
+      backgroundColor: CURSOR_ROW,
+      paddingX: CARD_PAD2,
+      paddingY: 1
+    }, /* @__PURE__ */ h(Input, {
       key: `message-${id}`,
-      rows: DRAFT_ROWS,
+      rows: fieldRows,
       autoFocus: true,
-      placeholder: "Type or paste a message for Claude",
-      value: drafts.get(id) ?? "",
+      placeholder: "Message the agent",
+      value: draft,
       submitLabel: "send",
       onInput: (value) => {
         drafts.set(id, value);
+        if (draftFieldRows(value, room) !== fieldRows)
+          $.ui.invalidate("ui.render");
       },
       onSubmit: (value) => {
         drafts.set(id, value);
-        send(false);
+        sendDraft($, id, false, e.surface);
       }
-    }), /* @__PURE__ */ h(Box, {
-      flexDirection: "row",
-      gap: 2,
-      justifyContent: "flex-end"
-    }, /* @__PURE__ */ h(Button, {
-      key: `message-cancel-${id}`,
-      label: "Cancel",
-      onPress: () => {
-        drafts.delete(id);
-        act($, { type: "press", id, button: "cancelMessage" }, e.surface);
-      }
-    }), /* @__PURE__ */ h(Button, {
-      key: `message-done-${id}`,
-      label: "Send & mark done",
-      onPress: () => send(true)
-    }), /* @__PURE__ */ h(Button, {
-      key: `message-send-${id}`,
-      label: "Send",
-      onPress: () => send(false)
+    })), /* @__PURE__ */ h(Client, {
+      key: `message-actions-${id}`,
+      module: "./pane/compose-actions.js",
+      height: actionRows,
+      props: { id, width: room }
     })));
   });
 }
-var DRAFT_ROWS = 3;
-var DOCK_ROWS = DRAFT_ROWS + 3;
+var GUTTER2 = 2;
+var BAR2 = 3;
+var CARD_PAD2 = 2;
+var MAX_FIELD_ROWS = 8;
+var DOCK_FIXED_ROWS = 5;
+var FIELD_HINT = "⏎ send · \\⏎ new line  ";
 var drafts = new Map;
+function draftFieldRows(text, room) {
+  const textWidth = Math.max(4, room - 2 * CARD_PAD2 - cellWidth(FIELD_HINT));
+  const rows = text.split(`
+`).reduce((n, line) => n + wrapKeeping(line, textWidth).length, 0);
+  return Math.min(MAX_FIELD_ROWS, Math.max(1, rows));
+}
+function sendDraft($, id, done, surface) {
+  const text = drafts.get(id) ?? "";
+  if (text.trim() === "")
+    return;
+  drafts.delete(id);
+  act($, { type: "send", id, text, done }, surface);
+}
 // mods/human-todos/src/contract.ts
 var PREFIX = "mcp__human-todos__";
 function addDescription(paneTitle) {

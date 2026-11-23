@@ -1,11 +1,12 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On } from 'claude-code'
-import { bandAbovePrompt, isEngaged, isPlaced, paneMessage, paneRows, registerPaneRedraw, type HideablePane, type Waiting } from '@mattstack/mod-kit'
+import type { EngineInterface, On, RenderSurface } from 'claude-code'
+import { CURSOR_ROW, bandAbovePrompt, cellWidth, wrapKeeping, isEngaged, isPlaced, paneMessage, paneRows, registerPaneRedraw, type HideablePane, type Waiting } from '@mattstack/mod-kit'
 
 import type { Todo } from '../types'
 import { PLUGIN, TITLE } from './items'
 import { act } from './pane/act'
 import { kitLayout, kitView, maxOffset, modelWidth } from './pane/kit-layout'
+import { composeActionRows } from './pane/compose-actions'
 import { drawPlainPane, paneColumns } from './pane/plain-view'
 import { bandModel, paneModel } from './pane/model'
 import type { PaneMessage, PaneModel } from './pane/model'
@@ -32,8 +33,8 @@ export async function openPane($: EngineInterface): Promise<void> {
 }
 
 // The kit drawer offers each item's message row; the plain drawer has no field to type in.
-function modelOf(pane: { list: Todo[]; openIds: string[]; spin: number; composing: string | null; composeLines: number }, width: number, messages = true): PaneModel {
-  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? '', width, messages, composing: pane.composing, composeLines: pane.composeLines })
+function modelOf(pane: { list: Todo[]; openIds: string[]; spin: number; composing: string | null; composeLines: number }, width: number, messages = true, dockedCompose = false): PaneModel {
+  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? '', width, messages, composing: pane.composing, composeLines: pane.composeLines, dockedCompose })
 }
 
 async function waitingBand($: EngineInterface): Promise<Waiting | undefined> {
@@ -92,8 +93,15 @@ export function registerPane(on: On): void {
       const offset = reveal.offset
       await scrollKit($, () => offset)
     }
-    // Not awaited, as a Button's onPress is not: a run's start can wait on a slow probe, and the post must not hold it.
-    if (e.requestId === PANE) void act($, e.data as PaneMessage, e.surface)
+    const message = e.data as PaneMessage
+    // The docked card's Send buttons carry the draft this hook holds; Cancel drops it.
+    const isDockSend = message.type === 'press' && (message.button === 'send' || message.button === 'sendDone')
+    if (e.requestId === PANE && isDockSend) sendDraft($, message.id, message.button === 'sendDone', e.surface)
+    else if (e.requestId === PANE) {
+      if (message.type === 'press' && message.button === 'cancelMessage') drafts.delete(message.id)
+      // Not awaited, as a Button's onPress is not: a run's start can wait on a slow probe, and the post must not hold it.
+      void act($, message, e.surface)
+    }
     return next(e)
   })
 
@@ -145,67 +153,82 @@ export function registerPane(on: On): void {
       const inner = Math.max(22, paneColumns(e) - 4)
       return drawPlainPane($, e, modelOf(pane, inner - 2, false), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE)
     }
-    const { Box, Client, Text, Input, Button } = $.ui.resolve(e)
+    const { Box, Client, Text, Input } = $.ui.resolve(e)
     const width = paneColumns(e)
     const paneBody = paneRows(e)
     const todo = pane.composing === null ? undefined : pane.list.find(t => t.id === pane.composing)
     // An engine Input takes no keys inside a Client, and a Client hands its key listener no paste, so the message
-    // field docks under the list, drawn by this hook.
-    const bodyRows = todo ? Math.max(3, paneBody - DOCK_ROWS) : paneBody
+    // card docks under the list: the Input drawn here, on the card's tint, and its buttons in a Client of their own.
+    const room = Math.max(10, width - GUTTER - BAR)
+    const draft = todo ? (drafts.get(todo.id) ?? '') : ''
+    const fieldRows = draftFieldRows(draft, room)
+    const actionRows = todo ? composeActionRows(todo.id, room).length : 0
+    const dockRows = todo ? DOCK_FIXED_ROWS + fieldRows + actionRows : 0
+    const bodyRows = Math.max(3, paneBody - dockRows)
     kitSizes.set(e.surface, { columns: width, bodyRows })
     const props = {
-      view: kitView(modelOf({ ...pane, composing: null }, modelWidth(width)), width, bodyRows, await read($, scrollAtom)),
+      view: kitView(modelOf(pane, modelWidth(width), true, true), width, bodyRows, await read($, scrollAtom)),
       focused: e.props.isFocused || (await read($, keysAtom)),
       width,
     }
     const list = <Client key="human-todos-pane" module="./pane/kit-view.tsx" height={bodyRows} props={props} />
     if (!todo) return list
     const id = todo.id
-    const send = (done: boolean) => {
-      const text = drafts.get(id) ?? ''
-      if (text.trim() === '') return
-      drafts.delete(id)
-      void act($, { type: 'send', id, text, done }, e.surface)
-    }
     return (
       <Box flexDirection="column">
         {list}
-        <Text dimColor>{'─'.repeat(Math.max(1, width - 2))}</Text>
-        <Text color="suggestion" wrap="truncate-end">{`Message about “${todo.title}”`}</Text>
-        <Input
-          key={`message-${id}`}
-          rows={DRAFT_ROWS}
-          autoFocus
-          placeholder="Type or paste a message for Claude"
-          value={drafts.get(id) ?? ''}
-          submitLabel="send"
-          onInput={value => {
-            drafts.set(id, value)
-          }}
-          onSubmit={value => {
-            drafts.set(id, value)
-            send(false)
-          }}
-        />
-        <Box flexDirection="row" gap={2} justifyContent="flex-end">
-          <Button
-            key={`message-cancel-${id}`}
-            label="Cancel"
-            onPress={() => {
-              drafts.delete(id)
-              void act($, { type: 'press', id, button: 'cancelMessage' }, e.surface)
-            }}
-          />
-          <Button key={`message-done-${id}`} label="Send & mark done" onPress={() => send(true)} />
-          <Button key={`message-send-${id}`} label="Send" onPress={() => send(false)} />
+        <Box flexDirection="column" marginLeft={GUTTER} marginTop={1} width={room}>
+          <Box paddingLeft={CARD_PAD} marginBottom={1}>
+            <Text bold wrap="truncate-end">{`Message about “${todo.title}”`}</Text>
+          </Box>
+          <Box backgroundColor={CURSOR_ROW} paddingX={CARD_PAD} paddingY={1}>
+            <Input
+              key={`message-${id}`}
+              rows={fieldRows}
+              autoFocus
+              placeholder="Message the agent"
+              value={draft}
+              submitLabel="send"
+              onInput={value => {
+                drafts.set(id, value)
+                if (draftFieldRows(value, room) !== fieldRows) $.ui.invalidate('ui.render')
+              }}
+              onSubmit={value => {
+                drafts.set(id, value)
+                sendDraft($, id, false, e.surface)
+              }}
+            />
+          </Box>
+          <Client key={`message-actions-${id}`} module="./pane/compose-actions.tsx" height={actionRows} props={{ id, width: room }} />
         </Box>
       </Box>
     )
   })
 }
 
-// The docked message field: a rule, the title line, the field's rows and the buttons row.
-const DRAFT_ROWS = 3
-const DOCK_ROWS = DRAFT_ROWS + 3
+// The docked card lines up with the list's rows: the list's gutter on the left, its scroll bar's cells on the right.
+const GUTTER = 2
+const BAR = 3
+const CARD_PAD = 2
+// The field's rows grow with the draft up to MAX_FIELD_ROWS, then it scrolls within, as the in-list card did.
+const MAX_FIELD_ROWS = 8
+// The gap above the card, the title and the gap under it, and the tinted rows above and below the field.
+const DOCK_FIXED_ROWS = 5
+// The engine draws its key hint beside a focused field, on the field's first row.
+const FIELD_HINT = '⏎ send · \\⏎ new line  '
 // Each open message's draft, by item, so a redraw of the pane hands the Input back what the person typed.
 const drafts = new Map<string, string>()
+
+function draftFieldRows(text: string, room: number): number {
+  const textWidth = Math.max(4, room - 2 * CARD_PAD - cellWidth(FIELD_HINT))
+  const rows = text.split('\n').reduce((n, line) => n + wrapKeeping(line, textWidth).length, 0)
+  return Math.min(MAX_FIELD_ROWS, Math.max(1, rows))
+}
+
+// Send and Send & mark done carry the draft; a blank one sends nothing.
+function sendDraft($: EngineInterface, id: string, done: boolean, surface: RenderSurface): void {
+  const text = drafts.get(id) ?? ''
+  if (text.trim() === '') return
+  drafts.delete(id)
+  void act($, { type: 'send', id, text, done }, surface)
+}

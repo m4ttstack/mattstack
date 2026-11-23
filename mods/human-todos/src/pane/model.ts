@@ -100,12 +100,12 @@ function buttonsOf(todo: Todo, messages: boolean, isComposing = false): PaneButt
 }
 
 // Left to right as the card draws them: the quiet way out first, Send last at the edge.
-const composeButtons = (todoId: string): PaneButton[] =>
+export const composeButtons = (todoId: string): PaneButton[] =>
   (['cancelMessage', 'sendDone', 'send'] as const).map(id => ({ id, label: LABELS[id], tone: TONES[id], todoId }))
 
 // A title wraps at the full inner width; everything else at `width`, two columns narrower.
 // `messages`: the kit drawer, which offers an item's message row; `composing` is the item whose row is open.
-export function paneModel(input: { list: Todo[]; expanded: string[]; spin: string; width: number; messages?: boolean; composing?: string | null; composeLines?: number }): PaneModel {
+export function paneModel(input: { list: Todo[]; expanded: string[]; spin: string; width: number; messages?: boolean; composing?: string | null; composeLines?: number; dockedCompose?: boolean }): PaneModel {
   const { list, expanded, spin, width } = input
   const messages = input.messages === true
   const inner = width + 2
@@ -167,7 +167,7 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
       // Confirm lands on the row Run was on, so the prompt goes under the buttons rather than pushing them down.
       rows.push({ kind: 'buttons', buttons: buttonsOf(todo, messages, input.composing === todo.id) })
       if (isConfirming) lines('Are you sure you want to run this script?', width, 'plain', true)
-      if (messages && todo.status === 'open' && input.composing === todo.id) {
+      if (messages && todo.status === 'open' && input.composing === todo.id && !input.dockedCompose) {
         blank()
         rows.push({ kind: 'compose', todoId: todo.id, lines: Math.max(1, input.composeLines ?? 1) })
         rows.push({ kind: 'composeActions', buttons: composeButtons(todo.id) })

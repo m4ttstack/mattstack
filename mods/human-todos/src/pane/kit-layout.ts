@@ -82,7 +82,7 @@ function composeLines(lines: number, room: number, draft?: Draft): L[] {
 // The card's last rows: its actions as kit buttons against the right edge, Cancel and Send & mark done plain words, Send
 // last with the neutral fill. Kit buttons, so the pointer lights and presses them as it does every other button. In a
 // narrow pane they wrap onto more rows, each still right-aligned, so Send is never clipped away.
-function composeActionsLines(buttons: PaneButton[], room: number): L[] {
+export function composeActionsLines(buttons: PaneButton[], room: number): L[] {
   const spans = buttons.map(b => buttonSpan({ label: b.label, tone: b.tone, action: messageOf(b) }, 1))
   const rows: L[][] = [[]]
   let used = CARD_PAD

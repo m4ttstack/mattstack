@@ -1112,7 +1112,7 @@ function paneModel(input) {
       rows.push({ kind: "buttons", buttons: buttonsOf(todo, messages, input.composing === todo.id) });
       if (isConfirming)
         lines("Are you sure you want to run this script?", width, "plain", true);
-      if (messages && todo.status === "open" && input.composing === todo.id) {
+      if (messages && todo.status === "open" && input.composing === todo.id && !input.dockedCompose) {
         blank();
         rows.push({ kind: "compose", todoId: todo.id, lines: Math.max(1, input.composeLines ?? 1) });
         rows.push({ kind: "composeActions", buttons: composeButtons(todo.id) });
