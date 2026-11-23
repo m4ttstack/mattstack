@@ -180,7 +180,8 @@ export function registerPane(on: On): void {
           <Box paddingLeft={CARD_PAD} marginBottom={1}>
             <Text bold wrap="truncate-end">{`Message about “${todo.title}”`}</Text>
           </Box>
-          <Box backgroundColor={CURSOR_ROW} paddingX={CARD_PAD} paddingY={1}>
+          {/* A column, so the Input stretches across the card: in a row Box it sizes to its text and cuts it off. */}
+          <Box flexDirection="column" backgroundColor={CURSOR_ROW} paddingX={CARD_PAD} paddingY={1}>
             <Input
               key={`message-${id}`}
               rows={fieldRows}

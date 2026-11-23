@@ -2778,6 +2778,7 @@ function registerPane(on) {
       bold: true,
       wrap: "truncate-end"
     }, `Message about “${todo.title}”`)), /* @__PURE__ */ h(Box, {
+      flexDirection: "column",
       backgroundColor: CURSOR_ROW,
       paddingX: CARD_PAD2,
       paddingY: 1
