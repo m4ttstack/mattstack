@@ -328,6 +328,11 @@ export function buildRoutedHandlers(opts: {
       isRunTree: (path, runRepo) => isRunTree(path, runRepo, { findTreeByPath, repoIndex: ctx.repoIndex }),
       openKitGate: openKitGateFor(opts.gatesStore),
       gateById: (id) => opts.gatesStore.get(id) ?? null,
+      closeRunGates: async (runId) => {
+        for (const gate of opts.gatesStore.list({ run: runId, status: ["open", "parked"] }).gates) {
+          await gateHandlers["gate:close"]({ id: gate.id, reason: "abandoned" });
+        }
+      },
     }),
     ...createUsageHandlers({ log: ctx.log }),
     ...createSecretsHandlers({ log: ctx.log }),
