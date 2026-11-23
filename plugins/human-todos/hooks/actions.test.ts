@@ -740,6 +740,44 @@ test('Send pressed again while a busy turn holds the first message sends it once
   await pane.unmount()
 })
 
+test('two Sends posted in the same tick send the message once', async ($, on) => {
+  const { sent, fail } = await seeded($, on, [todo({})])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  let release = () => {}
+  fail.holdSubmit = new Promise<void>(resolve => (release = resolve))
+  await press(pane, '1', 'message')
+
+  const posts = [
+    pane.post({ type: 'send', id: '1', text: 'here it is', done: true }, { in: 'human-todos-pane' }),
+    pane.post({ type: 'send', id: '1', text: 'here it is', done: true }, { in: 'human-todos-pane' }),
+  ]
+  await new Promise(resolve => setTimeout(resolve, 0))
+  release()
+  await Promise.all(posts)
+  for (let tick = 0; tick < 100 && sent.length === 0; tick++) await new Promise(resolve => setTimeout(resolve, 0))
+
+  expect(sent).toEqual(['[Human Todos] #1 "T": the user marked it done and says: here it is'])
+  await pane.unmount()
+})
+
+test("a send held from the last session does not block the new session's item with the same number", async ($, on) => {
+  const { events, store, sent, fail, setSession } = await seeded($, on, [todo({})])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  fail.holdSubmit = new Promise<void>(() => {})
+  await press(pane, '1', 'message')
+  void pane.post({ type: 'send', id: '1', text: 'old', done: false }, { in: 'human-todos-pane' })
+  await new Promise(resolve => setTimeout(resolve, 0))
+
+  store.set('list:sess-2', { todos: [todo({ title: 'New' })], nextId: 2, savedAt: 1_000_000 })
+  setSession('sess-2')
+  await state($)
+  await pane.post({ type: 'send', id: '1', text: 'new', done: false }, { in: 'human-todos-pane' })
+
+  expect(toasts(events)).toEqual([])
+  expect(sent).toEqual(['[Human Todos] #1 "New": the user says: new'])
+  await pane.unmount()
+})
+
 test('with the pane closed and nothing drawn, a finished run is still reported', async ($, on) => {
   const { clock, sent } = await seeded($, on, [todo({})], {
     script: async function* () {

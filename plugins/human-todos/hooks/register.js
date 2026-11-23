@@ -2287,19 +2287,20 @@ async function pressTodo($, todoId, button, surface) {
     $.ui.toast(`Could not ${LABELS[button].toLowerCase()} #${todo.id}`);
   }
 }
-var sendingIds = new Set;
+var sending = new Set;
 async function sendMessage($, todoId, text, done) {
-  if (sendingIds.has(todoId))
+  const key = `${await $.session.id()}:${todoId}`;
+  if (sending.has(key))
     return $.ui.toast(`#${todoId} is already on its way to the agent; it goes in when the current turn ends`);
-  const todo = (await peekTodos($)).find((t) => t.id === todoId);
-  if (!todo || todo.status !== "open" || text.trim() === "")
-    return await closeComposing($);
-  sendingIds.add(todoId);
+  sending.add(key);
   try {
+    const todo = (await peekTodos($)).find((t) => t.id === todoId);
+    if (!todo || todo.status !== "open" || text.trim() === "")
+      return await closeComposing($);
     if (await report($, todo, { kind: "message", text: text.trim(), done }))
       await closeComposing($);
   } finally {
-    sendingIds.delete(todoId);
+    sending.delete(key);
   }
 }
 async function clearFinished($) {
