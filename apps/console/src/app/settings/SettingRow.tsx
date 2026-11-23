@@ -44,6 +44,7 @@ import {
 } from './RowProject';
 import { ScopeBadge } from './ScopeBadge';
 import classes from './SettingRow.module.css';
+import { NotPushedMark, SyncNote } from './SyncMarks';
 import {
   prefetchKeyExplain,
   useSettingsRepo,
@@ -297,6 +298,7 @@ function RowBody({
               </Text>
             ) : null}
             <RepoReach def={def} />
+            <NotPushedMark settingKey={def.key} />
           </Group>
           {def.key === APPROVAL_KEY ? (
             <Text fz={12} lh="15px" c={text.muted} data-testid="approval-note">
@@ -325,8 +327,11 @@ function RowBody({
           <SaveStatus row={row} />
         </Group>
       </Group>
-      {(row.error || rejected) && (
+      {(row.error ||
+        rejected ||
+        (row.followUp && row.followUp !== 'saved')) && (
         <Stack gap={4} pb={12} className={classes.inset}>
+          <SyncNote followUp={row.followUp} />
           <WriteError row={row} />
           {rejected && (
             <Text fz={12} ff="monospace" c="var(--tk-text-bad-small)">

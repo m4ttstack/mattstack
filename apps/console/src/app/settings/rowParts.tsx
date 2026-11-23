@@ -15,6 +15,7 @@ import { explainedOptions, OptionList } from './OptionList';
 import { PanelToolbar } from './PanelToolbar';
 import { ProjectPicker, useRowProject } from './RowProject';
 import { ScalarControl } from './ScalarControl';
+import { SyncNote } from './SyncMarks';
 import { useSettingsRepo } from './useConsoleSettings';
 import type { useRowSave } from './useRowSave';
 import { APPROVAL_KEY, rungBase, rungOf } from './view';
@@ -242,10 +243,11 @@ export function WriteError({ row }: { row: Row }) {
 /** Both of the above on their own lines, for a Value tab with no row
     header to hold the status. */
 export function WriteState({ row }: { row: Row }) {
-  if (row.status === 'idle' && !row.error) return null;
+  if (row.status === 'idle' && !row.error && !row.followUp) return null;
   return (
     <Stack gap={4} px={8}>
       <SaveStatus row={row} />
+      <SyncNote followUp={row.followUp} />
       <WriteError row={row} />
     </Stack>
   );

@@ -61,7 +61,13 @@ export const routes = new Hono()
   .route(
     '/',
     syncRoutes({
-      fixture: scenario ? syncFixture(syncScenario(process.env)) : null,
+      fixture: scenario
+        ? syncFixture(
+            syncScenario(process.env),
+            process.env.CONSOLE_FIXTURE_SYNC_ORG,
+            process.env.CONSOLE_FIXTURE_SYNC_TEAM
+          )
+        : null,
     })
   )
   .route('/', settings)

@@ -18,10 +18,15 @@ export function syncScenario(
   return SCENARIOS.find(s => s === wanted) ?? 'pushed';
 }
 
-/** The invented `acme` org from the team fixture, in one sync state per scenario. */
-export function syncFixture(scenario: SyncScenario): OrgSync[] {
+/** The invented `acme` org from the team fixture, in one sync state per scenario. The settings routes are not fixtured, so `org` and `team` rename it to the ones they read. */
+export function syncFixture(
+  scenario: SyncScenario,
+  org = 'acme',
+  team = 'web'
+): OrgSync[] {
+  const store = `team:${team}` as const;
   const base = {
-    org: 'acme',
+    org,
     pending: [] as OrgSync['pending'],
     cantPush: [] as string[],
     lastPushAt: LAST_PUSH,
@@ -34,8 +39,8 @@ export function syncFixture(scenario: SyncScenario): OrgSync[] {
       waiting: {
         state: { kind: 'waiting', count: 2 },
         pending: [
-          { store: 'team:web', key: 'board.slack', change: 'changed' },
-          { store: 'team:web', key: 'mattstack.directory', change: 'added' },
+          { store, key: 'board.slack', change: 'changed' },
+          { store, key: 'mattstack.directory', change: 'added' },
         ],
       },
       stuck: {
@@ -45,7 +50,7 @@ export function syncFixture(scenario: SyncScenario): OrgSync[] {
           detail:
             "fatal: unable to access 'https://gitlab.com/acme/org.git/': The requested URL returned error: 403",
         },
-        pending: [{ store: 'team:web', key: 'board.slack', change: 'changed' }],
+        pending: [{ store, key: 'board.slack', change: 'changed' }],
       },
       unknown: { state: { kind: 'unknown' }, lastPushAt: null },
     };

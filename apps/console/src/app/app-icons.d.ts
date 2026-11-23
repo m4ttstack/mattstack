@@ -60,6 +60,9 @@ declare module '@mattstack/app-kit/icons' {
     code: true;
     messageSquareMore: true;
     messageSquarePlus: true;
+    arrowUpFromLine: true;
+    cloudCheck: true;
+    cloudOff: true;
   }
 }
 export {};

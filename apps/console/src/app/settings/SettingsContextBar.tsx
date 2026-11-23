@@ -8,6 +8,7 @@ import { Group, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
 import { BackPill } from '../nav/BackPill';
+import { SyncPill } from './SyncPill';
 import type { Viewer } from './useConsoleSettings';
 
 /** Where you are (org and team), in the top bar beside the breadcrumb.
@@ -58,6 +59,7 @@ export function SettingsContextBar({
             )}
           </>
         )}
+        <SyncPill org={org} />
         {other && ownTeam && (
           <BackPill
             label={`Back to ${ownTeam}`}
