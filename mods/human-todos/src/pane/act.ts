@@ -18,12 +18,21 @@ async function pressTodo($: EngineInterface, todoId: string, button: ButtonId, s
   }
 }
 
+// A busy turn holds a message until it ends, and its item stays open meanwhile, so a second Send must not send it again.
+const sendingIds = new Set<string>()
+
 // A message goes to the agent through the same channel as Done; Send & Done also finishes the item.
 async function sendMessage($: EngineInterface, todoId: string, text: string, done: boolean): Promise<void> {
+  if (sendingIds.has(todoId)) return $.ui.toast(`#${todoId} is already on its way to the agent; it goes in when the current turn ends`)
   const todo = (await peekTodos($)).find(t => t.id === todoId)
   if (!todo || todo.status !== 'open' || text.trim() === '') return await closeComposing($)
-  // A message that did not reach the agent keeps its card open with the draft, so it can be sent again.
-  if (await report($, todo, { kind: 'message', text: text.trim(), done })) await closeComposing($)
+  sendingIds.add(todoId)
+  try {
+    // A message that did not reach the agent keeps its card open with the draft, so it can be sent again.
+    if (await report($, todo, { kind: 'message', text: text.trim(), done })) await closeComposing($)
+  } finally {
+    sendingIds.delete(todoId)
+  }
 }
 
 async function clearFinished($: EngineInterface): Promise<void> {
