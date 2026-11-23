@@ -130,6 +130,30 @@ path, not key.
 - On a trial branch the pill reads "On trial branch <name>" rather than
   Pushed, since teammates on the data branch never see it.
 
+- `pending` looks inside `repos.<identity>`: an entry is
+  `{ store, repo?, key }`, so a repo-layer save on a team row gets its
+  follow-up and mark too.
+- Paths this Mac may never push (`unownedDirty`, a `pullOnly` clone) are not
+  in `pending`. The popover lists them under "Can't push from this Mac" with
+  the reason, and they never hold the pill on "N waiting".
+- `heldBack` paths count as waiting, with "waiting for its pack's share".
+- Stuck also covers `lastCommitError`, `lastPullError`, and a `lastPullAt`
+  older than twice `pullIntervalSec` ("Can't reach the org repo"), so a dead
+  token never reads as Pushed.
+- `lastPushAt` survives a daemon restart: the daemon reads it back from the
+  push record it already persists. The pill and the save follow-up only ever
+  compare against this Mac's own push, never origin's tip time (which can be a
+  teammate's commit).
+- A fourth pill state, **Unknown** (muted, "Can't read sync status"), covers a
+  daemon that is down and an older daemon with no `pending`. It has its own
+  fixture scenario.
+- `team:snapshot-run` needs a new engine path: `runNow()` only commits and
+  schedules the push (`pushDelaySec`, 60s), so the path commits, pulls and
+  pushes now, cancels the push and retry timers, and coalesces concurrent
+  calls into one round.
+- The event uses the events-bus `event` frame (the emit pattern Console's
+  relay forwards), not the existing `team:snapshot` broadcasts.
+
 ## Left to the builder
 
 - Where the key diff lives in rt-client and its exact name.
