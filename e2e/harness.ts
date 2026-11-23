@@ -80,6 +80,9 @@ export function rtEnv(home: string, extra: Record<string, string> = {}, skipSetu
     PATH: `${join(RT_BINARY, "..")}:${bunDir}:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin`,
     TERM: "xterm-256color",
     RT_GH_TOKEN_FALLBACK: "off",
+    // Most e2e commands run with no daemon and expect it gone at once; without
+    // this each would wait out the restart retry. A test of the retry sets its own.
+    RT_DAEMON_RETRY_BUDGET_MS: "0",
     ...extra,
   };
 
