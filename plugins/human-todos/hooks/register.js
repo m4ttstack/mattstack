@@ -2788,7 +2788,7 @@ function registerPane(on) {
       autoFocus: true,
       placeholder: "Message the agent",
       value: draft,
-      submitLabel: "",
+      submitLabel: "send",
       onInput: (value) => {
         drafts.set(id, value);
         if (draftFieldRows(value, room) !== fieldRows)
@@ -2809,20 +2809,16 @@ function registerPane(on) {
 var GUTTER2 = 2;
 var BAR2 = 3;
 var CARD_PAD2 = 2;
+var MIN_FIELD_ROWS = 2;
 var MAX_FIELD_ROWS = 8;
 var DOCK_FIXED_ROWS = 5;
-var ONE_ROW_HINT = "⏎  ";
-var MULTI_ROW_HINT = "⏎ · \\⏎ new line  ";
+var FIELD_HINT = "⏎ send · \\⏎ new line  ";
 var drafts = new Map;
 function draftFieldRows(text, room) {
-  const rowsBeside = (hint) => {
-    const textWidth = Math.max(4, room - 2 * CARD_PAD2 - cellWidth(hint));
-    return text.split(`
+  const textWidth = Math.max(4, room - 2 * CARD_PAD2 - cellWidth(FIELD_HINT));
+  const rows = text.split(`
 `).reduce((n, line) => n + wrapKeeping(line, textWidth).length, 0);
-  };
-  if (rowsBeside(ONE_ROW_HINT) <= 1)
-    return 1;
-  return Math.min(MAX_FIELD_ROWS, Math.max(2, rowsBeside(MULTI_ROW_HINT)));
+  return Math.min(MAX_FIELD_ROWS, Math.max(MIN_FIELD_ROWS, rows));
 }
 function sendDraft($, id, done, surface) {
   const text = drafts.get(id) ?? "";

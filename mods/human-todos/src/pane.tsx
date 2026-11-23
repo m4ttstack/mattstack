@@ -188,7 +188,7 @@ export function registerPane(on: On): void {
               autoFocus
               placeholder="Message the agent"
               value={draft}
-              submitLabel=""
+              submitLabel="send"
               onInput={value => {
                 drafts.set(id, value)
                 if (draftFieldRows(value, room) !== fieldRows) $.ui.invalidate('ui.render')
@@ -211,24 +211,21 @@ const GUTTER = 2
 const BAR = 3
 const CARD_PAD = 2
 // The field's rows grow with the draft up to MAX_FIELD_ROWS, then it scrolls within, as the in-list card did.
+const MIN_FIELD_ROWS = 2
 const MAX_FIELD_ROWS = 8
 // The gap above the card, the title and the gap under it, and the tinted rows above and below the field.
 const DOCK_FIXED_ROWS = 5
-// The engine draws its key hint beside a focused field: Enter's alone on a one-row field, the newline key's too from two rows.
-const ONE_ROW_HINT = '⏎  '
-const MULTI_ROW_HINT = '⏎ · \\⏎ new line  '
+// The engine draws its key hint beside a focused field, on the field's first row.
+const FIELD_HINT = '⏎ send · \\⏎ new line  '
 // Each open message's draft, by item, so a redraw of the pane hands the Input back what the person typed.
 const drafts = new Map<string, string>()
 
-// One row while the draft fits beside the short hint, so a short message never shows the newline hint; past that,
-// the rows it wraps to beside the longer one.
+// Never one row: a one-row field cuts its text off with an ellipsis instead of wrapping, and a field that changes
+// between one row and several redraws its hint and its text in odd places.
 function draftFieldRows(text: string, room: number): number {
-  const rowsBeside = (hint: string) => {
-    const textWidth = Math.max(4, room - 2 * CARD_PAD - cellWidth(hint))
-    return text.split('\n').reduce((n, line) => n + wrapKeeping(line, textWidth).length, 0)
-  }
-  if (rowsBeside(ONE_ROW_HINT) <= 1) return 1
-  return Math.min(MAX_FIELD_ROWS, Math.max(2, rowsBeside(MULTI_ROW_HINT)))
+  const textWidth = Math.max(4, room - 2 * CARD_PAD - cellWidth(FIELD_HINT))
+  const rows = text.split('\n').reduce((n, line) => n + wrapKeeping(line, textWidth).length, 0)
+  return Math.min(MAX_FIELD_ROWS, Math.max(MIN_FIELD_ROWS, rows))
 }
 
 // Send and Send & mark done carry the draft; a blank one sends nothing.
