@@ -435,6 +435,104 @@ describe('GET /telemetry', () => {
     expect(section).toContain('2.31.1 offered');
   });
 
+  const behindSection = (html: string) =>
+    html.slice(
+      html.indexOf('Not on the latest release'),
+      html.indexOf('<h2>Macs</h2>')
+    );
+
+  test.each([
+    ['windowsOpen', 'window open'],
+    ['setupRunning', 'setup running'],
+    ['daemonBusy', 'daemon busy'],
+    ['notOnMain', 'clone not on main'],
+    ['localCommits', 'clone has local commits'],
+    ['dirtyTree', 'clone has uncommitted changes'],
+    ['mergeInProgress', 'merge or rebase in progress'],
+    ['fetchFailed', 'could not fetch'],
+    ['updateFailed', 'update failed'],
+  ])('a held update names the %s hold as "%s"', async (hold, words) => {
+    const { telemetry, get } = setup();
+    telemetry.record(
+      ping({ appVersion: '2.37.0', rtVersion: 'v2.37.0', installId: 'a' }),
+      null,
+      NOW
+    );
+    telemetry.record(
+      ping({
+        appVersion: '2.36.0',
+        rtVersion: 'v2.36.0',
+        installId: 'b',
+        appUpdate: {
+          lastCheckAt: null,
+          offeredVersion: '2.37.0',
+          heldVersion: '2.37.0',
+          hold,
+        },
+      }),
+      null,
+      NOW
+    );
+    const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+    expect(behindSection(html)).toContain(`2.37.0 held (${words})`);
+  });
+
+  test('a Mac whose org turned automatic updates off shows as off', async () => {
+    const { telemetry, get } = setup();
+    telemetry.record(
+      ping({ appVersion: '2.37.0', rtVersion: 'v2.37.0', installId: 'a' }),
+      null,
+      NOW
+    );
+    telemetry.record(
+      ping({
+        appVersion: '2.36.0',
+        rtVersion: 'v2.36.0',
+        installId: 'b',
+        appUpdate: {
+          lastCheckAt: null,
+          offeredVersion: null,
+          heldVersion: null,
+          hold: 'orgOff',
+        },
+      }),
+      null,
+      NOW
+    );
+    const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+    expect(behindSection(html)).toContain('off (turned off by the org)');
+  });
+
+  test('a dev Mac with a held update is listed even when its versions are not behind prod', async () => {
+    const { telemetry, get } = setup();
+    telemetry.record(
+      ping({ appVersion: '2.37.0', rtVersion: 'v2.37.0', installId: 'a' }),
+      null,
+      NOW
+    );
+    telemetry.record(
+      ping({
+        appVersion: '2.37.0',
+        rtVersion: 'v2.37.0',
+        installId: 'dev-1',
+        usernames: ['devon'],
+        flavor: 'dev',
+        appUpdate: {
+          lastCheckAt: null,
+          offeredVersion: '2.38.0',
+          heldVersion: '2.38.0',
+          hold: 'dirtyTree',
+        },
+      }),
+      null,
+      NOW
+    );
+    const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+    const section = behindSection(html);
+    expect(section).toContain('devon');
+    expect(section).toContain('2.38.0 held (clone has uncommitted changes)');
+  });
+
   test('shows an app and rt update from one ping as one row', async () => {
     const { telemetry, get } = setup();
     telemetry.record(ping(), null, NOW);

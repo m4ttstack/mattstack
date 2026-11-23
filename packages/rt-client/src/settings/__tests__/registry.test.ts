@@ -329,7 +329,7 @@ describe("settings/registry", () => {
       expect(def?.merge).toBe("replace");
     });
 
-    test("has exactly the 24 migrated:true keys and the 113 suite keys", () => {
+    test("has exactly the 24 migrated:true keys and the 114 suite keys", () => {
       const migratedFalseKeys: string[] = [];
       const migratedTrueKeys = [
         "rt.roles", "rt.intercepts", "rt.ignoredMrs", "rt.worktrees", "rt.worktreeReadyApproval", "rt.repoIdentityOverrides", "rt.repoRoots",
@@ -344,6 +344,7 @@ describe("settings/registry", () => {
         "mattstack.appPath",
         "mattstack.colorScheme",
         "mattstack.directory",
+        "mattstack.autoUpdate",
         "setup.waived",
         "mattstack.roster",
         "mattstack.org",
@@ -453,11 +454,16 @@ describe("settings/registry", () => {
         "rt.work.gateModeShadow",
         "superpowers.execution",
       ];
-      expect(suiteKeys).toHaveLength(113);
+      expect(suiteKeys).toHaveLength(114);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
       );
+    });
+
+    test("mattstack.autoUpdate is an org-only boolean that defaults to on", () => {
+      const def = getDef("mattstack.autoUpdate");
+      expect(def).toMatchObject({ type: "boolean", scopes: ["org"], default: true, merge: "replace" });
     });
 
     test("every suite key (no legacyFile, no explicit migrated flag) resolves as migrated via isMigrated", () => {

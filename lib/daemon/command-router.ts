@@ -78,6 +78,9 @@ import type { TeamSnapshotsHandle } from "./team-snapshots.ts";
 import type { BgService } from "./bg-service.ts";
 import type { BgClaimsStore } from "./bg-claims-store.ts";
 import type { CommandResult } from "./handlers/types.ts";
+import { createBusyHandlers } from "./handlers/busy.ts";
+import { createBusyTracker, type BusyProbes } from "./busy.ts";
+import { pendingReadyCount } from "../worktree/ready-async.ts";
 
 /** Every agent:resume caller (the board, the reconciler, a gate answer)
     reads executor state soon after; without this the relaunched agent reads
@@ -178,6 +181,8 @@ export function buildRoutedHandlers(opts: {
   runLiveness?: () => Promise<RunLiveness>;
   /** Runs one credential-health sweep cycle on demand (RT-132), the same closure the daemon's periodic accounts-sweep timer calls, so `rt accounts --recheck` sees an up-to-date credential_health table immediately. Omitted only by tests that don't exercise accounts-recheck. */
   accountsSweep?: () => Promise<void>;
+  /** Backs daemon:busy; omitted, only ready installs count. */
+  busy?: BusyProbes;
 }): Record<string, Handler> {
   const { ctx, broadcast, systemProcessScanner } = opts;
   // The bus owns frame-building + persistence (R020, events-bus.ts); this
@@ -359,6 +364,7 @@ export function buildRoutedHandlers(opts: {
     ...createGitStatusHandlers({ store: opts.gitBadges, sweep: opts.gitStatusSweep }),
     ...createHerdrHandlers({ start: startHerdr }),
     ...createInboxHandlers(),
+    ...createBusyHandlers(opts.busy ?? { tracker: createBusyTracker(), pendingReady: pendingReadyCount, creating: () => false }),
 
     // Applies repo-tracking edits immediately (rt daemon track <repo>
     // live|poll|off) instead of waiting for the next refresh-tail reconcile.

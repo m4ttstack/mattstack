@@ -591,6 +591,11 @@ final class SetupCoordinator {
 
     // MARK: - Settings
 
+    var isSettingsWindowOpen: Bool {
+        guard let w = settingsWindow?.window else { return false }
+        return w.isVisible || w.isMiniaturized
+    }
+
     func showSettings(pane: SettingsPane? = nil) {
         if settingsWindow == nil {
             let env = SettingsEnvironment(rt: rt, needs: needs, permissions: permissions, readiness: readiness, updater: updater, apps: appsSettings, team: teamSettings,

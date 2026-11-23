@@ -517,6 +517,14 @@ const ROWS: readonly SettingDef[] = [
       "Every team the apps should know about, on mattstack or not: each team's Linear key and Slack channels (the channel other teams ask it in for code owner review, plus channels by kind). Keyed by team name; a name matching a team folder is that mattstack team.",
   },
   {
+    key: "mattstack.autoUpdate",
+    type: "boolean",
+    scopes: ["org"],
+    default: true,
+    merge: "replace",
+    description: "Install mattstack updates on every Mac in this org as soon as they are ready, with no prompt. When off, each person installs updates themselves.",
+  },
+  {
     key: "mattstack.activeTeam",
     type: "string",
     scopes: ["user"],

@@ -97,7 +97,6 @@ enum AXID {
     // Settings
     static func settingsTab(_ pane: String) -> String { "settings.tab.\(pane)" }
     static let settingsGeneralStartAtLogin = "settings.general.startAtLogin"
-    static let settingsGeneralAutoUpdates = "settings.general.autoUpdates"
     static let settingsGeneralCheckNow = "settings.general.checkNow"
     static let settingsGeneralSwitchApp = "settings.general.switchApp"
     static let settingsGeneralShellHandoff = "settings.general.shellHandoff"

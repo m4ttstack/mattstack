@@ -33,19 +33,33 @@ public enum UpdatePolicy {
     }
 
     /// A scheduled update opens Sparkle's window in front, except while setup
-    /// runs: the menu item stands in then, and the next scheduled check asks again.
+    /// runs: the menu item stands in then, and the next scheduled check asks
+    /// again. Silent, Sparkle shows only an update it could not install by
+    /// itself, so the window is still the way in.
     public static func opensUpdateWindow(handledBySparkle: Bool, userInitiated: Bool, setupRunning: Bool) -> Bool {
         !handledBySparkle && !userInitiated && !setupRunning
     }
 
-    public static func hold(setupRunning: Bool, windowsOpen: Int) -> UpdateHold? {
+    /// `silent` is the org's automatic-update setting. Silent, a setup run and
+    /// then a busy daemon hold the install, and open windows do not, since the
+    /// app reopens them. Not silent, setup and then open windows hold, and the
+    /// daemon is not asked.
+    public static func hold(silent: Bool, setupRunning: Bool, windowsOpen: Int, daemonBusy: Bool) -> UpdateHold? {
         if setupRunning { return .setupRunning }
-        if windowsOpen > 0 { return .windowsOpen }
-        return nil
+        if silent { return daemonBusy ? .daemonBusy : nil }
+        return windowsOpen > 0 ? .windowsOpen : nil
+    }
+
+    /// Hourly when installs are silent: the interval is how fast a release
+    /// reaches every Mac. Six hours when each person installs, as before, so
+    /// the prompt does not come back every hour.
+    public static func checkInterval(silent: Bool) -> TimeInterval {
+        silent ? 3600 : 21600
     }
 }
 
 public enum UpdateHold: Equatable, Sendable {
     case setupRunning
     case windowsOpen
+    case daemonBusy
 }

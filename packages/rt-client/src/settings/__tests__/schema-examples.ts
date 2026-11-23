@@ -296,6 +296,7 @@ export const EXAMPLES: Record<string, Example> = {
       { value: [{ username: "dev1", teams: "widgets" }], path: [0, "teams"] },
     ],
   },
+  "mattstack.autoUpdate": { good: [true, false], bad: [{ value: "yes", path: [] }] },
   "mattstack.directory": {
     good: [
       {},

@@ -35,6 +35,7 @@ public enum UpdateNotice {
         switch hold {
         case .windowsOpen: body = "Installs when you close mattstack's windows"
         case .setupRunning: body = "Installs once setup finishes and mattstack's windows close"
+        case .daemonBusy: body = "Installs when the daemon finishes what it is doing"
         }
         return Copy(title: "mattstack \(version) is ready", body: body)
     }

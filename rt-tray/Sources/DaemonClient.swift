@@ -20,6 +20,14 @@ class DaemonClient {
         return response.ok
     }
 
+    /// False when the daemon does not answer: an update never waits on a
+    /// daemon that is down, and an older one does not know the verb.
+    func isBusy() async -> Bool {
+        let reply: SocketReply<DaemonBusyReply> = await command("daemon:busy", payload: [:], timeout: 3)
+        guard let r = reply.value, r.ok else { return false }
+        return r.data?.busy ?? false
+    }
+
     /// Socket only: the flat `ping` names the daemon's flavor, and the HTTP
     /// route `query` prefers maps ping to /api/status, which does not.
     func answers(asFlavor flavor: String) async -> Bool {
@@ -286,6 +294,12 @@ enum SocketReply<T> {
         if case .value(let v) = self { return v }
         return nil
     }
+}
+
+struct DaemonBusyReply: Decodable {
+    let ok: Bool
+    let data: Payload?
+    struct Payload: Decodable { let busy: Bool }
 }
 
 struct PingResponse: Decodable {

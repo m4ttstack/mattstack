@@ -619,6 +619,10 @@ export const SecretsReadDataSchema = z
 
 const emptyPayload = () => z.object({}).strict();
 
+export const daemonBusyPayloadSchema = emptyPayload();
+/** Reasons are "command:<verb>", "worktree-install" and "worktree-create". */
+export const daemonBusyDataSchema = z.object({ busy: z.boolean(), reasons: z.array(z.string()) });
+
 export const trayStatusPayloadSchema = emptyPayload();
 export const trayStatusDataSchema = TrayStatusDataSchema;
 

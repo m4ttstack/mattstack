@@ -30,7 +30,7 @@ enum TestDrivePreview {
 
         controller = TestDriveController(
             permissions: PermissionsService(bundleId: "com.mattstack.test-drive-preview", agentStatuses: { [] }, runner: SystemCommandRunner()),
-            updater: UpdaterController(isDevBuild: true, isBusy: { false }))
+            updater: UpdaterController(isDevBuild: true, isBusy: { false }, readAutoUpdate: { true }, daemonBusy: { false }))
         controller.showPicker()
         NSApp.activate(ignoringOtherApps: true)
         app.run()

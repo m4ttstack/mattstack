@@ -40,6 +40,9 @@ import {
 import { onNotification, notifyEnabled, notifyEvent, loadNotificationPrefs } from "./notifier.ts";
 import { createForgeAccessSweep } from "./daemon/forge-access-sweep.ts";
 import { createOrgGuardSweep, ORG_GUARD_INTERVAL_MS } from "./daemon/org-guard-sweep.ts";
+import { createDevUpdateSweep, DEV_UPDATE_SCHEDULE } from "./daemon/dev-update-sweep.ts";
+import { writeAppUpdateStatus } from "./dev/app-update-status.ts";
+import { childEnv } from "./subprocess.ts";
 import { checkInviteReplies, INVITE_REPLIES_NS, listInviteSlugs, MEMBER_JOINED_CATEGORY } from "./daemon/invite-replies.ts";
 import { readInviteRecords } from "./team/invite-records.ts";
 import { createRelayClient } from "./team/relay-client.ts";
@@ -162,6 +165,8 @@ import {
   type BootPhase,
 } from "./daemon/supervision-state.ts";
 import { safeInterval, safeTimeout, scheduleSweep } from "./daemon/safe-timers.ts";
+import { createBusyTracker, type BusyTracker } from "./daemon/busy.ts";
+import { pendingReadyCount } from "./worktree/ready-async.ts";
 import { teamPullHooks } from "./daemon/team-pull-hooks.ts";
 import { createToolNoticePullHook } from "./daemon/tool-notice-pull-hook.ts";
 import { composePullHooks } from "./daemon/pull-hooks.ts";
@@ -219,6 +224,8 @@ export interface HandleCommandDeps {
   rejectSuppressor: ReturnType<typeof makeSuppressor>;
   redactDigest: (payload: any) => Record<string, unknown>;
   currentCmd: { cmd: string | null };
+  /** Counts the long commands daemon:busy reports. */
+  busy?: BusyTracker;
   slowCommandMs?: number;
 }
 
@@ -238,6 +245,7 @@ export function createHandleCommand(deps: HandleCommandDeps): HandleCommand {
     const reqId = shortReqId();
     const caller = payload && typeof payload._client === "string" ? payload._client : "unknown";
     currentCmd.cmd = cmd;
+    const endBusy = deps.busy?.begin(cmd);
     try {
       const result = await routeCommand(cmd, payload, signal);
       const durationMs = Date.now() - t0;
@@ -264,6 +272,7 @@ export function createHandleCommand(deps: HandleCommandDeps): HandleCommand {
       return { ok: false, error: message, failure: { code, message }, reqId };
     } finally {
       currentCmd.cmd = null;
+      endBusy?.();
     }
   };
 }
@@ -458,6 +467,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
   // In-flight command name, polled by the loop monitor to spot a handler that
   // never returns. Captured by the monitor's `currentCmd` closure.
   const currentCmd: { cmd: string | null } = { cmd: null };
+  const busyTracker = createBusyTracker();
 
   const rejectSuppressor = makeSuppressor(60_000);
   const SLOW_COMMAND_MS = 2000;
@@ -539,6 +549,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
     rejectSuppressor,
     redactDigest,
     currentCmd,
+    busy: busyTracker,
     slowCommandMs: SLOW_COMMAND_MS,
   });
 
@@ -992,6 +1003,28 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           "org-guard",
           createOrgGuardSweep({ probes: createRealProbes(), log }),
           { bootDelayMs: 150_000, intervalMs: ORG_GUARD_INTERVAL_MS },
+          log,
+        ));
+        sweepHandles.push(scheduleSweep(
+          "dev-auto-update",
+          createDevUpdateSweep({
+            flavor: () => (daemonFlavor() === "dev" ? "dev" : "prod"),
+            autoUpdateOn: () => getSetting<boolean>("mattstack.autoUpdate").value !== false,
+            spawnUpdate: async () => {
+              // cli.ts named explicitly: the plain self argv here is the
+              // daemon's own entry point and would start a competing daemon.
+              const argv = rtSelfArgv({ main: join(import.meta.dir, "..", "cli.ts") });
+              const child = Bun.spawn([...argv, "dev", "update", "--auto", "--json"], {
+                detached: true,
+                stdio: ["ignore", "ignore", "ignore"],
+                env: childEnv(),
+              });
+              child.unref();
+            },
+            markOff: () => writeAppUpdateStatus(RT_DIR, { offeredVersion: null, heldVersion: null, hold: "orgOff" }),
+            log,
+          }),
+          DEV_UPDATE_SCHEDULE,
           log,
         ));
         sweepHandles.push(scheduleSweep(
@@ -1524,6 +1557,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           stateDb: getStateDb("daemon"),
           chatDeliveryChains,
           accountsSweep: accountsSweepFn,
+          busy: { tracker: busyTracker, pendingReady: pendingReadyCount, creating: worktreeReconciler.anyCreationInFlight },
         });
         herdLifecycle = createHerdLifecycle({
           store: herdStore,
