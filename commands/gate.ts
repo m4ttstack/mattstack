@@ -225,7 +225,7 @@ export async function gateAsk(args: string[]): Promise<void> {
 
 // ─── fork-check ──────────────────────────────────────────────────────────────
 
-const FORK_CHECK_TIMEOUT_MS = (GATE_FORK_HOOK_TIMEOUT_SECONDS * 1000) / 2;
+export const FORK_CHECK_TIMEOUT_MS = (GATE_FORK_HOOK_TIMEOUT_SECONDS * 1000) / 2;
 
 export const FORK_CHECK_ALLOW = {
   hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" },

@@ -325,6 +325,15 @@ describe("gates store — wait", () => {
     if (r.status === "answered") expect(r.row.answer?.by).toBe("board");
   });
 
+  test("settleWaiters ends a pending wait with a timeout and leaves the store usable", async () => {
+    const s = store(); const id = openGate(s, "run:r1");
+    const p = s.wait(id, { waitMs: 30_000 });
+    s.settleWaiters();
+    expect(await p).toEqual({ status: "timeout" });
+    expect(s.get(id)?.status).toBe("open");
+    expect(s.answer(id, { q: "a" }, "board").ok).toBe(true);
+  });
+
   test("wait resolves on close with status closed", async () => {
     const s = store(); const id = openGate(s, "run:r1");
     const p = s.wait(id, { waitMs: 5000 });

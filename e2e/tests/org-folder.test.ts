@@ -3,14 +3,7 @@ import { execSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { createTestHome, RT_BINARY } from "../harness.ts";
-
-async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!existsSync(sockPath)) {
-    if (Date.now() > deadline) throw new Error(`daemon socket never appeared at ${sockPath}`);
-    await Bun.sleep(100);
-  }
-}
+import { waitForSocket } from "../daemon-ready.ts";
 
 let apiPort = 0;
 const children: Array<ReturnType<typeof Bun.spawn>> = [];

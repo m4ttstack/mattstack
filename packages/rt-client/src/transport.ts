@@ -20,6 +20,8 @@ export interface RtResponse<T = unknown> {
    *  to "handler-threw" when the thrown error carries none. Additive; older
    *  daemons and the reject path never set this. */
   failure?: { code: string; message: string };
+  /** Set by a daemon that is booting or shutting down; it did not act on the request. */
+  unavailable?: "starting" | "stopping";
 }
 
 export interface RtClientOptions {
@@ -27,6 +29,8 @@ export interface RtClientOptions {
   wsUrl?: string;
   /** Per-call override of rtCommand's own default (15s); chat's pulse wrapper needs an 800ms hook budget. */
   timeoutMs?: number;
+  /** How long to keep retrying a daemon that is restarting; 0 for a probe that reports the daemon's state. Honored by the calls that pass it on. */
+  retryBudgetMs?: number;
   /**
    * Test seam for createRelay (relay.ts): swaps the daemon subscription for
    * a fake without a live WebSocket server. Typed structurally against
@@ -87,33 +91,122 @@ export function isDaemonTimeout(error: string | undefined): boolean {
   return !!error && error.startsWith(DAEMON_UNREACHABLE_PREFIX) && error.endsWith(DAEMON_TIMEOUT_TAIL);
 }
 
+/** How long a call keeps trying a daemon that is restarting. */
+export const DAEMON_RETRY_BUDGET_MS = 20_000;
+/** Once a socket has gone unanswered for a whole retry budget, calls to it make one attempt each for this long. */
+export const DAEMON_DOWN_COOLOFF_MS = 30_000;
+
+/** 100, 200, 400, 800, then 1000 for every later attempt. */
+export function nextRetryDelay(attempt: number): number {
+  return Math.min(1000, 100 * 2 ** Math.min(attempt, 4));
+}
+
+/** True for a 503 body a starting or stopping daemon sent. */
+export function isUnavailable(r: unknown): r is { ok: false; error: string; unavailable: "starting" | "stopping" } {
+  if (!r || typeof r !== "object") return false;
+  const body = r as { ok?: unknown; unavailable?: unknown };
+  return body.ok === false && (body.unavailable === "starting" || body.unavailable === "stopping");
+}
+
+// The only errors that prove no connection was made, so the daemon cannot
+// have acted on the request. A reset or a broken pipe comes after the daemon
+// accepted the connection and is never retried.
+const CONNECT_FAILED_CODES = new Set(["ENOENT", "ECONNREFUSED"]);
+
+function connectFailed(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" && CONNECT_FAILED_CODES.has(code);
+}
+
+// Per socket path. A miss is a call that got no real answer: nothing
+// listened, or the daemon answered starting or stopping. `firstMissAt` is when
+// the current stretch of misses began; `downUntil` is set only once that has
+// lasted the threshold, so one caller's short budget never takes the retry
+// away from the next caller. Without the cool-off, every call a long-lived
+// client makes to a daemon that is down, stuck booting or crash-looping would
+// stall for the whole budget. A stretch ends at the first real answer, or
+// once its last miss is older than the threshold and no cool-off is running.
+const unanswered = new Map<string, { firstMissAt: number; lastMissAt: number; downUntil: number }>();
+let coolOffAfterMs = DAEMON_RETRY_BUDGET_MS;
+
+export const __test__ = {
+  resetCoolOff(): void {
+    unanswered.clear();
+    coolOffAfterMs = DAEMON_RETRY_BUDGET_MS;
+  },
+  setCoolOffAfterMs(ms: number): void { coolOffAfterMs = ms; },
+};
+
+/** RT_DAEMON_RETRY_BUDGET_MS when it is set to a number, read at call time. */
+export function retryBudgetOverride(): number | undefined {
+  const raw = process.env.RT_DAEMON_RETRY_BUDGET_MS;
+  if (!raw) return undefined;
+  const ms = Number(raw);
+  return Number.isFinite(ms) && ms >= 0 ? ms : undefined;
+}
+
+// A per-attempt timeout this short marks a caller on a time limit of its own
+// (a hook; the fork check spends 5s of a 10s hook limit), which must not wait
+// out a restart. The wrappers' own 10s-and-up defaults say nothing of the kind.
+const SHORT_TIMEOUT_MS = 5_000;
+
+export function defaultRetryBudget(timeoutMs: number | undefined): number {
+  return timeoutMs !== undefined && timeoutMs <= SHORT_TIMEOUT_MS ? timeoutMs : DAEMON_RETRY_BUDGET_MS;
+}
+
+/**
+ * `retryBudgetMs` bounds the retrying, `timeoutMs` each attempt. A request is
+ * sent again only when the daemon cannot have acted on it: the connection
+ * was never made, or the daemon answered that it is starting or stopping.
+ */
 export async function rtCommand<T = unknown>(
   cmd: string,
   payload: Record<string, unknown>,
-  opts: { sockPath?: string; timeoutMs?: number } = {},
+  opts: { sockPath?: string; timeoutMs?: number; retryBudgetMs?: number } = {},
 ): Promise<RtResponse<T>> {
   const sockPath = opts.sockPath ?? defaultSock();
   assertSockNotForbidden(cmd, sockPath);
   const timeoutMs = opts.timeoutMs ?? 15_000;
-  try {
-    const body = JSON.stringify(payload);
-    const headers = { "Content-Type": "application/json", "X-RT-Client": `rt-client/${process.pid}` };
-    const res = typeof (globalThis as { Bun?: unknown }).Bun === "undefined"
-      ? await postOverSocket(sockPath, cmd, body, headers, timeoutMs)
-      : await postWithBunFetch(sockPath, cmd, body, headers, timeoutMs);
-    const text = res.text;
-    let parsed: unknown;
-    try { parsed = JSON.parse(text); } catch { /* not JSON */ }
-    if (res.status >= 200 && res.status < 300 && parsed !== undefined) return parsed as RtResponse<T>;
-    const envelope = parsed as RtResponse<T> | null | undefined;
-    if (envelope && typeof envelope === "object" && typeof envelope.ok === "boolean") return envelope;
-    if (res.status === 413) {
-      const mb = (Buffer.byteLength(body) / (1024 * 1024)).toFixed(1);
-      // Literal: rt-client cannot import lib/daemon's GATE_REQUEST_LIMIT_BYTES.
-      const hint = cmd === "gate:open" || cmd === "gate:ask" ? "; gate requests are limited to 16 MiB" : "";
-      return { ok: false, error: `${cmd} refused: request too large (${mb} MB sent; the daemon rejected it with HTTP 413${hint})` };
+  const coolingOff = (unanswered.get(sockPath)?.downUntil ?? 0) > Date.now();
+  const budget = coolingOff ? 0 : opts.retryBudgetMs ?? retryBudgetOverride() ?? defaultRetryBudget(opts.timeoutMs);
+  const startedAt = Date.now();
+  const deadline = startedAt + budget;
+  for (let attempt = 0; ; attempt++) {
+    const { response, outcome } = await sendCommand<T>(cmd, payload, sockPath, timeoutMs);
+    if (outcome === "dropped") return response;
+    if (outcome === "answered" && !isUnavailable(response)) {
+      unanswered.delete(sockPath);
+      return response;
     }
-    return { ok: false, error: `${cmd} failed: HTTP ${res.status}${text ? ` ${text.slice(0, 200)}` : ""}` };
+    const now = Date.now();
+    const prior = unanswered.get(sockPath);
+    if (prior && (prior.downUntil > now || now - prior.lastMissAt <= coolOffAfterMs)) {
+      prior.lastMissAt = now;
+    } else {
+      // The call's start, not now: a budget as long as the threshold must
+      // always reach it, whatever the first attempt took.
+      unanswered.set(sockPath, { firstMissAt: startedAt, lastMissAt: now, downUntil: 0 });
+    }
+    const delay = Math.min(nextRetryDelay(attempt), deadline - Date.now());
+    if (delay <= 0) {
+      const miss = unanswered.get(sockPath)!;
+      if (Date.now() - miss.firstMissAt >= coolOffAfterMs) miss.downUntil = Date.now() + DAEMON_DOWN_COOLOFF_MS;
+      return response;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+}
+
+/**
+ * One attempt. `answered`: the daemon replied. `unreached`: no connection was
+ * made, so the daemon cannot have seen the request. `dropped`: a connection
+ * was made and no reply came, so it may have.
+ */
+async function sendCommand<T>(
+  cmd: string, payload: Record<string, unknown>, sockPath: string, timeoutMs: number,
+): Promise<{ response: RtResponse<T>; outcome: "answered" | "unreached" | "dropped" }> {
+  try {
+    return { response: await postCommand<T>(cmd, payload, sockPath, timeoutMs), outcome: "answered" };
   } catch (err) {
     // A timeout means the daemon took the request and was slow, which reads
     // differently from a socket nobody is listening on.
@@ -121,8 +214,35 @@ export async function rtCommand<T = unknown>(
     const msg = timedOut
       ? `${cmd} timed out after ${timeoutMs / 1000}s${DAEMON_TIMEOUT_TAIL}`
       : err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `${DAEMON_UNREACHABLE_PREFIX}${sockPath}: ${msg}` };
+    return {
+      response: { ok: false, error: `${DAEMON_UNREACHABLE_PREFIX}${sockPath}: ${msg}` },
+      outcome: !timedOut && connectFailed(err) ? "unreached" : "dropped",
+    };
   }
+}
+
+/** Throws only when no reply arrived. */
+async function postCommand<T>(
+  cmd: string, payload: Record<string, unknown>, sockPath: string, timeoutMs: number,
+): Promise<RtResponse<T>> {
+  const body = JSON.stringify(payload);
+  const headers = { "Content-Type": "application/json", "X-RT-Client": `rt-client/${process.pid}` };
+  const res = typeof (globalThis as { Bun?: unknown }).Bun === "undefined"
+    ? await postOverSocket(sockPath, cmd, body, headers, timeoutMs)
+    : await postWithBunFetch(sockPath, cmd, body, headers, timeoutMs);
+  const text = res.text;
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { /* not JSON */ }
+  if (res.status >= 200 && res.status < 300 && parsed !== undefined) return parsed as RtResponse<T>;
+  const envelope = parsed as RtResponse<T> | null | undefined;
+  if (envelope && typeof envelope === "object" && typeof envelope.ok === "boolean") return envelope;
+  if (res.status === 413) {
+    const mb = (Buffer.byteLength(body) / (1024 * 1024)).toFixed(1);
+    // Literal: rt-client cannot import lib/daemon's GATE_REQUEST_LIMIT_BYTES.
+    const hint = cmd === "gate:open" || cmd === "gate:ask" ? "; gate requests are limited to 16 MiB" : "";
+    return { ok: false, error: `${cmd} refused: request too large (${mb} MB sent; the daemon rejected it with HTTP 413${hint})` };
+  }
+  return { ok: false, error: `${cmd} failed: HTTP ${res.status}${text ? ` ${text.slice(0, 200)}` : ""}` };
 }
 
 async function postWithBunFetch(

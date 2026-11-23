@@ -1,4 +1,7 @@
-export { rtCommand, DEFAULT_SOCK, DAEMON_UNREACHABLE_PREFIX, isDaemonTimeout } from "./transport.ts";
+export {
+  rtCommand, DEFAULT_SOCK, DAEMON_UNREACHABLE_PREFIX, isDaemonTimeout,
+  DAEMON_RETRY_BUDGET_MS, DAEMON_DOWN_COOLOFF_MS, nextRetryDelay, isUnavailable, defaultRetryBudget,
+} from "./transport.ts";
 export type { RtResponse, RtClientOptions } from "./transport.ts";
 export { guardTestDaemonEnv } from "./test-isolation.ts";
 export { redactCredentials } from "./redact.ts";

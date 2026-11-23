@@ -22,7 +22,7 @@ import { Database } from "bun:sqlite";
 import { copyFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
 import { basename, dirname, join } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
-import { isDaemonRunning } from "../lib/daemon-client.ts";
+import { daemonPresence } from "../lib/daemon-client.ts";
 import { shellQuote } from "../lib/herdr-launch.ts";
 import { flagValue } from "../lib/cli-args.ts";
 import { mattstackHome } from "../lib/rt-paths.ts";
@@ -183,7 +183,7 @@ async function stateRestoreFromBackup(args: string[]): Promise<void> {
   const identityFlag = flagValue(args, "--identity");
 
   if (!force) {
-    const daemonUp = await isDaemonRunning();
+    const daemonUp = (await daemonPresence()) !== "absent";
     const sockExists = existsSync(join(mattstackHome(), "rt", "rt.sock"));
     if (daemonUp || sockExists) {
       const retry = ["rt", "state", "restore", "--from-backup"];
@@ -256,7 +256,7 @@ export async function stateRestore(args: string[], _ctx: CommandContext = {}): P
   // can corrupt the live db, not just this CLI's view of it. A deterministic
   // refusal, never an interactive prompt, so non-TTY/agent callers get a
   // clean nonzero exit instead of a hang.
-  if (!force && (await isDaemonRunning())) {
+  if (!force && (await daemonPresence()) !== "absent") {
     const copy = copyArg(args);
     refuseWhileDaemonRuns(`rt state restore ${copy === undefined ? "<copy>" : shellQuote(copy)} --force`);
   }

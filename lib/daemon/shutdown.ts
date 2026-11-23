@@ -1,6 +1,6 @@
 /**
  * Shutdown sequence — tears down servers, managed processes, watchers, and
- * runtime files in an order that beats launchd's 5s ExitTimeOut.
+ * runtime files in an order that beats launchd's 30s ExitTimeOut.
  */
 
 import { existsSync, readFileSync, unlinkSync } from "fs";

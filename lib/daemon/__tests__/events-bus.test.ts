@@ -146,6 +146,16 @@ describe("events bus wait", () => {
     expect(bus.waiterCount()).toBe(0);
   });
 
+  test("settleWaiters ends a pending wait with its empty reply and leaves the bus usable", async () => {
+    const head = bus.emit("job/y/report");
+    const p = bus.wait({ pattern: "job/x/*", waitMs: 30_000 });
+    expect(bus.waiterCount()).toBe(1);
+    bus.settleWaiters();
+    expect(await p).toEqual({ events: [], cursor: head });
+    expect(bus.waiterCount()).toBe(0);
+    expect(bus.emit("job/x/report")).toBe(head + 1);
+  });
+
   test("non-matching emit does not wake the waiter", async () => {
     const p = bus.wait({ pattern: "job/x/*", waitMs: 150 });
     bus.emit("other/topic");

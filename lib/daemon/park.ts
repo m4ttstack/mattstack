@@ -22,6 +22,8 @@ export function daemonFlavor(): Flavor {
 export interface SocketHolder {
   flavor: string;
   pid: number | null;
+  /** Set when the holder is bound but not serving: it is booting ("starting") or draining ("stopping"). */
+  unavailable?: string;
 }
 
 export interface ParkDeps {
@@ -81,8 +83,12 @@ export async function parkUntilServable(deps: ParkDeps): Promise<void> {
 export async function probeSocketHolder(sockPath: string = DAEMON_SOCK_PATH): Promise<SocketHolder | null> {
   try {
     const res = await fetch("http://localhost/ping", { unix: sockPath, signal: AbortSignal.timeout(1500) });
-    const body = (await res.json()) as { pid?: number; flavor?: string };
-    return { flavor: body.flavor ?? "unknown flavor", pid: body.pid ?? null };
+    const body = (await res.json()) as { pid?: number; flavor?: string; unavailable?: string };
+    return {
+      flavor: body.flavor ?? "unknown flavor",
+      pid: body.pid ?? null,
+      ...(body.unavailable ? { unavailable: body.unavailable } : {}),
+    };
   } catch {
     return null;
   }

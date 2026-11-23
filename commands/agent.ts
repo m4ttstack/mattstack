@@ -19,7 +19,7 @@
 
 import { readFileSync, realpathSync } from "fs";
 import { verbHelpRequested } from "../lib/cli-verb-help.ts";
-import { isDaemonRunning } from "../lib/daemon-client.ts";
+import { isDaemonServing } from "../lib/daemon-client.ts";
 import { currentRepoIdentity, repoLabel, resolveRepoArg } from "../lib/repo-arg.ts";
 import { callerCswapAccount } from "../lib/cswap.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
@@ -90,7 +90,7 @@ async function dispatch<T>(
   payload: Record<string, unknown>,
   wrapper: () => Promise<RtResponse<T>>,
 ): Promise<RtResponse<T>> {
-  if (await isDaemonRunning()) return wrapper();
+  if (await isDaemonServing()) return wrapper();
   const { runAgentFallback } = await import("./agent-fallback.ts");
   try {
     return await runAgentFallback<T>(command, payload);

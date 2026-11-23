@@ -12,7 +12,7 @@ import { ctxFor, exitCodeOf, git, makeRepo, trapExit } from "../git/__tests__/he
 // from before any mock to restore with.
 const realDaemonClient = await import("../../lib/daemon-client.ts");
 const realDaemonQuery = realDaemonClient.daemonQuery;
-const realIsDaemonRunning = realDaemonClient.isDaemonRunning;
+const realIsDaemonServing = realDaemonClient.isDaemonServing;
 const realStackGuard = await import("../../lib/stack-guard.ts");
 const realCreateStackGuardRunners = realStackGuard.createStackGuardRunners;
 
@@ -30,7 +30,7 @@ beforeEach(() => {
   exit = trapExit();
   mock.module("../../lib/daemon-client.ts", () => ({
     ...realDaemonClient,
-    isDaemonRunning: async () => true,
+    isDaemonServing: async () => true,
     daemonQuery: async () => ({ ok: true, data: { repos, watched: [] } }),
   }));
   mock.module("../../lib/stack-guard.ts", () => ({
@@ -46,7 +46,7 @@ afterEach(() => {
   mock.module("../../lib/stack-guard.ts", () => ({ ...realStackGuard, createStackGuardRunners: realCreateStackGuardRunners }));
   mock.module("../../lib/daemon-client.ts", () => ({
     ...realDaemonClient,
-    isDaemonRunning: realIsDaemonRunning,
+    isDaemonServing: realIsDaemonServing,
     daemonQuery: realDaemonQuery,
   }));
   exit.restore();

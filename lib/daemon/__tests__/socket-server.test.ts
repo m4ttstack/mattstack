@@ -4,6 +4,8 @@ import type { Server } from "bun";
 import { startSocketServer } from "../socket-server.ts";
 import { DAEMON_SOCK_PATH, RT_DIR } from "../../daemon-config.ts";
 import { GATE_REQUEST_LIMIT_BYTES, MAX_REQUEST_BODY_SIZE } from "../request-limits.ts";
+import { createSocketAvailability, type SocketAvailability } from "../socket-availability.ts";
+import { probeSocketHolder } from "../park.ts";
 
 type HandleCommand = (cmd: string, payload: any, signal?: AbortSignal) => Promise<any>;
 
@@ -18,11 +20,12 @@ const noopLog = { info: () => {}, warn: () => {}, error: () => {}, debug: () => 
 async function withSocketServer(
   handleCommand: HandleCommand,
   run: () => Promise<void>,
+  availability?: SocketAvailability,
 ): Promise<void> {
   mkdirSync(RT_DIR, { recursive: true });
   let server: Server<any> | undefined;
   try {
-    server = startSocketServer({ handleCommand, log: noopLog });
+    server = startSocketServer({ handleCommand, log: noopLog, availability });
     await run();
   } finally {
     server?.stop(true);
@@ -160,4 +163,95 @@ describe("startSocketServer: request body size cap", () => {
     });
   });
 
+});
+
+describe("startSocketServer: availability", () => {
+  const post = (cmd: string) =>
+    fetch(`http://localhost/${cmd}`, { unix: DAEMON_SOCK_PATH, method: "POST", body: JSON.stringify({ text: "hi" }) });
+
+  test("a starting daemon answers 503 unavailable and never calls handleCommand", async () => {
+    const calls: string[] = [];
+    const availability = createSocketAvailability();
+    await withSocketServer(async (cmd) => { calls.push(cmd); return { ok: true }; }, async () => {
+      const res = await post("chat:post");
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ ok: false, error: "rt daemon is starting; try again in a moment", unavailable: "starting" });
+      expect(calls).toEqual([]);
+      expect(availability.inFlight).toBe(0);
+    }, availability);
+  });
+
+  test("a daemon parked on its API port answers 503 with a reply clients do not retry", async () => {
+    const calls: string[] = [];
+    const availability = createSocketAvailability();
+    availability.parkedPort = 9401;
+    availability.holder = { pid: 42, flavor: "dev" };
+    await withSocketServer(async (cmd) => { calls.push(cmd); return { ok: true }; }, async () => {
+      const res = await post("chat:post");
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({
+        ok: false,
+        error: "rt daemon is waiting for port 9401, which another process is using; see rt daemon logs",
+        parked: true,
+        pid: 42,
+        flavor: "dev",
+      });
+      expect(calls).toEqual([]);
+    }, availability);
+  });
+
+  test("a stopping daemon answers 503 with the restarting sentence", async () => {
+    const calls: string[] = [];
+    const availability = createSocketAvailability();
+    availability.state = "stopping";
+    await withSocketServer(async (cmd) => { calls.push(cmd); return { ok: true }; }, async () => {
+      const res = await post("chat:post");
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ ok: false, error: "rt daemon is restarting; try again in a moment", unavailable: "stopping" });
+      expect(calls).toEqual([]);
+    }, availability);
+  });
+
+  test("a serving daemon dispatches, and inFlight is 1 during the handler and 0 after", async () => {
+    const availability = createSocketAvailability();
+    availability.state = "serving";
+    let during = -1;
+    await withSocketServer(async () => { during = availability.inFlight; return { ok: true, data: 1 }; }, async () => {
+      const res = await post("chat:post");
+      expect(await res.json()).toEqual({ ok: true, data: 1 });
+      expect(during).toBe(1);
+      expect(availability.inFlight).toBe(0);
+    }, availability);
+  });
+
+  test("inFlight returns to 0 when the handler throws", async () => {
+    const availability = createSocketAvailability();
+    availability.state = "serving";
+    await withSocketServer(async () => { throw new Error("kaboom"); }, async () => {
+      const res = await post("chat:post");
+      expect(res.status).toBe(500);
+      expect(availability.inFlight).toBe(0);
+    }, availability);
+  });
+
+  test("the starting reply carries the holder's pid and flavor, which the park gate reads", async () => {
+    const availability = createSocketAvailability();
+    availability.holder = { pid: 4242, flavor: "dev" };
+    await withSocketServer(async () => ({ ok: true }), async () => {
+      const res = await fetch("http://localhost/ping", { unix: DAEMON_SOCK_PATH });
+      expect(await res.json()).toEqual({
+        ok: false, error: "rt daemon is starting; try again in a moment", unavailable: "starting", pid: 4242, flavor: "dev",
+      });
+      expect(await probeSocketHolder()).toEqual({ flavor: "dev", pid: 4242, unavailable: "starting" });
+    }, availability);
+  });
+
+  test("with no availability passed, requests dispatch as before", async () => {
+    const calls: string[] = [];
+    await withSocketServer(async (cmd) => { calls.push(cmd); return { ok: true }; }, async () => {
+      const res = await post("chat:post");
+      expect(res.status).toBe(200);
+      expect(calls).toEqual(["chat:post"]);
+    });
+  });
 });

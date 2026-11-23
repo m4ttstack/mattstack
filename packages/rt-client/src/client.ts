@@ -534,7 +534,7 @@ export function chatDmOpen(
 }
 
 export function eventsHead(o: RtClientOptions = {}): Promise<RtResponse<{ cursor: number }>> {
-  return rtCommand<{ cursor: number }>("events:head", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+  return rtCommand<{ cursor: number }>("events:head", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000, retryBudgetMs: o.retryBudgetMs });
 }
 
 export function eventsEmit(

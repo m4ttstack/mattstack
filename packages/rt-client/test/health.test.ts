@@ -12,6 +12,20 @@ describe("daemonHealth", () => {
     expect(res.error).toContain("unreachable");
   });
 
+  test("a health probe reports a missing daemon at once: it does not ride the restart retry", async () => {
+    const prior = process.env.RT_DAEMON_RETRY_BUDGET_MS;
+    process.env.RT_DAEMON_RETRY_BUDGET_MS = "5000";
+    try {
+      const started = Date.now();
+      const res = await daemonHealth({ sockPath: "/nonexistent/rt.sock" });
+      expect(res.reachable).toBe(false);
+      expect(Date.now() - started).toBeLessThan(2_000);
+    } finally {
+      if (prior === undefined) delete process.env.RT_DAEMON_RETRY_BUDGET_MS;
+      else process.env.RT_DAEMON_RETRY_BUDGET_MS = prior;
+    }
+  });
+
   test("maps a reachable daemon's events:head to reachable:true with no error", async () => {
     const { sock, stop } = fakeDaemon({ "events:head": { ok: true, data: { cursor: 5 } } });
     stops.push(stop);

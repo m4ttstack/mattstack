@@ -187,14 +187,14 @@ test("restore of a missing copy has no JSON payload and exits 1", async () => {
 });
 
 test("local restore while daemon runs has no JSON payload and exits 1", async () => {
-  spies.push(spyOn(daemon, "isDaemonRunning").mockResolvedValue(true));
+  spies.push(spyOn(daemon, "daemonPresence").mockResolvedValue("serving"));
   await expectExit(() => stateRestore(["copy.db", "--json"]),
     "[refused] rt will not restore while the daemon is running  it shares this data with rt\n  next: rt daemon stop\n  note: To restore anyway: rt state restore copy.db --force\n");
 });
 
 for (const name of ["My backup.db", "Matt's.db", "$HOME.db", "$(printf harmless).db", "copy;printf harmless.db"]) {
   test(`forced restore remedy preserves literal copy ${name} as one shell argument`, async () => {
-    spies.push(spyOn(daemon, "isDaemonRunning").mockResolvedValue(true));
+    spies.push(spyOn(daemon, "daemonPresence").mockResolvedValue("serving"));
     const copy = join(home, name);
     const sentinel = new Error("captured process.exit");
     const exit = spyOn(process, "exit").mockImplementation(() => { throw sentinel; });
@@ -214,13 +214,13 @@ for (const name of ["My backup.db", "Matt's.db", "$HOME.db", "$(printf harmless)
 }
 
 test("daemon refusal keeps the instructional copy placeholder unquoted", async () => {
-  spies.push(spyOn(daemon, "isDaemonRunning").mockResolvedValue(true));
+  spies.push(spyOn(daemon, "daemonPresence").mockResolvedValue("serving"));
   await expectExit(() => stateRestore(["--json"]),
     "[refused] rt will not restore while the daemon is running  it shares this data with rt\n  next: rt daemon stop\n  note: To restore anyway: rt state restore <copy> --force\n");
 });
 
 test("encrypted restore while daemon runs has no JSON payload and exits 1", async () => {
-  spies.push(spyOn(daemon, "isDaemonRunning").mockResolvedValue(true));
+  spies.push(spyOn(daemon, "daemonPresence").mockResolvedValue("serving"));
   await expectExit(() => stateRestore(["--from-backup", "--json"]),
     "[refused] rt will not restore while the daemon is running  it shares this data with rt\n  next: rt daemon stop\n  note: To restore anyway: rt state restore --from-backup --json --force\n");
 });
@@ -233,7 +233,7 @@ for (const options of [
   ["--dry-run", "--only", "board", "--at", "2026-10-05T12:00:00Z", "--identity", "My key's $HOME;$(printf harmless).txt"],
 ]) {
   test(`encrypted forced retry retains scope and literal values ${JSON.stringify(options)}`, async () => {
-    spies.push(spyOn(daemon, "isDaemonRunning").mockResolvedValue(true));
+    spies.push(spyOn(daemon, "daemonPresence").mockResolvedValue("serving"));
     const args = ["--from-backup", ...options, "--json"];
     const sentinel = new Error("captured process.exit");
     const exit = spyOn(process, "exit").mockImplementation(() => { throw sentinel; });

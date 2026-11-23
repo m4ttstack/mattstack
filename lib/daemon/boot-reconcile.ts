@@ -7,6 +7,12 @@
 
 import type { Logger } from "pino";
 import { readDaemonPid } from "../daemon-config.ts";
+import { DRAIN_CAP_MS } from "./drain.ts";
+
+// A daemon that got SIGTERM may spend its whole drain cap on in-flight
+// requests before any other unit stops; a shorter grace would SIGKILL it
+// mid-teardown, with its runtime files and databases left as they were.
+export const STALE_DAEMON_GRACE_MS = DRAIN_CAP_MS + 2_500;
 
 function isAlive(pid: number): boolean {
   try {
@@ -40,7 +46,7 @@ async function waitForDeath(pid: number, maxMs: number): Promise<boolean> {
  * daemon that survives the eviction window can still race the new one for
  * rt.sock/rt.pid (S044). Escalates to SIGKILL if SIGTERM alone doesn't land.
  */
-export async function evictStaleDaemon(log: Logger): Promise<void> {
+export async function evictStaleDaemon(log: Logger, graceMs: number = STALE_DAEMON_GRACE_MS): Promise<void> {
   const previousPid = readDaemonPid();
   if (!previousPid || previousPid === process.pid) return;
   if (!isAlive(previousPid)) return;
@@ -53,7 +59,7 @@ export async function evictStaleDaemon(log: Logger): Promise<void> {
     return;
   }
   log.warn({ pid: previousPid }, "evicted stale daemon process");
-  if (await waitForDeath(previousPid, 2500)) return;
+  if (await waitForDeath(previousPid, graceMs)) return;
   try {
     process.kill(previousPid, "SIGKILL");
   } catch { /* already gone */ }

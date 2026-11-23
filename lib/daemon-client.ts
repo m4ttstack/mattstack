@@ -17,6 +17,12 @@ import {
   API_PORT,
 } from "./daemon-config.ts";
 import { assertNotRealDaemonInTest } from "../packages/rt-client/src/test-isolation.ts";
+import {
+  DAEMON_RETRY_BUDGET_MS,
+  isUnavailable,
+  nextRetryDelay,
+  retryBudgetOverride,
+} from "../packages/rt-client/src/transport.ts";
 import { rtDir } from "./rt-paths.ts";
 import * as out from "./ui/out.ts";
 
@@ -46,6 +52,12 @@ interface SocketQueryAttempt {
   refused: boolean;
   /** True when the request itself exceeded timeoutMs. */
   timedOut: boolean;
+  /** True when no connection was made (rt.sock missing when the query was sent, or refused), so the daemon cannot have seen the request. */
+  connectFailed: boolean;
+  /** True when a booting or draining daemon answered that it cannot serve yet; it did not act on the request. */
+  unavailable: boolean;
+  /** Which of the two, when `unavailable`. */
+  unavailableState?: "starting" | "stopping";
 }
 
 async function trySocketQuery(
@@ -57,7 +69,7 @@ async function trySocketQuery(
   if (!existsSync(DAEMON_SOCK_PATH)) {
     _lastQueryWasRefused = false;
     _lastQueryTimedOut   = false;
-    return { response: null, refused: false, timedOut: false };
+    return { response: null, refused: false, timedOut: false, connectFailed: true, unavailable: false };
   }
 
   try {
@@ -75,7 +87,11 @@ async function trySocketQuery(
 
     _lastQueryWasRefused = false;
     _lastQueryTimedOut   = false;
-    return { response: (await response.json()) as DaemonResponse, refused: false, timedOut: false };
+    const body = (await response.json()) as DaemonResponse;
+    if (isUnavailable(body)) {
+      return { response: null, refused: false, timedOut: false, connectFailed: false, unavailable: true, unavailableState: body.unavailable };
+    }
+    return { response: body, refused: false, timedOut: false, connectFailed: false, unavailable: false };
   } catch (err) {
     const code = (err as any)?.code ?? "";
     const name = (err as any)?.name ?? "";
@@ -84,7 +100,66 @@ async function trySocketQuery(
     const timedOut = name === "TimeoutError" || name === "AbortError" || msg.includes("timed out");
     _lastQueryWasRefused = refused;
     _lastQueryTimedOut   = timedOut;
-    return { response: null, refused, timedOut };
+    // The socket file can vanish between the existsSync above and the connect.
+    const connectFailed = refused || code === "ENOENT";
+    return { response: null, refused, timedOut, connectFailed, unavailable: false };
+  }
+}
+
+export interface DaemonQueryOptions {
+  /** How long to keep asking a daemon that answers starting or stopping. 0 for a caller that reports the daemon's state, such as `rt daemon status`. */
+  retryBudgetMs?: number;
+}
+
+// How long a missing or refusing rt.sock is given to come back before it is
+// taken for a daemon that is down. Measured against the gap of a restart
+// (the old process exits, launchd starts the new one, it binds): about a second.
+const CONNECT_GRACE_MS = 3_000;
+
+/**
+ * Keeps asking while no connection can be made, for the grace above (never
+ * longer than `budgetMs`), then rides through a starting daemon's replies.
+ * Returns the last attempt; `connectFailed` on it means nothing ever listened.
+ */
+async function queryThroughGap(
+  cmd: string,
+  payload: Record<string, any> | undefined,
+  timeoutMs: number | undefined,
+  first: SocketQueryAttempt,
+  budgetMs: number,
+): Promise<SocketQueryAttempt> {
+  const graceDeadline = Date.now() + Math.min(CONNECT_GRACE_MS, budgetMs);
+  let last = first;
+  for (let n = 0; last.connectFailed; n++) {
+    const delay = Math.min(nextRetryDelay(n), graceDeadline - Date.now());
+    if (delay <= 0) break;
+    await Bun.sleep(delay);
+    last = await queryWhileUnavailable(cmd, payload, timeoutMs, Date.now() + budgetMs);
+  }
+  return last;
+}
+
+function retryBudgetMs(): number {
+  return retryBudgetOverride() ?? DAEMON_RETRY_BUDGET_MS;
+}
+
+/**
+ * Asks again while the daemon answers that it is starting or stopping, until
+ * `deadline`. Any other outcome, a timeout or a dropped connection included,
+ * is returned after one attempt: the daemon may have acted on it.
+ */
+async function queryWhileUnavailable(
+  cmd: string,
+  payload: Record<string, any> | undefined,
+  timeoutMs: number | undefined,
+  deadline: number,
+): Promise<SocketQueryAttempt> {
+  for (let n = 0; ; n++) {
+    const attempt = await trySocketQuery(cmd, payload, timeoutMs);
+    if (!attempt.unavailable) return attempt;
+    const delay = Math.min(nextRetryDelay(n), deadline - Date.now());
+    if (delay <= 0) return attempt;
+    await Bun.sleep(delay);
   }
 }
 
@@ -222,14 +297,15 @@ const SOCKET_POLL_TOTAL_MS = 3_000;
 const SOCKET_POLL_INTERVAL_MS = 150;
 
 /**
- * Polls for rt.sock to exist and answer for up to ~3s after a restart
- * request. parkUntilIntended's own socket probe, state.db open, and the
- * identity migration routinely take longer than a single fixed delay, so a
- * start that genuinely succeeds must not be reported as "installed but not
- * running" just because the retry landed too early.
+ * Polls for rt.sock to exist and serve after a restart request the tray
+ * acked. A daemon that answers "starting" is not up yet. The wait is never
+ * shorter than SOCKET_POLL_TOTAL_MS: the daemon's own socket probe, state.db
+ * open, and the identity migration routinely take longer than a single fixed
+ * delay, so a start that genuinely succeeds must not be reported as
+ * "installed but not running" just because the retry landed too early.
  */
 async function waitForSocket(
-  totalMs: number = SOCKET_POLL_TOTAL_MS,
+  totalMs: number = Math.max(SOCKET_POLL_TOTAL_MS, retryBudgetMs()),
   intervalMs: number = SOCKET_POLL_INTERVAL_MS,
 ): Promise<boolean> {
   const deadline = Date.now() + totalMs;
@@ -273,35 +349,47 @@ export async function daemonQueryAttributed(
   cmd: string,
   payload?: Record<string, any>,
   timeoutMs?: number,
+  opts: DaemonQueryOptions = {},
 ): Promise<SocketQueryAttempt> {
+  const budgetMs = opts.retryBudgetMs ?? retryBudgetMs();
   // 1. Try HTTP request over Unix socket
-  const first = await trySocketQuery(cmd, payload, timeoutMs);
+  const first = await queryWhileUnavailable(cmd, payload, timeoutMs, Date.now() + budgetMs);
   if (first.response !== null) return first;
+  // A daemon that says it is starting or stopping is running: asking the tray
+  // to start one, or warning that it is down, would both be wrong.
+  if (first.unavailable) return first;
 
   // 2. Check if user opted in
-  if (!isDaemonInstalled()) return { response: null, refused: false, timedOut: false }; // not installed → silent fallback
+  if (!isDaemonInstalled()) return { ...first, refused: false, timedOut: false }; // not installed → silent fallback
 
-  // 3. If the socket file still exists AND the connection wasn't refused,
-  //    the daemon IS running — this query timed out or hit a transient error.
-  //    Return null silently. But if the connection was refused, the socket is
-  //    stale (daemon died without cleaning up) — fall through to attempt restart.
-  if (existsSync(DAEMON_SOCK_PATH) && !first.refused) return first;
+  // 3. Only a query that never reached a daemon may be sent again. One whose
+  //    connection was made and then timed out or dropped is returned as is:
+  //    the daemon may have acted on it, even if rt.sock is gone by now (a
+  //    restart cut it off).
+  if (!first.connectFailed) return first;
 
-  // 4. Socket is gone → daemon is genuinely not running. Attempt restart.
+  // 4. A restart leaves rt.sock missing for a moment between the old daemon's
+  //    exit and the new one's bind. Asking the tray for a start in that gap
+  //    is worse than waiting: its start is a `launchctl kickstart -k`, which
+  //    kills the daemon launchd just spawned.
+  const afterGap = await queryThroughGap(cmd, payload, timeoutMs, first, budgetMs);
+  if (!afterGap.connectFailed) return afterGap;
+
+  // 5. Still nothing there → the daemon is genuinely not running. Attempt restart.
   const restarted = await attemptRestart();
-  let last = first;
+  let last = afterGap;
   if (restarted) {
     // Bounded poll, not one fixed-delay retry: parkUntilIntended's own
     // socket probe, state.db open, and the identity migration routinely
     // take longer than 300ms, and a successful start must not be reported
     // as "installed but not running" just because the retry landed early.
-    await waitForSocket();
-    const retry = await trySocketQuery(cmd, payload, timeoutMs);
-    if (retry.response !== null) return retry;
+    await waitForSocket(Math.max(SOCKET_POLL_TOTAL_MS, budgetMs));
+    const retry = await queryWhileUnavailable(cmd, payload, timeoutMs, Date.now() + budgetMs);
+    if (retry.response !== null || retry.unavailable) return retry;
     last = retry;
   }
 
-  // 5. Restart failed → warn (once per session)
+  // 6. Restart failed → warn (once per session)
   warnDaemonDown();
   return last;
 }
@@ -316,8 +404,9 @@ export async function daemonQuery(
   cmd: string,
   payload?: Record<string, any>,
   timeoutMs?: number,
+  opts: DaemonQueryOptions = {},
 ): Promise<DaemonResponse | null> {
-  return (await daemonQueryAttributed(cmd, payload, timeoutMs)).response;
+  return (await daemonQueryAttributed(cmd, payload, timeoutMs, opts)).response;
 }
 
 /**
@@ -333,11 +422,37 @@ export function lastQueryTimedOut(): boolean {
 }
 
 /**
- * Quick check: is the daemon reachable right now?
+ * Quick check: is the daemon serving right now? False for a daemon that is
+ * booting or draining; see `daemonPresence` and `isDaemonServing`.
  */
 export async function isDaemonRunning(): Promise<boolean> {
   const { response } = await trySocketQuery("ping");
   return response?.ok === true;
+}
+
+/**
+ * Whether a daemon holds rt.sock at all. A starting, stopping or parked
+ * daemon is there: a caller that would start a daemon, or touch files a
+ * daemon holds open, must treat it as present. A stopping one may not be
+ * followed by another; a parked one waits for its API port.
+ */
+export async function daemonPresence(): Promise<"serving" | "starting" | "stopping" | "parked" | "absent"> {
+  const attempt = await trySocketQuery("ping");
+  if (attempt.unavailable) return attempt.unavailableState ?? "starting";
+  if (attempt.response === null) return "absent";
+  return (attempt.response as { parked?: unknown }).parked === true ? "parked" : "serving";
+}
+
+/**
+ * Is the daemon serving, allowing for a restart in progress: waits through a
+ * starting or stopping daemon and through the moment rt.sock is missing
+ * between the two. Never asks the tray for a start.
+ */
+export async function isDaemonServing(): Promise<boolean> {
+  const budgetMs = retryBudgetMs();
+  const first = await queryWhileUnavailable("ping", undefined, undefined, Date.now() + budgetMs);
+  const attempt = first.connectFailed ? await queryThroughGap("ping", undefined, undefined, first, budgetMs) : first;
+  return attempt.response?.ok === true;
 }
 
 /** Single-attempt ping that never triggers the restart machinery, so

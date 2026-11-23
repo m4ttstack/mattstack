@@ -10,6 +10,7 @@ import type { RtClientOptions } from "./transport.ts";
 export async function daemonHealth(
   opts: RtClientOptions = {},
 ): Promise<{ reachable: boolean; error?: string }> {
-  const res = await eventsHead(opts);
+  // No retry: this is polled to say whether the daemon is there right now.
+  const res = await eventsHead({ ...opts, retryBudgetMs: opts.retryBudgetMs ?? 0 });
   return { reachable: res.ok, error: res.ok ? undefined : res.error };
 }

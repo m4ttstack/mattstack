@@ -11,12 +11,15 @@ import type { Logger } from "pino";
 import { DAEMON_SOCK_PATH } from "../daemon-config.ts";
 import { deriveFailure } from "./failure.ts";
 import { GATE_REQUEST_LIMIT_BYTES, readCommandBody } from "./request-limits.ts";
+import { UNAVAILABLE_STATUS, parkedBody, unavailableBody, type SocketAvailability } from "./socket-availability.ts";
 
 export function startSocketServer(opts: {
   handleCommand: (cmd: string, payload: any, signal?: AbortSignal) => Promise<any>;
   log: Logger;
+  /** Absent means always serving. */
+  availability?: SocketAvailability;
 }): Server<any> {
-  const { handleCommand, log } = opts;
+  const { handleCommand, log, availability } = opts;
 
   // Clean up stale socket
   if (existsSync(DAEMON_SOCK_PATH)) {
@@ -39,6 +42,15 @@ export function startSocketServer(opts: {
     idleTimeout: 255,
     maxRequestBodySize: GATE_REQUEST_LIMIT_BYTES,
     async fetch(req: Request) {
+      // Checked before the body is read: a client retries this reply, so
+      // nothing about the request may have been acted on.
+      if (availability && availability.state !== "serving") {
+        const body = availability.state === "starting" && availability.parkedPort !== undefined
+          ? parkedBody(availability.parkedPort)
+          : unavailableBody(availability.state);
+        return Response.json({ ...body, ...availability.holder }, { status: UNAVAILABLE_STATUS });
+      }
+      if (availability) availability.inFlight++;
       try {
         const url = new URL(req.url);
         const cmd = url.pathname.slice(1); // "/cache:read" → "cache:read"
@@ -60,6 +72,8 @@ export function startSocketServer(opts: {
           { ok: false, error: String(err), failure: deriveFailure(err) },
           { status: 500 },
         );
+      } finally {
+        if (availability) availability.inFlight--;
       }
     },
   } as unknown as Parameters<typeof Bun.serve>[0]);

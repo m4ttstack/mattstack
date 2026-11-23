@@ -298,6 +298,8 @@ export const GLITTER_TRIGGERS = [
   "e2e/harness.ts",
   "e2e/setup.ts",
   "e2e/socket-path.ts",
+  "lib/daemon/socket-server.ts",
+  "lib/daemon/socket-availability.ts",
   "test-setup.ts",
   E2E_WORKFLOW,
   "package.json",

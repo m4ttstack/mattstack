@@ -17,16 +17,9 @@ import { existsSync, mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { createTestHome, RT_BINARY } from "../harness.ts";
+import { waitForSocket } from "../daemon-ready.ts";
 
 const HOOK_PATH = resolve(import.meta.dir, "..", "..", "scripts", "hooks", "gate-fork.sh");
-
-async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!existsSync(sockPath)) {
-    if (Date.now() > deadline) throw new Error(`daemon socket never appeared at ${sockPath}`);
-    await Bun.sleep(100);
-  }
-}
 
 let apiPort = 0;
 const children: Array<ReturnType<typeof Bun.spawn>> = [];

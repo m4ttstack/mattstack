@@ -41,7 +41,7 @@ import {
   DAEMON_SOCK_PATH,
   TRAY_SOCK_PATH,
 } from "../lib/daemon-config.ts";
-import { daemonQuery, isDaemonRunning, pingDaemon, trayQuery } from "../lib/daemon-client.ts";
+import { daemonPresence, daemonQuery, isDaemonRunning, isDaemonServing, pingDaemon, trayQuery } from "../lib/daemon-client.ts";
 import { classifyDaemonStatus, type DaemonStatusVerdict } from "../lib/daemon-status.ts";
 import { processFlavor, type Flavor } from "../lib/flavor.ts";
 import { probeSocketHolder } from "../lib/daemon/park.ts";
@@ -247,8 +247,26 @@ export async function start(): Promise<void> {
     return;
   }
   const flavor = processFlavor();
-  if (await isDaemonRunning()) {
-    if (!(await warnIfWrongFlavor("start", flavor))) out.print(out.line("skipped", "The daemon is already running"));
+  // A daemon that is still booting counts as there: the tray's start is a
+  // `launchctl kickstart -k`, which would kill it. One that is draining may be
+  // a restart, which launchd follows with a new daemon, or a stop, which
+  // nothing follows: wait for it to go, give a new one a moment to bind, and
+  // start one only if none did.
+  let presence = await daemonPresence();
+  if (presence === "stopping") presence = await withTransientStep("Waiting for the daemon to stop", waitOutDrain);
+  if (presence === "stopping") {
+    out.print(out.line("pending", "The daemon is still stopping"), out.callout("next", out.cmd("rt daemon start")));
+    return;
+  }
+  if (presence === "parked") {
+    out.print(out.line("pending", "The daemon is waiting for its port", "another process is using it"), out.callout("next", out.cmd("rt daemon logs")));
+    return;
+  }
+  if (presence !== "absent") {
+    const serving = presence === "serving" || (await isDaemonServing());
+    if (!(await warnIfWrongFlavor("start", flavor))) {
+      out.print(serving ? out.line("skipped", "The daemon is already running") : out.line("pending", "The daemon is still starting"));
+    }
     return;
   }
   const result = await trayQuery("/daemon/start", "POST");
@@ -269,6 +287,23 @@ export async function start(): Promise<void> {
     return;
   }
   out.print(out.line("pending", "The daemon has not answered yet"), out.callout("next", out.cmd("rt daemon logs")));
+}
+
+/** `attempts` spans the daemon's 5s drain plus its exit; `graceAttempts` the
+ *  gap before launchd's replacement binds rt.sock in a restart. */
+export const STOP_WAIT = { intervalMs: 250, attempts: 40, graceAttempts: 12 };
+
+async function waitOutDrain(): Promise<Awaited<ReturnType<typeof daemonPresence>>> {
+  let presence: Awaited<ReturnType<typeof daemonPresence>> = "stopping";
+  for (let i = 0; i < STOP_WAIT.attempts && presence === "stopping"; i++) {
+    await Bun.sleep(STOP_WAIT.intervalMs);
+    presence = await daemonPresence();
+  }
+  for (let i = 0; i < STOP_WAIT.graceAttempts && presence === "absent"; i++) {
+    await Bun.sleep(STOP_WAIT.intervalMs);
+    presence = await daemonPresence();
+  }
+  return presence;
 }
 
 async function pollForDaemonUp(): Promise<boolean> {
@@ -337,7 +372,9 @@ export async function restart(): Promise<void> {
     for (let i = 0; i < RESTART_POLL.attempts; i++) {
       await Bun.sleep(RESTART_POLL.intervalMs);
       const now = await probeSocketHolder();
-      if (!now?.pid) continue;
+      // A new pid that answers "starting" holds the socket but does not serve
+      // yet; a caller that queries right after this verb would find no daemon.
+      if (!now?.pid || now.unavailable) continue;
       if (before?.pid && now.pid === before.pid) continue;
       if (baselineUnknown) return { unverified: now.pid };
       return { now };
@@ -413,7 +450,8 @@ export async function showStatus(args: string[] = []): Promise<void> {
     return;
   }
 
-  const response = await daemonQuery("status");
+  // No retry: a daemon that is still booting is what this verb reports.
+  const response = await daemonQuery("status", undefined, undefined, { retryBudgetMs: 0 });
   // A failed status query does NOT mean the daemon is down — it answers `ping`
   // in a fraction of the budget a loaded `status` needs. Establish liveness
   // before reporting, and only pay for the probe when nothing came back.

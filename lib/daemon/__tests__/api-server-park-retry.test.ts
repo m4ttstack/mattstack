@@ -20,6 +20,20 @@ describe("withApiPortParkRetry (S043 caller-side wiring)", () => {
     expect(warns.length).toBe(2);
   });
 
+  test("onParked hears the held port each time it parks", async () => {
+    const parked: number[] = [];
+    let attempts = 0;
+    await withApiPortParkRetry(
+      async () => {
+        attempts++;
+        if (attempts < 3) throw new ApiPortInUseError(9401);
+        return "server";
+      },
+      { sleep: async () => {}, log: { warn: () => {} }, onParked: (port) => parked.push(port) },
+    );
+    expect(parked).toEqual([9401, 9401]);
+  });
+
   test("backs off with an increasing delay on each successive attempt", async () => {
     const sleeps: number[] = [];
     let attempts = 0;

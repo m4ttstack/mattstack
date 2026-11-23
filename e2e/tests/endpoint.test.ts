@@ -29,6 +29,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFile
 import { dirname, join } from "path";
 import { createTestHome, RT_BINARY } from "../harness.ts";
 import { machineSettingsPath } from "../../lib/rt-paths.ts";
+import { waitForSocket } from "../daemon-ready.ts";
 
 /**
  * The intercepts cache moved off `intercepts.json` onto state.db's `kv`
@@ -46,14 +47,6 @@ function readInterceptRulesRow(testHome: string): { rules: { command: string; re
 }
 
 // ─── Shared helpers (mirroring e2e/tests/events.test.ts) ─────────────────────
-
-async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!existsSync(sockPath)) {
-    if (Date.now() > deadline) throw new Error(`daemon socket never appeared at ${sockPath}`);
-    await Bun.sleep(100);
-  }
-}
 
 /**
  * The bunfig preload (test-setup.ts) already repointed THIS process's HOME to
