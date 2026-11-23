@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { daemonBusyDataSchema } from "../../../packages/rt-client/src/command-schemas.ts";
 import { busyReasons, createBusyTracker, LONG_COMMANDS } from "../busy.ts";
+import { createBusyHandlers } from "../handlers/busy.ts";
 
 describe("busy tracker", () => {
   test("a long command counts from begin until its end function runs", () => {
@@ -47,6 +49,25 @@ describe("busy tracker", () => {
     tracker.begin("worktree:create");
     tracker.begin("mr:fetch-job-trace");
     expect(tracker.running()).toEqual(["mr:fetch-job-trace", "worktree:create"]);
+  });
+});
+
+describe("daemon:busy", () => {
+  test("the reply says busy with its reasons, and matches the verb's schema", async () => {
+    const tracker = createBusyTracker();
+    tracker.begin("worktree:create");
+    const reply = await createBusyHandlers({ tracker, pendingReady: () => 1, creating: () => false })["daemon:busy"]();
+    expect(reply).toEqual({ ok: true, data: { busy: true, reasons: ["command:worktree:create", "worktree-install"] } });
+    expect(daemonBusyDataSchema.parse(reply.ok ? reply.data : null)).toEqual({ busy: true, reasons: ["command:worktree:create", "worktree-install"] });
+  });
+
+  test("nothing running replies not busy", async () => {
+    const reply = await createBusyHandlers({ tracker: createBusyTracker(), pendingReady: () => 0, creating: () => false })["daemon:busy"]();
+    expect(reply).toEqual({ ok: true, data: { busy: false, reasons: [] } });
+  });
+
+  test("the schema refuses a reply without reasons", () => {
+    expect(daemonBusyDataSchema.safeParse({ busy: true }).success).toBe(false);
   });
 });
 

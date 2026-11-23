@@ -947,8 +947,8 @@ export interface Commands {
   /** Fire-and-forget kickoff; wire reply is `{ok, message}`, not `{ok,data}`. */
   "cache:refresh": { payload: z.infer<typeof S.cacheRefreshPayloadSchema>; data: z.infer<typeof S.cacheRefreshDataSchema> };
   "daemon:log-level": { payload: { level?: "trace" | "debug" | "info" | "warn" | "error" }; data: { level: string } };
-  /** Whether a restart now would cut off work; reasons are "command:<verb>", "worktree-install", "worktree-create". */
-  "daemon:busy": { payload: Record<string, never>; data: { busy: boolean; reasons: string[] } };
+  /** Whether a restart now would cut off work. */
+  "daemon:busy": { payload: z.infer<typeof S.daemonBusyPayloadSchema>; data: z.infer<typeof S.daemonBusyDataSchema> };
   "ping": { payload: Record<string, never>; data: PingData };
   "status": { payload: Record<string, never>; data: StatusData };
   "tray:status": { payload: z.infer<typeof S.trayStatusPayloadSchema>; data: z.infer<typeof S.trayStatusDataSchema> };
