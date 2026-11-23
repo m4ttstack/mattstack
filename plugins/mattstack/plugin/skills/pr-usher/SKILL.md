@@ -66,6 +66,8 @@ digraph pr_usher {
     route_drop [label="Route the drop's fix" shape=box];
     off_duty_asked [label="Off duty asked?" shape=diamond];
     schedule_wakeup [label="ScheduleWakeup {delaySeconds: 300 or 1200}" shape=plaintext];
+    background_running [label="Owner discussion live, or background work running?" shape=diamond];
+    clear_context [label="Clear your context" shape=box];
     hand_back_prs [label="Hand back the PRs in flight" shape=box];
     chat_post_off_duty [label="chat_post {room: <repo room>, body: \"pr-usher off duty for <repo>\"}" shape=plaintext];
     chat_sign_out [label="chat_sign_out {}" shape=plaintext];
@@ -129,7 +131,10 @@ digraph pr_usher {
     drops -> park_pr [label="yes"];
     off_duty_asked -> schedule_wakeup [label="no"];
     off_duty_asked -> hand_back_prs [label="yes"];
-    schedule_wakeup -> start_tick;
+    schedule_wakeup -> background_running;
+    background_running -> start_tick [label="yes: keep this context"];
+    background_running -> clear_context [label="no"];
+    clear_context -> start_tick;
     hand_back_prs -> chat_post_off_duty;
     chat_post_off_duty -> chat_sign_out;
     chat_sign_out -> off_duty;
@@ -147,19 +152,21 @@ the announcements is the `repo` field of your own `chat_buddies` row, and
 
 ## The ledger
 
-Chat history does not survive compaction, so keep one line per PR in
-`pr-usher-ledger.md` in your scratchpad directory and update it every
-tick: number, head sha, owner and how you found them (handoff or branch),
+Your context is cleared between ticks, so keep one line per PR in
+`~/.mattstack/pr-usher/<repo>.md` (`<repo>` as in the announcements; the
+scratchpad's path changes with each clear, this one does not) and update
+it every tick: number, head sha, owner and how you found them (handoff or branch),
 stage, `reviewed@<sha>` (by `coderabbit` or `opus`: the newest head a
 review covered), `settled@<sha>` (the head on which every thread was
 resolved and CI went green), when you nudged CodeRabbit, when you sent
-the owner findings and whether the 15-minute reminder went, usher fix
+the owner findings, what you are waiting on it to answer, and whether the 15-minute reminder went, usher fix
 rounds, queue drops counted and the `at` of the last one counted,
 `drop-unrequeued` from a drop until a requeue goes through, a merge
 refusal seen at the settled head, a background Opus review in flight
 (`opus-running@<sha>`), and `parked: <reason>` or `owner-kept` when set.
 `summary-finding` lines sit under their PR's line. The first ledger line
-is `on duty since <time>`. The forge is the truth for
+is `on duty since <time>`; coming on duty, start the file fresh over any
+ledger an earlier usher left. The forge is the truth for
 threads, CI and draft state; the ledger holds only what the forge cannot.
 
 ### Tell the human which usher is on duty
@@ -184,8 +191,9 @@ ledger's first line says on duty and your `chat_buddies` row still has
 
 ### Start a tick
 
-Chat messages arrive in your context on their own; `chat_read` catches up
-on any you missed after a compaction. Read new ones first. Each handoff DM starts with
+Read the ledger file first. Chat messages arrive in your context on their
+own; `chat_read` catches up on any you missed after a clear or a
+compaction. Read new ones before the forge. Each handoff DM starts with
 `pr-usher handoff: <PR url> author=<handle>`. Read the PR (`mr_view`):
 one in another repo, a draft, closed, opened under another login or aimed
 at another branch gets `chat_dm {to: <handle>, body: "not ushering <PR url>: <reason>"}`.
@@ -380,6 +388,33 @@ with a PR still open: where it stands and that it should babysit the PR
 itself from here. Return to your own checkout and dispose of any fix tree
 (`worktree_dispose`). Stop scheduling wakeups.
 
+### Clear your context
+
+Every tick re-reads the forge, so the earlier ticks in your context are
+stale. A chat message already delivered to your context is never delivered
+again, and `chat_read` skips it, so before the clear every message since
+the last one is in the ledger: each handoff acked and on its own line,
+each owner's push, reply or leaving on its PR's line. As the tick's last
+call, after `ScheduleWakeup`:
+
+`fresh_context {mode: "clear", ledger: "<the ledger file's full text>\n\nLedger file: <its path>"}`
+
+with no `then`. The fresh context holds the ledger and waits; the wakeup
+fires into it, and chat keeps your name, status and rooms across the
+clear.
+
+Skip the clear this tick in either case:
+
+- A discussion with an owner is live: a PR's ledger line says you are
+  waiting on its owner's answer to findings or a question you sent. It
+  ends when the owner answers and you have nothing more to ask, or when
+  the owner reaches the 30-minute mark that counts it offline.
+- A subagent (an `opus-running@` review), a background shell or a monitor
+  still runs: its result has to come back to this context.
+
+When `fresh_context` is not in your tool list, or it refuses, end the turn
+without it.
+
 ## Pace
 
 `ScheduleWakeup` with `prompt: "/mattstack:pr-usher"` (the `/loop` input) and
@@ -403,4 +438,6 @@ again, and the Opus fallback always runs in the background.
 | "I re-read the head, so merging now is safe." | Pass `expectedHeadSha` so the forge refuses a moved head. |
 | "Another usher shows idle, it's probably dead." | Idle counts as live. Tell the human and stop. |
 | "The owner answered the thread, so it's settled." | Resolve it yourself with `mr_resolve_thread`; settled means resolved. |
+| "A clear will lose what I know about the PRs." | The ledger file carries it and the forge holds the rest. Clear after every tick with nothing in the background. |
+| "Compact keeps more than clear." | It keeps a lossy summary of stale forge reads. The usher clears. |
 | "The owner's row says idle, so I keep waiting." | Thirty silent minutes and it counts as offline. Fix or park. |
