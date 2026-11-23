@@ -234,6 +234,12 @@ export const GitShell = {
     return stdout;
   },
 
+  /** Number of commits reachable from `to` but not from `from`. */
+  async countCommits(cwd: string, from: string, to: string): Promise<number> {
+    const { stdout } = await git(['rev-list', '--count', `${from}..${to}`], cwd);
+    return parseInt(stdout, 10);
+  },
+
   /** Check whether a branch exists locally. */
   async branchExists(cwd: string, branch: string): Promise<boolean> {
     try {

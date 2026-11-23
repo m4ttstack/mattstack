@@ -1,46 +1,13 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
-import { restoreMockedModulesAfterAll } from './module-restore.ts';
+import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Stack } from '../src/core/types.ts';
-
-restoreMockedModulesAfterAll();
-
-// Shared state the mock and tests both reference via globalThis. Keyed by
-// path (not a single value) because OperationLog.save now takes a sidecar
-// file lock (withFileLock) around its write, so the log data file and its
-// `.lock` file must be tracked as distinct entries.
-declare global {
-  // eslint-disable-next-line no-var
-  var __opLogMockStore: Map<string, string>;
-}
-globalThis.__opLogMockStore = new Map();
-
-mock.module('node:fs/promises', () => ({
-  mkdir: async () => {},
-  readFile: async (path: string) => {
-    if (!globalThis.__opLogMockStore.has(path)) {
-      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
-    }
-    return globalThis.__opLogMockStore.get(path)!;
-  },
-  writeFile: async (path: string, data: string) => {
-    globalThis.__opLogMockStore.set(path, data);
-  },
-  rename: async (oldPath: string, newPath: string) => {
-    const data = globalThis.__opLogMockStore.get(oldPath);
-    globalThis.__opLogMockStore.delete(oldPath);
-    if (data !== undefined) globalThis.__opLogMockStore.set(newPath, data);
-  },
-  unlink: async (path: string) => {
-    globalThis.__opLogMockStore.delete(path);
-  },
-}));
-
-let uuidCounter = 0;
-mock.module('node:crypto', () => ({
-  randomUUID: () => `uuid-${++uuidCounter}`,
-}));
-
+import { getConfigDir, setConfigDir } from '../src/core/config-paths.ts';
 import { OperationLog, type OperationType } from '../src/core/operation-log.ts';
+
+const suiteConfigDir = getConfigDir();
+afterAll(() => setConfigDir(suiteConfigDir));
 
 function makeStack(id = 'test-stack'): Stack {
   return {
@@ -66,8 +33,7 @@ function makeStack(id = 'test-stack'): Stack {
 }
 
 beforeEach(() => {
-  uuidCounter = 0;
-  globalThis.__opLogMockStore = new Map();
+  setConfigDir(mkdtempSync(join(tmpdir(), 'gitq-oplog-')));
 });
 
 describe('OperationLog.create', () => {
@@ -77,7 +43,7 @@ describe('OperationLog.create', () => {
 
     const entry = OperationLog.create('cascade-rebase', stack, snapshots);
 
-    expect(entry.id).toBe('uuid-1');
+    expect(entry.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(entry.operation).toBe('cascade-rebase');
     expect(entry.branchSnapshots).toEqual(snapshots);
     expect(entry.stackSnapshot).toEqual(stack);

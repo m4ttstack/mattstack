@@ -9,14 +9,11 @@ restoreMockedModulesAfterAll();
 /**
  * Absorb snapshots working-tree entries through the filesystem before it
  * stashes, and these tests have no working tree: git is mocked and the cwd is
- * a path that does not exist. They also cannot make one — `operation-log.test`
- * mocks `node:fs/promises` process-wide for the whole unit suite, so a file
- * written here is not a file absorb can read.
- *
- * So every changed file below is a DELETION, the one changed-file shape whose
- * snapshot needs nothing from disk. What is under test here is absorb's
- * orchestration (attribution, call order, cleanup); content and entry
- * fidelity are covered against real git in tests/integration/absorb.test.ts.
+ * a path that does not exist. So every changed file below is a DELETION, the
+ * one changed-file shape whose snapshot needs nothing from disk. What is under
+ * test here is absorb's orchestration (attribution, call order, cleanup);
+ * content and entry fidelity are covered against real git in
+ * tests/integration/absorb.test.ts.
  */
 const CWD = '/tmp/gitq-absorb-unit-no-such-tree';
 
