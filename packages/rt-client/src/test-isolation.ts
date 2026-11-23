@@ -45,6 +45,9 @@ export function guardTestDaemonEnv(env: NodeJS.ProcessEnv = process.env): void {
   delete env.RT_DAEMON_SOCK;
   delete env.RT_APP_SOCKET;
   env.RT_TEST_FORBID_SOCKS = JSON.stringify([...forbidden]);
+  // A test with no daemon would otherwise wait out the restart retry, past
+  // bun's 5s test timeout. A test of the retry sets its own budget.
+  env.RT_DAEMON_RETRY_BUDGET_MS ??= "0";
 }
 
 /**

@@ -45,6 +45,18 @@ describe("realDataRefusal", () => {
 });
 
 describe("guardTestDaemonEnv", () => {
+  test("turns the daemon restart retry off, so a call with no daemon fails at once", () => {
+    const env: NodeJS.ProcessEnv = { HOME: "/real/home" };
+    guardTestDaemonEnv(env);
+    expect(env.RT_DAEMON_RETRY_BUDGET_MS).toBe("0");
+  });
+
+  test("keeps a retry budget the run already set", () => {
+    const env: NodeJS.ProcessEnv = { HOME: "/real/home", RT_DAEMON_RETRY_BUDGET_MS: "3000" };
+    guardTestDaemonEnv(env);
+    expect(env.RT_DAEMON_RETRY_BUDGET_MS).toBe("3000");
+  });
+
   test("scrubs RT_DAEMON_SOCK and RT_APP_SOCKET and forbids both the old sock and HOME's rt.sock", () => {
     const env: NodeJS.ProcessEnv = {
       HOME: "/real/home",
