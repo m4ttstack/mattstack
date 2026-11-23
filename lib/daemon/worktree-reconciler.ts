@@ -183,6 +183,8 @@ export function createWorktreeReconciler(deps: ReconcilerDeps): {
    *  null when nothing is in flight. Task 13's provision handler awaits this
    *  instead of racing its own create against replenish's. */
   creationInFlight: (repoName: string) => Promise<void> | null;
+  /** Whether replenish is creating a tree for any repo. */
+  anyCreationInFlight: () => boolean;
   /** Whether a `kick()`-triggered pass is currently running. Test-only: lets a
    *  test that calls `kick()` (deliberately not awaited... that's the point of
    *  `kick`) poll for true completion instead of guessing at a sleep, so no
@@ -441,11 +443,15 @@ export function createWorktreeReconciler(deps: ReconcilerDeps): {
     return creationPromises.get(repoName) ?? null;
   }
 
+  function anyCreationInFlight(): boolean {
+    return creationPromises.size > 0;
+  }
+
   function passInFlight(): boolean {
     return inFlight !== null;
   }
 
-  return { kick, runOnce, creationInFlight, passInFlight, withReconcilerHeld };
+  return { kick, runOnce, creationInFlight, anyCreationInFlight, passInFlight, withReconcilerHeld };
 }
 
 export const __test__ = {

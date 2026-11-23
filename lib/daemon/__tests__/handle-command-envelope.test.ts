@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { createHandleCommand } from "../../daemon.ts";
 import { makeSuppressor } from "../command-attribution.ts";
+import { createBusyTracker } from "../busy.ts";
 
 const noopLog = { info() {}, warn() {}, error() {}, debug() {} } as any;
 
@@ -13,6 +14,28 @@ function buildHandleCommand(routeCommand: (cmd: string, payload: any, signal?: A
     currentCmd: { cmd: null },
   });
 }
+
+test("a long command counts as busy while it runs, a throw included, and stops counting when it ends", async () => {
+  const busy = createBusyTracker();
+  let seen: string[] = [];
+  const handleCommand = createHandleCommand({
+    routeCommand: async (cmd) => {
+      seen = busy.running();
+      if (cmd === "mr:action") throw new Error("boom");
+      return { ok: true };
+    },
+    ctx: { log: noopLog },
+    rejectSuppressor: makeSuppressor(60_000),
+    redactDigest: () => ({}),
+    currentCmd: { cmd: null },
+    busy,
+  });
+  await handleCommand("worktree:provision", {});
+  expect(seen).toEqual(["worktree:provision"]);
+  await handleCommand("mr:action", {});
+  expect(seen).toEqual(["mr:action"]);
+  expect(busy.running()).toEqual([]);
+});
 
 test("a thrown handler yields an additive failure envelope, not a rethrow", async () => {
   const handleCommand = buildHandleCommand(async (cmd) => {

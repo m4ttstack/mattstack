@@ -162,6 +162,8 @@ import {
   type BootPhase,
 } from "./daemon/supervision-state.ts";
 import { safeInterval, safeTimeout, scheduleSweep } from "./daemon/safe-timers.ts";
+import { createBusyTracker, type BusyTracker } from "./daemon/busy.ts";
+import { pendingReadyCount } from "./worktree/ready-async.ts";
 import { teamPullHooks } from "./daemon/team-pull-hooks.ts";
 import { createToolNoticePullHook } from "./daemon/tool-notice-pull-hook.ts";
 import { composePullHooks } from "./daemon/pull-hooks.ts";
@@ -219,6 +221,8 @@ export interface HandleCommandDeps {
   rejectSuppressor: ReturnType<typeof makeSuppressor>;
   redactDigest: (payload: any) => Record<string, unknown>;
   currentCmd: { cmd: string | null };
+  /** Counts the long commands daemon:busy reports. */
+  busy?: BusyTracker;
   slowCommandMs?: number;
 }
 
@@ -238,6 +242,7 @@ export function createHandleCommand(deps: HandleCommandDeps): HandleCommand {
     const reqId = shortReqId();
     const caller = payload && typeof payload._client === "string" ? payload._client : "unknown";
     currentCmd.cmd = cmd;
+    const endBusy = deps.busy?.begin(cmd);
     try {
       const result = await routeCommand(cmd, payload, signal);
       const durationMs = Date.now() - t0;
@@ -264,6 +269,7 @@ export function createHandleCommand(deps: HandleCommandDeps): HandleCommand {
       return { ok: false, error: message, failure: { code, message }, reqId };
     } finally {
       currentCmd.cmd = null;
+      endBusy?.();
     }
   };
 }
@@ -458,6 +464,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
   // In-flight command name, polled by the loop monitor to spot a handler that
   // never returns. Captured by the monitor's `currentCmd` closure.
   const currentCmd: { cmd: string | null } = { cmd: null };
+  const busyTracker = createBusyTracker();
 
   const rejectSuppressor = makeSuppressor(60_000);
   const SLOW_COMMAND_MS = 2000;
@@ -539,6 +546,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
     rejectSuppressor,
     redactDigest,
     currentCmd,
+    busy: busyTracker,
     slowCommandMs: SLOW_COMMAND_MS,
   });
 
@@ -1524,6 +1532,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           stateDb: getStateDb("daemon"),
           chatDeliveryChains,
           accountsSweep: accountsSweepFn,
+          busy: { tracker: busyTracker, pendingReady: pendingReadyCount, creating: worktreeReconciler.anyCreationInFlight },
         });
         herdLifecycle = createHerdLifecycle({
           store: herdStore,
