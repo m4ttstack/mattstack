@@ -1,52 +1,38 @@
-A new on-by-default plugin, fresh-context, lets a Claude Code session clear or compact itself and pick up from a note it wrote, keeping its rt chat name across the clear. Herd workers reach their tools again after a reboot, and the console's run files answer only local requests.
-
-### fresh-context
-
-- new `fresh-context` plugin, installed with the others: a `fresh_context` tool and a `/fresh [clear|compact] [note]` command clear or compact the session after the turn ends, then hand the fresh context the ledger it wrote and an optional next step (#1228)
-- a clear is refused while a subagent, background shell, monitor or workflow is running, and is dropped after an interrupted or failed turn (#1228, #1232)
-- a session signed in to rt chat keeps its name, status, rooms and Slack chat across the clear, never shows offline, and gets its welcome without starting a turn; messages that arrived during the reset come in with the catch-up (#1228, #1233)
-- the hidden `rt chat handoff begin|complete|cancel` verb carries the chat name; only the session itself, through the plugin, runs it (#1228, #1232)
-- the `chat` plugin's sign-out at session end now passes why the session ended, so a clear handing its name on is not signed out (chat 0.6.1, #1232)
-
-### Chat
-
-- the mattstack chat tools and `whoami` act as the session Claude is on after a /clear, not the one the server started under (#1231)
-
-### Herd and gates
-
-- herd workers reach the herd tools again after a reboot (#1236)
-- `rt gate list --open` includes parked gates (#1238)
-- a `--dir` respawn clears the provisioned-tree marker (#1229)
+The board shows a review that stops on purpose as held instead of failed, and the PR usher clears its own context between ticks with fresh-context. rt chat's welcome lands without starting a turn, and a run waiting at a board gate ends its turn cleanly.
 
 ### Board
 
-- doctor rows stop reading "watching CI..." forever once the pane goes quiet (#1223)
-- comment writes time out, and a slow refresh can't hold back a comment that landed (#1234)
+- a review that stops on purpose, for example because the author is closing the MR, shows as **review held** instead of failed; it stays out of Needs me and groups as not reviewed again once the MR moves (#1247)
+- abandoning a run settles its gates (#1241)
 
-### Console
+### Chat
 
-- run files and API writes answer local requests only (#1235)
+- rt chat's welcome, and the note that a session was signed out from its pane, arrive without starting a turn (#1248)
+
+### Skills
+
+- the PR usher clears its own context with fresh-context after each tick, carrying a ledger of its PRs at `~/.mattstack/pr-usher/<repo>.md`; it keeps its context while it waits on a PR author's answer or a background review runs (#1249)
+
+### Herd and gates
+
+- a run waiting at a board gate ends its turn cleanly: the Stop hook counts any open or parked gate filed against the run as waiting, and `rt gate list` gains `--run` (#1245)
+- the herd watchdog backs off its reminders about a human gate nobody has answered yet (#1240)
 
 ### Setup
 
-- Fast Browser's setup skips its drift refusal on a Mac without Chrome (#1237)
-- the Linear MCP step re-reads Claude's config right before it writes, so a change made in between is kept (#1230)
-- worktree ready steps run rt's intercept shims, not a Homebrew copy (#1221)
+- a git that fails on the remote check no longer reads as having no remote: the home backup row says it could not tell instead of **Local only**, and the daemon retries the push next cycle (#1242)
 
-### App
+### Human Todos
 
-- window tabs load on a ready signal and recover on app health, not timers (#1224)
-- update-machine builds each served app before the restart (#1227)
-- `rt skills sync` checks and compiles the checkout it bumps and pushes (#1226)
-- human-todos: a run item's Done button reads "Done without running" (#1225)
-- the bundle check's socket guard follows the launch socket verdict (#1239)
+- paste works in the message card (#1243)
 
-### Tests and CI
+### Tests and tooling
 
-- deck's vanishing-row modal test waits for focus to reach the page instead of checking once (#1222)
+- gitq's unit tests stop mocking node builtins (#1244)
+- the release skill treats a locked Mac's unreadable notary profile as expected in an unattended run, not as a missing profile
 
 ### Held pins
 
 - bun stays at 1.4.4 (1.4.5 is out), and Sparkle at 2.10.0 (2.10.1 is out): a Sparkle bump gets its own tested release, and bun moves only with the artifacts it regenerates.
 
-**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.35.2...v2.36.0
+**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.36.0...v2.36.1

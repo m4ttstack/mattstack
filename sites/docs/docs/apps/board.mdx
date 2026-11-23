@@ -357,7 +357,7 @@ The **Group** menu splits the rows into groups:
 | age | Last activity: Today, Yesterday, N days ago, Last week, 2 weeks ago, Older. |
 | author | One group per member. |
 | status | Review state: needs review, changes requested, commented, comments resolved, approved. The default. |
-| my reviews | The board's own review of each MR: reviewing, queued, review ready, review failed, not reviewed. |
+| my reviews | The board's own review of each MR: reviewing, queued, review ready, review held, review failed, not reviewed. A review held on purpose (for example, the author is closing the MR) stays out of **Needs me**, and groups as not reviewed again once the MR moves. |
 | need | What each MR needs from you: decide, unstick, respond, fix, follow-up review, review, merge. Only on the Needs me tab, which switches to it. |
 
 A stack of MRs stays together in the group of its bottom MR. Within a group, the oldest activity comes first.
