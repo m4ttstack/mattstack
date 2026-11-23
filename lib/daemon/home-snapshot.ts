@@ -57,6 +57,7 @@ import { ORG_LAYOUT } from "../team/org-marker.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
 import { HOME_SNAPSHOT_NS, readHomePushRecord, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
+import { readPending, type PendingEntry, type PendingExec } from "./team-pending.ts";
 import { isUnderZone, parsePorcelainZ, planSnapshot, scopeEntries, type JanitorZone, type StatusEntry } from "./home-snapshot-plan.ts";
 import { JANITOR_REF_PREFIX, janitorRefFor, packsInZone, pullBlockedSentence, uniquePacks, zoneOfJanitorRef } from "../team/unpublished-packs.ts";
 import { teamPackRel } from "../team/team-pack-path.ts";
@@ -134,6 +135,8 @@ export interface SnapshotStatus {
   pullBlockedBy?: string[];
   claimedZones: string[];
   firstSeenDirty: Record<string, number>;
+  /** Store keys and other managed paths this Mac holds that origin does not, as of the last round or push. Absent for a spec without `pendingOf`, before the first read, and from a daemon that predates it. */
+  pending?: PendingEntry[];
   /** Set (and cleared) each time status() re-reads the owners file — surfaces a fail-closed readOwners throw without hiding it behind a stale cache. */
   ownersError: string | null;
 }
@@ -236,6 +239,8 @@ export interface SnapshotSpec {
   tokenFor?: () => Promise<string | null>;
   /** The remote `tokenFor` reads for; the token is offered to its https host only. */
   originUrl?: string;
+  /** Lists what is waiting to reach origin; `unowned` and `heldBack` are the engine's own lists from the latest round. */
+  pendingOf?: (exec: PendingExec, opts: { unowned: string[]; heldBack: string[] }) => Promise<PendingEntry[]>;
   /** The retired pre-kv state file to import once; home only. */
   legacyStatePath?: string;
 }
@@ -571,6 +576,7 @@ export function teamSnapshotSpec(
       };
     },
     watch: teamScope,
+    pendingOf: (exec, pendingOpts) => readPending(repoDir, exec, pendingOpts),
     pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled, onUpToDate: opts.onUpToDate, onMoved: opts.onMoved, gate: (ref, branch) => layoutGate(opts.probes.exec, repoDir, ref, branch) },
     pullOnly: opts.ownedRoots.length === 0,
     tokenFor: () => readToken(opts.probes, opts.originUrl),
@@ -1322,6 +1328,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       await p;
     } finally {
       pushInFlight = null;
+      await withGitLock(() => refreshPending());
       if (pushAgainRequested) {
         pushAgainRequested = false;
         schedulePush();
@@ -1869,12 +1876,38 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       return { committed: false, sha: null, paths: [], reason, skipped: disabledReason };
     }
     if (runInFlight) return runInFlight;
-    const p = withGitLock(() => doRun(reason));
+    const p = withGitLock(async () => {
+      const result = await doRun(reason);
+      await refreshPending();
+      return result;
+    });
     runInFlight = p;
     try {
       return await p;
     } finally {
       runInFlight = null;
+    }
+  }
+
+  let pending: PendingEntry[] | undefined;
+  let lastLoggedPendingError: string | null = null;
+
+  /** True when the list changed. A failed read keeps the previous list. */
+  async function refreshPending(): Promise<boolean> {
+    if (!spec.pendingOf) return false;
+    try {
+      const next = await spec.pendingOf(deps.exec, { unowned: [...unownedDirty], heldBack: [...heldBack] });
+      lastLoggedPendingError = null;
+      const changed = JSON.stringify(next) !== JSON.stringify(pending);
+      pending = next;
+      return changed;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message !== lastLoggedPendingError) {
+        deps.log.warn({ err }, `${label}: could not read waiting changes; keeping the last list`);
+        lastLoggedPendingError = message;
+      }
+      return false;
     }
   }
 
@@ -1950,6 +1983,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       pullBlockedBy: [...pullBlockedBy],
       claimedZones,
       firstSeenDirty: { ...firstSeenDirty },
+      ...(pending !== undefined ? { pending: [...pending] } : {}),
       ownersError,
     };
   }

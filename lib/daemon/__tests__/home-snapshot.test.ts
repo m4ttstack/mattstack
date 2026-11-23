@@ -2288,6 +2288,59 @@ describe("startSnapshot: spec", () => {
   });
 });
 
+describe("startSnapshot: pending", () => {
+  test("status carries pending after a round for a spec with pendingOf", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    const { deps } = baseDeps({ exec: fn });
+    const { repoDir: _repoDir, ...specDeps } = deps;
+    const seen: { unowned: string[]; heldBack: string[] }[] = [];
+    const spec: SnapshotSpec = {
+      ...homeSnapshotSpec(FAKE_REPO_DIR), id: "team:acme", kvNamespace: "team-snapshot:acme", eventPrefix: "team",
+      pendingOf: async (_exec, opts) => { seen.push(opts); return [{ store: "team:acme", key: "board.slack", change: "changed" }]; },
+    };
+    const handle = startSnapshot(spec, specDeps);
+    await handle.ready;
+    expect(handle.status().pending).toBeUndefined();
+    await handle.runNow("manual");
+    expect(handle.status().pending).toEqual([{ store: "team:acme", key: "board.slack", change: "changed" }]);
+    expect(seen.length).toBeGreaterThan(0);
+    handle.stop();
+  });
+
+  test("a failed pending read keeps the previous list and logs once", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    const { deps, log } = baseDeps({ exec: fn });
+    const { repoDir: _repoDir, ...specDeps } = deps;
+    let calls = 0;
+    const spec: SnapshotSpec = {
+      ...homeSnapshotSpec(FAKE_REPO_DIR), id: "team:acme", kvNamespace: "team-snapshot:acme", eventPrefix: "team",
+      pendingOf: async () => {
+        calls++;
+        if (calls > 1) throw new Error("fatal: index locked");
+        return [{ path: ".sops.yaml" }];
+      },
+    };
+    const handle = startSnapshot(spec, specDeps);
+    await handle.ready;
+    await handle.runNow("manual");
+    await handle.runNow("manual");
+    await handle.runNow("manual");
+    expect(handle.status().pending).toEqual([{ path: ".sops.yaml" }]);
+    expect(log.calls.filter((c) => c.level === "warn" && JSON.stringify(c.args).includes("waiting changes")).length).toBe(1);
+    handle.stop();
+  });
+
+  test("home spec status has no pending", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    const { deps } = baseDeps({ exec: fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    await handle.runNow("manual");
+    expect("pending" in handle.status()).toBe(false);
+    handle.stop();
+  });
+});
+
 describe("teamSnapshotSpec", () => {
   test("names the clone by slug, scopes to the team roots, pulls on the interval, and reads the stored forge token for origin", async () => {
     const p = { ...fakeProbes({ home: "/h" }) };
@@ -2582,7 +2635,7 @@ describe("teamSnapshotSpec", () => {
       expect(result.committed).toBe(false);
       expect(result.skipped).toBe("owners-read-error");
       expect(calls.some((c) => gitVerb(c) === "add" || gitVerb(c) === "commit")).toBe(false);
-      expect(log.calls.filter((c) => c.level === "warn").length).toBe(1);
+      expect(log.calls.filter((c) => c.level === "warn" && !JSON.stringify(c.args).includes("waiting changes")).length).toBe(1);
       expect(handle.status().ownersError).toContain("EACCES");
       handle.stop();
     } finally {
