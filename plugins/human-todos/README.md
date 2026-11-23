@@ -1,6 +1,6 @@
 # Human Todos
 
-A pane of steps only you can do. Claude adds a step, you tick it, run it or skip it, and Claude hears back without you typing "done".
+A pane of steps only you can do. Claude adds a step, you tick it, run it or dismiss it, and Claude hears back without you typing "done".
 
 ![The Human Todos pane beside a Claude Code session](docs/human-todos.png)
 
@@ -25,15 +25,15 @@ Claude adds steps with the `add` tool, reads them with `list` and removes one it
 
 | Kind | For | Buttons |
 |---|---|---|
-| `task` | Something you do by hand | Done, Skip |
-| `run` | A command you can run from the pane | Run, Copy, Done without running, Skip |
-| `terminal` | A command that needs your own terminal (sudo, a login) | Copy, Done, Skip |
-| `link` | A web page to open | Open, Done, Skip |
-| `image` | Screenshots or other images to look at | Open, Done, Skip |
+| `task` | Something you do by hand | Done, Dismiss |
+| `run` | A command you can run from the pane | Run, Copy, Done without running, Dismiss |
+| `terminal` | A command that needs your own terminal (sudo, a login) | Copy, Done, Dismiss |
+| `link` | A web page to open | Open, Done, Dismiss |
+| `image` | Screenshots or other images to look at | Open, Done, Dismiss |
 
 An `image` step lists its file names. Open shows every image in your default image app in one go.
 
-Claude hears about Done, Skip, a finished run and Stop. A run report is one line: the exit code and the path of a file holding the whole output (past 21 MiB, its first 20 MiB and its last 1 MiB), which Claude can read. The last 20 such files are kept. Copy, Open, Show, Open log, Run and Cancel send nothing.
+Claude hears about Done, a finished run and Stop right away. A Dismiss starts no turn: Claude hears about it with the next message. A run report is one line: the exit code and the path of a file holding the whole output (past 21 MiB, its first 20 MiB and its last 1 MiB), which Claude can read. The last 20 such files are kept. Copy, Open, Show, Open log, Run and Cancel send nothing.
 
 Run always asks first: press Run, then Confirm. Confirm shows the script and the folder it runs in. If a script ignores Stop, the pane offers Force stop, which ends it and everything it started.
 

@@ -8,6 +8,8 @@ import { syncSpinner } from './spinner'
 
 export const todos = atom({ plugin: 'human-todos', key: 'todos' } as const, [] as Todo[], { shape: 'todos-1' })
 export const nextId = atom({ plugin: 'human-todos', key: 'nextId' } as const, 1)
+// Dismissals waiting for the next prompt to carry them. Kept apart from the items, so clearing or withdrawing one keeps its notice.
+export const notices = atom({ plugin: 'human-todos', key: 'notices' } as const, [] as string[])
 export const expanded = atom({ plugin: 'human-todos', key: 'expanded' } as const, [] as string[])
 // The item whose message card is open, at most one at a time.
 export const composing = atom({ plugin: 'human-todos', key: 'composing' } as const, null as string | null)
@@ -24,7 +26,7 @@ export const drafts = new Map<string, string>()
 const LIST_PREFIX = 'list:'
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 
-type SavedList = { todos: Todo[]; nextId: number; savedAt: number }
+type SavedList = { todos: Todo[]; nextId: number; notices?: string[]; savedAt: number }
 
 // The in-memory list stays the truth when the store refuses a write (it is capped), so the plugin keeps working and says so once.
 export async function saveList($: EngineInterface): Promise<void> {
@@ -32,6 +34,7 @@ export async function saveList($: EngineInterface): Promise<void> {
     const entry: SavedList = {
       todos: await read($, todos),
       nextId: await read($, nextId),
+      notices: await read($, notices),
       savedAt: await $.clock.now(),
     }
     // Work still in flight when a session is left must not save over the list it left behind.
@@ -96,6 +99,24 @@ export async function patchTodo($: EngineInterface, id: string, change: Partial<
   await saveList($)
 }
 
+export async function addNotice($: EngineInterface, text: string): Promise<void> {
+  await ensureLoaded($)
+  await update($, notices, list => [...list, text])
+  await saveList($)
+}
+
+export async function listNotices($: EngineInterface): Promise<string[]> {
+  await ensureLoaded($)
+  return read($, notices)
+}
+
+// Drops only the notices a prompt carried, so one added while it was in flight still waits.
+export async function dropNotices($: EngineInterface, sent: readonly string[]): Promise<void> {
+  if (sent.length === 0) return
+  await update($, notices, list => list.filter(n => !sent.includes(n)))
+  await saveList($)
+}
+
 export async function removeTodos($: EngineInterface, pick: (t: Todo) => boolean): Promise<Todo[]> {
   await ensureLoaded($)
   const removed: Todo[] = []
@@ -139,6 +160,7 @@ export async function restoreList($: EngineInterface): Promise<void> {
     await update($, todos, () => mine.todos.map(resume))
     await update($, expanded, () => [])
     await update($, nextId, () => mine.nextId)
+    await update($, notices, () => mine.notices ?? [])
   } else {
     await resetList($)
   }
@@ -158,6 +180,7 @@ export async function resetList($: EngineInterface): Promise<void> {
   await update($, expanded, () => [])
   await update($, composing, () => null)
   await update($, nextId, () => 1)
+  await update($, notices, () => [])
   drafts.clear()
 }
 

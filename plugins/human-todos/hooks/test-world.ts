@@ -57,7 +57,10 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
   const registered: Registered[] = []
   const opened: string[] = []
   const sent: string[] = []
-  const fail = { submit: false, save: false }
+  // What each submission carried beside its text, in step with `sent`.
+  const contexts: (readonly string[])[] = []
+  // `holdSubmit`, when set, keeps the next submission waiting until it settles, as a busy turn holds a pane prompt.
+  const fail = { submit: false, save: false, holdSubmit: null as Promise<void> | null }
   let sessionId = SESSION
   let isPlaced = true
   on('session.id', () => ({ value: sessionId }))
@@ -94,9 +97,13 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
   on('command.run', () => ({ text: '' }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
-  on('prompt.submit', (_, e) => {
+  on('prompt.submit', async (_, e) => {
+    const hold = fail.holdSubmit
+    fail.holdSubmit = null
+    if (hold) await hold
     if (fail.submit) return { drop: 'refused' }
     sent.push(e.text)
+    contexts.push(e.context ?? [])
     return { text: e.text }
   })
   on('prompt.compose', () => ({ sections: [] }))
@@ -107,6 +114,7 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
     registered,
     opened,
     sent,
+    contexts,
     fail,
     setPlaced: (value: boolean) => {
       isPlaced = value

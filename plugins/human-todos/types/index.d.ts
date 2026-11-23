@@ -43,6 +43,7 @@ declare module 'claude-code' {
     'human-todos': {
       todos: Shaped<Todo[]>
       nextId: number
+      notices: string[]
       expanded: string[]
       composing: string | null
       loadedFor: string | null

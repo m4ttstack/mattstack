@@ -197,7 +197,7 @@ for (const surface of SURFACES) {
     const rows = await rowsOf(pane)
     for (const row of rows) expect(cells(row), row).toBeLessThanOrEqual(30)
     const shown = rows.join('\n')
-    for (const label of ['Show', 'Stop', 'Force stop', 'Confirm', 'Cancel', 'Open', 'Copy', 'Done', 'Skip', '⠋ Running', '⠋ Stopping…']) expect(shown, label).toContain(label)
+    for (const label of ['Show', 'Stop', 'Force stop', 'Confirm', 'Cancel', 'Open', 'Copy', 'Done', 'Dismiss', '⠋ Running', '⠋ Stopping…']) expect(shown, label).toContain(label)
     await pane.unmount()
   })
 }
@@ -460,7 +460,7 @@ test('keyboard: the rail covers every row of the selected item, and Clear finish
   const rail = railRows(rows)
   expect(rows[rail[0]!]).toContain('☐ One')
   expect(rows.slice(rail[0], rail.at(-1)! + 1).join('\n')).toContain('Its detail')
-  expect(rows[rail.at(-1)!]).toContain('Skip')
+  expect(rows[rail.at(-1)!]).toContain('Dismiss')
   expect(rail).toEqual(Array.from({ length: rail.length }, (_, n) => rail[0]! + n))
 
   await pane.key({ key: 'down' })
@@ -480,8 +480,8 @@ test('keyboard: a pointer move hides the marks, a click moves the selection, and
   expect(edged(await rowsOf(pane))).toBeUndefined()
 
   const rows = await rowsOf(pane)
-  const skip = { y: rows.findIndex((r, n) => n > rows.findIndex(x => x.includes('Item 2')) && r.includes('Skip')), x: 0 }
-  skip.x = rows[skip.y]!.indexOf('Skip') + 1
+  const skip = { y: rows.findIndex((r, n) => n > rows.findIndex(x => x.includes('Item 2')) && r.includes('Dismiss')), x: 0 }
+  skip.x = rows[skip.y]!.indexOf('Dismiss') + 1
   await pane.pointer({ type: 'down', ...skip, button: 'left' })
   await pane.pointer({ type: 'up', ...skip, button: 'left' })
   expect(await state($)).toContain('#2 [skipped]')

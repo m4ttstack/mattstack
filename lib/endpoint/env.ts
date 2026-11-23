@@ -75,20 +75,38 @@ export function collectPreservedKeys(preserveEnv: string[], callerEnv: Record<st
 // ─── applyArgInject ──────────────────────────────────────────────────────────
 
 /**
- * Splices an injected arg after the anchor arg (`afterArg`), unless an arg
- * equal to or starting with `skipIfArgPresent` is already present, or the
- * anchor itself isn't found (in either case, args are returned unchanged).
+ * Splices an injected arg after the anchor arg (`afterArg`). When the command
+ * already passes `<skipIfArgPresent>=<list>`, the env keys are merged into that
+ * list instead: skipping it would leave doppler free to overwrite rt's keys.
+ * A bare `skipIfArgPresent` or `=true` keeps everything, so it is left alone;
+ * `=false` is replaced by the keys, since a list with it in reads as names.
+ * Only args before `--` count, since the rest belong to the wrapped command,
+ * and only the last occurrence, since doppler keeps only that one.
+ * `missedAnchor` is true when the keys could not be added because the anchor
+ * is missing, which leaves a wrapper like doppler free to overwrite them.
  */
-export function applyArgInject(args: string[], inject: ArgInject | undefined, envKeys: string[]): string[] {
-  if (!inject) return args;
-  const alreadyPresent = args.some((arg) => arg === inject.skipIfArgPresent || arg.startsWith(inject.skipIfArgPresent));
-  if (alreadyPresent) return args;
+export function applyArgInject(args: string[], inject: ArgInject | undefined, envKeys: string[]): { args: string[]; missedAnchor: boolean } {
+  if (!inject) return { args, missedAnchor: false };
+  const separator = args.indexOf("--");
+  const ownArgs = separator === -1 ? args.length : separator;
+  const listPrefix = `${inject.skipIfArgPresent}=`;
+  for (let i = ownArgs - 1; i >= 0; i--) {
+    const arg = args[i]!;
+    if (arg === `${listPrefix}true`) return { args, missedAnchor: false };
+    if (arg.startsWith(listPrefix)) {
+      const existing = arg.slice(listPrefix.length).split(",").filter((key) => key && key !== "false");
+      const out = [...args];
+      out[i] = `${listPrefix}${[...new Set([...existing, ...envKeys])].join(",")}`;
+      return { args: out, missedAnchor: false };
+    }
+    if (arg.startsWith(inject.skipIfArgPresent)) return { args, missedAnchor: false };
+  }
   const anchorIndex = args.indexOf(inject.afterArg);
-  if (anchorIndex === -1) return args;
+  if (anchorIndex === -1 || anchorIndex >= ownArgs) return { args, missedAnchor: true };
   const rendered = inject.template.replace("${envKeys}", envKeys.join(","));
   const out = [...args];
   out.splice(anchorIndex + 1, 0, rendered);
-  return out;
+  return { args: out, missedAnchor: false };
 }
 
 // ─── runRoleHook ─────────────────────────────────────────────────────────────
