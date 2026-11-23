@@ -74,6 +74,7 @@ import { SystemProcessScanner } from "./daemon/system-process-scanner.ts";
 import { parkUntilServable, probeSocketHolder, daemonFlavor, launchdLabelFromEnv } from "./daemon/park.ts";
 import { evictStaleDaemon } from "./daemon/boot-reconcile.ts";
 import { createSocketAvailability, type SocketAvailability } from "./daemon/socket-availability.ts";
+import { drainSocket } from "./daemon/drain.ts";
 import { resolveUserPath } from "./daemon/user-path.ts";
 import { shortReqId, makeSuppressor } from "./daemon/command-attribution.ts";
 import { unknownCommandReply } from "./daemon/unknown-command.ts";
@@ -1680,6 +1681,24 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         log.info({ pid: process.pid }, "daemon ready");
       },
       stop() {},
+    },
+
+    // MUST stay last: reverse-order shutdown then runs this first, while the
+    // stores the in-flight requests read are still open.
+    {
+      name: "socket-drain",
+      start() {},
+      async stop() {
+        const { drained, left } = await drainSocket(ctx.availability, {
+          settleWaiters: () => {
+            eventsBus?.settleWaiters();
+            gatesStore?.settleWaiters();
+          },
+          sleep: (ms) => Bun.sleep(ms),
+          now: () => Date.now(),
+        });
+        if (!drained) log.warn({ left }, "socket drain hit its cap; force-closing the requests still in flight");
+      },
     },
   ];
 

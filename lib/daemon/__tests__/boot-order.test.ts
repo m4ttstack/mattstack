@@ -43,6 +43,7 @@ const EXPECTED_ORDER = [
   "api-server",
   "pollers",
   "ready",
+  "socket-drain",
 ] as const;
 
 const fakeServer = (): Server<any> => ({ stop() {} }) as unknown as Server<any>;
@@ -104,6 +105,9 @@ test("units start in spec order, pid right after the socket bind, state.db busy_
   expect(stops).toEqual([...EXPECTED_ORDER].reverse());
   expect(stateClosed).toBeGreaterThan(0);
   expect(spy.indexOf("closeStateDb")).toBeGreaterThan(spy.indexOf("stop:ready"));
+  // (e) the drain ran first, so the socket stopped serving while the stores were still open.
+  expect(stops[0]).toBe("socket-drain");
+  expect(ctx.availability.state).toBe("stopping");
 });
 
 test("the socket answers starting until the socket-ready unit runs", async () => {

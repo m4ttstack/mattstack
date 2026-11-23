@@ -112,6 +112,8 @@ export interface GatesStore {
       than `olderThanMs`; a dead row that was never delivered is pruned
       immediately, regardless of `olderThanMs`. Returns rows removed. */
   pruneDeadSubscriptions(olderThanMs: number, now?: number): number;
+  /** Ends every pending wait with a timeout; the store stays usable. */
+  settleWaiters(): void;
   close_(): void;
   /** Test-only debug accessor for the underlying handle (e.g. pragma checks). Not for feature code. */
   __db?: Database;
@@ -586,6 +588,13 @@ export function createGatesStore(opts: {
     for (const w of [...set]) settle(gateId, w, { status, row });
   };
 
+  // Ending a wait without an answer is not an answer, so it reads as a timeout.
+  const settleWaiters = (): void => {
+    for (const [gateId, set] of [...waiters]) {
+      for (const w of [...set]) settle(gateId, w, { status: "timeout" });
+    }
+  };
+
   return {
     open(input) {
       assertValidSubject(input.subject);
@@ -844,12 +853,10 @@ export function createGatesStore(opts: {
       return changes;
     },
 
+    settleWaiters,
+
     close_() {
-      // Settle any still-pending waiters rather than leaving their promises
-      // hanging past db.close(); a store shutdown is not an answer, so timeout.
-      for (const [gateId, set] of [...waiters]) {
-        for (const w of [...set]) settle(gateId, w, { status: "timeout" });
-      }
+      settleWaiters();
       db.close();
     },
 

@@ -55,6 +55,8 @@ export interface EventsBus {
   wait(opts: { pattern: string; after?: number; waitMs?: number; signal?: AbortSignal }): Promise<WaitResult>;
   sweep(): number;
   waiterCount(): number;
+  /** Ends every pending wait with its empty reply; the bus stays usable. */
+  settleWaiters(): void;
   close(): void;
   /** Test-only debug accessor for the underlying handle (e.g. pragma checks). Not for feature code. */
   __db?: Database;
@@ -226,6 +228,11 @@ export function createEventsBus(opts: {
     w.resolve(result);
   };
 
+  const settleWaiters = (): void => {
+    const head = maxId();
+    for (const w of [...waiters]) settle(w, { events: [], cursor: head });
+  };
+
   /**
    * Shared insert+wake code path for both emit and emitAt.
    * Inserts a row and wakes any matching waiters.
@@ -349,9 +356,10 @@ export function createEventsBus(opts: {
 
     __db: db,
 
+    settleWaiters,
+
     close() {
-      const head = maxId();
-      for (const w of [...waiters]) settle(w, { events: [], cursor: head });
+      settleWaiters();
       db.close();
     },
   };
