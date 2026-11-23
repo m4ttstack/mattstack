@@ -201,6 +201,29 @@ describe("rtCommand: retry while the daemon restarts", () => {
     expect(res).toEqual({ ok: true, data: { n: 1 } });
   });
 
+  test("a daemon that answers starting for the whole cool-off threshold starts the cool-off", async () => {
+    __test__.setCoolOffAfterMs(150);
+    const sock = freshSock();
+    const server = Bun.serve({ unix: sock, fetch: () => Response.json(STARTING, { status: 503 }) });
+    stops.push(() => server.stop(true));
+    expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 200 })).toEqual(STARTING);
+    const started = Date.now();
+    expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).toEqual(STARTING);
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  test("a parked reply is returned at once and never retried", async () => {
+    const sock = freshSock();
+    const parked = { ok: false, error: "rt daemon is waiting for port 9401, which another process is using; run rt daemon status", parked: true };
+    let hits = 0;
+    const server = Bun.serve({ unix: sock, fetch: () => { hits++; return Response.json(parked, { status: 503 }); } });
+    stops.push(() => server.stop(true));
+    const started = Date.now();
+    expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).toEqual(parked);
+    expect(hits).toBe(1);
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
   test("a starting reply ends the cool-off: the daemon is back", async () => {
     __test__.setCoolOffAfterMs(150);
     const sock = freshSock();

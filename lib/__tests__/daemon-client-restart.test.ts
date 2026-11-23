@@ -67,7 +67,7 @@ describe("daemon-client: a daemon that is starting or stopping", () => {
     const cap = captureOut();
     try {
       const attempt = await daemonQueryAttributed("status");
-      expect(attempt).toEqual({ response: null, refused: false, timedOut: false, connectFailed: false, unavailable: true });
+      expect(attempt).toEqual({ response: null, refused: false, timedOut: false, connectFailed: false, unavailable: true, unavailableState: "starting" });
       expect(trayStartCalls).toBe(0);
       expect(cap.stderr()).toBe("");
     } finally {
@@ -188,12 +188,14 @@ describe("daemon-client: a daemon that is starting or stopping", () => {
     }
   }, 12_000);
 
-  test("daemonPresence tells a serving daemon, an unavailable one and no daemon apart", async () => {
+  test("daemonPresence tells a serving, starting and stopping daemon and no daemon apart", async () => {
     expect(await daemonPresence()).toBe("absent");
-    let serving = false;
-    daemon = Bun.serve({ unix: DAEMON_SOCK_PATH, fetch: () => (serving ? json({ ok: true }) : json(STARTING, 503)) });
-    expect(await daemonPresence()).toBe("unavailable");
-    serving = true;
+    let reply: unknown = STARTING;
+    daemon = Bun.serve({ unix: DAEMON_SOCK_PATH, fetch: () => (reply === null ? json({ ok: true }) : json(reply, 503)) });
+    expect(await daemonPresence()).toBe("starting");
+    reply = { ok: false, error: "rt daemon is restarting; try again in a moment", unavailable: "stopping" };
+    expect(await daemonPresence()).toBe("stopping");
+    reply = null;
     expect(await daemonPresence()).toBe("serving");
   });
 

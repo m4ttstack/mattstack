@@ -185,6 +185,7 @@ const PARK_RETRY_MAX_MS = 60_000;
 export interface ParkRetryDeps {
   sleep: (ms: number) => Promise<void>;
   log: { warn: (o: unknown, m: string) => void };
+  onParked?: (port: number) => void;
 }
 
 /**
@@ -203,6 +204,7 @@ export async function withApiPortParkRetry<T>(start: () => Promise<T>, deps: Par
       if (!(err instanceof ApiPortInUseError)) throw err;
       const delayMs = Math.min(PARK_RETRY_BASE_MS * 2 ** (attempt - 1), PARK_RETRY_MAX_MS);
       deps.log.warn({ attempt, port: err.port, delayMs }, "api server port still in use; parked, retrying with backoff");
+      deps.onParked?.(err.port);
       await deps.sleep(delayMs);
     }
   }

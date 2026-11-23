@@ -248,8 +248,14 @@ export async function start(): Promise<void> {
   }
   const flavor = processFlavor();
   // A daemon that is still booting counts as there: the tray's start is a
-  // `launchctl kickstart -k`, which would kill it.
-  const presence = await daemonPresence();
+  // `launchctl kickstart -k`, which would kill it. One that is draining after
+  // a stop is followed by nothing, so wait for it to go and then start one.
+  let presence = await daemonPresence();
+  if (presence === "stopping") presence = await withTransientStep("Waiting for the daemon to stop", waitOutDrain);
+  if (presence === "stopping") {
+    out.print(out.line("pending", "The daemon is still stopping"), out.callout("next", out.cmd("rt daemon start")));
+    return;
+  }
   if (presence !== "absent") {
     const serving = presence === "serving" || (await isDaemonServing());
     if (!(await warnIfWrongFlavor("start", flavor))) {
@@ -275,6 +281,18 @@ export async function start(): Promise<void> {
     return;
   }
   out.print(out.line("pending", "The daemon has not answered yet"), out.callout("next", out.cmd("rt daemon logs")));
+}
+
+/** Spans the daemon's 5s drain plus its exit. */
+export const STOP_WAIT = { intervalMs: 250, attempts: 40 };
+
+async function waitOutDrain(): Promise<Awaited<ReturnType<typeof daemonPresence>>> {
+  let presence: Awaited<ReturnType<typeof daemonPresence>> = "stopping";
+  for (let i = 0; i < STOP_WAIT.attempts && presence === "stopping"; i++) {
+    await Bun.sleep(STOP_WAIT.intervalMs);
+    presence = await daemonPresence();
+  }
+  return presence;
 }
 
 async function pollForDaemonUp(): Promise<boolean> {

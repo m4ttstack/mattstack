@@ -65,15 +65,14 @@ describe("fatal boot", () => {
       // Parked means the outer park-retry loop has logged, after
       // bindApiServerWithRetry's own inner retry ran out. The unix socket and
       // rt.pid are held from early in boot, but the socket does not serve
-      // until the API server binds: it answers "starting".
+      // until the API server binds. Parked, it says so with no `unavailable`
+      // key, so clients return at once instead of retrying.
       await waitFor("the daemon to log that it parked", () => daemonLogHas(rtDir, PARKED_LINE), 30_000);
       expect(daemon.exitCode).toBeNull();
       expect(existsSync(join(rtDir, "rt.pid"))).toBe(true);
-      expect(await unavailableReply(join(rtDir, "rt.sock"))).toMatchObject({
-        ok: false,
-        error: "rt daemon is starting; try again in a moment",
-        unavailable: "starting",
-      });
+      const parked = await unavailableReply(join(rtDir, "rt.sock"));
+      expect(parked).toMatchObject({ ok: false, parked: true });
+      expect(parked).not.toHaveProperty("unavailable");
 
       squatter.stop(true);
 

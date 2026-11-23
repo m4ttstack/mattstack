@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync, rmSync } from "fs";
 import { dirname, join } from "path";
 import { TRAY_SOCK_PATH, DAEMON_SOCK_PATH, markDaemonInstalled } from "../../lib/daemon-config.ts";
 import { processFlavor } from "../../lib/flavor.ts";
-import { restart, start, stop, RESTART_POLL } from "../daemon.ts";
+import { restart, start, stop, RESTART_POLL, STOP_WAIT } from "../daemon.ts";
 
 const realFetch = globalThis.fetch;
 let io: CapturedOut;
@@ -19,6 +19,7 @@ beforeEach(() => {
   writeFileSync(TRAY_SOCK_PATH, "");
   writeFileSync(DAEMON_SOCK_PATH, "");
   RESTART_POLL.intervalMs = 1;
+  STOP_WAIT.intervalMs = 1;
 });
 
 afterEach(() => {
@@ -28,6 +29,8 @@ afterEach(() => {
   rmSync(DAEMON_SOCK_PATH, { force: true });
   rmSync(join(dirname(DAEMON_SOCK_PATH), "daemon.json"), { force: true });
   RESTART_POLL.intervalMs = 500;
+  STOP_WAIT.intervalMs = 250;
+  STOP_WAIT.attempts = 40;
 });
 
 function output(): string {
@@ -43,12 +46,20 @@ function fakeSockets(opts: {
   pid: () => number | null;
   /** True while the daemon that answers is bound but not serving yet. */
   starting?: () => boolean;
+  /** True while the daemon that answers is draining before it exits. */
+  stopping?: () => boolean;
 }): void {
   const flavor = processFlavor();
   globalThis.fetch = (async (_url: string, init: any) => {
     if (init?.unix === TRAY_SOCK_PATH) return opts.trayReply();
     const pid = opts.pid();
     if (pid === null) throw new Error("connection refused");
+    if (opts.stopping?.()) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "rt daemon is restarting; try again in a moment", unavailable: "stopping", pid, flavor }),
+        { status: 503 },
+      );
+    }
     if (opts.starting?.()) {
       return new Response(
         JSON.stringify({ ok: false, error: "rt daemon is starting; try again in a moment", unavailable: "starting", pid, flavor }),
@@ -256,4 +267,36 @@ test("start says a daemon is still starting when it does not serve in time, and 
 
   expect(trayCalls).toBe(0);
   expect(output()).toContain("The daemon is still starting");
+});
+
+test("start right after a stop waits out the drain, then asks the tray for a start", async () => {
+  markDaemonInstalled();
+  let trayCalls = 0;
+  let pings = 0;
+  fakeSockets({
+    trayReply: () => { trayCalls += 1; return new Response(JSON.stringify({ ok: true })); },
+    pid: () => (trayCalls > 0 ? 444 : pings < 3 ? 333 : null),
+    stopping: () => trayCalls === 0 && ++pings <= 3,
+  });
+
+  await start();
+
+  expect(trayCalls).toBe(1);
+  expect(output()).toContain("The daemon started");
+});
+
+test("start says the daemon is still stopping when the drain outlasts the wait, and does not ask the tray", async () => {
+  markDaemonInstalled();
+  STOP_WAIT.attempts = 3;
+  let trayCalls = 0;
+  fakeSockets({
+    trayReply: () => { trayCalls += 1; return new Response(JSON.stringify({ ok: true })); },
+    pid: () => 333,
+    stopping: () => true,
+  });
+
+  await start();
+
+  expect(trayCalls).toBe(0);
+  expect(output()).toContain("The daemon is still stopping");
 });

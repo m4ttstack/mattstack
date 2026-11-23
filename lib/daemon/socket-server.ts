@@ -11,7 +11,7 @@ import type { Logger } from "pino";
 import { DAEMON_SOCK_PATH } from "../daemon-config.ts";
 import { deriveFailure } from "./failure.ts";
 import { GATE_REQUEST_LIMIT_BYTES, readCommandBody } from "./request-limits.ts";
-import { UNAVAILABLE_STATUS, unavailableBody, type SocketAvailability } from "./socket-availability.ts";
+import { UNAVAILABLE_STATUS, parkedBody, unavailableBody, type SocketAvailability } from "./socket-availability.ts";
 
 export function startSocketServer(opts: {
   handleCommand: (cmd: string, payload: any, signal?: AbortSignal) => Promise<any>;
@@ -45,7 +45,10 @@ export function startSocketServer(opts: {
       // Checked before the body is read: a client retries this reply, so
       // nothing about the request may have been acted on.
       if (availability && availability.state !== "serving") {
-        return Response.json({ ...unavailableBody(availability.state), ...availability.holder }, { status: UNAVAILABLE_STATUS });
+        const body = availability.state === "starting" && availability.parkedPort !== undefined
+          ? parkedBody(availability.parkedPort)
+          : unavailableBody(availability.state);
+        return Response.json({ ...body, ...availability.holder }, { status: UNAVAILABLE_STATUS });
       }
       if (availability) availability.inFlight++;
       try {
