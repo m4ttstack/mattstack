@@ -406,8 +406,10 @@ Skip the clear this tick in either case:
   ends when the owner answers and you have nothing more to ask, or when
   the owner reaches the 30-minute mark that counts it offline.
 - A subagent (an `opus-running@` review), a background shell or a monitor
-  still runs: its result has to come back to this context. When `fresh_context` is not in
-your tool list, or it refuses, end the turn without it.
+  still runs: its result has to come back to this context.
+
+When `fresh_context` is not in your tool list, or it refuses, end the turn
+without it.
 
 ## Pace
 
