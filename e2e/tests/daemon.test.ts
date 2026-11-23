@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 
 import { join } from "path";
 import { createTestHome, daemonApiPort, rt, RT_BINARY } from "../harness.ts";
 import { unavailableReply, waitForSocket } from "../daemon-ready.ts";
+import { rtCommand } from "../../packages/rt-client/src/transport.ts";
 
 async function waitFor(what: string, cond: () => boolean, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -20,6 +21,14 @@ function daemonLogHas(rtDir: string, text: string): boolean {
   return readdirSync(dir)
     .filter((name) => name.startsWith("daemon"))
     .some((name) => readFileSync(join(dir, name), "utf8").includes(text));
+}
+
+function daemonLogCount(rtDir: string, text: string): number {
+  const dir = join(rtDir, "logs");
+  if (!existsSync(dir)) return 0;
+  return readdirSync(dir)
+    .filter((name) => name.startsWith("daemon"))
+    .reduce((n, name) => n + readFileSync(join(dir, name), "utf8").split(text).length - 1, 0);
 }
 
 describe("fatal boot", () => {
@@ -337,4 +346,84 @@ describe("health surfaces", () => {
     expect(typeof hb.at).toBe("number");
     expect(typeof hb.seq).toBe("number");
   }, 10_000);
+});
+
+// A restart must not fail a caller: the client retries while nothing listens
+// and while the new daemon answers "starting", and a long-poll open at
+// shutdown is ended with its normal empty reply before the socket closes.
+describe("restart continuity", () => {
+  let home: string;
+  let cleanup: () => void;
+  let sock: string;
+  let rtDir: string;
+  const daemons: Array<ReturnType<typeof Bun.spawn>> = [];
+
+  function startDaemon(): ReturnType<typeof Bun.spawn> {
+    const bunDir = join(process.execPath, "..");
+    const daemon = Bun.spawn([RT_BINARY, "--daemon"], {
+      env: {
+        HOME: home,
+        PATH: `${join(RT_BINARY, "..")}:${bunDir}:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin`,
+        TERM: "xterm-256color",
+        RT_SKIP_SETUP: "1",
+        CI: "true",
+        RT_API_PORT: "0",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    daemons.push(daemon);
+    return daemon;
+  }
+
+  /** Serving, and past the unit that installs the signal handlers the drain runs from. */
+  async function waitUntilReady(readyLines: number): Promise<void> {
+    await waitForSocket(sock, 30_000);
+    await waitFor("the daemon to log that it is ready", () => daemonLogCount(rtDir, "daemon ready") >= readyLines, 30_000);
+  }
+
+  beforeAll(() => {
+    ({ path: home, cleanup } = createTestHome());
+    rtDir = join(home, ".mattstack", "rt");
+    sock = join(rtDir, "rt.sock");
+  });
+
+  afterAll(async () => {
+    for (const d of daemons) {
+      try { d.kill("SIGKILL"); } catch { /* already gone */ }
+      await d.exited;
+    }
+    cleanup();
+  });
+
+  test("a call made while the daemon restarts succeeds", async () => {
+    const first = startDaemon();
+    await waitUntilReady(1);
+    first.kill("SIGTERM");
+    await first.exited;
+    expect(existsSync(sock)).toBe(false);
+
+    const call = rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 30_000 });
+    await Bun.sleep(500);
+    startDaemon();
+
+    const res = await call;
+    expect(res.ok).toBe(true);
+  }, 90_000);
+
+  test("a long-poll open at shutdown ends with an empty result, not an error", async () => {
+    await waitUntilReady(2);
+    const daemon = daemons.at(-1)!;
+    const wait = rtCommand(
+      "events:wait",
+      { pattern: "e2e/never/*", waitMs: 30_000 },
+      { sockPath: sock, timeoutMs: 40_000, retryBudgetMs: 0 },
+    );
+    await Bun.sleep(500);
+    daemon.kill("SIGTERM");
+
+    const res = await wait;
+    expect(res).toMatchObject({ ok: true, data: { events: [] } });
+    await daemon.exited;
+  }, 90_000);
 });

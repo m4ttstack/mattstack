@@ -304,6 +304,28 @@ with what holds it. The daemon's version ping carries it as `appUpdate`, and
 the relay's telemetry page shows it beside each Mac that is behind. An app
 older than the file reports nothing there.
 
+### The daemon restart
+
+The relaunched app restarts the daemon (`launchctl kickstart -k`), and a
+restart by hand takes the same path. Calls made during it are not lost:
+
+- The old daemon answers `rt daemon is restarting; try again in a moment`
+  (HTTP 503, `unavailable: "stopping"`), ends open long-polls
+  (`events:wait`, `gate:wait`) with their normal empty reply, and gives
+  requests already running up to 5 seconds to finish before it exits.
+- The new daemon binds `rt.sock` first and answers `rt daemon is starting;
+  try again in a moment` (`unavailable: "starting"`) until its handlers
+  exist and the API server is bound.
+- Both clients (`rtCommand` in rt-client, `daemonQuery` in rt) send a
+  request again for about 20 seconds when nothing listens on the socket or
+  the daemon answers that it is unavailable. `rt events wait` and
+  `rt gate wait` reconnect.
+- A request whose connection was made and then dropped or timed out is
+  never sent again: the daemon may already have acted on it.
+
+A session started before this shipped keeps its old client code, without
+the retry, until `/reload-plugins` or a new session.
+
 ### Requiring an intermediate update
 
 When one release must be installed before the next (a safety patch that
