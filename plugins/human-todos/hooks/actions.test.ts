@@ -740,23 +740,27 @@ test('Send pressed again while a busy turn holds the first message sends it once
   await pane.unmount()
 })
 
+// One Client's posts in a tick collapse into the last, so the second Send comes from a second drawing of the pane.
 test('two Sends posted in the same tick send the message once', async ($, on) => {
-  const { sent, fail } = await seeded($, on, [todo({})])
+  const { events, sent, fail } = await seeded($, on, [todo({})])
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const other = await $.ui.mount({ ...PANE, surface: 'desktop' })
   let release = () => {}
   fail.holdSubmit = new Promise<void>(resolve => (release = resolve))
   await press(pane, '1', 'message')
 
   const posts = [
     pane.post({ type: 'send', id: '1', text: 'here it is', done: true }, { in: 'human-todos-pane' }),
-    pane.post({ type: 'send', id: '1', text: 'here it is', done: true }, { in: 'human-todos-pane' }),
+    other.post({ type: 'send', id: '1', text: 'here it is', done: true }, { in: 'human-todos-pane' }),
   ]
   await new Promise(resolve => setTimeout(resolve, 0))
   release()
   await Promise.all(posts)
-  for (let tick = 0; tick < 100 && sent.length === 0; tick++) await new Promise(resolve => setTimeout(resolve, 0))
+  for (let tick = 0; tick < 50; tick++) await new Promise(resolve => setTimeout(resolve, 0))
 
+  expect(toasts(events)).toEqual(['#1 is already on its way to the agent; it goes in when the current turn ends'])
   expect(sent).toEqual(['[Human Todos] #1 "T": the user marked it done and says: here it is'])
+  await other.unmount()
   await pane.unmount()
 })
 
