@@ -118,6 +118,14 @@ path, not key.
   `pending`, pushed once it leaves and `lastPushAt` is past the save.
 - Rows whose key is in `pending` carry a small "not pushed" mark.
 
+### Push on save (Matt's decision)
+
+A Console save of an org or team key calls the push route right after the
+write lands, so it goes out within seconds rather than after the daemon's
+~80s debounce-plus-push delay. Saves close together share one round (the
+coalescing in `team:snapshot-run`). Writes from the CLI and other tools keep
+the normal delay.
+
 ## My calls (check these)
 
 - Stuck covers four causes: `conflicted`, `lastPushError`, a trial branch
