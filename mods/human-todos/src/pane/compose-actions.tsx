@@ -1,4 +1,4 @@
-import { CURSOR_ROW, DIM, Lines, Panel, cellWidth, ellipsize, kitClient, sp } from '@mattstack/mod-kit'
+import { BRAND, CURSOR_ROW, Lines, Panel, cellWidth, ellipsize, kitClient, sp } from '@mattstack/mod-kit'
 import type { Line } from '@mattstack/mod-kit'
 
 import { composeActionsLines } from './kit-layout'
@@ -13,12 +13,13 @@ const tinted = (line: Line<PaneMessage>, width: number): Line<PaneMessage> => {
   return [...line.map(span => ({ ...span, bg: CURSOR_ROW })), sp(' '.repeat(Math.max(0, width - used)), { bg: CURSOR_ROW })]
 }
 
-// The card's header: a blank tinted row, what the message is about, and a blank row before the field. Its text starts
-// at the card's left edge, where the field's text starts: the field cannot be padded (see pane.tsx).
+// The card's header: a band in the brand colour naming the item the reply is about, then a blank tinted row before
+// the field.
 export function composeHeadRows(title: string, width: number): Line<PaneMessage>[] {
-  const lead = 'Message about '
-  const about = tinted([sp(lead, DIM), sp(ellipsize(title, Math.max(1, width - cellWidth(lead))), { bold: true })], width)
-  return [tinted([], width), about, tinted([], width)]
+  const lead = '  ↳  '
+  const band = { bg: BRAND.pink, color: BRAND.plum, bold: true }
+  const text = `${lead}${ellipsize(title, Math.max(1, width - cellWidth(lead) - 1))}`
+  return [[sp(text, band), sp(' '.repeat(Math.max(0, width - cellWidth(text))), band)], tinted([], width)]
 }
 
 // The docked message card's last rows: its buttons, then the card's closing tinted row. The field above them is the

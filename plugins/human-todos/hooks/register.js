@@ -2507,9 +2507,10 @@ var tinted = (line, width) => {
   return [...line.map((span) => ({ ...span, bg: CURSOR_ROW })), sp(" ".repeat(Math.max(0, width - used)), { bg: CURSOR_ROW })];
 };
 function composeHeadRows(title, width) {
-  const lead = "Message about ";
-  const about = tinted([sp(lead, DIM), sp(ellipsize(title, Math.max(1, width - cellWidth(lead))), { bold: true })], width);
-  return [tinted([], width), about, tinted([], width)];
+  const lead = "  ↳  ";
+  const band = { bg: BRAND.pink, color: BRAND.plum, bold: true };
+  const text = `${lead}${ellipsize(title, Math.max(1, width - cellWidth(lead) - 1))}`;
+  return [[sp(text, band), sp(" ".repeat(Math.max(0, width - cellWidth(text))), band)], tinted([], width)];
 }
 function composeActionRows(id, width) {
   return [...composeActionsLines(composeButtons(id), width), tinted([], width)];
