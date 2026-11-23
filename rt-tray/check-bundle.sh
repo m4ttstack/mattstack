@@ -868,7 +868,7 @@ if ! $INSTALLED_ONLY; then
         *) fail "rt-daemon source gate could not run" ;;
     esac
     grep_src 'path == "/flavor/retire"' && pass "/flavor/retire endpoint present" || fail "/flavor/retire endpoint missing"
-    GUARD_LINE=$(grep -n 'TrayServer.exitIfAnotherTrayOwnsSocket()' Sources/main.swift | head -1 | cut -d: -f1)
+    GUARD_LINE=$(grep -n 'TrayServer.launchSocketVerdict()' Sources/main.swift | head -1 | cut -d: -f1)
     DELEGATE_LINE=$(grep -n 'AppDelegate()' Sources/main.swift | head -1 | cut -d: -f1)
     [ -n "$GUARD_LINE" ] && [ -n "$DELEGATE_LINE" ] && [ "$GUARD_LINE" -lt "$DELEGATE_LINE" ] && pass "socket guard precedes AppDelegate" || fail "socket guard does not precede AppDelegate"
     # Sparkle auto-update must stay silent on dev builds (gated via UpdaterController + UpdatePolicy).
