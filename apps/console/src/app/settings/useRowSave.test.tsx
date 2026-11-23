@@ -3,6 +3,7 @@ import type { SettingDefWire } from '@mattstack/settings-kit/react';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { OrgSync } from '../../shared/settings-sync';
 import { SettingsSyncContext } from './SettingsSyncProvider';
 import { SettingsOrgContext, SettingsTeamContext } from './useConsoleSettings';
 import { useRowSave } from './useRowSave';
@@ -31,9 +32,11 @@ const store = {
   move: vi.fn(async () => null),
 };
 
+let orgs: OrgSync[] = [];
+
 function Wrap({ children }: { children: ReactNode }) {
   return (
-    <SettingsSyncContext.Provider value={{ orgs: [], push }}>
+    <SettingsSyncContext.Provider value={{ orgs, push }}>
       <SettingsOrgContext.Provider value="acme">
         <SettingsTeamContext.Provider value="web">
           {children}
@@ -45,8 +48,49 @@ function Wrap({ children }: { children: ReactNode }) {
 
 describe('useRowSave push on save', () => {
   beforeEach(() => {
+    orgs = [];
     push.mockReset();
     push.mockResolvedValue(null);
+  });
+
+  it('a save resolves before its push finishes', async () => {
+    push.mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useRowSave(store, def('team')), {
+      wrapper: Wrap,
+    });
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.save('x');
+    });
+    expect(ok).toBe(true);
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(result.current.followUp).toBe('pushing');
+  });
+
+  it('a failed push call heals once the sync data shows the key pushed', async () => {
+    push.mockResolvedValue('A push for this org is still running');
+    const { result, rerender } = renderHook(
+      () => useRowSave(store, def('team')),
+      { wrapper: Wrap }
+    );
+    await act(async () => {
+      await result.current.save('x');
+    });
+    expect(result.current.followUp).toMatchObject({ stuck: 'push-failed' });
+    const later = Date.now() + 1_000;
+    orgs = [
+      {
+        org: 'acme',
+        state: { kind: 'pushed', lastPushAt: later },
+        pending: [],
+        cantPush: [],
+        lastPushAt: later,
+        pullIntervalSec: 300,
+        trialBranch: null,
+      },
+    ];
+    rerender();
+    expect(result.current.followUp).toBe('pushed');
   });
 
   it('a team save calls push once', async () => {

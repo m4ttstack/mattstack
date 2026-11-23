@@ -18,7 +18,6 @@ import {
 } from './rt-bin';
 
 const FIXTURE_READ_ONLY = 'the design fixture is read-only';
-const BUSY = 'A push for this org is still running';
 /** `rt team push` waits on the daemon's own fetch, rebase and push, up to its 180s client timeout. */
 const PUSH_TIMEOUT_MS = 190_000;
 
@@ -58,12 +57,103 @@ async function readStatus(
   }
 }
 
+type PushOutcome =
+  | {
+      status: 200;
+      body: {
+        ok: true;
+        result: {
+          committed: boolean;
+          pushed: boolean;
+          error: string | null;
+          skipped: string | null;
+        };
+      };
+    }
+  | { status: 409 | 502 | 503; body: { error: string; code?: string } };
+
+async function runPush(org: string, runRt: RunRt): Promise<PushOutcome> {
+  try {
+    const { code, stdout, stderr } = await runRt(
+      ['team', 'push', '--team', org, '--json'],
+      {
+        timeoutMs: PUSH_TIMEOUT_MS,
+      }
+    );
+    const payload = parseJson(stdout);
+    const error = payload?.error as
+      { code?: unknown; message?: unknown } | undefined;
+    if (code !== 0 || payload === null || error) {
+      const message =
+        typeof error?.message === 'string' && error.message.trim()
+          ? error.message.trim()
+          : stderr.trim() || 'rt team push failed';
+      return {
+        status: 409,
+        body: {
+          error: message,
+          ...(typeof error?.code === 'string' ? { code: error.code } : {}),
+        },
+      };
+    }
+    const {
+      committed,
+      pushed,
+      error: pushError,
+      skipped,
+    } = payload as {
+      committed: boolean;
+      pushed: boolean;
+      error: string | null;
+      skipped: string | null;
+    };
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        result: { committed, pushed, error: pushError, skipped },
+      },
+    };
+  } catch (err) {
+    if (err instanceof RtNotFoundError)
+      return { status: 503, body: { error: err.message } };
+    return { status: 502, body: { error: (err as Error).message } };
+  }
+}
+
 export function syncRoutes({
   runRt = liveRunRt,
   orgs = () => listOrgs(),
   fixture = null,
 }: SyncDeps = {}) {
-  const pushing = new Set<string>();
+  const running = new Map<string, Promise<PushOutcome>>();
+  const trailing = new Map<string, Promise<PushOutcome>>();
+
+  const startPush = (org: string): Promise<PushOutcome> => {
+    const p = runPush(org, runRt).finally(() => {
+      if (running.get(org) === p) running.delete(org);
+    });
+    running.set(org, p);
+    return p;
+  };
+
+  // Saves close together share one round: a push asked for while one runs
+  // waits for it, then every such caller shares one trailing push, which takes
+  // what the running round did not.
+  const pushOrg = (org: string): Promise<PushOutcome> => {
+    const current = running.get(org);
+    if (!current) return startPush(org);
+    let next = trailing.get(org);
+    if (!next) {
+      next = current.then(() => {
+        trailing.delete(org);
+        return startPush(org);
+      });
+      trailing.set(org, next);
+    }
+    return next;
+  };
+
   return new Hono()
     .get('/api/settings/sync', async c => {
       if (fixture) return c.json({ orgs: fixture }, 200);
@@ -87,53 +177,7 @@ export function syncRoutes({
       if (typeof org !== 'string' || !orgs().includes(org)) {
         return c.json({ error: 'unknown org' }, 400);
       }
-      if (pushing.has(org)) return c.json({ error: BUSY }, 409);
-      pushing.add(org);
-      try {
-        const { code, stdout, stderr } = await runRt(
-          ['team', 'push', '--team', org, '--json'],
-          { timeoutMs: PUSH_TIMEOUT_MS }
-        );
-        const payload = parseJson(stdout);
-        const error = payload?.error as
-          { code?: unknown; message?: unknown } | undefined;
-        if (code !== 0 || payload === null || error) {
-          const message =
-            typeof error?.message === 'string' && error.message.trim()
-              ? error.message.trim()
-              : stderr.trim() || 'rt team push failed';
-          return c.json(
-            {
-              error: message,
-              ...(typeof error?.code === 'string' ? { code: error.code } : {}),
-            },
-            409
-          );
-        }
-        const {
-          committed,
-          pushed,
-          error: pushError,
-          skipped,
-        } = payload as {
-          committed: boolean;
-          pushed: boolean;
-          error: string | null;
-          skipped: string | null;
-        };
-        return c.json(
-          {
-            ok: true as const,
-            result: { committed, pushed, error: pushError, skipped },
-          },
-          200
-        );
-      } catch (err) {
-        if (err instanceof RtNotFoundError)
-          return c.json({ error: err.message }, 503);
-        return c.json({ error: (err as Error).message }, 502);
-      } finally {
-        pushing.delete(org);
-      }
+      const { status, body: reply } = await pushOrg(org);
+      return c.json(reply, status);
     });
 }

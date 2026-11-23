@@ -184,13 +184,14 @@ describe('POST /api/settings/sync/push', () => {
     expect(runRt).not.toHaveBeenCalled();
   });
 
-  it('a second POST for the same org while one runs gets 409', async () => {
+  it('a POST while a push runs waits and shares one trailing push', async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>(resolve => {
       release = resolve;
     });
+    let calls = 0;
     const runRt = vi.fn<RunRt>(async () => {
-      await gate;
+      if (++calls === 1) await gate;
       return ok({
         contract: 1,
         slug: 'acme',
@@ -202,13 +203,30 @@ describe('POST /api/settings/sync/push', () => {
     });
     const a = app(runRt);
     const first = post(a, 'acme');
-    await Promise.resolve();
-    const second = await post(a, 'acme');
-    expect(second.status).toBe(409);
-    expect(await second.json()).toEqual({
-      error: 'A push for this org is still running',
-    });
+    await vi.waitFor(() => expect(runRt).toHaveBeenCalledTimes(1));
+    const late = [post(a, 'acme'), post(a, 'acme'), post(a, 'acme')];
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(runRt).toHaveBeenCalledTimes(1);
     release();
-    expect((await first).status).toBe(200);
+    const results = await Promise.all([first, ...late]);
+    expect(results.map(r => r.status)).toEqual([200, 200, 200, 200]);
+    expect(runRt).toHaveBeenCalledTimes(2);
+  });
+
+  it('pushes for different orgs do not wait on each other', async () => {
+    const runRt = vi.fn<RunRt>(async argv =>
+      ok({
+        contract: 1,
+        slug: argv[3],
+        committed: true,
+        pushed: true,
+        error: null,
+        skipped: null,
+      })
+    );
+    const a = app(runRt);
+    const results = await Promise.all([post(a, 'acme'), post(a, 'beta')]);
+    expect(results.map(r => r.status)).toEqual([200, 200]);
+    expect(runRt.mock.calls.map(c => c[0][3])).toEqual(['acme', 'beta']);
   });
 });

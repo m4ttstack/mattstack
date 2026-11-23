@@ -87,8 +87,9 @@ Settings shows whether org and team changes have left this Mac (`src/server/sett
 clone and derives one state (`deriveSyncState`): unknown (no status, or a daemon whose status has
 no `pending`), stuck (conflict, push error, commit error, an unreachable org repo, a trial branch,
 a layout hold, in that order), waiting (`pending` non-empty), else pushed with this Mac's own
-`lastPushAt`. `POST /api/settings/sync/push` runs `rt team push --json` (one per org at a time,
-409 on a second or on a failed push), which runs the daemon's own snapshot round, so every push
+`lastPushAt`. `POST /api/settings/sync/push` runs `rt team push --json` (one per org at a time;
+a push asked for meanwhile waits and shares one trailing push; 409 on a failed push), which runs
+the daemon's own snapshot round, so every push
 guard still applies. The daemon's `team-snapshot-updated` event reaches the client through the
 relay as the `settings-sync` topic. The design fixture draws one state per
 `CONSOLE_FIXTURE_SYNC` (`pushed` by default, `waiting`, `stuck`, `unknown`) and refuses Push now.

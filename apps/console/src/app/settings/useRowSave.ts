@@ -75,7 +75,7 @@ export function useRowSave(store: RowStore, def: SettingDefWire) {
     setStatus('saved');
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setStatus('idle'), SAVED_FLASH_MS);
-    await pushAfter(t);
+    void pushAfter(t);
     return true;
   };
 
@@ -103,7 +103,7 @@ export function useRowSave(store: RowStore, def: SettingDefWire) {
       saved
     );
     if (pushing) followUp = 'pushing';
-    else if (pushError !== null && typeof later === 'string')
+    else if (pushError !== null && (later === 'saved' || later === 'pushing'))
       followUp = { stuck: 'push-failed', detail: pushError };
     else followUp = later;
   }
