@@ -32,11 +32,12 @@ public enum UpdatePolicy {
         (isVisible || isMiniaturized) && canBecomeKey
     }
 
-    /// Not silent, a scheduled update opens Sparkle's window in front, except
-    /// while setup runs: the menu item stands in then, and the next scheduled
-    /// check asks again. Silent, the install needs no window.
-    public static func opensUpdateWindow(silent: Bool, handledBySparkle: Bool, userInitiated: Bool, setupRunning: Bool) -> Bool {
-        !silent && !handledBySparkle && !userInitiated && !setupRunning
+    /// A scheduled update opens Sparkle's window in front, except while setup
+    /// runs: the menu item stands in then, and the next scheduled check asks
+    /// again. Silent, Sparkle shows only an update it could not install by
+    /// itself, so the window is still the way in.
+    public static func opensUpdateWindow(handledBySparkle: Bool, userInitiated: Bool, setupRunning: Bool) -> Bool {
+        !handledBySparkle && !userInitiated && !setupRunning
     }
 
     /// `silent` is the org's automatic-update setting. Silent, a setup run and

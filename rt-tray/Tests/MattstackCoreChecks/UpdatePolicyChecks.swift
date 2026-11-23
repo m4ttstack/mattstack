@@ -25,15 +25,16 @@ let updatePolicyChecks: [Check] = [
         c.expectEqual(UpdateStatus.holdName(.setupRunning), "setupRunning")
         c.expectEqual(UpdateStatus.holdName(nil), nil)
     },
-    Check("UpdatePolicy.opensUpdateWindow: not silent, a scheduled update opens Sparkle's window unless setup runs") { c in
-        c.expectEqual(UpdatePolicy.opensUpdateWindow(silent: false, handledBySparkle: false, userInitiated: false, setupRunning: false), true)
-        c.expectEqual(UpdatePolicy.opensUpdateWindow(silent: false, handledBySparkle: false, userInitiated: false, setupRunning: true), false)
-        c.expectEqual(UpdatePolicy.opensUpdateWindow(silent: false, handledBySparkle: true, userInitiated: true, setupRunning: false), false, "the window it opened must not reopen itself")
-        c.expectEqual(UpdatePolicy.opensUpdateWindow(silent: false, handledBySparkle: true, userInitiated: false, setupRunning: false), false)
+    Check("UpdatePolicy.opensUpdateWindow: a scheduled update opens Sparkle's window unless setup runs") { c in
+        c.expectEqual(UpdatePolicy.opensUpdateWindow(handledBySparkle: false, userInitiated: false, setupRunning: false), true)
+        c.expectEqual(UpdatePolicy.opensUpdateWindow(handledBySparkle: false, userInitiated: false, setupRunning: true), false)
+        c.expectEqual(UpdatePolicy.opensUpdateWindow(handledBySparkle: true, userInitiated: true, setupRunning: false), false, "the window it opened must not reopen itself")
+        c.expectEqual(UpdatePolicy.opensUpdateWindow(handledBySparkle: true, userInitiated: false, setupRunning: false), false)
     },
-    Check("silent: a scheduled check opens no window; not silent: it does") { c in
-        c.expectEqual(UpdatePolicy.opensUpdateWindow(silent: true, handledBySparkle: false, userInitiated: false, setupRunning: false), false)
-        c.expectEqual(UpdatePolicy.opensUpdateWindow(silent: false, handledBySparkle: false, userInitiated: false, setupRunning: false), true)
+    Check("a scheduled update that reaches the app opens the window, silent or not") { c in
+        // Silent, Sparkle only shows an update it could not install by itself
+        // (one that needs an admin password), and then the window is the way in.
+        c.expectEqual(UpdatePolicy.opensUpdateWindow(handledBySparkle: false, userInitiated: false, setupRunning: false), true)
     },
     Check("not silent: setup holds first, then open windows") { c in
         c.expectEqual(UpdatePolicy.hold(silent: false, setupRunning: false, windowsOpen: 0, daemonBusy: false), nil)
@@ -100,6 +101,16 @@ let updatePolicyChecks: [Check] = [
         c.expectEqual(installs, 1)
         c.expectEqual(installer.retry(), false)
         c.expectEqual(installs, 1)
+    },
+    Check("installer: pendingHold names what still holds a held update, and nothing once it installs") { c in
+        var busy = true
+        let installer = HeldUpdateInstaller(silent: { true }, setupRunning: { false }, windowsOpen: { 0 }, daemonBusy: { busy })
+        c.expectEqual(installer.pendingHold(), nil, "nothing offered yet")
+        _ = installer.offer(version: "2.37.0") {}
+        c.expectEqual(installer.pendingHold(), .daemonBusy)
+        busy = false
+        c.expectEqual(installer.retry(), true)
+        c.expectEqual(installer.pendingHold(), nil)
     },
     Check("installer: silent with windows open installs at the offer") { c in
         let installer = HeldUpdateInstaller(silent: { true }, setupRunning: { false }, windowsOpen: { 2 }, daemonBusy: { false })

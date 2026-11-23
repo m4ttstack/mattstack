@@ -79,7 +79,12 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         observation = c.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] updater, _ in
             self?.canCheckForUpdates = updater.canCheckForUpdates
         }
-        apply(silent: policy.silent, daemonBusy: policy.daemonBusy)
+        // Until the setting is read, Sparkle keeps the download mode the last
+        // run gave it: a guess here could install silently on an org that
+        // turned that off.
+        policy.silent = c.updater.automaticallyDownloadsUpdates
+        c.updater.automaticallyChecksForUpdates = true
+        c.updater.updateCheckInterval = UpdatePolicy.checkInterval
         Task { await self.refreshPolicy() }
         policyTimer = Timer.scheduledTimer(withTimeInterval: Self.policyInterval, repeats: true) { [weak self] _ in
             guard let self else { return }
@@ -203,8 +208,7 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         if !handleShowingUpdate || state.userInitiated == false {
             DispatchQueue.main.async { self.onUpdateAvailable?(version) }
         }
-        let opens = UpdatePolicy.opensUpdateWindow(silent: policy.silent,
-                                                   handledBySparkle: handleShowingUpdate,
+        let opens = UpdatePolicy.opensUpdateWindow(handledBySparkle: handleShowingUpdate,
                                                    userInitiated: state.userInitiated,
                                                    setupRunning: isBusy())
         DispatchQueue.main.async {
@@ -248,16 +252,40 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
                  immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
         recordPending(item)
         let version = item.displayVersionString
+        // Silent, the daemon's last busy answer may be minutes old, so the
+        // update is held as busy until a fresh one arrives.
+        if policy.silent { policy.daemonBusy = true }
         let hold = installer.offer(version: version) { DispatchQueue.main.async { immediateInstallHandler() } }
-        writeStatus {
-            $0.heldVersion = hold == nil ? nil : version
-            $0.hold = UpdateStatus.holdName(hold)
+        guard let hold else {
+            writeStatus { $0.heldVersion = nil; $0.hold = nil }
+            return true
         }
-        if let hold {
-            TrayLog.info("update held", ["version": version, "hold": String(describing: hold)])
-            startRetrying()
-            DispatchQueue.main.async { self.onUpdateHeld?(version, hold) }
+        guard hold == .daemonBusy else {
+            reportHeld(version, hold)
+            return true
+        }
+        startRetrying()
+        Task {
+            await self.refreshPolicy()
+            await MainActor.run {
+                if self.installer.retry() {
+                    TrayLog.info("held update installing", ["version": version, "source": "offer"])
+                    self.writeStatus { $0.heldVersion = nil; $0.hold = nil }
+                } else if let current = self.installer.pendingHold() {
+                    self.reportHeld(version, current)
+                }
+            }
         }
         return true
+    }
+
+    private func reportHeld(_ version: String, _ hold: UpdateHold) {
+        writeStatus {
+            $0.heldVersion = version
+            $0.hold = UpdateStatus.holdName(hold)
+        }
+        TrayLog.info("update held", ["version": version, "hold": String(describing: hold)])
+        startRetrying()
+        DispatchQueue.main.async { self.onUpdateHeld?(version, hold) }
     }
 }

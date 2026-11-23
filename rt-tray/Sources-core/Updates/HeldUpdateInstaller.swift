@@ -38,6 +38,12 @@ public final class HeldUpdateInstaller: @unchecked Sendable {
         return nil
     }
 
+    /// What still holds an offered update, or nil when none is held or it is installing.
+    public func pendingHold() -> UpdateHold? {
+        guard heldVersion != nil, !installing else { return nil }
+        return currentHold()
+    }
+
     /// Installs a held update once the app is idle; true when it started one.
     public func retry() -> Bool {
         guard heldVersion != nil, !installing,
