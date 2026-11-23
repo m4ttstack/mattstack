@@ -514,8 +514,9 @@ export function SettingsPage() {
                                         tab: 'where',
                                         fix: issue?.scope ?? null,
                                       },
-                                      // An issue that names no repo leaves the
-                                      // open row on the project it is on.
+                                      // The open row ignores a null seed, so
+                                      // dropping ?repo= here would split the
+                                      // URL from the project it shows.
                                       issue?.repo
                                         ? { repo: issue.repo }
                                         : key === openRow.open?.key
