@@ -172,7 +172,6 @@ var FILL = {
   thread: { bg: "#3a3150", color: "#d4cbf5" }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
-var PLACEHOLDER = { color: "#7a7a7a" };
 var HOVER_FILL = {
   [BRAND.pink]: "#ff94b9",
   [BRAND.pinkDeep]: "#f57ba6",

@@ -3,9 +3,9 @@ import { expect, test } from 'bun:test'
 import { BRAND, SCROLL, SYMBOL, cellWidth, isButtonInView, revealButtonOffset, revealOffset } from '@mattstack/mod-kit'
 
 import type { Todo } from '../../types'
-import { BAR_ROWS, kitLayout, kitView, maxOffset, modelWidth, viewLines } from './kit-layout'
+import { BAR_ROWS, composeActionsLines, kitLayout, kitView, maxOffset, modelWidth, viewLines } from './kit-layout'
 import type { KitFocus } from './kit-layout'
-import { paneModel } from './model'
+import { composeButtons, paneModel } from './model'
 import type { PaneModel } from './model'
 
 type L = ReturnType<typeof viewLines>[number]
@@ -224,12 +224,11 @@ test("the Client's props stay well under the engine's cap for a long list with a
   }
 })
 
-test('at 30 columns the message card wraps its actions, so Send is drawn whole and is a key stop', () => {
+test('at 30 columns the message card wraps its actions, so Send is drawn whole', () => {
   const width = 30
-  const model = paneModel({ list: [todo({})], expanded: [], spin: '⠋', width: modelWidth(width), messages: true, composing: '1', composeLines: 1 })
-  const lines = draw(model, width, 40, 0).map(textOf)
+  const lines = composeActionsLines(composeButtons('1'), width).map(textOf)
+  expect(lines.length).toBeGreaterThan(1)
   expect(lines.some(l => /\bSend\s/.test(l) && !l.includes('&'))).toBe(true)
   expect(lines.some(l => l.includes('Send & mark done'))).toBe(true)
   for (const line of lines) expect(cellWidth(line)).toBe(width)
-  expect(kitView(model, width, 40, 0).stops[0]!.ids).toEqual(expect.arrayContaining(['cancelMessage', 'sendDone', 'send']))
 })

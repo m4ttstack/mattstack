@@ -172,7 +172,6 @@ var FILL = {
   thread: { bg: "#3a3150", color: "#d4cbf5" }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
-var PLACEHOLDER = { color: "#7a7a7a" };
 var HOVER_FILL = {
   [BRAND.pink]: "#ff94b9",
   [BRAND.pinkDeep]: "#f57ba6",
@@ -280,65 +279,6 @@ function buttonRow(left, right, width, indent) {
 }
 // packages/mod-kit/src/widgets/text-edit.ts
 var NAMED = new Set(["up", "down", "left", "right", "return", "enter", "tab", "backspace", "delete", "escape", "pageup", "pagedown", "home", "end", "insert"]);
-var isSpace = (ch) => ch !== undefined && /\s/.test(ch);
-function wordBack(chars, at) {
-  let i = at;
-  while (i > 0 && isSpace(chars[i - 1]))
-    i--;
-  while (i > 0 && !isSpace(chars[i - 1]))
-    i--;
-  return i;
-}
-function wordForward(chars, at) {
-  let i = at;
-  while (i < chars.length && isSpace(chars[i]))
-    i++;
-  while (i < chars.length && !isSpace(chars[i]))
-    i++;
-  return i;
-}
-function editText(edit, ev) {
-  const chars = Array.from(edit.text);
-  const at = Math.min(Math.max(0, edit.at), chars.length);
-  const cut = (from, to) => ({ text: [...chars.slice(0, from), ...chars.slice(to)].join(""), at: from });
-  const move = (to) => ({ text: edit.text, at: to });
-  const { key } = ev;
-  if (key === "backspace") {
-    if (ev.meta)
-      return cut(wordBack(chars, at), at);
-    return at === 0 ? move(0) : cut(at - 1, at);
-  }
-  if (key === "delete") {
-    if (ev.meta)
-      return cut(at, wordForward(chars, at));
-    return cut(at, Math.min(chars.length, at + 1));
-  }
-  if (ev.ctrl && key === "w")
-    return cut(wordBack(chars, at), at);
-  if (ev.ctrl && key === "u")
-    return cut(0, at);
-  if (ev.ctrl && key === "k")
-    return cut(at, chars.length);
-  if (ev.ctrl && key === "a" || key === "home")
-    return move(0);
-  if (ev.ctrl && key === "e" || key === "end")
-    return move(chars.length);
-  if (key === "left")
-    return move(ev.meta ? wordBack(chars, at) : Math.max(0, at - 1));
-  if (key === "right")
-    return move(ev.meta ? wordForward(chars, at) : Math.min(chars.length, at + 1));
-  if (ev.meta && key === "b")
-    return move(wordBack(chars, at));
-  if (ev.meta && key === "f")
-    return move(wordForward(chars, at));
-  if (ev.ctrl || ev.meta)
-    return;
-  const ch = key === "space" ? " " : key;
-  if (NAMED.has(ch) || ch === "")
-    return;
-  const typed = Array.from(ch);
-  return { text: [...chars.slice(0, at), ...typed, ...chars.slice(at)].join(""), at: at + typed.length };
-}
 function wrapKeeping(text, width) {
   const room = Math.max(1, width);
   const rows = [];
@@ -369,17 +309,6 @@ function wrapKeeping(text, width) {
   }
   rows.push(row.join(""));
   return rows;
-}
-function caretRow(rows, at) {
-  let left = at;
-  for (let r = 0;r < rows.length; r++) {
-    const len = Array.from(rows[r]).length;
-    if (left <= len && (left < len || r === rows.length - 1))
-      return { row: r, col: left };
-    left -= len;
-  }
-  const last = rows.length - 1;
-  return { row: last, col: Array.from(rows[last] ?? "").length };
 }
 // packages/mod-kit/src/widgets/scroll-bar.ts
 function scrollBar(rows, total, offset) {
@@ -1410,7 +1339,6 @@ var todos = atom({ plugin: "human-todos", key: "todos" }, [], { shape: "todos-1"
 var nextId = atom({ plugin: "human-todos", key: "nextId" }, 1);
 var expanded = atom({ plugin: "human-todos", key: "expanded" }, []);
 var composing = atom({ plugin: "human-todos", key: "composing" }, null);
-var composeLines = atom({ plugin: "human-todos", key: "composeLines" }, 1);
 var frame = atom({ plugin: "human-todos", key: "frame" }, 0);
 var workspace = atom({ plugin: "human-todos", key: "herdrWorkspace" }, null);
 var loadedFor = atom({ plugin: "human-todos", key: "loadedFor" }, null);
@@ -1534,7 +1462,6 @@ async function resetList($) {
   await update($, todos, () => []);
   await update($, expanded, () => []);
   await update($, composing, () => null);
-  await update($, composeLines, () => 1);
   await update($, nextId, () => 1);
 }
 function peekTodos($) {
@@ -1544,21 +1471,13 @@ async function readPane2($) {
   const list = await read($, todos);
   const open = await read($, composing);
   const isLive = open !== null && list.some((t) => t.id === open && t.status === "open");
-  return { list, openIds: await read($, expanded), spin: await read($, frame), composing: isLive ? open : null, composeLines: isLive ? await read($, composeLines) : 1 };
-}
-var MAX_COMPOSE_LINES = 8;
-async function setComposeLines($, lines) {
-  const next = Math.min(MAX_COMPOSE_LINES, Math.max(1, Math.round(lines)));
-  if (await read($, composeLines) !== next)
-    await update($, composeLines, () => next);
+  return { list, openIds: await read($, expanded), spin: await read($, frame), composing: isLive ? open : null };
 }
 async function toggleComposing($, id) {
   await update($, composing, (open) => open === id ? null : id);
-  await update($, composeLines, () => 1);
 }
 async function closeComposing($) {
   await update($, composing, () => null);
-  await update($, composeLines, () => 1);
 }
 async function bumpFrame($) {
   await update($, frame, (n) => n + 1);
@@ -2158,7 +2077,7 @@ var TONES = {
   openLog: "neutral",
   stop: "caution",
   forceStop: "caution",
-  message: "quiet",
+  message: "thread",
   send: "neutral",
   sendDone: "plain",
   cancelMessage: "plain"
@@ -2186,7 +2105,7 @@ function buttonsOf(todo, messages, isComposing = false) {
   const main = ids.find((id) => id === "stop" || id === "forceStop") ?? ids[0];
   const label = (id) => id !== "done" ? LABELS[id] : todo.kind === "run" ? RUN_DONE_LABEL : todo.doneLabel ?? LABELS.done;
   const own = ids.map((id) => ({ id, label: label(id), tone: id === main || id === "done" ? TONES[id] : "quiet", todoId: todo.id }));
-  return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: "thread", todoId: todo.id }] : own;
+  return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: TONES.message, todoId: todo.id }] : own;
 }
 var composeButtons = (todoId) => ["cancelMessage", "sendDone", "send"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));
 function paneModel(input) {
@@ -2251,11 +2170,6 @@ function paneModel(input) {
       rows.push({ kind: "buttons", buttons: buttonsOf(todo, messages, input.composing === todo.id) });
       if (isConfirming)
         lines("Are you sure you want to run this script?", width, "plain", true);
-      if (messages && todo.status === "open" && input.composing === todo.id && !input.dockedCompose) {
-        blank();
-        rows.push({ kind: "compose", todoId: todo.id, lines: Math.max(1, input.composeLines ?? 1) });
-        rows.push({ kind: "composeActions", buttons: composeButtons(todo.id) });
-      }
     }
     spans.push({ first, last: rows.length - 1 });
     blank();
@@ -2326,8 +2240,6 @@ async function act($, message, surface) {
       return await closeComposing($);
     if (message.type === "send")
       return await sendMessage($, message.id, message.text, message.done);
-    if (message.type === "draftLines")
-      return await setComposeLines($, message.lines);
     if (message.type === "press") {
       await closeComposing($);
       return await pressTodo($, message.id, message.button, surface);
@@ -2369,30 +2281,6 @@ var card = (spans, room) => {
   const used = tinted.reduce((n, span) => n + cellWidth(span.t), 0);
   return [...tinted, sp(" ".repeat(Math.max(0, room - used)), { bg: CURSOR_ROW })];
 };
-var draftWidth = (width) => Math.max(4, roomOf(width) - 2 * CARD_PAD - 1);
-function draftRows(text, width) {
-  return wrapKeeping(text, draftWidth(width));
-}
-function composeLines2(lines, room, draft) {
-  const pad = sp(" ".repeat(CARD_PAD));
-  const blankRow = () => card([pad], room);
-  const text = draft?.text ?? "";
-  const caretOn = draft?.caret === true;
-  if (text === "")
-    return [blankRow(), card([pad, sp(" ", caretOn ? { inverse: true } : {}), sp("Message the agent", PLACEHOLDER)], room), ...Array.from({ length: lines - 1 }, blankRow), blankRow()];
-  const rows = wrapKeeping(text, Math.max(4, room - 2 * CARD_PAD - 1));
-  const caret = caretRow(rows, draft?.at ?? Array.from(text).length);
-  const from = Math.min(Math.max(0, caret.row - lines + 1), Math.max(0, rows.length - lines));
-  const drawn = Array.from({ length: lines }, (_, n) => {
-    const r = from + n;
-    const chars = Array.from(rows[r] ?? "");
-    if (!caretOn || r !== caret.row)
-      return card([pad, sp(chars.join(""))], room);
-    const under = chars[caret.col] ?? " ";
-    return card([pad, sp(chars.slice(0, caret.col).join("")), sp(under, { inverse: true }), sp(chars.slice(caret.col + 1).join(""))], room);
-  });
-  return [blankRow(), ...drawn, blankRow()];
-}
 function composeActionsLines(buttons, room) {
   const spans = buttons.map((b) => buttonSpan({ label: b.label, tone: b.tone, action: messageOf(b) }, 1));
   const rows = [[]];
@@ -2412,12 +2300,8 @@ function composeActionsLines(buttons, room) {
     return card([sp(" ".repeat(Math.max(0, room - width))), ...line, sp(" ".repeat(CARD_PAD))], room);
   });
 }
-function rowLines(row, room, draft) {
+function rowLines(row, room) {
   switch (row.kind) {
-    case "compose":
-      return composeLines2(row.lines, room, draft);
-    case "composeActions":
-      return [...composeActionsLines(row.buttons, room), card([], room)];
     case "blank":
       return [[]];
     case "text": {
@@ -2462,7 +2346,7 @@ function stopMessage(stop, col) {
 function keyStops(model, layout) {
   const stops = new Map;
   model.rows.forEach((row, r) => {
-    if (row.kind !== "buttons" && row.kind !== "composeActions")
+    if (row.kind !== "buttons")
       return;
     const laid = layout.rows[r];
     for (const button of row.buttons) {
@@ -2497,9 +2381,9 @@ function kitView(model, width, bodyRows, offset) {
     stops: keyStops(model, layout)
   };
 }
-function viewLines(view, width, focus = {}, draft) {
+function viewLines(view, width, focus = {}) {
   const room = roomOf(width);
-  const shown = view.rows.flatMap((row) => rowLines(row, room, draft)).slice(view.skip, view.skip + view.windowRows);
+  const shown = view.rows.flatMap((row) => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows);
   const bar = scrollBar(view.windowRows, view.total, view.top);
   return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus });
 }
@@ -2638,8 +2522,8 @@ async function openPane($) {
   await $.ui.open({ id: PANE, title: TITLE });
   $.ui.invalidate("ui.render");
 }
-function modelOf(pane, width, messages = true, dockedCompose = false) {
-  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? "", width, messages, composing: pane.composing, composeLines: pane.composeLines, dockedCompose });
+function modelOf(pane, width, messages = true) {
+  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? "", width, messages, composing: pane.composing });
 }
 async function waitingBand($) {
   const band = bandModel(await peekTodos($));
@@ -2766,7 +2650,7 @@ function registerPane(on) {
     const bodyRows = Math.max(3, paneBody - dockRows);
     kitSizes.set(e.surface, { columns: width, bodyRows });
     const props = {
-      view: kitView(modelOf(pane, modelWidth(width), true, true), width, bodyRows, await read2($, scrollAtom)),
+      view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read2($, scrollAtom)),
       focused: e.props.isFocused || await read2($, keysAtom),
       width
     };

@@ -32,9 +32,9 @@ export async function openPane($: EngineInterface): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
-// The kit drawer offers each item's message row; the plain drawer has no field to type in.
-function modelOf(pane: { list: Todo[]; openIds: string[]; spin: number; composing: string | null; composeLines: number }, width: number, messages = true, dockedCompose = false): PaneModel {
-  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? '', width, messages, composing: pane.composing, composeLines: pane.composeLines, dockedCompose })
+// The kit drawer offers each item's message card; the plain drawer has no field to type in.
+function modelOf(pane: { list: Todo[]; openIds: string[]; spin: number; composing: string | null }, width: number, messages = true): PaneModel {
+  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? '', width, messages, composing: pane.composing })
 }
 
 async function waitingBand($: EngineInterface): Promise<Waiting | undefined> {
@@ -167,7 +167,7 @@ export function registerPane(on: On): void {
     const bodyRows = Math.max(3, paneBody - dockRows)
     kitSizes.set(e.surface, { columns: width, bodyRows })
     const props = {
-      view: kitView(modelOf(pane, modelWidth(width), true, true), width, bodyRows, await read($, scrollAtom)),
+      view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read($, scrollAtom)),
       focused: e.props.isFocused || (await read($, keysAtom)),
       width,
     }

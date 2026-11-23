@@ -2,7 +2,7 @@ import type { EngineInterface, RenderSurface } from 'claude-code'
 
 import { TITLE, isActionable } from '../items'
 import type { ButtonId } from '../items'
-import { closeComposing, peekTodos, removeTodos, setComposeLines, toggleComposing, toggleExpanded } from '../store'
+import { closeComposing, peekTodos, removeTodos, toggleComposing, toggleExpanded } from '../store'
 import { report } from '../report'
 import { clampScroll, cleanup, press } from '../wiring'
 import { LABELS } from './model'
@@ -39,9 +39,8 @@ export async function act($: EngineInterface, message: PaneMessage, surface: Ren
     if (message.type === 'press' && message.button === 'message') return await toggleComposing($, message.id)
     if (message.type === 'press' && message.button === 'cancelMessage') return await closeComposing($)
     if (message.type === 'send') return await sendMessage($, message.id, message.text, message.done)
-    if (message.type === 'draftLines') return await setComposeLines($, message.lines)
     if (message.type === 'press') {
-      // Any other button on the item shuts its message row, so no hidden draft keeps taking keys.
+      // Any other button on the item shuts its message card, so the card never outlives a press that settles the item.
       await closeComposing($)
       return await pressTodo($, message.id, message.button, surface)
     }
