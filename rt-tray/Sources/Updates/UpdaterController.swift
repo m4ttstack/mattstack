@@ -32,6 +32,7 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     private var policyTimer: Timer?
     private static let retryInterval: TimeInterval = 60
     private static let policyInterval: TimeInterval = 600
+    private static let readDeadline: TimeInterval = 5
 
     /// The hold checks are synchronous and the reads behind them are not, so
     /// the last answers are kept here, read and written on the main thread.
@@ -98,8 +99,13 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     /// applies them to Sparkle.
     func refreshPolicy() async {
         guard enabled else { return }
-        let silent = await readAutoUpdate()
-        let busy = silent ? await daemonBusyProbe() : false
+        // A hung rt must not hold an update for good: past the deadline the
+        // last setting stands and the daemon counts as not busy.
+        let readSetting = readAutoUpdate
+        let probe = daemonBusyProbe
+        let lastSilent = policy.silent
+        let silent = await firstAnswer(within: Self.readDeadline, otherwise: lastSilent) { await readSetting() }
+        let busy = silent ? await firstAnswer(within: Self.readDeadline, otherwise: false) { await probe() } : false
         await MainActor.run { self.apply(silent: silent, daemonBusy: busy) }
     }
 
