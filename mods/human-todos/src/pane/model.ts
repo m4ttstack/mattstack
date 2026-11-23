@@ -37,7 +37,7 @@ export const LABELS: Record<ButtonId, string> = {
   // The Nerd Font chat bubble (codicon comment); Chat about this in gate-form uses the two-bubble comment_discussion.
   message: '\u{EA6B}',
   send: 'Send',
-  sendDone: 'Send & mark done',
+  sendDone: 'Send & Done',
   cancelMessage: 'Cancel',
 }
 
@@ -93,10 +93,6 @@ function buttonsOf(todo: Todo, messages: boolean, isComposing = false): PaneButt
   const own = ids.map((id): PaneButton => ({ id, label: label(id), tone: id === main || id === 'done' ? TONES[id] : 'quiet', todoId: todo.id }))
   return messages && todo.status === 'open' ? [...own, { id: 'message', label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: TONES.message, todoId: todo.id }] : own
 }
-
-// Left to right as the card draws them: the quiet way out first, Send last at the edge.
-export const composeButtons = (todoId: string): PaneButton[] =>
-  (['cancelMessage', 'sendDone', 'send'] as const).map(id => ({ id, label: LABELS[id], tone: TONES[id], todoId }))
 
 // A title wraps at the full inner width; everything else at `width`, two columns narrower.
 // `messages`: the kit drawer, which offers an item's message card; `composing` is the item whose card is open.

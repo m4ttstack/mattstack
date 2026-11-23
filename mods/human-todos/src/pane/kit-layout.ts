@@ -37,37 +37,6 @@ function buttonLines(row: Extract<PaneRow, { kind: 'buttons' }>, room: number): 
   return wrappedButtons(lead, row.buttons.map(b => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, INDENT)
 }
 
-// The message card: a tinted block the width of the room, CARD_PAD cells of tint either side of the text.
-const CARD_PAD = 2
-const card = (spans: L, room: number): L => {
-  const tinted = spans.map(span => ({ ...span, bg: span.bg ?? CURSOR_ROW }))
-  const used = tinted.reduce((n, span) => n + cellWidth(span.t), 0)
-  return [...tinted, sp(' '.repeat(Math.max(0, room - used)), { bg: CURSOR_ROW })]
-}
-
-// The docked message card's button rows: its actions as kit buttons against the right edge, Cancel and Send & mark done plain words, Send
-// last with the neutral fill. Kit buttons, so the pointer lights and presses them as it does every other button. In a
-// narrow pane they wrap onto more rows, each still right-aligned, so Send is never clipped away.
-export function composeActionsLines(buttons: PaneButton[], room: number): L[] {
-  const spans = buttons.map(b => buttonSpan({ label: b.label, tone: b.tone, action: messageOf(b) }, 1))
-  const rows: L[][] = [[]]
-  let used = CARD_PAD
-  for (const span of spans) {
-    const w = cellWidth(span.t) + 1
-    if (used + w > room && rows.at(-1)!.length > 0) {
-      rows.push([])
-      used = CARD_PAD
-    }
-    rows.at(-1)!.push([sp(' '), span])
-    used += w
-  }
-  return rows.map(row => {
-    const line = row.flat()
-    const width = line.reduce((n, span) => n + cellWidth(span.t), 0) + CARD_PAD
-    return card([sp(' '.repeat(Math.max(0, room - width))), ...line, sp(' '.repeat(CARD_PAD))], room)
-  })
-}
-
 // The model wraps by characters; a row wider in cells than its room wraps again here.
 function rowLines(row: PaneRow, room: number): L[] {
   switch (row.kind) {

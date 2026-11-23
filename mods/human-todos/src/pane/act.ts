@@ -18,7 +18,7 @@ async function pressTodo($: EngineInterface, todoId: string, button: ButtonId, s
   }
 }
 
-// A message goes to the agent through the same channel as Done and Skip; Send & mark done also finishes the item.
+// A message goes to the agent through the same channel as Done and Skip; Send & Done also finishes the item.
 async function sendMessage($: EngineInterface, todoId: string, text: string, done: boolean): Promise<void> {
   const todo = (await peekTodos($)).find(t => t.id === todoId)
   await closeComposing($)

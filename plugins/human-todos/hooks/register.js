@@ -253,30 +253,6 @@ function muted(span) {
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
   return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
 }
-// packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, thread: FILL.thread, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
-var ROOMY = { indent: 3, pad: 2, gap: 3 };
-var COMPACT = { indent: 1, pad: 1, gap: 1 };
-function buttonSpan(button, pad = ROOMY.pad) {
-  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
-  const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet" && button.tone !== "plain", ...!button.disabled && { action: button.action } });
-}
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
-var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width, indent) {
-  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
-  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
-  const line = [sp(" ".repeat(space.indent))];
-  for (const button of left)
-    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
-  if (!right)
-    return line;
-  const room = width - widthOf(line) - space.gap - 2 * space.pad;
-  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
-  return line;
-}
 // packages/mod-kit/src/widgets/text-edit.ts
 var NAMED = new Set(["up", "down", "left", "right", "return", "enter", "tab", "backspace", "delete", "escape", "pageup", "pagedown", "home", "end", "insert"]);
 function wrapKeeping(text, width) {
@@ -642,6 +618,31 @@ function Panel(props) {
   const lines = ctxFor(render, "panel", { width: props.width ?? render.width, focused: render.focused }).layout(props.children);
   render.lines = lines;
   return renderLines(lines, render.elements, render.look);
+}
+
+// packages/mod-kit/src/widgets/buttons.ts
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, thread: FILL.thread, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
+var ROOMY = { indent: 3, pad: 2, gap: 3 };
+var COMPACT = { indent: 1, pad: 1, gap: 1 };
+function buttonSpan(button, pad = ROOMY.pad) {
+  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
+  const edge = " ".repeat(pad);
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet" && button.tone !== "plain", ...!button.disabled && { action: button.action } });
+}
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
+var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width, indent) {
+  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
+  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
+  const line = [sp(" ".repeat(space.indent))];
+  for (const button of left)
+    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
+  if (!right)
+    return line;
+  const room = width - widthOf(line) - space.gap - 2 * space.pad;
+  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
+  return line;
 }
 // packages/mod-kit/src/patterns/hideable-pane.tsx
 var DEFAULT_BAND_LABEL = "mattstack waiting";
@@ -2064,7 +2065,7 @@ var LABELS = {
   openLog: "Open log",
   message: "",
   send: "Send",
-  sendDone: "Send & mark done",
+  sendDone: "Send & Done",
   cancelMessage: "Cancel"
 };
 var RUN_DONE_LABEL = "Done without running";
@@ -2110,7 +2111,6 @@ function buttonsOf(todo, messages, isComposing = false) {
   const own = ids.map((id) => ({ id, label: label(id), tone: id === main || id === "done" ? TONES[id] : "quiet", todoId: todo.id }));
   return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: TONES.message, todoId: todo.id }] : own;
 }
-var composeButtons = (todoId) => ["cancelMessage", "sendDone", "send"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));
 function paneModel(input) {
   const { list, expanded, spin, width } = input;
   const messages = input.messages === true;
@@ -2278,31 +2278,6 @@ function buttonLines(row, room) {
   const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
   return wrappedButtons(lead, row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, INDENT);
 }
-var CARD_PAD = 2;
-var card = (spans, room) => {
-  const tinted = spans.map((span) => ({ ...span, bg: span.bg ?? CURSOR_ROW }));
-  const used = tinted.reduce((n, span) => n + cellWidth(span.t), 0);
-  return [...tinted, sp(" ".repeat(Math.max(0, room - used)), { bg: CURSOR_ROW })];
-};
-function composeActionsLines(buttons, room) {
-  const spans = buttons.map((b) => buttonSpan({ label: b.label, tone: b.tone, action: messageOf(b) }, 1));
-  const rows = [[]];
-  let used = CARD_PAD;
-  for (const span of spans) {
-    const w = cellWidth(span.t) + 1;
-    if (used + w > room && rows.at(-1).length > 0) {
-      rows.push([]);
-      used = CARD_PAD;
-    }
-    rows.at(-1).push([sp(" "), span]);
-    used += w;
-  }
-  return rows.map((row) => {
-    const line = row.flat();
-    const width = line.reduce((n, span) => n + cellWidth(span.t), 0) + CARD_PAD;
-    return card([sp(" ".repeat(Math.max(0, room - width))), ...line, sp(" ".repeat(CARD_PAD))], room);
-  });
-}
 function rowLines(row, room) {
   switch (row.kind) {
     case "blank":
@@ -2391,26 +2366,18 @@ function viewLines(view, width, focus = {}) {
   return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus });
 }
 
-// mods/human-todos/src/pane/compose-actions.tsx
-var tinted = (line, width) => {
-  const used = line.reduce((n, span) => n + cellWidth(span.t), 0);
-  return [...line.map((span) => ({ ...span, bg: CURSOR_ROW })), sp(" ".repeat(Math.max(0, width - used)), { bg: CURSOR_ROW })];
-};
+// mods/human-todos/src/pane/compose-head.tsx
 function composeHeadRows(title, width) {
   const lead = `  ${LABELS.message}  `;
   const name = ellipsize(title, Math.max(1, width - cellWidth(lead) - 1));
   const used = cellWidth(lead) + cellWidth(name);
   const band = [sp(lead, FILL.thread), sp(name, { ...FILL.thread, bold: true }), sp(" ".repeat(Math.max(0, width - used)), { bg: FILL.thread.bg })];
-  return [band, tinted([], width)];
+  return [band, [sp(" ".repeat(width), { bg: CURSOR_ROW })]];
 }
-function composeActionRows(id, width) {
-  return [...composeActionsLines(composeButtons(id), width), tinted([], width)];
-}
-var compose_actions_default = kitClient((props, ui) => /* @__PURE__ */ h(Panel, {
+var compose_head_default = kitClient((props) => /* @__PURE__ */ h(Panel, {
   width: props.width
 }, /* @__PURE__ */ h(Lines, {
-  lines: props.part === "head" ? composeHeadRows(props.title ?? "", props.width) : composeActionRows(props.id, props.width),
-  onAction: (message) => ui.post(message)
+  lines: composeHeadRows(props.title, props.width)
 })));
 
 // mods/human-todos/src/pane/plain-view.tsx
@@ -2577,14 +2544,8 @@ function registerPane(on) {
       await scrollKit($, () => offset);
     }
     const message = e.data;
-    const isDockSend = message?.type === "press" && (message.button === "send" || message.button === "sendDone");
-    if (e.requestId === PANE && message && isDockSend)
-      sendDraft($, message.id, message.button === "sendDone", e.surface);
-    else if (e.requestId === PANE && message) {
-      if (message.type === "press" && message.button === "cancelMessage")
-        drafts.delete(message.id);
+    if (e.requestId === PANE && message)
       act($, message, e.surface);
-    }
     return next(e);
   });
   on("ui.scroll", { component: "Pane", requestId: "human-todos" }, async ($, e, next) => {
@@ -2640,15 +2601,14 @@ function registerPane(on) {
       const inner = Math.max(22, paneColumns(e) - 4);
       return drawPlainPane($, e, modelOf(pane, inner - 2, false), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE);
     }
-    const { Box, Client, Input } = $.ui.resolve(e);
+    const { Box, Button, Client, Input } = $.ui.resolve(e);
     const width = paneColumns(e);
     const paneBody = paneRows(e);
     const todo = pane.composing === null ? undefined : pane.list.find((t) => t.id === pane.composing);
     const draft = todo ? drafts.get(todo.id) ?? "" : "";
     const fieldRows = draftFieldRows(draft, width);
     const headRows = todo ? composeHeadRows(todo.title, width).length : 0;
-    const actionRows = todo ? composeActionRows(todo.id, width).length : 0;
-    const dockRows = todo ? DOCK_FIXED_ROWS + headRows + fieldRows + actionRows : 0;
+    const dockRows = todo ? DOCK_FIXED_ROWS + headRows + fieldRows : 0;
     const bodyRows = Math.max(3, paneBody - dockRows);
     kitSizes.set(e.surface, { columns: width, bodyRows });
     const props = {
@@ -2671,9 +2631,9 @@ function registerPane(on) {
       marginTop: 1
     }, /* @__PURE__ */ h(Client, {
       key: `message-head-${id}`,
-      module: "./pane/compose-actions.js",
+      module: "./pane/compose-head.js",
       height: headRows,
-      props: { id, width, part: "head", title: todo.title }
+      props: { width, title: todo.title }
     })), /* @__PURE__ */ h(Box, {
       flexDirection: "column",
       backgroundColor: CURSOR_ROW,
@@ -2693,16 +2653,32 @@ function registerPane(on) {
         drafts.set(id, value);
         sendDraft($, id, false, e.surface);
       }
-    })), /* @__PURE__ */ h(Client, {
-      key: `message-actions-${id}`,
-      module: "./pane/compose-actions.js",
-      height: actionRows,
-      props: { id, width, part: "actions" }
-    }));
+    })), /* @__PURE__ */ h(Box, {
+      flexDirection: "row",
+      justifyContent: "flex-end",
+      gap: 2,
+      backgroundColor: CURSOR_ROW,
+      paddingBottom: 1
+    }, /* @__PURE__ */ h(Button, {
+      key: `message-cancel-${id}`,
+      label: LABELS.cancelMessage,
+      onPress: () => {
+        drafts.delete(id);
+        act($, { type: "press", id, button: "cancelMessage" }, e.surface);
+      }
+    }), /* @__PURE__ */ h(Button, {
+      key: `message-done-${id}`,
+      label: LABELS.sendDone,
+      onPress: () => sendDraft($, id, true, e.surface)
+    }), /* @__PURE__ */ h(Button, {
+      key: `message-send-${id}`,
+      label: LABELS.send,
+      onPress: () => sendDraft($, id, false, e.surface)
+    })));
   });
 }
 var MAX_FIELD_ROWS = 8;
-var DOCK_FIXED_ROWS = 2;
+var DOCK_FIXED_ROWS = 4;
 var ONE_ROW_HINT = "⏎ send  ";
 var MULTI_ROW_HINT = "⏎ send · \\⏎ new line  ";
 function draftFieldRows(text, width) {

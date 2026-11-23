@@ -6,9 +6,9 @@ import type { Todo } from '../types'
 import { PLUGIN, TITLE } from './items'
 import { act } from './pane/act'
 import { kitLayout, kitView, maxOffset, modelWidth } from './pane/kit-layout'
-import { composeActionRows, composeHeadRows } from './pane/compose-actions'
+import { composeHeadRows } from './pane/compose-head'
 import { drawPlainPane, paneColumns } from './pane/plain-view'
-import { bandModel, paneModel } from './pane/model'
+import { LABELS, bandModel, paneModel } from './pane/model'
 import type { PaneMessage, PaneModel } from './pane/model'
 import { drafts, peekTodos, readPane } from './store'
 
@@ -92,14 +92,8 @@ export function registerPane(on: On): void {
       await scrollKit($, () => offset)
     }
     const message = e.data as PaneMessage | null
-    // The docked card's Send buttons carry the draft this hook holds; Cancel drops it.
-    const isDockSend = message?.type === 'press' && (message.button === 'send' || message.button === 'sendDone')
-    if (e.requestId === PANE && message && isDockSend) sendDraft($, message.id, message.button === 'sendDone', e.surface)
-    else if (e.requestId === PANE && message) {
-      if (message.type === 'press' && message.button === 'cancelMessage') drafts.delete(message.id)
-      // Not awaited, as a Button's onPress is not: a run's start can wait on a slow probe, and the post must not hold it.
-      void act($, message, e.surface)
-    }
+    // Not awaited, as a Button's onPress is not: a run's start can wait on a slow probe, and the post must not hold it.
+    if (e.requestId === PANE && message) void act($, message, e.surface)
     return next(e)
   })
 
@@ -151,17 +145,17 @@ export function registerPane(on: On): void {
       const inner = Math.max(22, paneColumns(e) - 4)
       return drawPlainPane($, e, modelOf(pane, inner - 2, false), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE)
     }
-    const { Box, Client, Input } = $.ui.resolve(e)
+    const { Box, Button, Client, Input } = $.ui.resolve(e)
     const width = paneColumns(e)
     const paneBody = paneRows(e)
     const todo = pane.composing === null ? undefined : pane.list.find(t => t.id === pane.composing)
     // An engine Input takes no keys inside a Client, and a Client hands its key listener no paste, so the message
-    // card docks under the list: the Input drawn here, on the card's tint, and its buttons in a Client of their own.
+    // card docks under the list, drawn here. Its buttons are the engine's too, so Tab reaches them from the field:
+    // a Client takes keys only after a click.
     const draft = todo ? (drafts.get(todo.id) ?? '') : ''
     const fieldRows = draftFieldRows(draft, width)
     const headRows = todo ? composeHeadRows(todo.title, width).length : 0
-    const actionRows = todo ? composeActionRows(todo.id, width).length : 0
-    const dockRows = todo ? DOCK_FIXED_ROWS + headRows + fieldRows + actionRows : 0
+    const dockRows = todo ? DOCK_FIXED_ROWS + headRows + fieldRows : 0
     const bodyRows = Math.max(3, paneBody - dockRows)
     kitSizes.set(e.surface, { columns: width, bodyRows })
     const props = {
@@ -176,7 +170,7 @@ export function registerPane(on: On): void {
       <Box flexDirection="column">
         {list}
         <Box marginTop={1}>
-          <Client key={`message-head-${id}`} module="./pane/compose-actions.tsx" height={headRows} props={{ id, width, part: 'head', title: todo.title }} />
+          <Client key={`message-head-${id}`} module="./pane/compose-head.tsx" height={headRows} props={{ width, title: todo.title }} />
         </Box>
         {/* Only the tint and paddingBottom on the Input's box: with a width, margin or side padding on a box around it,
             a focused Input stops wrapping and cuts its text off with an ellipsis. */}
@@ -197,7 +191,18 @@ export function registerPane(on: On): void {
             }}
           />
         </Box>
-        <Client key={`message-actions-${id}`} module="./pane/compose-actions.tsx" height={actionRows} props={{ id, width, part: 'actions' }} />
+        <Box flexDirection="row" justifyContent="flex-end" gap={2} backgroundColor={CURSOR_ROW} paddingBottom={1}>
+          <Button
+            key={`message-cancel-${id}`}
+            label={LABELS.cancelMessage}
+            onPress={() => {
+              drafts.delete(id)
+              void act($, { type: 'press', id, button: 'cancelMessage' }, e.surface)
+            }}
+          />
+          <Button key={`message-done-${id}`} label={LABELS.sendDone} onPress={() => sendDraft($, id, true, e.surface)} />
+          <Button key={`message-send-${id}`} label={LABELS.send} onPress={() => sendDraft($, id, false, e.surface)} />
+        </Box>
       </Box>
     )
   })
@@ -205,8 +210,8 @@ export function registerPane(on: On): void {
 
 // The field grows with the draft up to MAX_FIELD_ROWS, then scrolls within.
 const MAX_FIELD_ROWS = 8
-// The gap above the card and the tinted row under the field.
-const DOCK_FIXED_ROWS = 2
+// The gap above the card, the tinted row under the field, the buttons row and the tinted row under it.
+const DOCK_FIXED_ROWS = 4
 // The engine draws its key hint beside a focused field: Enter's alone on one row, the newline key's too from two.
 const ONE_ROW_HINT = '⏎ send  '
 const MULTI_ROW_HINT = '⏎ send · \\⏎ new line  '
@@ -220,7 +225,7 @@ function draftFieldRows(text: string, width: number): number {
   return Math.min(MAX_FIELD_ROWS, Math.max(2, rowsBeside(MULTI_ROW_HINT)))
 }
 
-// Send and Send & mark done carry the draft; a blank one sends nothing.
+// Send and Send & Done carry the draft; a blank one sends nothing.
 function sendDraft($: EngineInterface, id: string, done: boolean, surface: RenderSurface): void {
   const text = drafts.get(id) ?? ''
   if (text.trim() === '') return
