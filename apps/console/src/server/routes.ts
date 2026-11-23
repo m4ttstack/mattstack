@@ -10,11 +10,13 @@ import { mountEffectiveInputs } from './effectiveInputs';
 import { enrichRoutes } from './enrich';
 import { fixtureMode, fixtureRt } from './fixtures/design/fixtureRt';
 import { runsFixture } from './fixtures/design/runsFixture';
+import { syncFixture, syncScenario } from './fixtures/design/syncFixture';
 import { teamFixture } from './fixtures/design/teamFixture';
 import { gatesRoutes } from './gates';
 import { panesRoutes } from './panes';
 import { runsRoutes } from './runs';
 import { settings } from './settings';
+import { syncRoutes } from './settingsSync';
 import { mountSkills } from './skills';
 import { teamRoutes } from './team';
 import { usageRoutes } from './usage';
@@ -56,6 +58,12 @@ export const routes = new Hono()
   .route('/', gatesRoutes(runsData))
   .route('/', usageRoutes(runsData))
   .route('/', teamRoutes({ fixture: scenario ? teamFixture : null }))
+  .route(
+    '/',
+    syncRoutes({
+      fixture: scenario ? syncFixture(syncScenario(process.env)) : null,
+    })
+  )
   .route('/', settings)
   .route('/', agentModels)
   .route(
