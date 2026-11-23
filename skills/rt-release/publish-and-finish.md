@@ -298,10 +298,10 @@ legs, in order:
   profile were saved (`No Keychain password item found for profile` or `could not read the notary
   profile`). When Matt was away for the run, the report tells him to rerun update-machine once he
   is back at the unlocked Mac, never to save the profile again. When he is at it,
-  `xcrun notarytool history --keychain-profile mattstack-notary` printing
+  `xcrun notarytool history --keychain-profile <profile>` printing
   `Successfully received submission history.` means the profile is saved: rerun update-machine.
-  Only that check failing on an unlocked Mac calls for the store-credentials command. It is
-  skipped the same way when the dev bundle leg did not build. A failed publish never halts the legs after it: it shows as an error in the
+  Only that check failing on an unlocked Mac calls for the store-credentials command. This leg is
+  also skipped when the dev bundle leg did not build. A failed publish never halts the legs after it: it shows as an error in the
   summary while checkout sync, the daemon and the served suite still run.
 - **Shared checkout sync**: the shared checkout (the one dev mode recorded through `rt dev setup`
   or `rt settings source-path`, else `~/Documents/GitHub/mattstack`, or the older
