@@ -29,4 +29,12 @@ let windowRestoreChecks: [Check] = [
     Check("WindowRestore: nothing recorded gives nothing") { c in
         c.expectEqual(WindowRestore(defaults: freshDefaults()).take(), [])
     },
+    Check("WindowRestore: the windows come back in front only when the app was in front") { c in
+        let r = WindowRestore(defaults: freshDefaults())
+        r.record([.main], appWasActive: false)
+        c.expectEqual(r.takeWasActive(), false)
+        r.record([.main], appWasActive: true)
+        c.expectEqual(r.takeWasActive(), true)
+        c.expectEqual(r.takeWasActive(), false, "taken once")
+    },
 ]

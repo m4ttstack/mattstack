@@ -50,7 +50,12 @@ public enum UpdatePolicy {
         return windowsOpen > 0 ? .windowsOpen : nil
     }
 
-    public static let checkInterval: TimeInterval = 3600
+    /// Hourly when installs are silent: the interval is how fast a release
+    /// reaches every Mac. Six hours when each person installs, as before, so
+    /// the prompt does not come back every hour.
+    public static func checkInterval(silent: Bool) -> TimeInterval {
+        silent ? 3600 : 21600
+    }
 }
 
 public enum UpdateHold: Equatable, Sendable {

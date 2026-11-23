@@ -85,7 +85,7 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         // turned that off.
         policy.silent = c.updater.automaticallyDownloadsUpdates
         c.updater.automaticallyChecksForUpdates = true
-        c.updater.updateCheckInterval = UpdatePolicy.checkInterval
+        c.updater.updateCheckInterval = UpdatePolicy.checkInterval(silent: policy.silent)
         Task { await self.refreshPolicy() }
         policyTimer = Timer.scheduledTimer(withTimeInterval: Self.policyInterval, repeats: true) { [weak self] _ in
             guard let self else { return }
@@ -118,7 +118,7 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         guard let updater = controller?.updater else { return }
         updater.automaticallyChecksForUpdates = true
         updater.automaticallyDownloadsUpdates = silent
-        updater.updateCheckInterval = UpdatePolicy.checkInterval
+        updater.updateCheckInterval = UpdatePolicy.checkInterval(silent: silent)
         if !silent, installer.heldVersion == nil, status.hold != UpdateStatus.orgOff {
             writeStatus { $0.heldVersion = nil; $0.hold = UpdateStatus.orgOff }
         } else if silent, status.hold == UpdateStatus.orgOff {
@@ -141,8 +141,9 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     }
 
     /// The windows open when the install quit the app; empty once taken.
-    func takeWindowsToReopen() -> [RestorableWindow] {
-        windowRestore.take()
+    func takeWindowsToReopen() -> (windows: [RestorableWindow], inFront: Bool) {
+        let inFront = windowRestore.takeWasActive()
+        return (windowRestore.take(), inFront)
     }
 
     /// The version a previous run was installing, once it is the one running.
@@ -243,7 +244,7 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
         TrayLog.info("update installing", ["version": item.displayVersionString])
         recordPending(item)
-        windowRestore.record(openWindows?() ?? [])
+        windowRestore.record(openWindows?() ?? [], appWasActive: NSApp.isActive)
         onUpdateInstallingChanged?(true)
     }
 

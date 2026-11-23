@@ -54,8 +54,9 @@ let updatePolicyChecks: [Check] = [
         c.expectEqual(UpdatePolicy.hold(silent: false, setupRunning: false, windowsOpen: 1, daemonBusy: true), .windowsOpen)
         c.expectEqual(UpdatePolicy.hold(silent: false, setupRunning: false, windowsOpen: 0, daemonBusy: true), nil)
     },
-    Check("check interval is one hour") { c in
-        c.expectEqual(UpdatePolicy.checkInterval, 3600)
+    Check("check interval: hourly when silent, six hours as before when not") { c in
+        c.expectEqual(UpdatePolicy.checkInterval(silent: true), 3600)
+        c.expectEqual(UpdatePolicy.checkInterval(silent: false), 21600)
     },
     Check("installer, not silent: installs an offered update at once when the app is idle") { c in
         let installer = HeldUpdateInstaller(silent: { false }, setupRunning: { false }, windowsOpen: { 0 }, daemonBusy: { false })

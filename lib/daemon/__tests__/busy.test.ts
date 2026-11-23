@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { daemonBusyDataSchema } from "../../../packages/rt-client/src/command-schemas.ts";
 import { busyReasons, createBusyTracker, LONG_COMMANDS } from "../busy.ts";
+import { COMMAND_NAMES } from "../../../packages/rt-client/src/commands.ts";
 import { createBusyHandlers } from "../handlers/busy.ts";
 
 describe("busy tracker", () => {
@@ -42,6 +43,14 @@ describe("busy tracker", () => {
     expect(tracker.running()).toEqual(["mr:action"]);
     b();
     expect(tracker.running()).toEqual([]);
+  });
+
+  test("a branch sync, a push and a triage dispose count", () => {
+    for (const cmd of ["worktree:sync", "worktree:push-branch", "worktree:triage-dispose"]) expect(LONG_COMMANDS.has(cmd)).toBe(true);
+  });
+
+  test("every long command is a real daemon verb", () => {
+    for (const cmd of LONG_COMMANDS) expect(COMMAND_NAMES as readonly string[]).toContain(cmd);
   });
 
   test("running is sorted", () => {

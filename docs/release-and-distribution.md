@@ -286,7 +286,8 @@ Installs are silent by default. The org setting `mattstack.autoUpdate`
 decides. `UpdaterController.refreshPolicy` reads it at launch, every 10
 minutes and before each retry of a held update, then sets Sparkle's runtime
 properties: `automaticallyChecksForUpdates` on, `automaticallyDownloadsUpdates`
-to the setting, and `updateCheckInterval` to an hour. Sparkle keeps runtime
+to the setting, and `updateCheckInterval` to an hour (six hours with the
+setting off, as before). Sparkle keeps runtime
 values in UserDefaults over the plist, so this is also what switches checking
 back on for a Mac whose person once turned it off; the Settings switch that
 did that is gone. `SUScheduledCheckInterval` is 3600 in `Info.plist`,
@@ -300,7 +301,9 @@ do (`UpdatePolicy.hold`): a setup run (`setupRunning`), then a busy daemon
 commands, background tree installs and replenish creates; a daemon that does
 not answer is not busy). Before Sparkle quits the app, `WindowRestore`
 records which of the main window, Settings, the worktree panel and the
-detached process panel are open, and the relaunched app reopens them.
+detached process panel are open, and the relaunched app reopens them. They
+come back in front only if the app was in front when it quit; otherwise the
+app hands focus back to whatever had it.
 
 With the setting off, today's prompt returns: a scheduled check opens
 Sparkle's own update window in front, except while setup runs (the "Update
@@ -324,8 +327,9 @@ step swaps the app, which restarts the daemon. That run checks the clone
 commits off `origin/main`, no merge or rebase in progress, `origin/main`
 fetched), then the daemon's busy state and the tools `origin/main` pins, and
 changes nothing until all pass. Then it fast-forwards, runs
-`bun install --frozen-lockfile`, rebuilds the terminal helper, re-registers
-the served apps, swaps the dev app and restarts the daemon. A hold writes the
+`bun install --frozen-lockfile`, rebuilds the terminal helper, runs each
+served app's `dev.build`, re-registers the served apps, swaps the dev app
+and restarts the daemon. A hold writes the
 status file and posts one `setup_update` notification per version and hold
 (kv `dev-auto-update`/`announced`, so a daemon restart does not repeat it).
 With the setting off, the sweep only writes `hold: "orgOff"`. A locally built

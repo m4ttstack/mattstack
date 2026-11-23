@@ -12,7 +12,7 @@ import { registerApps } from "./setup.ts";
 import type { DevSeams, StageRunner } from "./seams.ts";
 import { buildRtUi, ensureDevApp, requireGh, toolchainEnv } from "./stages.ts";
 import { compareVersions, parseBunPin, parseGoPin, probeDevTools } from "./tools.ts";
-import { rtUiStale } from "./update.ts";
+import { buildServedApps, rtUiStale } from "./update.ts";
 
 export type DevHold = CloneHold | "daemonBusy" | "orgOff" | "updateFailed";
 export type DevAutoOutcome =
@@ -81,6 +81,11 @@ export async function runDevAutoUpdate(s: DevSeams, stage: StageRunner, d: DevAu
         if (!(await rtUiStale(s, clone))) return { status: "skipped", title: "rt's terminal helper is current" };
         await asStep(() => buildRtUi(s, clone, tools), "Building rt's terminal helper failed.");
         return { status: "done", title: "Rebuilt rt's terminal helper" };
+      });
+      await stage("Build the served apps", async () => {
+        const failed = await buildServedApps(s, clone, toolchainEnv(s, tools));
+        if (failed) throw new StepFailed(`Building ${failed} from your clone failed.`);
+        return { status: "done", title: "Built the served apps" };
       });
       await stage("Serve the apps from your clone", async (io) => {
         await asStep(() => registerApps(s, clone, io), "Serving the apps from your clone failed.");

@@ -15,6 +15,7 @@ interface World {
   release?: string;
   originGo?: string;
   flavor?: "dev" | "prod";
+  appBuildFails?: boolean;
 }
 
 function setup(w: World = {}) {
@@ -25,6 +26,7 @@ function setup(w: World = {}) {
     [`${CLONE}/package.json`]: JSON.stringify({ packageManager: "bun@1.4.2" }),
     [`${CLONE}/ui/go.mod`]: "go 1.26.5\n",
     [`${CLONE}/ui/dist/rt-ui`]: "",
+    [`${CLONE}/apps/console/mattstack.deck.json`]: JSON.stringify({ dev: { build: "bun run build" } }),
     "/usr/bin/git": "",
     [BUN]: "",
     [GO]: "",
@@ -48,6 +50,7 @@ function setup(w: World = {}) {
       if (argv[0] === "find") return { code: 0, stdout: `${CLONE}/ui/cmd/rt-ui/main.go\n`, stderr: "" };
       if (a === `${BUN} run ui:build`) { once("ui"); return { code: 0, stdout: "", stderr: "" }; }
       if (a.includes(" register --dir ")) { once("register"); return { code: 0, stdout: "", stderr: "" }; }
+      if (argv[0] === "/bin/sh" && argv[2] === "bun run build") { once("apps"); return { code: w.appBuildFails ? 1 : 0, stdout: "", stderr: "vite failed" }; }
       if (a.includes("CFBundleShortVersionString")) return { code: 0, stdout: `${w.installed ?? "2.22.0"}\n`, stderr: "" };
       if (a.includes("MSDevReleaseBuild")) return w.releaseBuild === false ? { code: 1, stdout: "", stderr: "" } : { code: 0, stdout: "true\n", stderr: "" };
       if (a.includes("api repos/m4ttstack/mattstack/releases")) {
@@ -160,7 +163,7 @@ describe("runDevAutoUpdate", () => {
   test("all clear: fast-forward, install, helper, register, then swap, then restart, in that order", async () => {
     const t = setup();
     expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "updated", version: "2.23.0" });
-    expect(t.order).toEqual(["fetch", "tools", "ff", "install", "ui", "register", "swap", "restart"]);
+    expect(t.order).toEqual(["fetch", "tools", "ff", "install", "ui", "apps", "register", "swap", "restart"]);
   });
 
   test("a failed install is held updateFailed naming bun install, and the app is not swapped", async () => {
@@ -171,6 +174,14 @@ describe("runDevAutoUpdate", () => {
     expect((out as { detail: string }).detail).toContain("bun install");
     expect(t.order).not.toContain("swap");
     expect(t.order).not.toContain("restart");
+  });
+
+  test("a served app that does not build is held updateFailed naming it, and the app is not swapped", async () => {
+    const t = setup({ appBuildFails: true });
+    const out = await runDevAutoUpdate(t.s, runner, t.d);
+    expect(out).toMatchObject({ kind: "held", hold: "updateFailed" });
+    expect((out as { detail: string }).detail).toContain("console");
+    expect(t.order).not.toContain("swap");
   });
 
   test("a missing tool is held before the fast-forward", async () => {

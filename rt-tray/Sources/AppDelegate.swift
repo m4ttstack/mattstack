@@ -1881,8 +1881,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
 
     @MainActor
-    private func reopen(_ windows: [RestorableWindow]) {
+    private func reopen(_ reopening: (windows: [RestorableWindow], inFront: Bool)) {
+        let windows = reopening.windows
         guard !windows.isEmpty else { return }
+        // Each show below activates the app; put back whatever had focus.
+        let front = reopening.inFront ? nil : NSWorkspace.shared.frontmostApplication
+        defer {
+            if let front, front.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+                DispatchQueue.main.async { front.activate() }
+            }
+        }
         TrayLog.info("reopening windows after update", ["windows": windows.map(\.rawValue).joined(separator: ",")])
         for window in windows {
             switch window {

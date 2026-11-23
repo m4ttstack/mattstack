@@ -4,9 +4,30 @@ import { readPins } from "./tools.ts";
 import { buildRtUi, ensureDevApp, ensureTools, toolchainEnv } from "./stages.ts";
 import type { CloneCheck } from "./clone-guards.ts";
 import { registerApps } from "./setup.ts";
+import { REGISTERED_APPS } from "../release/update-machine.ts";
 import type { DevSeams, StageEnding, StageRunner } from "./seams.ts";
 
 export type DevUpdateResult = { clone: string; stages: StageEnding[] };
+
+/**
+ * Each served app's `dev.build`. Deck serves the clone's `dist/`, and a
+ * restart keeps an app's last browser bundle, so a pulled clone needs these
+ * before the apps restart. Returns the first app that did not build.
+ */
+export async function buildServedApps(s: DevSeams, clone: string, env: Record<string, string>): Promise<string | null> {
+  for (const app of REGISTERED_APPS) {
+    let build: string | undefined;
+    try {
+      build = (JSON.parse(s.probes.readFile(join(clone, "apps", app, "mattstack.deck.json")) ?? "{}") as { dev?: { build?: string } }).dev?.build;
+    } catch {
+      build = undefined;
+    }
+    if (!build) continue;
+    const r = await s.probes.exec(["/bin/sh", "-c", build], { cwd: join(clone, "apps", app), env, timeoutMs: 10 * 60_000 });
+    if (r.code !== 0) return app;
+  }
+  return null;
+}
 
 /** What a hand-run update uses to bring the clone to origin/main when that is safe. */
 export interface CloneSync {
@@ -77,6 +98,13 @@ export async function runDevUpdate(s: DevSeams, stage: StageRunner, opts: { rele
           throw new UserActionableError("dev-clone-install-failed", "bun install failed in your clone", {}, { log: inst.tail, next: "rt dev update" });
         }
         return { status: "done", title: "Installed your clone's packages" };
+      }),
+    );
+    stages.push(
+      await stage("Build the served apps", async () => {
+        const failed = await buildServedApps(s, clone, toolchainEnv(s, { bunPath, goPath }));
+        if (failed) throw new UserActionableError("dev-app-build-failed", `${failed} did not build from your clone`, {}, { next: "rt dev update" });
+        return { status: "done", title: "Built the served apps" };
       }),
     );
   }
