@@ -293,8 +293,15 @@ legs, in order:
   collaborators' `rt dev setup` and `rt dev update` can install it. It needs a saved notary profile
   (`NOTARY_PROFILE`, default `mattstack-notary`), checked once before any leg runs; without one this
   leg is skipped, with no prompt, and its detail carries the one-time
-  `xcrun notarytool store-credentials` command. It is skipped the same way when the dev bundle leg
-  did not build. A failed publish never halts the legs after it: it shows as an error in the
+  `xcrun notarytool store-credentials` command. The profile lives in the login keychain, which
+  locks with the Mac, so while Matt is away from it this leg skips or errors exactly as if no
+  profile were saved (`No Keychain password item found for profile` or `could not read the notary
+  profile`). When Matt was away for the run, the report tells him to rerun update-machine once he
+  is back at the unlocked Mac, never to save the profile again. When he is at it,
+  `xcrun notarytool history --keychain-profile mattstack-notary` printing
+  `Successfully received submission history.` means the profile is saved: rerun update-machine.
+  Only that check failing on an unlocked Mac calls for the store-credentials command. It is
+  skipped the same way when the dev bundle leg did not build. A failed publish never halts the legs after it: it shows as an error in the
   summary while checkout sync, the daemon and the served suite still run.
 - **Shared checkout sync**: the shared checkout (the one dev mode recorded through `rt dev setup`
   or `rt settings source-path`, else `~/Documents/GitHub/mattstack`, or the older
