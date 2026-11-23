@@ -822,6 +822,27 @@ describe("HerdWatchdog ladder", () => {
       expect(reminders(r)).toBe(2);
     });
 
+    test("a DM that arrives while a human gate is backing off is reminded at the usual cadence", async () => {
+      const unread = { n: 0 };
+      const r = rig({ jobs: [], sensors: { ...humanGate(), unreadDmMentionsFor: (h) => (h === "shepherd" ? unread.n : 0) } });
+      await r.tick();
+      expect(reminders(r)).toBe(1);
+      unread.n = 1;
+      await r.tick(5);
+      expect(reminders(r)).toBe(2);
+      expect(r.shepherdPokes().at(-1)!.text).toContain("unread DM/mention");
+    });
+
+    test("a newer human gate is reminded at once while an older one is backing off", async () => {
+      const gates = [{ id: "g-9", ageMs: 30 * MIN }];
+      const r = rig({ jobs: [], sensors: { paneState: () => "idle", openHumanGates: () => gates } });
+      await r.tick();
+      gates.push({ id: "g-10", ageMs: 6 * MIN });
+      await r.tick(5);
+      expect(reminders(r)).toBe(2);
+      expect(r.shepherdPokes().at(-1)!.text).toContain("g-10");
+    });
+
     test("unread DMs keep today's cadence", async () => {
       const r = rig({ jobs: [], sensors: shepherdWedged() });
       await r.tick();
