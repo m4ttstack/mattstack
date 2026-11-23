@@ -160,8 +160,9 @@ Installers verify the SHA-256 from the list before swapping the binary in.
   server running, and show "Restart herdr when your agents are done" with a
   button that ends every pane only when pressed. Nothing ends panes unasked.
 - **A stock herdr earlier on PATH** (e.g. Homebrew's `/opt/homebrew/bin/herdr`):
-  the row reads needs-you and offers to remove it. Setup never removes it
-  silently.
+  setup removes it (`brew uninstall herdr` for Homebrew) and says so in the
+  row. Leaving it would shadow the fork build and break everything that
+  needs the patches.
 - **Old flock backups:** setup deletes `herdr.pre-mouse-backup`, since it
   holds stock herdr.
 - **herdr's own updates:** `herdr update` and herdr's update notice must not
