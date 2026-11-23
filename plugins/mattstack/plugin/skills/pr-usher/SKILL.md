@@ -159,7 +159,7 @@ it every tick: number, head sha, owner and how you found them (handoff or branch
 stage, `reviewed@<sha>` (by `coderabbit` or `opus`: the newest head a
 review covered), `settled@<sha>` (the head on which every thread was
 resolved and CI went green), when you nudged CodeRabbit, when you sent
-the owner findings and whether the 15-minute reminder went, usher fix
+the owner findings, what you are waiting on it to answer, and whether the 15-minute reminder went, usher fix
 rounds, queue drops counted and the `at` of the last one counted,
 `drop-unrequeued` from a drop until a requeue goes through, a merge
 refusal seen at the settled head, a background Opus review in flight
@@ -191,9 +191,9 @@ ledger's first line says on duty and your `chat_buddies` row still has
 
 ### Start a tick
 
-Chat messages arrive in your context on their own; `chat_read` catches up
-on any you missed after a clear or a compaction. Read the ledger file
-before the forge. Read new ones first. Each handoff DM starts with
+Read the ledger file first. Chat messages arrive in your context on their
+own; `chat_read` catches up on any you missed after a clear or a
+compaction. Read new ones before the forge. Each handoff DM starts with
 `pr-usher handoff: <PR url> author=<handle>`. Read the PR (`mr_view`):
 one in another repo, a draft, closed, opened under another login or aimed
 at another branch gets `chat_dm {to: <handle>, body: "not ushering <PR url>: <reason>"}`.
@@ -396,8 +396,12 @@ stale. As the tick's last call, after `ScheduleWakeup`:
 `fresh_context {mode: "clear", ledger: "<the ledger file's full text>\n\nLedger file: <its path>"}`
 
 with no `then`. The fresh context holds the ledger and waits; the wakeup
-fires `/mattstack:pr-usher` into it, and chat keeps your name, status and
-rooms across the clear. While a subagent (an `opus-running@` review), a
+fires into it, and chat keeps your name, status and rooms across the
+clear. A clear drops the conversation, not the record: before you answer
+an owner about a PR, read that PR's ledger line, its threads
+(`mr_threads`) and the DM's recent history (`chat_read` with `last` on
+that DM's room), so a discussion that spans a clear picks up where it
+stood. While a subagent (an `opus-running@` review), a
 background shell or a monitor still runs, skip the clear this tick: its
 result has to come back to this context. When `fresh_context` is not in
 your tool list, or it refuses, end the turn without it.
