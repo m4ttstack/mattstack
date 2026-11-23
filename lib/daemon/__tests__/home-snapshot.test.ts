@@ -4573,6 +4573,41 @@ describe("current snapshot authorization", () => {
     expect(status).toMatchObject({ pushPending: true, lastPushError: UNREADABLE_SENTENCE });
   });
 
+  test("RT-56: a pre-push pull whose remote check git cannot answer defers the push, with no failure broadcast", async () => {
+    const { spec } = world((argv) => {
+      const verb = argv[3];
+      if (verb === "rev-parse") return { code: 0, stdout: `${"b".repeat(40)}\n`, stderr: "" };
+      if (verb === "ls-tree") return { code: 0, stdout: "mattstack/org/settings.org.jsonc\n", stderr: "" };
+      return { code: 0, stdout: "{}", stderr: "" };
+    });
+    const pending = ["mattstack/teams/widgets/settings.team.jsonc"];
+    const stall = { armed: false, remoteChecks: 0 };
+    const exec = makeFakeExec([
+      (argv) => {
+        if (!stall.armed || argv[1] !== "remote" || argv.length !== 2) return undefined;
+        stall.remoteChecks++;
+        return stall.remoteChecks === 1 ? { stdout: "origin\n", stderr: "", exitCode: 0 } : { stdout: "", stderr: "", exitCode: 124 };
+      },
+      (argv) => gitVerb(argv) === "rev-list" && !argv.includes("--count") ? { stdout: `${"a".repeat(40)}\n`, stderr: "", exitCode: 0 } : gitVerb(argv) === "diff-tree" ? { stdout: pending.map((path) => `${path}\0`).join(""), stderr: "", exitCode: 0 } : undefined,
+      ...pullResponders({ behind: 0, ahead: 1 }),
+      ...defaultResponders({ statusZ: " M mattstack/teams/widgets/settings.team.jsonc\0" }),
+    ]);
+    const { deps, timers, broadcasts } = baseDeps({ exec: exec.fn });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot(spec, rest);
+    try {
+      await handle.ready;
+      expect((await handle.runNow("watch")).committed).toBe(true);
+      stall.armed = true;
+      timers.fire((timer) => timer.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+      await flushAsync();
+      expect(stall.remoteChecks).toBe(2);
+      expect(exec.calls.filter((argv) => gitVerb(argv) === "push")).toEqual([]);
+      expect(handle.status().pushPending).toBe(true);
+      expect(broadcasts.some((b) => b.type.endsWith("push-failed"))).toBe(false);
+    } finally { handle.stop(); }
+  });
+
   describe("an org store change among the pending paths", () => {
     const ORG_STORE = "mattstack/org/settings.org.jsonc";
     const baseStore = JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } });

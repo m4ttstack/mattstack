@@ -1,7 +1,7 @@
 /**
  * Setup-layer git helpers for the home repo's push state.
  *
- * A near-duplicate of lib/daemon/home-snapshot.ts's `hasRemote` /
+ * A near-duplicate of lib/daemon/home-snapshot.ts's `originRemote` /
  * `unpushedAgainstOrigin` — typed against Probes["exec"] (result field
  * `code`, not runCapture's `exitCode`) instead of the daemon's own exec
  * convention. A setup validator/step must not import from lib/daemon/, so

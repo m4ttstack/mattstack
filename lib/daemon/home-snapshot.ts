@@ -97,6 +97,8 @@ export interface PullResult {
   hold?: PullHold;
   /** Set by the `team:pull` handler on a held move only the person can clear (unsaved changes, commits rt cannot carry); the engine never sets it. */
   needsYou?: true;
+  /** Set when git did not say whether a remote is set: a push behind this pull waits for the next cycle instead of running. */
+  gitUnanswered?: true;
 }
 
 export interface SnapshotStatus {
@@ -1080,7 +1082,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     pullBlockedBy = [];
     const remote = await originRemote(deps.exec, deps.repoDir);
     if (remote === "none") return { outcome: "skipped", detail: "no remote" };
-    if (remote === "unknown") return { outcome: "skipped", detail: "git did not say whether a remote is set" };
+    if (remote === "unknown") return { outcome: "skipped", detail: "git did not say whether a remote is set", gitUnanswered: true };
     const branchResult = await deps.exec(["git", "symbolic-ref", "--short", "HEAD"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
     if (branchResult.exitCode !== 0) return { outcome: "skipped", detail: "detached HEAD" };
     const branch = branchResult.stdout.trim();
@@ -1398,14 +1400,14 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // existed, failed to push, and was then removed by hand — without this,
     // a stale failure latches into status() forever and `committed ||
     // pushPending` re-arms a push every cycle that only ever no-ops here.
-    const remote = await originRemote(deps.exec, deps.repoDir);
     // A git that did not answer is not a push failure either: no broadcast,
     // and the push stays pending for the next cycle.
-    if (remote === "unknown") {
+    const deferPush = (): void => {
       deps.log.warn(`${label}: git did not say whether a remote is set; the push waits for the next cycle`);
       pushPending = true;
-      return;
-    }
+    };
+    const remote = await originRemote(deps.exec, deps.repoDir);
+    if (remote === "unknown") return deferPush();
     if (remote === "none") {
       deps.log.debug(`${label}: no remote configured; nothing to push`);
       pushPending = false;
@@ -1421,6 +1423,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       const pulled = await pullNow({ converge: false });
       if (pulled.outcome === "conflict" || conflicted) return;
       if (pulled.hold) return holdPush();
+      if (pulled.gitUnanswered) return deferPush();
     }
     if (!(await mayPush())) return;
     let result = await remoteGit(["push", "-q", "origin", "HEAD"], PUSH_TIMEOUT_MS);
@@ -1429,6 +1432,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       // replay beats waiting out a whole retry-backoff window.
       const repulled = await pullNow({ converge: false });
       if (repulled.hold) return holdPush();
+      if (repulled.gitUnanswered) return deferPush();
       if (conflicted || !(await mayPush())) return;
       result = await remoteGit(["push", "-q", "origin", "HEAD"], PUSH_TIMEOUT_MS);
     }
