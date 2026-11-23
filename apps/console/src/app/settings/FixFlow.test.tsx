@@ -405,6 +405,54 @@ describe('Needs fixing on the page', () => {
     });
   });
 
+  it('a Fix that names no repo keeps the open row on its project', async () => {
+    const withUserIssue: SettingDefWire = {
+      ...roles(),
+      issues: [
+        ...(roles().issues ?? []),
+        {
+          scope: 'user',
+          file: USER_FILE,
+          kind: 'nonconforming',
+          path: ['dev', 'name'],
+          message: 'expected string, got number',
+        },
+      ],
+    };
+    vi.stubGlobal('fetch', async (url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () =>
+        url.startsWith('/api/settings/repos')
+          ? {
+              repos: [
+                { identity: REPO, label: 'acme/app' },
+                { identity: OTHER_REPO, label: 'acme/web' },
+              ],
+            }
+          : url.startsWith('/api/settings/explain/')
+            ? { def: null, rows: [] }
+            : { defs: [withUserIssue] },
+    }));
+    window.history.replaceState(
+      null,
+      '',
+      `/settings?explain=rt.roles&repo=${encodeURIComponent(OTHER_REPO)}`
+    );
+    renderPage();
+    await fix(
+      await screen.findByText('user · dev.name: expected string, got number')
+    );
+    await waitFor(() => {
+      const p = new URLSearchParams(window.location.search);
+      expect([p.get('explain'), p.get('fix'), p.get('repo')]).toEqual([
+        'rt.roles',
+        'user',
+        OTHER_REPO,
+      ]);
+    });
+  });
+
   it('closing the row after a Fix with no repo switch returns to the page as it was', async () => {
     renderPage();
     await fix(

@@ -514,7 +514,13 @@ export function SettingsPage() {
                                         tab: 'where',
                                         fix: issue?.scope ?? null,
                                       },
-                                      { repo: issue?.repo ?? null }
+                                      // An issue that names no repo leaves the
+                                      // open row on the project it is on.
+                                      issue?.repo
+                                        ? { repo: issue.repo }
+                                        : key === openRow.open?.key
+                                          ? {}
+                                          : { repo: null }
                                     );
                                     setReveal({
                                       key,
