@@ -124,13 +124,19 @@ export const __test__ = {
   resetCoolOff(): void { downUntil.clear(); },
 };
 
+/** RT_DAEMON_RETRY_BUDGET_MS when it is set to a number, read at call time. */
+export function retryBudgetOverride(): number | undefined {
+  const raw = process.env.RT_DAEMON_RETRY_BUDGET_MS;
+  if (!raw) return undefined;
+  const ms = Number(raw);
+  return Number.isFinite(ms) && ms >= 0 ? ms : undefined;
+}
+
 function retryBudget(opts: { timeoutMs?: number; retryBudgetMs?: number }): number {
   if (opts.retryBudgetMs !== undefined) return opts.retryBudgetMs;
-  const fromEnv = Number(process.env.RT_DAEMON_RETRY_BUDGET_MS);
-  if (process.env.RT_DAEMON_RETRY_BUDGET_MS && Number.isFinite(fromEnv)) return fromEnv;
   // A caller that names a short timeout (a hook with a time limit) has said
   // how long it can wait in total.
-  return Math.min(DAEMON_RETRY_BUDGET_MS, opts.timeoutMs ?? DAEMON_RETRY_BUDGET_MS);
+  return retryBudgetOverride() ?? Math.min(DAEMON_RETRY_BUDGET_MS, opts.timeoutMs ?? DAEMON_RETRY_BUDGET_MS);
 }
 
 /**
