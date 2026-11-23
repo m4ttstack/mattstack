@@ -66,7 +66,7 @@ digraph pr_usher {
     route_drop [label="Route the drop's fix" shape=box];
     off_duty_asked [label="Off duty asked?" shape=diamond];
     schedule_wakeup [label="ScheduleWakeup {delaySeconds: 300 or 1200}" shape=plaintext];
-    background_running [label="A subagent, background shell or monitor still running?" shape=diamond];
+    background_running [label="Owner discussion live, or background work running?" shape=diamond];
     clear_context [label="Clear your context" shape=box];
     hand_back_prs [label="Hand back the PRs in flight" shape=box];
     chat_post_off_duty [label="chat_post {room: <repo room>, body: \"pr-usher off duty for <repo>\"}" shape=plaintext];
@@ -397,13 +397,16 @@ stale. As the tick's last call, after `ScheduleWakeup`:
 
 with no `then`. The fresh context holds the ledger and waits; the wakeup
 fires into it, and chat keeps your name, status and rooms across the
-clear. A clear drops the conversation, not the record: before you answer
-an owner about a PR, read that PR's ledger line, its threads
-(`mr_threads`) and the DM's recent history (`chat_read` with `last` on
-that DM's room), so a discussion that spans a clear picks up where it
-stood. While a subagent (an `opus-running@` review), a
-background shell or a monitor still runs, skip the clear this tick: its
-result has to come back to this context. When `fresh_context` is not in
+clear.
+
+Skip the clear this tick in either case:
+
+- A discussion with an owner is live: a PR's ledger line says you are
+  waiting on its owner's answer, or an owner messaged you since the last
+  tick. It ends when the owner answers or reaches the 30-minute mark that
+  counts it offline.
+- A subagent (an `opus-running@` review), a background shell or a monitor
+  still runs: its result has to come back to this context. When `fresh_context` is not in
 your tool list, or it refuses, end the turn without it.
 
 ## Pace
