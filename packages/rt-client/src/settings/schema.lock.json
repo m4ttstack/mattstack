@@ -1006,6 +1006,13 @@
       "additionalProperties": {}
     }
   },
+  "mattstack.autoUpdate": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "boolean"
+    }
+  },
   "mattstack.colorScheme": {
     "storeVersion": 1,
     "schema": {

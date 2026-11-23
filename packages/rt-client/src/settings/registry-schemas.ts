@@ -379,6 +379,7 @@ export const SCHEMAS = {
   "chat.slackSupport.defaultRepo": z.string().min(1),
   "chat.slackSupport.trigger": z.string().regex(/\S/),
   "rt.gates.kitForm": z.boolean(),
+  "mattstack.autoUpdate": z.boolean(),
   "rt.work.gateMode": z.enum(["chatty", "normal", "quiet", "yolo"]),
   "rt.work.gateModeShadow": z.boolean(),
   "review.rereviewRounds": z.number().int().min(0).max(9),
