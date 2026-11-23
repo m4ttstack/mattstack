@@ -20,6 +20,7 @@ rt team status [flags]
 | Flag / Arg | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--team` | text |  | Which org clone; your only one when left out |
+| `--sync` | boolean | `false` | With --json, only the sync fields: what is waiting to reach the org and why |
 | [`--json`](/rt/guides/common-flags) | boolean | `false` | Machine-readable result |
 
 _See code: [commands/team.ts › teamStatus](https://github.com/m4ttstack/mattstack/blob/main/commands/team.ts)_

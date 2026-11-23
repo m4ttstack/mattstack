@@ -425,6 +425,42 @@ describe("teamStatus", () => {
     expect(JSON.parse(deps.lines.at(-1)!).heldBack).toEqual([".claude-plugin/marketplace.json"]);
   });
 
+  test("--sync --json carries only the sync fields and makes no relay or switchboard read", async () => {
+    const deps = clonedDeps({ exec: async (argv) => (argv.includes("symbolic-ref") ? { code: 0, stdout: "mattstack\n", stderr: "" } : { code: 0, stdout: "", stderr: "" }) });
+    let relayReads = 0;
+    deps.inviteStatuses = async () => { relayReads++; return { invites: [], relayFailed: false }; };
+    deps.readAdminSecret = async () => { relayReads++; return null; };
+    deps.readLocalSecret = async () => { relayReads++; return null; };
+    deps.daemon = async (verb) =>
+      verb === "team:snapshot-status"
+        ? { ok: true, data: [{ slug: SLUG, lastPullAt: 900_000, lastPushAt: 800_000, lastPullSkipped: null, conflicted: null, pullOnly: false, heldBack: [], unownedDirty: [], lastPushError: null, lastCommitError: null, lastPullError: null, layoutHold: null, pending: [{ path: ".sops.yaml" }] }] }
+        : null;
+
+    await teamStatus(["--team", SLUG, "--sync", "--json"], {}, deps);
+
+    const { at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(body).toEqual({
+      contract: 1,
+      slug: SLUG,
+      branch: "mattstack",
+      trial: false,
+      lastPull: new Date(900_000).toISOString(),
+      lastPushAt: new Date(800_000).toISOString(),
+      lastPullSkipped: null,
+      conflicted: null,
+      pullOnly: false,
+      heldBack: [],
+      pending: [{ path: ".sops.yaml" }],
+      lastPushError: null,
+      lastCommitError: null,
+      lastPullError: null,
+      layoutHold: false,
+      unownedDirty: [],
+      pullIntervalSec: 300,
+    });
+    expect(relayReads).toBe(0);
+  });
+
   test("json carries pending and the error fields from the daemon", async () => {
     const deps = clonedDeps({ exec: async () => ({ code: 0, stdout: "2026-08-21T10:00:00+00:00\n", stderr: "" }) });
     const pending = [{ store: "team:claimview", key: "board.slack", change: "changed" }, { path: ".sops.yaml" }];

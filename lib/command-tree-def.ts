@@ -3556,6 +3556,7 @@ export const TREE: Record<string, CommandNode> = {
         agentSafe: true,
         args: [
           { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
+          { name: "Sync only", flag: "--sync", type: "boolean", default: false, hint: "With --json, only the sync fields: what is waiting to reach the org and why" },
           SETUP_JSON_ARG,
         ],
       },

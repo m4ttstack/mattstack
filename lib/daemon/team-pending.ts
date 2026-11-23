@@ -3,7 +3,7 @@ import { join } from "path";
 import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
 import { diffStoreKeys } from "../../packages/rt-client/src/settings/store-diff.ts";
 import type { RunResult } from "../subprocess.ts";
-import { parsePorcelainZ } from "./home-snapshot-plan.ts";
+import { isUnderZone, parsePorcelainZ } from "./home-snapshot-plan.ts";
 import { teamScope } from "./home-snapshot.ts";
 
 export type PendingEntry =
@@ -27,7 +27,7 @@ function storeOf(path: string): "org" | `team:${string}` | null {
  * `refs/remotes/origin/<branch>`, never `@{u}`, which an rt clone may not
  * have configured. Throws on a git failure.
  */
-export async function readPending(repoDir: string, exec: PendingExec, opts: { unowned: string[]; heldBack: string[] }): Promise<PendingEntry[]> {
+export async function readPending(repoDir: string, exec: PendingExec, opts: { unowned: string[]; heldBack: string[]; packZones: string[] }): Promise<PendingEntry[]> {
   const git = async (args: string[], allowFail = false): Promise<RunResult> => {
     const result = await exec(["git", ...args], { cwd: repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
     if (result.exitCode !== 0 && !allowFail) throw new Error(`git ${args[0]} failed: ${result.stderr.trim()}`);
@@ -52,7 +52,8 @@ export async function readPending(repoDir: string, exec: PendingExec, opts: { un
   const heldBack = new Set(opts.heldBack);
   const out: PendingEntry[] = [];
   for (const path of [...paths].sort()) {
-    if (!teamScope(path) || unowned.has(path)) continue;
+    // Packs reach origin only through `rt skills sync`, never a snapshot round.
+    if (!teamScope(path) || unowned.has(path) || opts.packZones.some((zone) => isUnderZone(path, zone))) continue;
     const store = storeOf(path);
     if (store === null) {
       out.push(heldBack.has(path) ? { path, heldBack: true } : { path });

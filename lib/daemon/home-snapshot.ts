@@ -242,7 +242,7 @@ export interface SnapshotSpec {
   /** The remote `tokenFor` reads for; the token is offered to its https host only. */
   originUrl?: string;
   /** Lists what is waiting to reach origin; `unowned` and `heldBack` are the engine's own lists from the latest round. */
-  pendingOf?: (exec: PendingExec, opts: { unowned: string[]; heldBack: string[] }) => Promise<PendingEntry[]>;
+  pendingOf?: (exec: PendingExec, opts: { unowned: string[]; heldBack: string[]; packZones: string[] }) => Promise<PendingEntry[]>;
   /** The retired pre-kv state file to import once; home only. */
   legacyStatePath?: string;
 }
@@ -1923,7 +1923,10 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   async function refreshPending(): Promise<boolean> {
     if (!spec.pendingOf) return false;
     try {
-      const next = await spec.pendingOf(deps.exec, { unowned: [...unownedDirty], heldBack: [...heldBack] });
+      const packZones = spec.janitorSavesOnly
+        ? Object.entries(readClaims().zones).filter(([zone, claim]) => spec.janitorSavesOnly!(zone, claim.owner)).map(([zone]) => zone)
+        : [];
+      const next = await spec.pendingOf(deps.exec, { unowned: [...unownedDirty], heldBack: [...heldBack], packZones });
       lastLoggedPendingError = null;
       const changed = JSON.stringify(next) !== JSON.stringify(pending);
       pending = next;

@@ -53,8 +53,8 @@ describe('GET /api/settings/sync', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { orgs: OrgSync[] };
     expect(runRt.mock.calls.map(c => c[0])).toEqual([
-      ['team', 'status', '--team', 'acme', '--json'],
-      ['team', 'status', '--team', 'beta', '--json'],
+      ['team', 'status', '--team', 'acme', '--sync', '--json'],
+      ['team', 'status', '--team', 'beta', '--sync', '--json'],
     ]);
     expect(runRt.mock.calls[0]![1]).toEqual({ timeoutMs: READ_TIMEOUT_MS });
     expect(body.orgs).toEqual([

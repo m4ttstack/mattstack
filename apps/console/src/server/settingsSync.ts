@@ -44,7 +44,7 @@ async function readStatus(
 ): Promise<TeamStatusJson | null> {
   try {
     const { code, stdout } = await runRt(
-      ['team', 'status', '--team', org, '--json'],
+      ['team', 'status', '--team', org, '--sync', '--json'],
       {
         timeoutMs: READ_TIMEOUT_MS,
       }

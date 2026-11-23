@@ -2364,7 +2364,7 @@ describe("startSnapshot: pending", () => {
     const { fn } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
     const { deps } = baseDeps({ exec: fn });
     const { repoDir: _repoDir, ...specDeps } = deps;
-    const seen: { unowned: string[]; heldBack: string[] }[] = [];
+    const seen: { unowned: string[]; heldBack: string[]; packZones: string[] }[] = [];
     const spec: SnapshotSpec = {
       ...homeSnapshotSpec(FAKE_REPO_DIR), id: "team:acme", kvNamespace: "team-snapshot:acme", eventPrefix: "team",
       pendingOf: async (_exec, opts) => { seen.push(opts); return [{ store: "team:acme", key: "board.slack", change: "changed" }]; },
@@ -2390,6 +2390,27 @@ describe("startSnapshot: pending", () => {
 
     expect(handle.status().pending).toEqual([{ path: ".sops.yaml" }]);
     expect(updates).toBeGreaterThan(0);
+    handle.stop();
+  });
+
+  test("pendingOf gets the zones a round only saves, never commits", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "" }));
+    const { deps } = baseDeps({ exec: fn });
+    const { repoDir: _repoDir, ...specDeps } = deps;
+    const seen: string[][] = [];
+    const spec: SnapshotSpec = {
+      ...homeSnapshotSpec(FAKE_REPO_DIR), id: "team:acme", kvNamespace: "team-snapshot:acme", eventPrefix: "team",
+      standingZones: () => ({
+        "mattstack/teams/web/plugin/": { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" },
+        "prefs/": { owner: "matt", claimedAt: "1970-01-01T00:00:00.000Z" },
+      }),
+      janitorSavesOnly: (_zone, owner) => owner === "skills-publish",
+      pendingOf: async (_exec, opts) => { seen.push(opts.packZones); return []; },
+    };
+    const handle = startSnapshot(spec, specDeps);
+    await handle.ready;
+    await handle.runNow("manual");
+    expect(seen.at(-1)).toEqual(["mattstack/teams/web/plugin/"]);
     handle.stop();
   });
 

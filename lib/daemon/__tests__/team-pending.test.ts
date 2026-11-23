@@ -53,7 +53,7 @@ function clone(opts: Clone) {
   return { repoDir, exec, calls };
 }
 
-const none = { unowned: [], heldBack: [] };
+const none = { unowned: [], heldBack: [], packZones: [] };
 
 describe("readPending", () => {
   test("maps a changed team store to its keys", async () => {
@@ -95,14 +95,23 @@ describe("readPending", () => {
       origin: { [ORG_STORE]: `{"a": 1}` },
       status: ` M ${ORG_STORE}\0?? .sops.yaml\0`,
     });
-    expect(await readPending(c.repoDir, c.exec, { unowned: [ORG_STORE], heldBack: [] })).toEqual([{ path: ".sops.yaml" }]);
+    expect(await readPending(c.repoDir, c.exec, { unowned: [ORG_STORE], heldBack: [], packZones: [] })).toEqual([{ path: ".sops.yaml" }]);
   });
 
   test("marks a held-back marketplace path", async () => {
     const c = clone({ status: " M .claude-plugin/marketplace.json\0" });
-    expect(await readPending(c.repoDir, c.exec, { unowned: [], heldBack: [".claude-plugin/marketplace.json"] })).toEqual([
+    expect(await readPending(c.repoDir, c.exec, { unowned: [], heldBack: [".claude-plugin/marketplace.json"], packZones: [] })).toEqual([
       { path: ".claude-plugin/marketplace.json", heldBack: true },
     ]);
+  });
+
+  test("leaves out pack folders, which publish only through skills sync", async () => {
+    const c = clone({
+      status: "?? mattstack/teams/claimview/plugin/skills/a/SKILL.md\0 M mattstack/org/packs/base/x.md\0 M .sops.yaml\0",
+      ahead: ["mattstack/teams/claimview/plugin/compiled.json"],
+    });
+    const opts = { unowned: [], heldBack: [], packZones: ["mattstack/teams/claimview/plugin/", "mattstack/org/packs/"] };
+    expect(await readPending(c.repoDir, c.exec, opts)).toEqual([{ path: ".sops.yaml" }]);
   });
 
   test("nothing waiting reads as an empty list", async () => {

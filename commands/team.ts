@@ -1296,6 +1296,18 @@ async function readTeamSyncFields(deps: TeamDeps, slug: string): Promise<TeamSyn
   }
 }
 
+/** The sync half of `rt team status --json` alone: local git and the daemon, with no roster, relay, switchboard or keychain read, so Console can refresh it on every event. */
+async function teamSyncStatus(deps: TeamDeps, slug: string, dir: string) {
+  const read = deps.statusRead ?? defaultStatusRead();
+  const branch = await checkedOutBranch(deps.probes, dir);
+  const homeBranch = approvedBranches(deps.probes, slug, dir)[0] ?? "main";
+  const trialBranch = readTeamLocal(deps.probes, slug).trialBranch;
+  const trial = branch !== null && branch === trialBranch && branch !== homeBranch;
+  const { reachable: _reachable, ...sync } = await readTeamSyncFields(deps, slug);
+  const pullIntervalSec = clampPullIntervalSec(Number(read<{ pullIntervalSec?: unknown }>("rt.teamSnapshot")?.pullIntervalSec));
+  return { slug, branch, trial, ...sync, pullIntervalSec };
+}
+
 export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
 
@@ -1311,6 +1323,10 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     const dir = orgDirUnder(deps.probes.home, slug);
     if (!deps.probes.exists(dir)) {
       throw new UserActionableError("no-team", `The ${slug} team is not on this Mac`, {}, { next: "rt team join" });
+    }
+    if (json && args.includes("--sync")) {
+      deps.print(JSON.stringify(envelope(await teamSyncStatus(deps, slug, dir))));
+      return;
     }
 
     const read = deps.statusRead ?? defaultStatusRead();
