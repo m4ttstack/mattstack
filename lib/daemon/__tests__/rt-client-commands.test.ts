@@ -115,7 +115,7 @@ describe("rt-client command coverage", () => {
         lastParity: () => null,
       },
       bgClaims: { claim: () => {}, release: () => false, releaseByPane: () => [], list: () => [], close_: () => {} },
-      homeSnapshot: { stop: () => {}, runNow: async () => ({}) as any, pullNow: async () => ({}) as any, status: () => ({}) as any, settled: async () => {}, locked: (fn) => fn(), ready: Promise.resolve() },
+      homeSnapshot: { stop: () => {}, runNow: async () => ({}) as any, pushNow: async () => ({}) as any, pullNow: async () => ({}) as any, status: () => ({}) as any, settled: async () => {}, locked: (fn) => fn(), ready: Promise.resolve() },
       teamSnapshots: { stop() {}, rescan: async () => {}, status: () => [], pullNow: async () => ({ outcome: "skipped", detail: null }), moveNow: async () => null, ready: Promise.resolve(), pause: async () => {}, resume: async () => {} },
       repos: { withReconcilerHeld: async (fn) => fn(), refreshWatchedRepos: () => {} },
       gitBadges: { readAll: () => new Map(), replaceRepo: () => ({ changed: false }), dropRepos: () => [] },

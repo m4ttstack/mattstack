@@ -56,7 +56,7 @@ import { gateVerdict, headHoldsOrgStore, holdSentence, showMarkerAt, shownDataBr
 import { ORG_LAYOUT } from "../team/org-marker.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
-import { HOME_SNAPSHOT_NS, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
+import { HOME_SNAPSHOT_NS, readHomePushRecord, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
 import { isUnderZone, parsePorcelainZ, planSnapshot, scopeEntries, type JanitorZone, type StatusEntry } from "./home-snapshot-plan.ts";
 import { JANITOR_REF_PREFIX, janitorRefFor, packsInZone, pullBlockedSentence, uniquePacks, zoneOfJanitorRef } from "../team/unpublished-packs.ts";
 import { teamPackRel } from "../team/team-pack-path.ts";
@@ -138,9 +138,19 @@ export interface SnapshotStatus {
   ownersError: string | null;
 }
 
+export interface PushNowResult {
+  committed: boolean;
+  pushed: boolean;
+  error: string | null;
+  /** Why no push ran: the commit cycle's skip reason, "conflict", "layout-hold", or "deferred" when git did not answer. */
+  skipped: string | null;
+}
+
 export interface HomeSnapshotHandle {
   stop(): void;
   runNow(reason: SnapshotReason): Promise<SnapshotResult>;
+  /** Commits, then pushes at once instead of after pushDelaySec, through the same guards as a timed push. Concurrent calls share one round. */
+  pushNow(): Promise<PushNowResult>;
   /** Fetch, then fast-forward or rebase. A spec without a `pull` policy always skips. `converge:false` keeps the post-pull hook out of the caller's own path; a pull that moved HEAD still converges, once the push settles. */
   pullNow(opts?: { converge?: boolean }): Promise<PullResult>;
   status(): SnapshotStatus;
@@ -860,6 +870,13 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // A conflict outlives the daemon: a restart must not resume pushing a
     // clone whose rebase a human has not yet finished.
     conflicted = getKvValue<{ at: number; detail: string } | null>(spec.kvNamespace, CONFLICT_KEY, null, resolveDb());
+    const lastPush = readHomePushRecord(resolveDb(), spec.kvNamespace);
+    if (lastPush?.ok) lastPushAt = lastPush.at;
+    else if (lastPush) {
+      // Pending, so the next cycle retries the push and a success clears the restored error.
+      lastPushError = lastPush.error ?? "push failed";
+      pushPending = true;
+    }
     if (deps.readSettings().enabled !== false) {
       tryArm();
       // tryArm arms the interval; this is the boot pull, so a daemon that
@@ -1861,6 +1878,33 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     }
   }
 
+  let pushNowInFlight: Promise<PushNowResult> | null = null;
+
+  function pushNow(): Promise<PushNowResult> {
+    if (pushNowInFlight) return pushNowInFlight;
+    const p = doPushNow().finally(() => { pushNowInFlight = null; });
+    pushNowInFlight = p;
+    return p;
+  }
+
+  async function doPushNow(): Promise<PushNowResult> {
+    const run = await runNow("manual");
+    const committed = run.committed;
+    if (run.skipped) return { committed, pushed: false, error: null, skipped: run.skipped };
+    if (conflicted) return { committed, pushed: false, error: null, skipped: "conflict" };
+    if (layoutHold) return { committed, pushed: false, error: null, skipped: "layout-hold" };
+    if (pushTimer) { deps.clearTimeout(pushTimer); pushTimer = null; }
+    if (pushRetryTimer) { deps.clearTimeout(pushRetryTimer); pushRetryTimer = null; }
+    pushRetryAttempt = 0;
+    // A timed push already running captured an older HEAD: let it finish, then push this round's commit.
+    if (pushInFlight) await pushInFlight.catch(() => {});
+    await doPush();
+    if (!pushPending) return { committed, pushed: true, error: null, skipped: null };
+    if (lastPushError !== null) return { committed, pushed: false, error: lastPushError, skipped: null };
+    const skipped = conflicted ? "conflict" : layoutHold ? "layout-hold" : "deferred";
+    return { committed, pushed: false, error: null, skipped };
+  }
+
   function status(): SnapshotStatus {
     // Before the first read lands the working-role roots are all there is, and they can be self-granted: report pull-only.
     const current = spec.readAuthorization ? (lastAuthorization ?? { ...staticAuthorization(), pullOnly: true }) : staticAuthorization();
@@ -1932,5 +1976,5 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (gitProbeRetryTimer) deps.clearTimeout(gitProbeRetryTimer);
   }
 
-  return { stop, runNow, pullNow, status, settled, locked: withGitLock, ready: readyPromise };
+  return { stop, runNow, pushNow, pullNow, status, settled, locked: withGitLock, ready: readyPromise };
 }
