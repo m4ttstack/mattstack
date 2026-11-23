@@ -4,12 +4,6 @@ import { GitShell as RealGitShell } from '../src/core/git-shell.ts';
 
 restoreMockedModulesAfterAll();
 
-mock.module('node:child_process', () => ({
-  execFile: (_cmd: string, _args: string[], _opts: any, cb: Function) => {
-    cb(null, '1\n');
-  },
-}));
-
 mock.module('../src/core/git-shell.ts', () => ({
   GitShell: {
     ...RealGitShell,
@@ -17,6 +11,7 @@ mock.module('../src/core/git-shell.ts', () => ({
     isAncestor: mock(),
     getMergeBase: mock(),
     getBranchHead: mock(),
+    countCommits: mock(),
   },
 }));
 
@@ -27,6 +22,7 @@ const mockListBranches = GitShell.listLocalBranches as ReturnType<typeof mock>;
 const mockIsAncestor = GitShell.isAncestor as ReturnType<typeof mock>;
 const mockGetMergeBase = GitShell.getMergeBase as ReturnType<typeof mock>;
 const mockGetBranchHead = GitShell.getBranchHead as ReturnType<typeof mock>;
+const mockCountCommits = (GitShell as unknown as { countCommits: ReturnType<typeof mock> }).countCommits;
 
 describe('discoverLocalStacks', () => {
   beforeEach(() => {
@@ -34,6 +30,8 @@ describe('discoverLocalStacks', () => {
     mockIsAncestor.mockReset();
     mockGetMergeBase.mockReset();
     mockGetBranchHead.mockReset();
+    mockCountCommits.mockReset();
+    mockCountCommits.mockResolvedValue(1);
   });
 
   test('returns empty when no branches exist', async () => {
@@ -107,5 +105,24 @@ describe('discoverLocalStacks', () => {
     expect(result).toHaveLength(1);
     expect(result[0]!.root).toBe('release');
     expect(result[0]!.branches).toEqual([{ branch: 'feat-x', parent: 'release' }]);
+  });
+
+  test('picks the candidate with the fewest commits to the branch as its parent', async () => {
+    mockListBranches.mockResolvedValue(['main', 'feat-a', 'feat-b']);
+    mockIsAncestor.mockResolvedValue(true);
+    mockGetMergeBase.mockImplementation(async (_cwd: string, a: string) => (a === 'main' ? 'commit-main' : 'commit-a'));
+    mockGetBranchHead.mockImplementation(async (_cwd: string, branch: string) => {
+      if (branch === 'main') return 'commit-main';
+      if (branch === 'feat-a') return 'commit-a';
+      return 'commit-b';
+    });
+    mockCountCommits.mockImplementation(async (_cwd: string, from: string) => (from === 'commit-main' ? 2 : 1));
+
+    const result = await discoverLocalStacks('/repo');
+
+    expect(result[0]!.branches).toEqual([
+      { branch: 'feat-a', parent: 'main' },
+      { branch: 'feat-b', parent: 'feat-a' },
+    ]);
   });
 });

@@ -77,8 +77,7 @@ async function findClosestParent(
       const head = await GitShell.getBranchHead(cwd, candidate);
       if (base === head) {
         const branchHead = await GitShell.getBranchHead(cwd, branch);
-        const { stdout } = await countCommits(cwd, head, branchHead);
-        const distance = parseInt(stdout, 10) || Infinity;
+        const distance = (await GitShell.countCommits(cwd, head, branchHead)) || Infinity;
         if (distance < bestDistance) {
           bestDistance = distance;
           best = candidate;
@@ -92,14 +91,4 @@ async function findClosestParent(
   }
 
   return best;
-}
-
-async function countCommits(cwd: string, from: string, to: string): Promise<{ stdout: string }> {
-  const { execFile } = await import('node:child_process');
-  return new Promise((resolve, reject) => {
-    execFile('git', ['rev-list', '--count', `${from}..${to}`], { cwd }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve({ stdout: stdout.trim() });
-    });
-  });
 }
