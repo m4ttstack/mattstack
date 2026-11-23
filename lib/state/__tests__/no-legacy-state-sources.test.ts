@@ -96,26 +96,29 @@ describe("daemon startup opens state.db before serving", () => {
     const stateDbUnit = src.indexOf('name: "state-db"');
     const handlersUnit = src.indexOf('name: "handlers"');
     const apiUnit = src.indexOf('name: "api-server"');
-    const socketUnit = src.indexOf('name: "socket-server"');
-    for (const i of [stateDbUnit, handlersUnit, apiUnit, socketUnit]) expect(i).toBeGreaterThan(-1);
+    const readyUnit = src.indexOf('name: "socket-ready"');
+    for (const i of [stateDbUnit, handlersUnit, apiUnit, readyUnit]) expect(i).toBeGreaterThan(-1);
 
     // Spec "Migration & contention": state.db opens (the one long legacy-import
     // transaction) in startup, before anything serves, so the block never lands
-    // in the serving event loop. Handlers build over the opened store; both
-    // servers bind after handlers exist, or a command could arrive while
-    // routedHandlers is still undefined.
+    // in the serving event loop. Handlers build over the opened store. The API
+    // server binds after handlers exist, and the unix socket, bound early,
+    // dispatches only from the socket-ready unit on, or a command could
+    // arrive while routedHandlers is still undefined.
     expect(stateDbUnit).toBeLessThan(handlersUnit);
     expect(handlersUnit).toBeLessThan(apiUnit);
-    expect(apiUnit).toBeLessThan(socketUnit);
+    expect(apiUnit).toBeLessThan(readyUnit);
 
     const open = src.indexOf("openBranchCacheStore();", stateDbUnit);
     const bindApi = src.indexOf("seams.bindApiServer(", apiUnit);
-    const bindSocket = src.indexOf("seams.bindSocketServer(", socketUnit);
+    const serve = src.indexOf('ctx.availability.state = "serving"', readyUnit);
     expect(open).toBeGreaterThan(-1);
     expect(bindApi).toBeGreaterThan(-1);
-    expect(bindSocket).toBeGreaterThan(-1);
+    expect(serve).toBeGreaterThan(-1);
     expect(open).toBeLessThan(bindApi);
-    expect(open).toBeLessThan(bindSocket);
+    expect(open).toBeLessThan(serve);
+    // Nothing else may open the socket for dispatch.
+    expect(src.split('.state = "serving"').length - 1).toBe(1);
   });
 });
 

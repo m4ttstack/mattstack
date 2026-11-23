@@ -1582,15 +1582,6 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
       },
     },
 
-    // Requests dispatch only from here: every handler's subsystem is started.
-    {
-      name: "socket-ready",
-      start() {
-        ctx.availability.state = "serving";
-      },
-      stop() {},
-    },
-
     // API server. A failed bind exits fatally (fatal-boot handler); runUnits
     // stops the already-bound socket-server and rt-pid units on the way out,
     // so that exit never strands a socket-bound zombie.
@@ -1616,6 +1607,18 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         try { ctx.servers.api?.stop(true); } catch { /* server already stopped */ }
         clearWsClients();
       },
+    },
+
+    // Requests dispatch only from here: every handler's subsystem is started
+    // and the API server is bound. Serving ahead of the API bind would have
+    // `rt daemon status` report a daemon as running while it is still parked
+    // on a held API port.
+    {
+      name: "socket-ready",
+      start() {
+        ctx.availability.state = "serving";
+      },
+      stop() {},
     },
 
     // 11: pollers, freshness, discussions poller (plus the serving-startup

@@ -413,7 +413,8 @@ export async function showStatus(args: string[] = []): Promise<void> {
     return;
   }
 
-  const response = await daemonQuery("status");
+  // No retry: a daemon that is still booting is what this verb reports.
+  const response = await daemonQuery("status", undefined, undefined, { retryBudgetMs: 0 });
   // A failed status query does NOT mean the daemon is down — it answers `ping`
   // in a fraction of the budget a loaded `status` needs. Establish liveness
   // before reporting, and only pay for the probe when nothing came back.

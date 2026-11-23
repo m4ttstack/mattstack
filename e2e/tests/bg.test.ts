@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { createTestHome, RT_BINARY } from "../harness.ts";
 import { bgRelease, bgStop, formatPaneRef } from "../../packages/rt-client/src/index.ts";
+import { waitForSocket } from "../daemon-ready.ts";
 
 /**
  * The fake herdr binary: a bash shim, same journal/state convention as
@@ -188,14 +189,6 @@ Bun.listen({
   },
 });
 `;
-
-async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!existsSync(sockPath)) {
-    if (Date.now() > deadline) throw new Error(`daemon socket never appeared at ${sockPath}`);
-    await Bun.sleep(100);
-  }
-}
 
 let home = "";
 let cleanupHome: () => void = () => {};

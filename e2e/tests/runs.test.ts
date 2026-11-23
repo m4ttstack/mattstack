@@ -10,19 +10,12 @@ import { existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import { createTestHome, daemonApiPort, RT_BINARY } from "../harness.ts";
 import type { RunDetail, RunSummary } from "../../packages/rt-client/src/commands.ts";
+import { waitForSocket } from "../daemon-ready.ts";
 
 // REST envelope shape (lib/daemon.ts's handleCommand): { ok: true, data } |
 // { ok: false, error } — mirrored here since rt-client can't be imported by
 // the daemon and there's no shared envelope type to reach for.
 type ApiEnvelope<T> = { ok: boolean; data: T; error?: string };
-
-async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!existsSync(sockPath)) {
-    if (Date.now() > deadline) throw new Error(`daemon socket never appeared at ${sockPath}`);
-    await Bun.sleep(100);
-  }
-}
 
 // Same seed SQL as lib/runs/__tests__/store.test.ts's seedRun — written
 // directly with bun:sqlite here (the daemon is the only reader; the test

@@ -50,7 +50,8 @@ test("returns { drained: true, left: 0 } as soon as inFlight reaches 0", async (
   const clock = fakeClock((calls) => { if (calls === 2) availability.inFlight = 0; });
   const result = await drainSocket(availability, { settleWaiters: () => {}, ...clock });
   expect(result).toEqual({ drained: true, left: 0 });
-  expect(clock.sleeps).toEqual([50, 50]);
+  // Two polls, then one more tick for the last reply to reach its client.
+  expect(clock.sleeps).toEqual([50, 50, 50]);
 });
 
 test("gives up at the cap: returns { drained: false, left: 1 } once now() passes 5_000ms", async () => {
@@ -69,12 +70,19 @@ test("honours a shorter capMs", async () => {
   expect(clock.now()).toBe(200);
 });
 
-test("returns at once when nothing is in flight", async () => {
+test("with nothing in flight it still waits one tick: a reply built just before the signal may not be flushed", async () => {
   const availability = serving(0);
   const clock = fakeClock();
   const result = await drainSocket(availability, { settleWaiters: () => {}, ...clock });
   expect(result).toEqual({ drained: true, left: 0 });
-  expect(clock.sleeps).toEqual([]);
+  expect(clock.sleeps).toEqual([50]);
+});
+
+test("a drain that hits the cap does not add the flush tick", async () => {
+  const availability = serving(1);
+  const clock = fakeClock();
+  await drainSocket(availability, { settleWaiters: () => {}, ...clock, capMs: 100 });
+  expect(clock.sleeps).toEqual([50, 50]);
 });
 
 test("a settleWaiters that throws does not stop the drain", async () => {

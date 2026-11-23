@@ -17,6 +17,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createTestHome, RT_BINARY } from "../harness.ts";
 import { fakeHerdr, HerdrFakeError, HerdrFakeStream, type FakeHerdrHandler } from "../../lib/herdr/__tests__/fake-herdr.ts";
+import { waitForSocket } from "../daemon-ready.ts";
 
 const PANE = "w1:p1";
 const SWEEP_MS = "500";
@@ -86,14 +87,6 @@ case "$1 $2" in
     ;;
 esac
 `;
-
-async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!existsSync(sockPath)) {
-    if (Date.now() > deadline) throw new Error(`daemon socket never appeared at ${sockPath}`);
-    await Bun.sleep(100);
-  }
-}
 
 let home = "";
 let cleanupHome: () => void = () => {};

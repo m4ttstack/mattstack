@@ -98,6 +98,11 @@ async function trySocketQuery(
   }
 }
 
+export interface DaemonQueryOptions {
+  /** How long to keep asking a daemon that answers starting or stopping. 0 for a caller that reports the daemon's state, such as `rt daemon status`. */
+  retryBudgetMs?: number;
+}
+
 function retryBudgetMs(): number {
   return retryBudgetOverride() ?? DAEMON_RETRY_BUDGET_MS;
 }
@@ -308,9 +313,11 @@ export async function daemonQueryAttributed(
   cmd: string,
   payload?: Record<string, any>,
   timeoutMs?: number,
+  opts: DaemonQueryOptions = {},
 ): Promise<SocketQueryAttempt> {
+  const budgetMs = opts.retryBudgetMs ?? retryBudgetMs();
   // 1. Try HTTP request over Unix socket
-  const first = await queryWhileUnavailable(cmd, payload, timeoutMs, Date.now() + retryBudgetMs());
+  const first = await queryWhileUnavailable(cmd, payload, timeoutMs, Date.now() + budgetMs);
   if (first.response !== null) return first;
   // A daemon that says it is starting or stopping is running: asking the tray
   // to start one, or warning that it is down, would both be wrong.
@@ -334,7 +341,7 @@ export async function daemonQueryAttributed(
     // take longer than 300ms, and a successful start must not be reported
     // as "installed but not running" just because the retry landed early.
     await waitForSocket();
-    const retry = await queryWhileUnavailable(cmd, payload, timeoutMs, Date.now() + retryBudgetMs());
+    const retry = await queryWhileUnavailable(cmd, payload, timeoutMs, Date.now() + budgetMs);
     if (retry.response !== null || retry.unavailable) return retry;
     last = retry;
   }
@@ -354,8 +361,9 @@ export async function daemonQuery(
   cmd: string,
   payload?: Record<string, any>,
   timeoutMs?: number,
+  opts: DaemonQueryOptions = {},
 ): Promise<DaemonResponse | null> {
-  return (await daemonQueryAttributed(cmd, payload, timeoutMs)).response;
+  return (await daemonQueryAttributed(cmd, payload, timeoutMs, opts)).response;
 }
 
 /**

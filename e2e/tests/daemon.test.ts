@@ -2,14 +2,7 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { createTestHome, daemonApiPort, rt, RT_BINARY } from "../harness.ts";
-
-async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!existsSync(sockPath)) {
-    if (Date.now() > deadline) throw new Error(`daemon socket never appeared at ${sockPath}`);
-    await Bun.sleep(100);
-  }
-}
+import { unavailableReply, waitForSocket } from "../daemon-ready.ts";
 
 async function waitFor(what: string, cond: () => boolean, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -61,19 +54,21 @@ describe("fatal boot", () => {
       });
 
       // Parked means the outer park-retry loop has logged, after
-      // bindApiServerWithRetry's own inner retry ran out. Until then neither
-      // server has bound, so rt.sock and rt.pid must not exist.
+      // bindApiServerWithRetry's own inner retry ran out. The unix socket and
+      // rt.pid are held from early in boot, but the socket does not serve
+      // until the API server binds: it answers "starting".
       await waitFor("the daemon to log that it parked", () => daemonLogHas(rtDir, PARKED_LINE), 30_000);
       expect(daemon.exitCode).toBeNull();
-      expect(existsSync(join(rtDir, "rt.sock"))).toBe(false);
-      expect(existsSync(join(rtDir, "rt.pid"))).toBe(false);
+      expect(existsSync(join(rtDir, "rt.pid"))).toBe(true);
+      expect(await unavailableReply(join(rtDir, "rt.sock"))).toMatchObject({
+        ok: false,
+        error: "rt daemon is starting; try again in a moment",
+        unavailable: "starting",
+      });
 
       squatter.stop(true);
 
-      // rt.sock appears when the socket server binds; rt.pid follows a step
-      // later in the boot order, so it is awaited, not checked at once.
       await waitForSocket(join(rtDir, "rt.sock"), 40_000);
-      await waitFor("rt.pid", () => existsSync(join(rtDir, "rt.pid")), 10_000);
       expect(daemon.exitCode).toBeNull();
     } finally {
       squatter.stop(true);

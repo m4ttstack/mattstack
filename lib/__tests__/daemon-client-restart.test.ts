@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "fs";
 import { DAEMON_SOCK_PATH, RT_DIR, TRAY_SOCK_PATH, markDaemonInstalled, markDaemonUninstalled } from "../daemon-config.ts";
-import { __test__, daemonQueryAttributed, daemonSocketQuery, isDaemonRunning, pingDaemon } from "../daemon-client.ts";
+import { __test__, daemonQuery, daemonQueryAttributed, daemonSocketQuery, isDaemonRunning, pingDaemon } from "../daemon-client.ts";
 import { captureOut } from "../ui/__tests__/capture-out.ts";
 
 const STARTING = { ok: false, error: "rt daemon is starting; try again in a moment", unavailable: "starting" };
@@ -81,6 +81,16 @@ describe("daemon-client: a daemon that is starting or stopping", () => {
     const attempt = await daemonQueryAttributed("status");
     expect(attempt.response).toBeNull();
     expect(hits).toBe(1);
+  });
+
+  test("a caller that asks for no retry gets one attempt at a starting daemon, whatever the default budget", async () => {
+    process.env.RT_DAEMON_RETRY_BUDGET_MS = "5000";
+    let hits = 0;
+    daemon = Bun.serve({ unix: DAEMON_SOCK_PATH, fetch: () => { hits++; return json(STARTING, 503); } });
+    const started = Date.now();
+    expect(await daemonQuery("status", undefined, undefined, { retryBudgetMs: 0 })).toBeNull();
+    expect(hits).toBe(1);
+    expect(Date.now() - started).toBeLessThan(500);
   });
 
   test("after the tray acks a start, the wait for the socket runs up to the retry budget", async () => {

@@ -33,6 +33,7 @@ import { join } from "path";
 import { createTestHome, RT_BINARY } from "../harness.ts";
 import { machineSettingsPath, userSettingsPath } from "../../lib/rt-paths.ts";
 import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
+import { waitForSocket } from "../daemon-ready.ts";
 
 // ─── Shared helpers (mirroring e2e/tests/endpoint.test.ts) ───────────────────
 
@@ -50,14 +51,6 @@ function readInterceptRulesRow(testHome: string): { rules: { repo: string; repoR
     return row ? JSON.parse(row.v) : null;
   } finally {
     db.close();
-  }
-}
-
-async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!existsSync(sockPath)) {
-    if (Date.now() > deadline) throw new Error(`daemon socket never appeared at ${sockPath}`);
-    await Bun.sleep(100);
   }
 }
 

@@ -22,5 +22,10 @@ export async function drainSocket(
   while (availability.inFlight > 0 && deps.now() < deadline) {
     await deps.sleep(POLL_MS);
   }
-  return { drained: availability.inFlight === 0, left: availability.inFlight };
+  const left = availability.inFlight;
+  // inFlight drops when a reply is built, not when it is written. The unit
+  // stops that follow are synchronous and end in a force-close, so without
+  // this turn of the event loop a large reply would be cut off.
+  if (left === 0) await deps.sleep(POLL_MS);
+  return { drained: left === 0, left };
 }

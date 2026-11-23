@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { createTestHome, RT_BINARY } from "../harness.ts";
 import { fakeHerdr, HerdrFakeError } from "../../lib/herdr/__tests__/fake-herdr.ts";
+import { waitForSocket } from "../daemon-ready.ts";
 
 /** Answers only the readiness ping, so a launch finds herdr running and never
     starts the shim as a server; every other call reads as unreachable, as it
@@ -85,14 +86,6 @@ case "$1 $2" in
     ;;
 esac
 `;
-
-async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!existsSync(sockPath)) {
-    if (Date.now() > deadline) throw new Error(`daemon socket never appeared at ${sockPath}`);
-    await Bun.sleep(100);
-  }
-}
 
 let apiPort = 0;
 const children: Array<ReturnType<typeof Bun.spawn>> = [];

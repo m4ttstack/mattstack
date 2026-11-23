@@ -39,8 +39,8 @@ const EXPECTED_ORDER = [
   "state-db",
   "background-subsystems",
   "handlers",
-  "socket-ready",
   "api-server",
+  "socket-ready",
   "pollers",
   "ready",
   "socket-drain",
@@ -84,15 +84,16 @@ test("units start in spec order, pid right after the socket bind, state.db busy_
   expect(starts).toEqual([...EXPECTED_ORDER]);
 
   // (b) a stale daemon is evicted before the bind, the socket binds in the
-  // starting state, rt.pid follows the bind, and serving starts only after
-  // the handlers unit, ahead of the API bind.
+  // starting state, rt.pid follows the bind, and serving starts only once
+  // the handlers exist and the API server is bound.
   expect(spy.indexOf("evicted")).toBeGreaterThan(-1);
   expect(spy.indexOf("evicted")).toBeLessThan(spy.indexOf("socket-bound:starting"));
   expect(spy.indexOf("pid-written")).toBeGreaterThan(spy.indexOf("socket-bound:starting"));
   expect(spy.indexOf("pid-written")).toBeLessThan(spy.indexOf("start:path-resolution"));
   expect(spy.indexOf("socket-bound:starting")).toBeLessThan(spy.indexOf("start:events-db"));
   expect(ctx.availability.state).toBe("serving");
-  expect(spy.indexOf("api-bound")).toBeGreaterThan(spy.indexOf("start:socket-ready"));
+  expect(spy.indexOf("start:socket-ready")).toBeGreaterThan(spy.indexOf("api-bound"));
+  expect(spy.indexOf("start:socket-ready")).toBeGreaterThan(spy.indexOf("start:handlers"));
 
   // (c) state.db opened at the daemon's contention policy (busy_timeout 250ms).
   const bt = (ctx.stateDb!.query("PRAGMA busy_timeout").get() as { timeout: number }).timeout;
@@ -130,6 +131,7 @@ test("the socket answers starting until the socket-ready unit runs", async () =>
   }));
   await runUnits(units, ctx.log);
   expect(states).toContain("handlers:starting");
+  expect(states).toContain("api-server:starting");
   expect(states).toContain("socket-ready:serving");
   await stopUnits(units, ctx.log);
 });
