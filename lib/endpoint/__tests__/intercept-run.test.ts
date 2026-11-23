@@ -85,6 +85,21 @@ describe("runInterception", () => {
     expect(calls.exec!.args).toEqual(["run", "--keep=PORT,NODE_OPTIONS", "serve"]);
     expect(calls.exec!.env.NODE_OPTIONS).toBe("--require /x.cjs");
   });
+  test("warns when the inject has nowhere to go, and still runs", async () => {
+    const { deps, calls } = harness();
+    await run(deps, ["exec", "serve"]);
+    expect(calls.warned).toEqual([
+      'fakecmd may override rt\'s web settings (PORT): rt could not find "run" in the command to add them after',
+    ]);
+    expect(calls.exec!.args).toEqual(["exec", "serve"]);
+    expect(calls.exec!.env.PORT).toBe("3000");
+  });
+  test("a bare skip marker already keeps everything, so it is not warned about", async () => {
+    const { deps, calls } = harness();
+    await run(deps, ["run", "--keep", "serve"]);
+    expect(calls.warned).toEqual([]);
+    expect(calls.exec!.args).toEqual(["run", "--keep", "serve"]);
+  });
   test("no match → exec real untouched, no claim call", async () => {
     let claimed = false;
     const { deps, calls } = harness({ claim: async () => { claimed = true; return null; } });
