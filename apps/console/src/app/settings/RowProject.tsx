@@ -2,13 +2,15 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
-import { Select } from '@mattstack/app-kit/core';
+import { Group, Select } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 
+import classes from './RowProject.module.css';
 import {
   SettingsRepoContext,
   useKeyExplain,
@@ -80,6 +82,51 @@ export function useProjectOptions(def: SettingDefWire) {
     .map(([value, label]) => ({ value, label }));
 }
 
+const ownerOf = (label: string) => {
+  const at = label.lastIndexOf('/');
+  return at < 0 ? '' : label.slice(0, at);
+};
+
+/** Mantine scrolls the picked option only as far as the list's edge;
+    this runs after it and puts that option in the middle instead. */
+function centerChecked(input: HTMLInputElement | null) {
+  setTimeout(() => {
+    const listId = input?.getAttribute('aria-controls');
+    const list = listId ? document.getElementById(listId) : null;
+    const option = list?.querySelector<HTMLElement>('[data-checked]');
+    const viewport = option?.closest<HTMLElement>(
+      '.mantine-ScrollArea-viewport'
+    );
+    if (!option || !viewport) return;
+    const top =
+      option.getBoundingClientRect().top -
+      viewport.getBoundingClientRect().top +
+      viewport.scrollTop;
+    viewport.scrollTop =
+      top - (viewport.clientHeight - option.offsetHeight) / 2;
+  }, 0);
+}
+
+const nameOf = (label: string) => label.slice(label.lastIndexOf('/') + 1);
+
+/** The options grouped under their owner, so a long list reads as a few
+    short ones and each row shows only the repo's own name. */
+function byOwner(options: { value: string; label: string }[]) {
+  const groups = new Map<string, { value: string; label: string }[]>();
+  for (const o of options) {
+    const owner = ownerOf(o.label);
+    groups.set(owner, [...(groups.get(owner) ?? []), o]);
+  }
+  return [...groups.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([group, items]) => ({
+      group,
+      items: [...items].sort((a, b) =>
+        nameOf(a.label).localeCompare(nameOf(b.label))
+      ),
+    }));
+}
+
 export function ProjectPicker({
   def,
   value,
@@ -98,8 +145,11 @@ export function ProjectPicker({
   const options = useProjectOptions(def).filter(
     o => o.value === value || !exclude.includes(o.value)
   );
+  const input = useRef<HTMLInputElement>(null);
   return (
     <Select
+      ref={input}
+      onDropdownOpen={() => centerChecked(input.current)}
       size="sm"
       w={220}
       aria-label={label}
@@ -107,7 +157,16 @@ export function ProjectPicker({
       searchable
       allowDeselect={false}
       leftSection={<Icon name="folder" size={14} />}
-      data={options}
+      data={byOwner(options)}
+      renderOption={({ option, checked }) => (
+        <Group gap={6} wrap="nowrap">
+          {checked && <Icon name="check" size={14} />}
+          {nameOf(option.label)}
+        </Group>
+      )}
+      comboboxProps={{ width: 280, position: 'bottom-end' }}
+      maxDropdownHeight={320}
+      classNames={{ groupLabel: classes.groupLabel, option: classes.option }}
       value={value}
       onChange={v => v && onPick(v)}
       nothingFoundMessage="No project matches"
