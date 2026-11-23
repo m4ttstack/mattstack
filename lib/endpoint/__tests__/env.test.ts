@@ -43,6 +43,13 @@ describe("applyArgInject", () => {
       .toEqual(["run", "--preserve-env=PORT", "cmd"]);
   });
 
+  test("edits the last occurrence, since doppler keeps only that one", () => {
+    expect(applyArgInject(["run", "--preserve-env=A", "--preserve-env=B", "cmd"], inject, ["PORT"]).args)
+      .toEqual(["run", "--preserve-env=A", "--preserve-env=B,PORT", "cmd"]);
+    expect(applyArgInject(["run", "--preserve-env=A", "--preserve-env", "cmd"], inject, ["PORT"]).args)
+      .toEqual(["run", "--preserve-env=A", "--preserve-env", "cmd"]);
+  });
+
   test("leaves the args after the command separator alone", () => {
     expect(applyArgInject(["run", "--", "tool", "--preserve-env=X"], inject, ["PORT"]).args)
       .toEqual(["run", "--preserve-env=PORT", "--", "tool", "--preserve-env=X"]);

@@ -80,7 +80,8 @@ export function collectPreservedKeys(preserveEnv: string[], callerEnv: Record<st
  * list instead: skipping it would leave doppler free to overwrite rt's keys.
  * A bare `skipIfArgPresent` or `=true` keeps everything, so it is left alone;
  * `=false` is replaced by the keys, since a list with it in reads as names.
- * Only args before `--` count, since the rest belong to the wrapped command.
+ * Only args before `--` count, since the rest belong to the wrapped command,
+ * and only the last occurrence, since doppler keeps only that one.
  * `missedAnchor` is true when the keys could not be added because the anchor
  * is missing, which leaves a wrapper like doppler free to overwrite them.
  */
@@ -89,7 +90,7 @@ export function applyArgInject(args: string[], inject: ArgInject | undefined, en
   const separator = args.indexOf("--");
   const ownArgs = separator === -1 ? args.length : separator;
   const listPrefix = `${inject.skipIfArgPresent}=`;
-  for (let i = 0; i < ownArgs; i++) {
+  for (let i = ownArgs - 1; i >= 0; i--) {
     const arg = args[i]!;
     if (arg === `${listPrefix}true`) return { args, missedAnchor: false };
     if (arg.startsWith(listPrefix)) {
