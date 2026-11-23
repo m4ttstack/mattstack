@@ -32,20 +32,28 @@ public enum UpdatePolicy {
         (isVisible || isMiniaturized) && canBecomeKey
     }
 
-    /// A scheduled update opens Sparkle's window in front, except while setup
-    /// runs: the menu item stands in then, and the next scheduled check asks again.
-    public static func opensUpdateWindow(handledBySparkle: Bool, userInitiated: Bool, setupRunning: Bool) -> Bool {
-        !handledBySparkle && !userInitiated && !setupRunning
+    /// Not silent, a scheduled update opens Sparkle's window in front, except
+    /// while setup runs: the menu item stands in then, and the next scheduled
+    /// check asks again. Silent, the install needs no window.
+    public static func opensUpdateWindow(silent: Bool, handledBySparkle: Bool, userInitiated: Bool, setupRunning: Bool) -> Bool {
+        !silent && !handledBySparkle && !userInitiated && !setupRunning
     }
 
-    public static func hold(setupRunning: Bool, windowsOpen: Int) -> UpdateHold? {
+    /// `silent` is the org's automatic-update setting. Silent, a setup run and
+    /// then a busy daemon hold the install, and open windows do not, since the
+    /// app reopens them. Not silent, setup and then open windows hold, and the
+    /// daemon is not asked.
+    public static func hold(silent: Bool, setupRunning: Bool, windowsOpen: Int, daemonBusy: Bool) -> UpdateHold? {
         if setupRunning { return .setupRunning }
-        if windowsOpen > 0 { return .windowsOpen }
-        return nil
+        if silent { return daemonBusy ? .daemonBusy : nil }
+        return windowsOpen > 0 ? .windowsOpen : nil
     }
+
+    public static let checkInterval: TimeInterval = 3600
 }
 
 public enum UpdateHold: Equatable, Sendable {
     case setupRunning
     case windowsOpen
+    case daemonBusy
 }
