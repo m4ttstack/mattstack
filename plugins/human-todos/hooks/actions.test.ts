@@ -732,6 +732,8 @@ test('Send pressed again while a busy turn holds the first message sends it once
   expect(toasts(events)).toEqual([waiting, waiting])
   release()
   await first
+  // A post can return before the work it started has saved the item, so the test waits for the item itself.
+  for (let tick = 0; tick < 100 && status() !== 'done'; tick++) await new Promise(resolve => setTimeout(resolve, 0))
 
   expect(sent).toEqual(['[Human Todos] #1 "T": the user marked it done and says: here it is'])
   expect(status()).toBe('done')
