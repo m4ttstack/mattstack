@@ -488,6 +488,17 @@ function reviewLine(
         now
       );
     }
+    case 'held':
+      if (!reviewHeldStanding(mr)) return null;
+      return {
+        tone: 'quiet',
+        word: 'review held',
+        detail: r.message || undefined,
+        verbs: [
+          { kind: 'launch-review', label: 'review anyway' },
+          { kind: 'dismiss', label: 'dismiss', domain: 'review' },
+        ],
+      };
     case 'error':
       return {
         tone: 'bad',
@@ -687,6 +698,16 @@ function respondLine(
       return line.tone === 'warn' ? line : settled(line, r.updatedAt, now);
     }
   }
+}
+
+/** A review that stopped on purpose, with nothing on the MR since: GitLab's
+    updatedAt moves on a push, a comment or a reopen. An unknown updatedAt
+    keeps the hold standing. */
+export function reviewHeldStanding(mr: BoardMRWithReview): boolean {
+  const r = mr.review;
+  if (r?.status !== 'held' || laneDismissed(r)) return false;
+  const moved = mr.updatedAt ? Date.parse(mr.updatedAt) : NaN;
+  return !(moved > (r.updatedAt ?? 0));
 }
 
 /** A lane the operator dismissed: the row skips it while the stamp is

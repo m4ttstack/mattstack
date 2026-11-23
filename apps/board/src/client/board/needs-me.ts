@@ -12,7 +12,7 @@ import {
   type TurnConfig,
 } from '../../turn.ts';
 import type { BoardMRWithReview } from '../types.ts';
-import { rowStatus, type Verb } from './row-status.ts';
+import { reviewHeldStanding, rowStatus, type Verb } from './row-status.ts';
 
 export type Need =
   'decide' | 'unstick' | 'respond' | 'fix' | 're-review' | 'review' | 'merge';
@@ -96,6 +96,8 @@ export function needOf(
   const fromLine = lineNeed(mr, now, resolved, self);
   if (fromLine === 'busy') return null;
   if (fromLine) return fromLine;
+  // A review that stopped on purpose leaves nothing to do until the MR moves.
+  if (reviewHeldStanding(mr)) return null;
   if (mr.author.username === self) {
     const s = authorTurn(mr, cfg);
     return s && AUTHOR_NEED[s];

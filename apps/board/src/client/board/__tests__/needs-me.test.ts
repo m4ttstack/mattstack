@@ -201,6 +201,15 @@ describe("needOf: someone else's MR", () => {
       )
     ).toBeNull();
   });
+
+  test('a held review keeps the row out until the MR moves after the hold', () => {
+    const held = { status: 'held', message: 'author is closing this MR', updatedAt: NOW - 60_000 };
+    const before = new Date(NOW - 120_000).toISOString();
+    const after = new Date(NOW - 30_000).toISOString();
+    expect(need(reviewing('UNREVIEWED', { review: held, updatedAt: before }))).toBeNull();
+    expect(need(reviewing('UNREVIEWED', { review: held, updatedAt: null }))).toBeNull();
+    expect(need(reviewing('UNREVIEWED', { review: held, updatedAt: after }))).toBe('review');
+  });
 });
 
 describe('needOf: driven by board.turn', () => {

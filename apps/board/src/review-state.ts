@@ -17,7 +17,7 @@ import {
   type PaneClearable,
 } from './state/index.ts';
 
-export type ReviewStatus = 'queued' | 'reviewing' | 'done' | 'error';
+export type ReviewStatus = 'queued' | 'reviewing' | 'done' | 'error' | 'held';
 export type ReviewOutcome = 'comment' | 'approve';
 
 export interface ReviewState {
