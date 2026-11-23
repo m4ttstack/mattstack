@@ -16,6 +16,9 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     /// Called on the main thread, synchronously, so the flag it sets is in
     /// place before Sparkle's installer sends its quit event.
     var onUpdateInstallingChanged: ((Bool) -> Void)?
+    /// The windows to reopen after the install relaunches the app.
+    var openWindows: (() -> Set<RestorableWindow>)?
+    private let windowRestore = WindowRestore(defaults: .standard)
     private let enabled: Bool
     private var controller: SPUStandardUpdaterController?
     private var observation: NSKeyValueObservation?
@@ -126,6 +129,11 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         c.checkForUpdates(nil)
     }
 
+    /// The windows open when the install quit the app; empty once taken.
+    func takeWindowsToReopen() -> [RestorableWindow] {
+        windowRestore.take()
+    }
+
     /// The version a previous run was installing, once it is the one running.
     func takeInstalledVersion() -> String? {
         let defaults = UserDefaults.standard
@@ -225,11 +233,13 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
         TrayLog.info("update installing", ["version": item.displayVersionString])
         recordPending(item)
+        windowRestore.record(openWindows?() ?? [])
         onUpdateInstallingChanged?(true)
     }
 
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: (any Error)?) {
         onUpdateInstallingChanged?(false)
+        if error != nil { windowRestore.clear() }
         let checkedAt = updater.lastUpdateCheckDate
         DispatchQueue.main.async { self.writeStatus { $0.lastCheckAt = checkedAt } }
     }
