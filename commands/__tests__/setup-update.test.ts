@@ -247,6 +247,26 @@ describe("rt setup update", () => {
     expect(deps.notifications).toEqual([{ category: "setup_update", title: "t", message: "m", id: "dev_app:2.23.0" }]);
   });
 
+  test("with automatic updates on, a newer dev app is not announced: the daemon installs it", async () => {
+    const deps = updateDeps({
+      probes: fakeProbes({ files: { [DAEMON]: "{}" } }),
+      devAppNotice: async () => ({ id: "dev_app:2.23.0", version: "2.23.0", title: "t", message: "m" }),
+      autoUpdateOn: () => true,
+    });
+    await run(deps, []);
+    expect(deps.notifications).toEqual([]);
+  });
+
+  test("with automatic updates off, a newer dev app is announced as before", async () => {
+    const deps = updateDeps({
+      probes: fakeProbes({ files: { [DAEMON]: "{}" } }),
+      devAppNotice: async () => ({ id: "dev_app:2.23.0", version: "2.23.0", title: "t", message: "m" }),
+      autoUpdateOn: () => false,
+    });
+    await run(deps, []);
+    expect(deps.notifications.map((n) => n.id)).toEqual(["dev_app:2.23.0"]);
+  });
+
   test("a dev app notice that throws neither fails the run nor loses the stamp", async () => {
     const deps = updateDeps({
       probes: fakeProbes({ files: { [DAEMON]: "{}" } }),

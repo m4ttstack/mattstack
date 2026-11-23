@@ -8,19 +8,28 @@ public final class HeldUpdateInstaller: @unchecked Sendable {
     public private(set) var heldVersion: String?
     private var install: (() -> Void)?
     private var installing = false
+    private let silent: () -> Bool
     private let setupRunning: () -> Bool
     private let windowsOpen: () -> Int
+    private let daemonBusy: () -> Bool
 
-    public init(setupRunning: @escaping () -> Bool, windowsOpen: @escaping () -> Int) {
+    public init(silent: @escaping () -> Bool, setupRunning: @escaping () -> Bool,
+                windowsOpen: @escaping () -> Int, daemonBusy: @escaping () -> Bool) {
+        self.silent = silent
         self.setupRunning = setupRunning
         self.windowsOpen = windowsOpen
+        self.daemonBusy = daemonBusy
+    }
+
+    private func currentHold() -> UpdateHold? {
+        UpdatePolicy.hold(silent: silent(), setupRunning: setupRunning(), windowsOpen: windowsOpen(), daemonBusy: daemonBusy())
     }
 
     /// Returns what holds the update, or nil when it is installing now.
     public func offer(version: String, install: @escaping () -> Void) -> UpdateHold? {
         self.install = install
         installing = false
-        if let hold = UpdatePolicy.hold(setupRunning: setupRunning(), windowsOpen: windowsOpen()) {
+        if let hold = currentHold() {
             heldVersion = version
             return hold
         }
@@ -29,19 +38,25 @@ public final class HeldUpdateInstaller: @unchecked Sendable {
         return nil
     }
 
+    /// What still holds an offered update, or nil when none is held or it is installing.
+    public func pendingHold() -> UpdateHold? {
+        guard heldVersion != nil, !installing else { return nil }
+        return currentHold()
+    }
+
     /// Installs a held update once the app is idle; true when it started one.
     public func retry() -> Bool {
         guard heldVersion != nil, !installing,
-              UpdatePolicy.hold(setupRunning: setupRunning(), windowsOpen: windowsOpen()) == nil else { return false }
+              currentHold() == nil else { return false }
         start()
         return true
     }
 
-    /// The person asked for it, so open windows do not hold it; setup still
-    /// does, since a relaunch would kill an install mid-run. Sparkle accepts
-    /// the handler again after a cancelled quit, so this may repeat.
+    /// The person asked for it, so open windows do not hold it; setup and a
+    /// busy daemon still do, since the relaunch would cut either off. Sparkle
+    /// accepts the handler again after a cancelled quit, so this may repeat.
     public func installNow() -> Bool {
-        guard heldVersion != nil, !setupRunning() else { return false }
+        guard heldVersion != nil, !setupRunning(), !daemonBusy() else { return false }
         start()
         return true
     }

@@ -455,7 +455,7 @@ if [ "$IS_DEV" = true ]; then
 else
     plist_set SUFeedURL string "$SU_FEED_URL"
     plist_set SUEnableAutomaticChecks bool true
-    plist_set SUScheduledCheckInterval integer 21600
+    plist_set SUScheduledCheckInterval integer 3600
     plist_set SUAutomaticallyUpdate bool false
     plist_set SUVerifyUpdateBeforeExtraction bool true
 fi

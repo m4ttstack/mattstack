@@ -13,7 +13,7 @@ import type { Logger } from "pino";
 import { closeStateDb } from "../../state/index.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../registry.ts";
 import { tryLockTree } from "../locks.ts";
-import { recoverPendingReady, startReadyTask, readyTaskFor } from "../ready-async.ts";
+import { pendingReadyCount, recoverPendingReady, startReadyTask, readyTaskFor } from "../ready-async.ts";
 
 const repoName = "remote:acme";
 
@@ -118,6 +118,17 @@ describe("startReadyTask", () => {
     expect(a).toEqual(b);
     expect(readFileSync(marker, "utf8").trim().split("\n")).toHaveLength(1);
     expect(readyTaskFor(path)).toBeNull();
+  });
+
+  test("pendingReadyCount counts a ready task from start until it settles", async () => {
+    const path = makeTreeDir();
+    seedPending(path);
+    const { emit } = collector();
+    expect(pendingReadyCount()).toBe(0);
+    const task = startReadyTask({ repoName, path, steps: [{ run: "sleep 0.2" }], emit, log: fakeLog() });
+    expect(pendingReadyCount()).toBe(1);
+    await task;
+    expect(pendingReadyCount()).toBe(0);
   });
 
   test("recoverPendingReady restarts the settle for an orphaned pending tree", async () => {

@@ -189,7 +189,12 @@ with no prompt, no countdown and no snooze, with windows open.
 - With the setting on, Sparkle's update window no longer opens for a
   scheduled check. The
   "Update Available" menu item and the `app_update` notification after
-  the relaunch stay.
+  the relaunch stay. One exception (Matt, during the build): an update
+  Sparkle cannot install by itself, such as one that needs an admin
+  password, still opens the window, since that is the only way to
+  install it.
+- With the setting off, checks stay every 6 hours, so the prompt does
+  not come back hourly (from the whole-branch review).
 - `SUScheduledCheckInterval` becomes 3600 (my call: with silent installs
   the interval is the rollout speed).
 - The app reopens the windows that were open before the relaunch (my

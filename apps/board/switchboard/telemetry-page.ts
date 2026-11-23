@@ -121,6 +121,14 @@ const lastSeen = (m: TelemetrySnapshot['macs'][number]): Cell => ({
 const HOLD_REASONS: Record<string, string> = {
   windowsOpen: 'window open',
   setupRunning: 'setup running',
+  daemonBusy: 'daemon busy',
+  orgOff: 'turned off by the org',
+  notOnMain: 'clone not on main',
+  localCommits: 'clone has local commits',
+  dirtyTree: 'clone has uncommitted changes',
+  mergeInProgress: 'merge or rebase in progress',
+  fetchFailed: 'could not fetch',
+  updateFailed: 'update failed',
 };
 
 const nowrap = (text: string): Cell => ({
@@ -135,6 +143,7 @@ function updateCell(m: TelemetrySnapshot['macs'][number]): Cell {
       reason ? `${u.heldVersion} held (${reason})` : `${u.heldVersion} held`
     );
   }
+  if (u?.hold === 'orgOff') return nowrap(`off (${HOLD_REASONS.orgOff})`);
   if (u?.offeredVersion) return nowrap(`${u.offeredVersion} offered`);
   return '-';
 }
@@ -202,7 +211,9 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
     s.macs
       .filter(
         m =>
-          isBehind(m.appVersion, latest.app) || isBehind(m.rtVersion, latest.rt)
+          isBehind(m.appVersion, latest.app) ||
+          isBehind(m.rtVersion, latest.rt) ||
+          (m.flavor === 'dev' && Boolean(m.appUpdate?.heldVersion))
       )
       .map(m => [
         macLabel(m),

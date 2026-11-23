@@ -75,7 +75,7 @@ targetTemplates:
         SUEnableAutomaticChecks: true
         SUAutomaticallyUpdate: false
         SUVerifyUpdateBeforeExtraction: true
-        SUScheduledCheckInterval: 21600
+        SUScheduledCheckInterval: 3600
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
 

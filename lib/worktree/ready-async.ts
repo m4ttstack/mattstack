@@ -30,6 +30,10 @@ export function readyTaskFor(path: string): Promise<ReadySettle> | null {
   return inFlight.get(path) ?? null;
 }
 
+export function pendingReadyCount(): number {
+  return inFlight.size;
+}
+
 export interface ReadyTaskDeps {
   repoName: string;
   path: string;

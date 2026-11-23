@@ -58,7 +58,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     // placeholder SUPublicEDKey already blocks Sparkle in every build this
     // repo produces, but a future real key must not revive it under the
     // stub-driven UI-test/QA harness.
-    lazy var updater = UpdaterController(isDevBuild: BundleFlavor.isDevBuild || BundleFlavor.isStubActive, isBusy: { UpdatePolicy.setupBusy(windowRunning: SetupSession.isRunning, runInFlight: SetupSession.runInFlight) })
+    lazy var updater = UpdaterController(
+        isDevBuild: BundleFlavor.isDevBuild || BundleFlavor.isStubActive,
+        isBusy: { UpdatePolicy.setupBusy(windowRunning: SetupSession.isRunning, runInFlight: SetupSession.runInFlight) },
+        readAutoUpdate: { @MainActor [weak self] in
+            guard let rt = self?.rtClient else { return true }
+            return await AutoUpdateSetting.read(rt)
+        },
+        daemonBusy: { [daemonClient] in await daemonClient.isBusy() })
     private var updaterObservation: NSKeyValueObservation?
 
     // ── Setup / Settings / rt ────────────────────────────────────────────────
@@ -1833,6 +1840,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
 
     // MARK: - Auto-Update
 
+    @MainActor
     private func setupAutoUpdate() {
         updater.onUpdateAvailable = { version in
             // UpdaterController always dispatches this callback on the main
@@ -1844,6 +1852,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         updater.onUpdateInstallingChanged = { [weak self] installing in
             self?.updateInstalling = installing
         }
+        updater.openWindows = { [weak self] in
+            MainActor.assumeIsolated { self?.restorableWindowsOpen() ?? [] }
+        }
         let notifications = notificationManager
         updater.onUpdateHeld = { version, hold in
             MainActor.assumeIsolated {
@@ -1854,6 +1865,40 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         if let version = updater.takeInstalledVersion() {
             TrayLog.info("update installed", ["version": version])
             notificationManager.fireAppUpdate(UpdateNotice.installed(version: version))
+            reopen(updater.takeWindowsToReopen())
+        }
+    }
+
+    @MainActor
+    private func restorableWindowsOpen() -> Set<RestorableWindow> {
+        func open(_ w: NSWindow?) -> Bool { w.map { $0.isVisible || $0.isMiniaturized } ?? false }
+        var windows = Set<RestorableWindow>()
+        if open(mattstackWindow?.window) { windows.insert(.main) }
+        if coordinator?.isSettingsWindowOpen == true { windows.insert(.settings) }
+        if open(worktreeWindow) { windows.insert(.worktreePanel) }
+        if open(processWindow) { windows.insert(.processPanel) }
+        return windows
+    }
+
+    @MainActor
+    private func reopen(_ reopening: (windows: [RestorableWindow], inFront: Bool)) {
+        let windows = reopening.windows
+        guard !windows.isEmpty else { return }
+        // Each show below activates the app; put back whatever had focus.
+        let front = reopening.inFront ? nil : NSWorkspace.shared.frontmostApplication
+        defer {
+            if let front, front.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+                DispatchQueue.main.async { front.activate() }
+            }
+        }
+        TrayLog.info("reopening windows after update", ["windows": windows.map(\.rawValue).joined(separator: ",")])
+        for window in windows {
+            switch window {
+            case .main: showMattstackWindow()
+            case .settings: coordinator?.showSettings()
+            case .worktreePanel: showWorktreePanel()
+            case .processPanel: detachProcessPanel()
+            }
         }
     }
 

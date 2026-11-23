@@ -32,7 +32,8 @@ export function useOpenRow() {
         fix,
       }
     : null;
-  const set = (next: OpenRow | null, opts: { repo?: string } = {}) =>
+  /** `repo` names the project the row is on; null drops it. */
+  const set = (next: OpenRow | null, opts: { repo?: string | null } = {}) =>
     setParams(
       prev => {
         const p = new URLSearchParams(prev);
@@ -45,6 +46,7 @@ export function useOpenRow() {
           if (next.fix) p.set(FIX, next.fix);
         } else p.delete(PARAM);
         if (opts.repo) p.set('repo', opts.repo);
+        else if (opts.repo === null) p.delete('repo');
         return p;
       },
       { replace: true }

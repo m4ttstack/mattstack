@@ -22,9 +22,13 @@ public struct UpdateStatus: Codable, Equatable, Sendable {
         switch hold {
         case .windowsOpen: return "windowsOpen"
         case .setupRunning: return "setupRunning"
+        case .daemonBusy: return "daemonBusy"
         case nil: return nil
         }
     }
+
+    /// The hold written when the org turned automatic updates off and nothing is held.
+    public static let orgOff = "orgOff"
 
     public func encoded() throws -> Data {
         let encoder = JSONEncoder()

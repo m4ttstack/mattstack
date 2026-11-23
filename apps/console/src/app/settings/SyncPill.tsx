@@ -259,7 +259,7 @@ function WaitingList({
               onClick={() => {
                 set(
                   { key: entry.key, tab: 'value', fix: null },
-                  entry.repo ? { repo: entry.repo } : {}
+                  { repo: entry.repo ?? null }
                 );
                 onOpenKey();
               }}

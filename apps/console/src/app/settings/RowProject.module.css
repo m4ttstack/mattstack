@@ -1,0 +1,19 @@
+.groupLabel {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* Mantine's popover paints white in light and dark-6 in dark; a sticky
+   label must match it or rows show through as they scroll under. */
+:where([data-mantine-color-scheme='light']) .groupLabel {
+  background-color: var(--mantine-color-white);
+}
+
+:where([data-mantine-color-scheme='dark']) .groupLabel {
+  background-color: var(--mantine-color-dark-6);
+}
+
+.option[data-checked] {
+  background-color: var(--mantine-primary-color-light);
+}

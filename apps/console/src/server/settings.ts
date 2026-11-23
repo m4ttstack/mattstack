@@ -2,7 +2,7 @@ import {
   isLocalRequest,
   type LocalServer,
 } from '@mattstack/app-server/local-request';
-import { getSetting } from '@mattstack/rt-client';
+import { getSetting, parseIdentity, rtCommand } from '@mattstack/rt-client';
 import {
   settingsHandler,
   type SettingsHandlerOptions,
@@ -10,7 +10,33 @@ import {
 import { Hono } from 'hono';
 
 import { rolesInfo } from './boxscore-roles';
+import { sharedRead } from './sharedRead';
 import { suggestValues } from './suggest';
+
+const REPOS_TTL_MS = 5 * 60_000;
+
+/** Settings sections key on the raw `host/path` form, so only remote
+    identities can name one; a path-only repo has no section to write. */
+export function settingsRepoKeys(registered: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const wire of registered) {
+    const identity = parseIdentity(wire);
+    if (identity?.kind === 'remote') out.push(identity.id);
+  }
+  return out;
+}
+
+/** The repos rt has registered, offered by the settings repo picker beside
+    the ones some store already has a section for. */
+function registeredRepos(): () => Promise<string[]> {
+  const read = sharedRead(() => rtCommand('repos', {}), REPOS_TTL_MS);
+  return async () => {
+    const res = await read('');
+    if (!res.ok) return [];
+    const repos = (res.data as { repos?: Record<string, unknown> }).repos;
+    return settingsRepoKeys(Object.keys(repos ?? {}));
+  };
+}
 
 /**
  * Console's typed reads and suggestion lists, then settings-kit for defs/explain/set/unset.
@@ -20,6 +46,7 @@ import { suggestValues } from './suggest';
 export function createSettingsRoutes(
   kit: Omit<SettingsHandlerOptions, 'allowWrite'> = {}
 ) {
+  const listRepos = registeredRepos();
   return (
     new Hono()
       .get('/api/settings/runs-prune-days', c => {
@@ -74,6 +101,7 @@ export function createSettingsRoutes(
         const res = await settingsHandler(c.req.raw, {
           allowComposite: 'shaped',
           ...kit,
+          rt: { listRepos, ...kit.rt },
           allowWrite: req =>
             isLocalRequest(req, c.env as LocalServer | undefined),
         });
