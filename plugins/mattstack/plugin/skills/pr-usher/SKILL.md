@@ -66,6 +66,7 @@ digraph pr_usher {
     route_drop [label="Route the drop's fix" shape=box];
     off_duty_asked [label="Off duty asked?" shape=diamond];
     schedule_wakeup [label="ScheduleWakeup {delaySeconds: 300 or 1200}" shape=plaintext];
+    wakeup_started [label="Did a wakeup start this turn?" shape=diamond];
     background_running [label="Owner discussion live, or background work running?" shape=diamond];
     clear_context [label="Clear your context" shape=box];
     hand_back_prs [label="Hand back the PRs in flight" shape=box];
@@ -131,7 +132,9 @@ digraph pr_usher {
     drops -> park_pr [label="yes"];
     off_duty_asked -> schedule_wakeup [label="no"];
     off_duty_asked -> hand_back_prs [label="yes"];
-    schedule_wakeup -> background_running;
+    schedule_wakeup -> wakeup_started;
+    wakeup_started -> background_running [label="yes"];
+    wakeup_started -> start_tick [label="no: a chat message, keep this context"];
     background_running -> start_tick [label="yes: keep this context"];
     background_running -> clear_context [label="no"];
     clear_context -> start_tick;
@@ -403,7 +406,14 @@ with no `then`. The fresh context holds the ledger and waits; the wakeup
 fires into it, and chat keeps your name, status and rooms across the
 clear.
 
-Skip the clear this tick in either case:
+Clear only at the end of a tick a wakeup started. A turn a chat message
+started (a handoff, an owner's reply, a human's note) ends without the
+clear, even with nothing else running: a clear asked for there does not run
+when the turn ends but waits for the next event, which is the pending
+wakeup, and that wakeup is lost and the usher goes quiet. The context from
+that turn is cleared at the end of the next tick a wakeup starts.
+
+Skip the clear in a tick a wakeup started in either case:
 
 - A discussion with an owner is live: a PR's ledger line says you are
   waiting on its owner's answer to findings or a question you sent. It
@@ -438,6 +448,7 @@ again, and the Opus fallback always runs in the background.
 | "I re-read the head, so merging now is safe." | Pass `expectedHeadSha` so the forge refuses a moved head. |
 | "Another usher shows idle, it's probably dead." | Idle counts as live. Tell the human and stop. |
 | "The owner answered the thread, so it's settled." | Resolve it yourself with `mr_resolve_thread`; settled means resolved. |
-| "A clear will lose what I know about the PRs." | The ledger file carries it and the forge holds the rest. Clear after every tick with nothing in the background. |
+| "A clear will lose what I know about the PRs." | The ledger file carries it and the forge holds the rest. Clear after every tick a wakeup started with nothing in the background. |
+| "This chat turn was quiet, so I'll clear now." | A clear in a turn a chat message started swallows the pending wakeup. Clear only after a tick a wakeup started. |
 | "Compact keeps more than clear." | It keeps a lossy summary of stale forge reads. The usher clears. |
 | "The owner's row says idle, so I keep waiting." | Thirty silent minutes and it counts as offline. Fix or park. |
