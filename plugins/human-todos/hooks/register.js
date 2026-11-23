@@ -2787,7 +2787,6 @@ function registerPane(on) {
       rows: fieldRows,
       autoFocus: true,
       placeholder: "Message the agent",
-      value: draft,
       submitLabel: "send",
       onInput: (value) => {
         drafts.set(id, value);

@@ -187,7 +187,6 @@ export function registerPane(on: On): void {
               rows={fieldRows}
               autoFocus
               placeholder="Message the agent"
-              value={draft}
               submitLabel="send"
               onInput={value => {
                 drafts.set(id, value)
