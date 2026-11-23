@@ -11,7 +11,6 @@ struct GeneralPane: View {
     @State private var startAtLogin = false
     @State private var loginLoaded = false
     @State private var loginChanging = false
-    @State private var autoUpdates = false
     @State private var switchError: String?
     @State private var confirmingSwitch = false
     @StateObject private var telemetry: TelemetrySettingsModel
@@ -66,10 +65,6 @@ struct GeneralPane: View {
                     .accessibilityIdentifier(AXID.settingsGeneralShellHandoff)
             }
             Section("Updates") {
-                Toggle("Check for updates automatically", isOn: $autoUpdates).toggleStyle(.switch).controlSize(.mini)
-                    .disabled(!env.updater.isEnabled)
-                    .onChange(of: autoUpdates) { _, on in env.updater.automaticallyChecks = on }
-                    .accessibilityIdentifier(AXID.settingsGeneralAutoUpdates)
                 HStack {
                     Button("Check Now") { env.updater.checkForUpdatesFromMenu() }.disabled(!env.updater.canCheckForUpdates)
                         .accessibilityIdentifier(AXID.settingsGeneralCheckNow)
@@ -117,7 +112,6 @@ struct GeneralPane: View {
             Task { await readiness.refreshUnlessLoading() }
         }
         .onAppear {
-            autoUpdates = env.updater.automaticallyChecks
             Task {
                 startAtLogin = await Self.loginItemEnabled()
                 loginLoaded = true

@@ -2,10 +2,12 @@ import AppKit
 import Sparkle
 import MattstackCore
 
-/// Sparkle for an LSUIElement app: a scheduled update opens Sparkle's own
-/// window in front (only the menu item while setup runs), a menu item bound
-/// to canCheckForUpdates, an update put off to quit installs once idle (held
-/// while a window is open or setup runs), and nothing at all in the dev flavor.
+/// Sparkle for an LSUIElement app. With the org's automatic-update setting on
+/// (the default), Sparkle downloads and installs an update by itself, held
+/// only while setup runs or the daemon is busy. With it off, a scheduled
+/// update opens Sparkle's own window in front (only the menu item while setup
+/// runs), and an update put off to quit installs once no window is open.
+/// A menu item is bound to canCheckForUpdates; the dev flavor runs none of it.
 final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPUStandardUserDriverDelegate, @unchecked Sendable {
     @objc dynamic private(set) var canCheckForUpdates = false
     var onUpdateAvailable: ((String) -> Void)?
@@ -19,9 +21,21 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     private var observation: NSKeyValueObservation?
     private let installer: HeldUpdateInstaller
     private let isBusy: () -> Bool
+    private let readAutoUpdate: () async -> Bool
+    private let daemonBusyProbe: () async -> Bool
+    private let policy = PolicyState()
     private var status = UpdateStatus()
     private var retryTimer: Timer?
+    private var policyTimer: Timer?
     private static let retryInterval: TimeInterval = 60
+    private static let policyInterval: TimeInterval = 600
+
+    /// The hold checks are synchronous and the reads behind them are not, so
+    /// the last answers are kept here, read and written on the main thread.
+    private final class PolicyState: @unchecked Sendable {
+        var silent = true
+        var daemonBusy = false
+    }
 
     private let feedOverride: String?
 
@@ -32,13 +46,17 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         #selector(SPUUpdaterDelegate.updater(_:didFinishUpdateCycleFor:error:)),
     ]
 
-    init(isDevBuild: Bool, isBusy: @escaping () -> Bool) {
+    init(isDevBuild: Bool, isBusy: @escaping () -> Bool,
+         readAutoUpdate: @escaping () async -> Bool, daemonBusy: @escaping () async -> Bool) {
         self.isBusy = isBusy
-        installer = HeldUpdateInstaller(setupRunning: isBusy, windowsOpen: {
+        self.readAutoUpdate = readAutoUpdate
+        daemonBusyProbe = daemonBusy
+        let policy = self.policy
+        installer = HeldUpdateInstaller(silent: { policy.silent }, setupRunning: isBusy, windowsOpen: {
             NSApp.windows.filter {
                 UpdatePolicy.windowHoldsUpdate(isVisible: $0.isVisible, isMiniaturized: $0.isMiniaturized, canBecomeKey: $0.canBecomeKey)
             }.count
-        })
+        }, daemonBusy: { policy.daemonBusy })
         let info = Bundle.main.infoDictionary
         feedOverride = UpdatePolicy.feedOverride(environment: ProcessInfo.processInfo.environment,
                                                  arguments: CommandLine.arguments, isDevBuild: isDevBuild)
@@ -58,13 +76,41 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         observation = c.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] updater, _ in
             self?.canCheckForUpdates = updater.canCheckForUpdates
         }
+        apply(silent: policy.silent, daemonBusy: policy.daemonBusy)
+        Task { await self.refreshPolicy() }
+        policyTimer = Timer.scheduledTimer(withTimeInterval: Self.policyInterval, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { await self.refreshPolicy() }
+        }
     }
 
-    var automaticallyChecks: Bool {
-        get { controller?.updater.automaticallyChecksForUpdates ?? false }
-        set { controller?.updater.automaticallyChecksForUpdates = newValue }
-    }
     var isEnabled: Bool { enabled }
+
+    /// Re-reads the setting and, when silent, the daemon's busy state, then
+    /// applies them to Sparkle.
+    func refreshPolicy() async {
+        guard enabled else { return }
+        let silent = await readAutoUpdate()
+        let busy = silent ? await daemonBusyProbe() : false
+        await MainActor.run { self.apply(silent: silent, daemonBusy: busy) }
+    }
+
+    /// Sparkle keeps a value set at runtime in UserDefaults over the plist, so
+    /// checking is switched back on here for a Mac whose person once turned it
+    /// off; nothing in the app turns it off any more.
+    private func apply(silent: Bool, daemonBusy: Bool) {
+        policy.silent = silent
+        policy.daemonBusy = daemonBusy
+        guard let updater = controller?.updater else { return }
+        updater.automaticallyChecksForUpdates = true
+        updater.automaticallyDownloadsUpdates = silent
+        updater.updateCheckInterval = UpdatePolicy.checkInterval
+        if !silent, installer.heldVersion == nil, status.hold != UpdateStatus.orgOff {
+            writeStatus { $0.heldVersion = nil; $0.hold = UpdateStatus.orgOff }
+        } else if silent, status.hold == UpdateStatus.orgOff {
+            writeStatus { $0.hold = nil }
+        }
+    }
 
     @objc func checkForUpdatesFromMenu() {
         guard let c = controller else {
@@ -74,7 +120,7 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         // A held update stalls Sparkle's session, so its own check would do nothing.
         if let version = installer.heldVersion {
             let started = installer.installNow()
-            TrayLog.info(started ? "held update installing" : "held update waits for setup", ["version": version, "source": "menu"])
+            TrayLog.info(started ? "held update installing" : "held update waits for setup or the daemon", ["version": version, "source": "menu"])
             return
         }
         c.checkForUpdates(nil)
@@ -110,10 +156,18 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
 
     private func startRetrying() {
         retryTimer?.invalidate()
-        retryTimer = Timer.scheduledTimer(withTimeInterval: Self.retryInterval, repeats: true) { [weak self] timer in
-            guard let self, self.installer.retry() else { return }
-            timer.invalidate()
-            TrayLog.info("held update installing", ["version": self.installer.heldVersion ?? "", "source": "idle"])
+        retryTimer = Timer.scheduledTimer(withTimeInterval: Self.retryInterval, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task {
+                await self.refreshPolicy()
+                await MainActor.run {
+                    let version = self.installer.heldVersion ?? ""
+                    guard self.installer.retry() else { return }
+                    self.retryTimer?.invalidate()
+                    self.retryTimer = nil
+                    TrayLog.info("held update installing", ["version": version, "source": "idle"])
+                }
+            }
         }
     }
 
@@ -141,7 +195,8 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         if !handleShowingUpdate || state.userInitiated == false {
             DispatchQueue.main.async { self.onUpdateAvailable?(version) }
         }
-        let opens = UpdatePolicy.opensUpdateWindow(handledBySparkle: handleShowingUpdate,
+        let opens = UpdatePolicy.opensUpdateWindow(silent: policy.silent,
+                                                   handledBySparkle: handleShowingUpdate,
                                                    userInitiated: state.userInitiated,
                                                    setupRunning: isBusy())
         DispatchQueue.main.async {

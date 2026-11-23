@@ -64,7 +64,7 @@
     <key>SUVerifyUpdateBeforeExtraction</key>
     <true/>
     <key>SUScheduledCheckInterval</key>
-    <integer>21600</integer>
+    <integer>3600</integer>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsLocalNetworking</key>
