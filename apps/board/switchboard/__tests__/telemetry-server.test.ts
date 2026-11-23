@@ -436,7 +436,10 @@ describe('GET /telemetry', () => {
   });
 
   const behindSection = (html: string) =>
-    html.slice(html.indexOf('Not on the latest release'), html.indexOf('<h2>Macs</h2>'));
+    html.slice(
+      html.indexOf('Not on the latest release'),
+      html.indexOf('<h2>Macs</h2>')
+    );
 
   test.each([
     ['windowsOpen', 'window open'],
@@ -450,13 +453,22 @@ describe('GET /telemetry', () => {
     ['updateFailed', 'update failed'],
   ])('a held update names the %s hold as "%s"', async (hold, words) => {
     const { telemetry, get } = setup();
-    telemetry.record(ping({ appVersion: '2.37.0', rtVersion: 'v2.37.0', installId: 'a' }), null, NOW);
+    telemetry.record(
+      ping({ appVersion: '2.37.0', rtVersion: 'v2.37.0', installId: 'a' }),
+      null,
+      NOW
+    );
     telemetry.record(
       ping({
         appVersion: '2.36.0',
         rtVersion: 'v2.36.0',
         installId: 'b',
-        appUpdate: { lastCheckAt: null, offeredVersion: '2.37.0', heldVersion: '2.37.0', hold },
+        appUpdate: {
+          lastCheckAt: null,
+          offeredVersion: '2.37.0',
+          heldVersion: '2.37.0',
+          hold,
+        },
       }),
       null,
       NOW
@@ -467,13 +479,22 @@ describe('GET /telemetry', () => {
 
   test('a Mac whose org turned automatic updates off shows as off', async () => {
     const { telemetry, get } = setup();
-    telemetry.record(ping({ appVersion: '2.37.0', rtVersion: 'v2.37.0', installId: 'a' }), null, NOW);
+    telemetry.record(
+      ping({ appVersion: '2.37.0', rtVersion: 'v2.37.0', installId: 'a' }),
+      null,
+      NOW
+    );
     telemetry.record(
       ping({
         appVersion: '2.36.0',
         rtVersion: 'v2.36.0',
         installId: 'b',
-        appUpdate: { lastCheckAt: null, offeredVersion: null, heldVersion: null, hold: 'orgOff' },
+        appUpdate: {
+          lastCheckAt: null,
+          offeredVersion: null,
+          heldVersion: null,
+          hold: 'orgOff',
+        },
       }),
       null,
       NOW
@@ -484,7 +505,11 @@ describe('GET /telemetry', () => {
 
   test('a dev Mac with a held update is listed even when its versions are not behind prod', async () => {
     const { telemetry, get } = setup();
-    telemetry.record(ping({ appVersion: '2.37.0', rtVersion: 'v2.37.0', installId: 'a' }), null, NOW);
+    telemetry.record(
+      ping({ appVersion: '2.37.0', rtVersion: 'v2.37.0', installId: 'a' }),
+      null,
+      NOW
+    );
     telemetry.record(
       ping({
         appVersion: '2.37.0',
@@ -492,7 +517,12 @@ describe('GET /telemetry', () => {
         installId: 'dev-1',
         usernames: ['devon'],
         flavor: 'dev',
-        appUpdate: { lastCheckAt: null, offeredVersion: '2.38.0', heldVersion: '2.38.0', hold: 'dirtyTree' },
+        appUpdate: {
+          lastCheckAt: null,
+          offeredVersion: '2.38.0',
+          heldVersion: '2.38.0',
+          hold: 'dirtyTree',
+        },
       }),
       null,
       NOW
