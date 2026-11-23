@@ -222,7 +222,7 @@ Everything else a skill runs routinely is a tool on the [MCP server](/skills/mcp
 
 It also links shared Claude rules into every Claude Code config dir, as `rules/mattstack`. The rules are mattstack's own plus your base packs' and your active team pack's, and they load in every session, in every repo. Each app update and each org pull refresh them. To opt out, put a real folder at `rules/mattstack` in that config dir; rt leaves a folder it did not make alone.
 
-It installs the `mattstack`, `fast-browser`, `chat`, `superpowers`, `gate-form` and `human-todos` plugins from the mattstack marketplace, and each app update keeps them current. `superpowers` is mattstack's fork of obra/superpowers, which the mattstack skills and every team pack call; see [Superpowers](/skills#superpowers) for what changes on a machine that already has the stock copy.
+It installs the `mattstack`, `fast-browser`, `chat`, `superpowers`, `gate-form`, `human-todos` and `fresh-context` plugins from the mattstack marketplace, and each app update keeps them current. `fresh-context` lets a session clear or compact itself and pick up from a note it wrote, keeping its chat name: type `/fresh`, or let a skill call it. `superpowers` is mattstack's fork of obra/superpowers, which the mattstack skills and every team pack call; see [Superpowers](/skills#superpowers) for what changes on a machine that already has the stock copy.
 
 ## What gets installed
 

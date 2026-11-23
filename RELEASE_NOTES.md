@@ -1,34 +1,52 @@
-The daemon's branch refresh works on GitLab repos again: gitlab.com had refused its MR read since v2.35.0. The gitq web UI is gone, and a new pr-usher skill keeps a repo's ready PRs moving.
+A new on-by-default plugin, fresh-context, lets a Claude Code session clear or compact itself and pick up from a note it wrote, keeping its rt chat name across the clear. Herd workers reach their tools again after a reboot, and the console's run files answer only local requests.
 
-### Daemon and forge reads
+### fresh-context
 
-- the GitLab by-branch MR read fits gitlab.com's query complexity cap again, so the daemon's branch refresh, the CLI's fresh fetch, gap-fill and `gitq publish` work on GitLab repos (it showed as "Daemon: degraded (refresh: N enrich errors)" in v2.35.0 and v2.35.1) (#1220)
-- every GitLab query is checked against a measured complexity score, so a query that grows past the cap fails a test before it ships (#1220)
-- `worktree_provision` sets the upstream on a local branch that is already on origin (#1214)
+- new `fresh-context` plugin, installed with the others: a `fresh_context` tool and a `/fresh [clear|compact] [note]` command clear or compact the session after the turn ends, then hand the fresh context the ledger it wrote and an optional next step (#1228)
+- a clear is refused while a subagent, background shell, monitor or workflow is running, and is dropped after an interrupted or failed turn (#1228, #1232)
+- a session signed in to rt chat keeps its name, status, rooms and Slack chat across the clear, never shows offline, and gets its welcome without starting a turn; messages that arrived during the reset come in with the catch-up (#1228, #1233)
+- the hidden `rt chat handoff begin|complete|cancel` verb carries the chat name; only the session itself, through the plugin, runs it (#1228, #1232)
+- the `chat` plugin's sign-out at session end now passes why the session ended, so a clear handing its name on is not signed out (chat 0.6.1, #1232)
 
-### Skills
+### Chat
 
-- new `mattstack:pr-usher` skill: an always-on agent that gets a repo's ready PRs reviewed, settles their threads with the author agent over rt chat, and merges them once CI is green; agents hand PRs to it through the new `pr-usher-handoff` rule (#1218)
-- `mr_merge` takes `expectedHeadSha`, so a merge or enqueue is refused when the PR's head has moved since review (#1218)
+- the mattstack chat tools and `whoami` act as the session Claude is on after a /clear, not the one the server started under (#1231)
 
-### gitq
+### Herd and gates
 
-- the gitq web UI (`gitq board`) is removed; gitq is the CLI plus its five `/gitq:*` skills, and the `gitq.board` setting is retired (#1213)
-- `absorb` run in a detached worktree returns it to its starting commit (#1217)
+- herd workers reach the herd tools again after a reboot (#1236)
+- `rt gate list --open` includes parked gates (#1238)
+- a `--dir` respawn clears the provisioned-tree marker (#1229)
 
 ### Board
 
-- the row spotlight follows its row through any re-layout (#1215)
+- doctor rows stop reading "watching CI..." forever once the pane goes quiet (#1223)
+- comment writes time out, and a slow refresh can't hold back a comment that landed (#1234)
+
+### Console
+
+- run files and API writes answer local requests only (#1235)
+
+### Setup
+
+- Fast Browser's setup skips its drift refusal on a Mac without Chrome (#1237)
+- the Linear MCP step re-reads Claude's config right before it writes, so a change made in between is kept (#1230)
+- worktree ready steps run rt's intercept shims, not a Homebrew copy (#1221)
+
+### App
+
+- window tabs load on a ready signal and recover on app health, not timers (#1224)
+- update-machine builds each served app before the restart (#1227)
+- `rt skills sync` checks and compiles the checkout it bumps and pushes (#1226)
+- human-todos: a run item's Done button reads "Done without running" (#1225)
+- the bundle check's socket guard follows the launch socket verdict (#1239)
 
 ### Tests and CI
 
-- deck's DOM suite is green again and runs in CI (#1216)
-- test files that went red on a loaded Mac wait on real events instead of the clock (#1212, #1219)
-- `rt check` shows why a test failed (#1219)
+- deck's vanishing-row modal test waits for focus to reach the page instead of checking once (#1222)
 
 ### Held pins
 
-- bun stays at 1.4.4 (1.4.5 is out), held for a later release
-- Sparkle stays at 2.10.0 (2.10.1 is out); a Sparkle bump gets its own tested release
+- bun stays at 1.4.4 (1.4.5 is out), and Sparkle at 2.10.0 (2.10.1 is out): a Sparkle bump gets its own tested release, and bun moves only with the artifacts it regenerates.
 
-**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.35.1...v2.35.2
+**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.35.2...v2.36.0
