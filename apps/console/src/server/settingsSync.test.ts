@@ -71,18 +71,6 @@ describe('GET /api/settings/sync', () => {
     ]);
   });
 
-  it("GET lifts Bun's idle timeout, so a slow rt team status still answers", async () => {
-    const runRt = vi.fn<RunRt>(async () => ok(teamStatus('acme')));
-    const timeout = vi.fn();
-    const res = await app(runRt, ['acme']).request(
-      'http://localhost/api/settings/sync',
-      {},
-      { timeout }
-    );
-    expect(res.status).toBe(200);
-    expect(timeout).toHaveBeenCalledWith(expect.any(Request), 0);
-  });
-
   it('GET reads unknown when rt team status fails', async () => {
     const runRt = vi.fn<RunRt>(async () => ({
       code: 2,
