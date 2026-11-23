@@ -83,6 +83,36 @@ describe("runs handlers", () => {
     expect(emitted[0]!.payload).toMatchObject({ repo: "remote:acme", kind: "abandoned" });
   });
 
+  test("BOARD-61: abandoning a run settles the run's gates", async () => {
+    const dir = root();
+    seedRun(dir, "remote:acme", "20260822-150002-hhhh", 1000, 2, { status: "running" });
+    const settled: string[] = [];
+    const handlers = createRunsHandlers({ log } as any, noEmit, { closeRunGates: async (runId) => { settled.push(runId); } });
+
+    const res = await handlers["runs:abandon"]({ runId: "20260822-150002-hhhh", repo: "remote:acme" });
+
+    expect(res.ok).toBe(true);
+    expect(settled).toEqual(["20260822-150002-hhhh"]);
+  });
+
+  test("a refused abandon leaves the run's gates alone", async () => {
+    const dir = root();
+    seedRun(dir, "remote:acme", "20260822-150003-iiii", 1000, 2, { status: "done" });
+    const settled: string[] = [];
+    const handlers = createRunsHandlers({ log } as any, noEmit, { closeRunGates: async (runId) => { settled.push(runId); } });
+
+    expect((await handlers["runs:abandon"]({ runId: "20260822-150003-iiii", repo: "remote:acme" })).ok).toBe(false);
+    expect(settled).toEqual([]);
+  });
+
+  test("a gate that fails to settle never turns an abandoned run into a failure", async () => {
+    const dir = root();
+    seedRun(dir, "remote:acme", "20260822-150004-jjjj", 1000, 2, { status: "running" });
+    const handlers = createRunsHandlers({ log } as any, noEmit, { closeRunGates: async () => { throw new Error("gates store busy"); } });
+
+    expect((await handlers["runs:abandon"]({ runId: "20260822-150004-jjjj", repo: "remote:acme" })).ok).toBe(true);
+  });
+
   test("a bare legacy repo filter resolves nothing rather than name-matching, never crashes", async () => {
     const dir = root();
     seedRun(dir, "remote:alpha", "20260821-010101-aaaa", 1000);

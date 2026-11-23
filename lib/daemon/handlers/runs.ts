@@ -33,6 +33,8 @@ export interface RunsSeams {
   /** Id of the open kit gate for a Claude session, so a run waiting at one is not read as stale. */
   openKitGate?: (session: string) => string | null;
   gateById?: (id: string) => GateRow | null;
+  /** Closes the run's open and parked gates as abandoned: those filed under the run and those whose origin names it. */
+  closeRunGates?: (runId: string) => Promise<void>;
 }
 
 const PAUSE_REASON = "paused from the console";
@@ -94,6 +96,9 @@ export function createRunsHandlers(
         if (!detail) return { ok: false as const, error: "run not found" };
         const res = abandonRun(detail.run.repo, runId, payload.reason ?? "reconciled by hand");
         if (!res.ok) return { ok: false as const, error: res.error };
+        // The run is abandoned either way: a gate left behind is the board's
+        // to dismiss, never a reason to report the abandon as failed.
+        await seams.closeRunGates?.(runId).catch((err: unknown) => ctx.log.warn({ err, runId }, "runs:abandon: the run's gates did not settle"));
         emitEvent("run-updated", { repo: detail.run.repo, runId, stage: null, kind: "abandoned" });
         return { ok: true as const, data: { ok: true } };
       } catch (err) {

@@ -328,6 +328,13 @@ export function buildRoutedHandlers(opts: {
       isRunTree: (path, runRepo) => isRunTree(path, runRepo, { findTreeByPath, repoIndex: ctx.repoIndex }),
       openKitGate: openKitGateFor(opts.gatesStore),
       gateById: (id) => opts.gatesStore.get(id) ?? null,
+      closeRunGates: async (runId) => {
+        for (const gate of opts.gatesStore.list({ run: runId, status: ["open", "parked"] }).gates) {
+          // One gate that fails to close must not leave the rest of the run's open.
+          await gateHandlers["gate:close"]({ id: gate.id, reason: "abandoned" })
+            .catch((err: unknown) => ctx.log.warn({ err, runId, gateId: gate.id }, "runs:abandon: a gate did not close"));
+        }
+      },
     }),
     ...createUsageHandlers({ log: ctx.log }),
     ...createSecretsHandlers({ log: ctx.log }),
