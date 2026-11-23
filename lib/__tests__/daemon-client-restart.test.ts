@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "fs";
 import { createServer } from "node:net";
 import { DAEMON_SOCK_PATH, RT_DIR, TRAY_SOCK_PATH, markDaemonInstalled, markDaemonUninstalled } from "../daemon-config.ts";
-import { __test__, daemonQuery, daemonQueryAttributed, daemonSocketQuery, isDaemonRunning, pingDaemon } from "../daemon-client.ts";
+import { __test__, daemonPresence, daemonQuery, daemonQueryAttributed, isDaemonServing, daemonSocketQuery, isDaemonRunning, pingDaemon } from "../daemon-client.ts";
 import { captureOut } from "../ui/__tests__/capture-out.ts";
 
 const STARTING = { ok: false, error: "rt daemon is starting; try again in a moment", unavailable: "starting" };
@@ -163,6 +163,58 @@ describe("daemon-client: a daemon that is starting or stopping", () => {
     } finally {
       cap.restore();
     }
+  });
+
+  test("a socket missing for a moment is waited for before the tray is asked for a start", async () => {
+    process.env.RT_DAEMON_RETRY_BUDGET_MS = "5000";
+    fakeTray();
+    timer = setTimeout(() => { daemon = Bun.serve({ unix: DAEMON_SOCK_PATH, fetch: () => json({ ok: true, data: 7 }) }); }, 500);
+    const attempt = await daemonQueryAttributed("status", {}, 500);
+    expect(attempt.response).toEqual({ ok: true, data: 7 });
+    expect(trayStartCalls).toBe(0);
+  });
+
+  test("a caller that asks for no retry does not wait out the default budget after a tray-acked start", async () => {
+    process.env.RT_DAEMON_RETRY_BUDGET_MS = "9000";
+    fakeTray();
+    const cap = captureOut();
+    try {
+      const started = Date.now();
+      expect(await daemonQuery("status", undefined, 300, { retryBudgetMs: 0 })).toBeNull();
+      expect(Date.now() - started).toBeLessThan(6_000);
+      expect(trayStartCalls).toBe(1);
+    } finally {
+      cap.restore();
+    }
+  }, 12_000);
+
+  test("daemonPresence tells a serving daemon, an unavailable one and no daemon apart", async () => {
+    expect(await daemonPresence()).toBe("absent");
+    let serving = false;
+    daemon = Bun.serve({ unix: DAEMON_SOCK_PATH, fetch: () => (serving ? json({ ok: true }) : json(STARTING, 503)) });
+    expect(await daemonPresence()).toBe("unavailable");
+    serving = true;
+    expect(await daemonPresence()).toBe("serving");
+  });
+
+  test("isDaemonServing waits through a starting daemon, never asks the tray, and is false when nothing is there", async () => {
+    process.env.RT_DAEMON_RETRY_BUDGET_MS = "5000";
+    fakeTray();
+    let hits = 0;
+    daemon = Bun.serve({ unix: DAEMON_SOCK_PATH, fetch: () => (++hits < 3 ? json(STARTING, 503) : json({ ok: true })) });
+    expect(await isDaemonServing()).toBe(true);
+    daemon.stop(true);
+    daemon = undefined;
+    rmSync(DAEMON_SOCK_PATH, { force: true });
+    process.env.RT_DAEMON_RETRY_BUDGET_MS = "0";
+    expect(await isDaemonServing()).toBe(false);
+    expect(trayStartCalls).toBe(0);
+  });
+
+  test("isDaemonServing rides through the gap where the socket is missing", async () => {
+    process.env.RT_DAEMON_RETRY_BUDGET_MS = "5000";
+    timer = setTimeout(() => { daemon = Bun.serve({ unix: DAEMON_SOCK_PATH, fetch: () => json({ ok: true }) }); }, 500);
+    expect(await isDaemonServing()).toBe(true);
   });
 
   test("a timed-out query is not retried", async () => {

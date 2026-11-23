@@ -38,15 +38,79 @@ function output(): string {
  * Fakes both sockets: the tray ack and the daemon's ping. `pid` is consulted
  * per call, so a scenario can turn the daemon over (or not) mid-flight.
  */
-function fakeSockets(opts: { trayReply: () => Response | Promise<Response>; pid: () => number | null }): void {
+function fakeSockets(opts: {
+  trayReply: () => Response | Promise<Response>;
+  pid: () => number | null;
+  /** True while the daemon that answers is bound but not serving yet. */
+  starting?: () => boolean;
+}): void {
   const flavor = processFlavor();
   globalThis.fetch = (async (_url: string, init: any) => {
     if (init?.unix === TRAY_SOCK_PATH) return opts.trayReply();
     const pid = opts.pid();
     if (pid === null) throw new Error("connection refused");
+    if (opts.starting?.()) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "rt daemon is starting; try again in a moment", unavailable: "starting", pid, flavor }),
+        { status: 503 },
+      );
+    }
     return new Response(JSON.stringify({ ok: true, pid, flavor }));
   }) as any;
 }
+
+test("restart waits for the new daemon to serve: a new pid that still answers starting is not a restart yet", async () => {
+  let calls = 0;
+  const seen: string[] = [];
+  fakeSockets({
+    trayReply: () => new Response(JSON.stringify({ ok: true })),
+    pid: () => { calls += 1; return calls <= 2 ? 111 : 222; },
+    starting: () => { const s = calls > 2 && calls <= 6; seen.push(s ? "starting" : "serving"); return s; },
+  });
+
+  await restart();
+
+  expect(output()).toContain("[ok] The daemon restarted  pid 111 to 222");
+  // The success line came only after a serving reply from the new pid.
+  expect(seen.filter((x) => x === "starting").length).toBe(4);
+  expect(seen.at(-1)).toBe("serving");
+});
+
+test("restart does not report success when the new daemon never serves", async () => {
+  let calls = 0;
+  fakeSockets({
+    trayReply: () => new Response(JSON.stringify({ ok: true })),
+    pid: () => { calls += 1; return calls <= 2 ? 111 : 222; },
+    starting: () => calls > 2,
+  });
+
+  await restart();
+
+  expect(output()).not.toContain("The daemon restarted");
+});
+
+test("start leaves a daemon that answers starting alone: no start request reaches the tray", async () => {
+  markDaemonInstalled();
+  let trayCalls = 0;
+  let calls = 0;
+  fakeSockets({
+    trayReply: () => { trayCalls += 1; return new Response(JSON.stringify({ ok: true })); },
+    pid: () => 333,
+    starting: () => { calls += 1; return calls <= 3; },
+  });
+
+  const prior = process.env.RT_DAEMON_RETRY_BUDGET_MS;
+  process.env.RT_DAEMON_RETRY_BUDGET_MS = "3000";
+  try {
+    await start();
+  } finally {
+    if (prior === undefined) delete process.env.RT_DAEMON_RETRY_BUDGET_MS;
+    else process.env.RT_DAEMON_RETRY_BUDGET_MS = prior;
+  }
+
+  expect(trayCalls).toBe(0);
+  expect(output()).toContain("The daemon is already running");
+});
 
 test("restart does not claim success while the old daemon pid still answers", async () => {
   // The 2026-09-21 incident: the tray acked and silently dropped the op, the
@@ -177,4 +241,19 @@ test("stop surfaces a failed unregister instead of claiming there was nothing to
   expect(output()).not.toContain("nothing to stop");
   expect(output()).not.toContain("✓");
   expect(io.stderr()).toContain("could not stop the daemon");
+});
+
+test("start says a daemon is still starting when it does not serve in time, and still does not ask the tray", async () => {
+  markDaemonInstalled();
+  let trayCalls = 0;
+  fakeSockets({
+    trayReply: () => { trayCalls += 1; return new Response(JSON.stringify({ ok: true })); },
+    pid: () => 333,
+    starting: () => true,
+  });
+
+  await start();
+
+  expect(trayCalls).toBe(0);
+  expect(output()).toContain("The daemon is still starting");
 });

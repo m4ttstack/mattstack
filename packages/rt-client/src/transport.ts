@@ -29,6 +29,8 @@ export interface RtClientOptions {
   wsUrl?: string;
   /** Per-call override of rtCommand's own default (15s); chat's pulse wrapper needs an 800ms hook budget. */
   timeoutMs?: number;
+  /** How long to keep retrying a daemon that is restarting; 0 for a probe that reports the daemon's state. Honored by the calls that pass it on. */
+  retryBudgetMs?: number;
   /**
    * Test seam for createRelay (relay.ts): swaps the daemon subscription for
    * a fake without a live WebSocket server. Typed structurally against

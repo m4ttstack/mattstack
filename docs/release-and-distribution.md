@@ -313,13 +313,17 @@ restart by hand takes the same path. Calls made during it are not lost:
   (HTTP 503, `unavailable: "stopping"`), ends open long-polls
   (`events:wait`, `gate:wait`) with their normal empty reply, and gives
   requests already running up to 5 seconds to finish before it exits.
-- The new daemon binds `rt.sock` first and answers `rt daemon is starting;
+- The new daemon binds `rt.sock` early in boot and answers `rt daemon is starting;
   try again in a moment` (`unavailable: "starting"`) until its handlers
   exist and the API server is bound.
-- Both clients (`rtCommand` in rt-client, `daemonQuery` in rt) send a
-  request again for about 20 seconds when nothing listens on the socket or
-  the daemon answers that it is unavailable. `rt events wait` and
-  `rt gate wait` reconnect.
+- Both clients send a request again while the daemon answers that it is
+  unavailable, for about 20 seconds. When nothing listens on the socket,
+  `rtCommand` (rt-client) keeps trying for the same 20 seconds, and
+  `daemonQuery` (rt) waits 3 seconds for it to come back before it asks
+  the app to start the daemon. `rt events wait` and `rt gate wait`
+  reconnect.
+- `rt daemon restart` reports success once the new daemon serves, not when
+  it binds.
 - A request whose connection was made and then dropped or timed out is
   never sent again: the daemon may already have acted on it.
 

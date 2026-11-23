@@ -107,6 +107,34 @@ export interface DaemonQueryOptions {
   retryBudgetMs?: number;
 }
 
+// How long a missing or refusing rt.sock is given to come back before it is
+// taken for a daemon that is down. Measured against the gap of a restart
+// (the old process exits, launchd starts the new one, it binds): about a second.
+const CONNECT_GRACE_MS = 3_000;
+
+/**
+ * Keeps asking while no connection can be made, for the grace above (never
+ * longer than `budgetMs`), then rides through a starting daemon's replies.
+ * Returns the last attempt; `connectFailed` on it means nothing ever listened.
+ */
+async function queryThroughGap(
+  cmd: string,
+  payload: Record<string, any> | undefined,
+  timeoutMs: number | undefined,
+  first: SocketQueryAttempt,
+  budgetMs: number,
+): Promise<SocketQueryAttempt> {
+  const graceDeadline = Date.now() + Math.min(CONNECT_GRACE_MS, budgetMs);
+  let last = first;
+  for (let n = 0; last.connectFailed; n++) {
+    const delay = Math.min(nextRetryDelay(n), graceDeadline - Date.now());
+    if (delay <= 0) break;
+    await Bun.sleep(delay);
+    last = await queryWhileUnavailable(cmd, payload, timeoutMs, Date.now() + budgetMs);
+  }
+  return last;
+}
+
 function retryBudgetMs(): number {
   return retryBudgetOverride() ?? DAEMON_RETRY_BUDGET_MS;
 }
@@ -336,21 +364,28 @@ export async function daemonQueryAttributed(
   //    restart cut it off).
   if (!first.connectFailed) return first;
 
-  // 4. Socket is gone → daemon is genuinely not running. Attempt restart.
+  // 4. A restart leaves rt.sock missing for a moment between the old daemon's
+  //    exit and the new one's bind. Asking the tray for a start in that gap
+  //    is worse than waiting: its start is a `launchctl kickstart -k`, which
+  //    kills the daemon launchd just spawned.
+  const afterGap = await queryThroughGap(cmd, payload, timeoutMs, first, budgetMs);
+  if (!afterGap.connectFailed) return afterGap;
+
+  // 5. Still nothing there → the daemon is genuinely not running. Attempt restart.
   const restarted = await attemptRestart();
-  let last = first;
+  let last = afterGap;
   if (restarted) {
     // Bounded poll, not one fixed-delay retry: parkUntilIntended's own
     // socket probe, state.db open, and the identity migration routinely
     // take longer than 300ms, and a successful start must not be reported
     // as "installed but not running" just because the retry landed early.
-    await waitForSocket();
+    await waitForSocket(Math.max(SOCKET_POLL_TOTAL_MS, budgetMs));
     const retry = await queryWhileUnavailable(cmd, payload, timeoutMs, Date.now() + budgetMs);
     if (retry.response !== null || retry.unavailable) return retry;
     last = retry;
   }
 
-  // 5. Restart failed → warn (once per session)
+  // 6. Restart failed → warn (once per session)
   warnDaemonDown();
   return last;
 }
@@ -383,11 +418,35 @@ export function lastQueryTimedOut(): boolean {
 }
 
 /**
- * Quick check: is the daemon reachable right now?
+ * Quick check: is the daemon serving right now? False for a daemon that is
+ * booting or draining; see `daemonPresence` and `isDaemonServing`.
  */
 export async function isDaemonRunning(): Promise<boolean> {
   const { response } = await trySocketQuery("ping");
   return response?.ok === true;
+}
+
+/**
+ * Whether a daemon holds rt.sock at all. `unavailable` is one that is booting
+ * or draining: a caller that would start a daemon, or touch files a daemon
+ * holds open, must treat it as there.
+ */
+export async function daemonPresence(): Promise<"serving" | "unavailable" | "absent"> {
+  const attempt = await trySocketQuery("ping");
+  if (attempt.unavailable) return "unavailable";
+  return attempt.response !== null ? "serving" : "absent";
+}
+
+/**
+ * Is the daemon serving, allowing for a restart in progress: waits through a
+ * starting or stopping daemon and through the moment rt.sock is missing
+ * between the two. Never asks the tray for a start.
+ */
+export async function isDaemonServing(): Promise<boolean> {
+  const budgetMs = retryBudgetMs();
+  const first = await queryWhileUnavailable("ping", undefined, undefined, Date.now() + budgetMs);
+  const attempt = first.connectFailed ? await queryThroughGap("ping", undefined, undefined, first, budgetMs) : first;
+  return attempt.response?.ok === true;
 }
 
 /** Single-attempt ping that never triggers the restart machinery, so

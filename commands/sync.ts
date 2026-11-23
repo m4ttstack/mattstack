@@ -489,8 +489,8 @@ async function syncAll(
   deps: SyncCommandDeps = {},
 ): Promise<number> {
   const sync = deps.syncBranch ?? syncBranch;
-  const { daemonQuery, isDaemonRunning } = await import("../lib/daemon-client.ts");
-  const running = await isDaemonRunning();
+  const { daemonQuery, isDaemonServing } = await import("../lib/daemon-client.ts");
+  const running = await isDaemonServing();
 
   if (!running) {
     out.fail({ title: "The rt daemon is not running", why: "Syncing every worktree needs it to find them.", next: out.cmd("rt daemon start") });

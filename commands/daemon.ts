@@ -41,7 +41,7 @@ import {
   DAEMON_SOCK_PATH,
   TRAY_SOCK_PATH,
 } from "../lib/daemon-config.ts";
-import { daemonQuery, isDaemonRunning, pingDaemon, trayQuery } from "../lib/daemon-client.ts";
+import { daemonPresence, daemonQuery, isDaemonRunning, isDaemonServing, pingDaemon, trayQuery } from "../lib/daemon-client.ts";
 import { classifyDaemonStatus, type DaemonStatusVerdict } from "../lib/daemon-status.ts";
 import { processFlavor, type Flavor } from "../lib/flavor.ts";
 import { probeSocketHolder } from "../lib/daemon/park.ts";
@@ -247,8 +247,14 @@ export async function start(): Promise<void> {
     return;
   }
   const flavor = processFlavor();
-  if (await isDaemonRunning()) {
-    if (!(await warnIfWrongFlavor("start", flavor))) out.print(out.line("skipped", "The daemon is already running"));
+  // A daemon that is still booting counts as there: the tray's start is a
+  // `launchctl kickstart -k`, which would kill it.
+  const presence = await daemonPresence();
+  if (presence !== "absent") {
+    const serving = presence === "serving" || (await isDaemonServing());
+    if (!(await warnIfWrongFlavor("start", flavor))) {
+      out.print(serving ? out.line("skipped", "The daemon is already running") : out.line("pending", "The daemon is still starting"));
+    }
     return;
   }
   const result = await trayQuery("/daemon/start", "POST");
@@ -337,7 +343,9 @@ export async function restart(): Promise<void> {
     for (let i = 0; i < RESTART_POLL.attempts; i++) {
       await Bun.sleep(RESTART_POLL.intervalMs);
       const now = await probeSocketHolder();
-      if (!now?.pid) continue;
+      // A new pid that answers "starting" holds the socket but does not serve
+      // yet; a caller that queries right after this verb would find no daemon.
+      if (!now?.pid || now.unavailable) continue;
       if (before?.pid && now.pid === before.pid) continue;
       if (baselineUnknown) return { unverified: now.pid };
       return { now };

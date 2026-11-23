@@ -223,7 +223,7 @@ describe("startSocketServer: availability", () => {
       expect(await res.json()).toEqual({
         ok: false, error: "rt daemon is starting; try again in a moment", unavailable: "starting", pid: 4242, flavor: "dev",
       });
-      expect(await probeSocketHolder()).toEqual({ flavor: "dev", pid: 4242 });
+      expect(await probeSocketHolder()).toEqual({ flavor: "dev", pid: 4242, unavailable: "starting" });
     }, availability);
   });
 
