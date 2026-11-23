@@ -162,6 +162,8 @@ export function syncRoutes({
   return new Hono()
     .get('/api/settings/sync', async c => {
       if (fixture) return c.json({ orgs: fixture }, 200);
+      // rt team status can outlast Bun.serve's 10s idle timeout on a busy Mac.
+      (c.env as BunTimeout | undefined)?.timeout?.(c.req.raw, 0);
       const now = Date.now();
       const synced = await Promise.all(
         orgs().map(async org =>
