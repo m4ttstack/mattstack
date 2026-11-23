@@ -17,6 +17,8 @@ export const workspace = atom({ plugin: 'human-todos', key: 'herdrWorkspace' } a
 export const loadedFor = atom({ plugin: 'human-todos', key: 'loadedFor' } as const, null as string | null)
 export const isSaveFailed = atom({ plugin: 'human-todos', key: 'isSaveFailed' } as const, false)
 export const runnerPref = atom({ plugin: 'human-todos', key: 'runnerPref' } as const, 'auto' as 'auto' | 'herdr' | 'local')
+// Each message card's unsent text, by item id. Ids restart with a new list, so every list change empties it.
+export const drafts = new Map<string, string>()
 
 const LIST_PREFIX = 'list:'
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
@@ -122,6 +124,7 @@ function resume(t: Todo): Todo {
 
 export async function restoreList($: EngineInterface): Promise<void> {
   leaving = undefined
+  drafts.clear()
   const now = await $.clock.now()
   for (const key of await $.store.keys()) {
     if (!key.startsWith(LIST_PREFIX)) continue
@@ -154,6 +157,7 @@ export async function resetList($: EngineInterface): Promise<void> {
   await update($, expanded, () => [])
   await update($, composing, () => null)
   await update($, nextId, () => 1)
+  drafts.clear()
 }
 
 // Drawing is pure: a render reads what is loaded and leaves any restore to the next hook that may write.

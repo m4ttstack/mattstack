@@ -1344,6 +1344,7 @@ var workspace = atom({ plugin: "human-todos", key: "herdrWorkspace" }, null);
 var loadedFor = atom({ plugin: "human-todos", key: "loadedFor" }, null);
 var isSaveFailed = atom({ plugin: "human-todos", key: "isSaveFailed" }, false);
 var runnerPref = atom({ plugin: "human-todos", key: "runnerPref" }, "auto");
+var drafts = new Map;
 var LIST_PREFIX = "list:";
 var MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 async function saveList($) {
@@ -1434,6 +1435,7 @@ function resume(t) {
 }
 async function restoreList($) {
   leaving = undefined;
+  drafts.clear();
   const now = await $.clock.now();
   for (const key of await $.store.keys()) {
     if (!key.startsWith(LIST_PREFIX))
@@ -1463,6 +1465,7 @@ async function resetList($) {
   await update($, expanded, () => []);
   await update($, composing, () => null);
   await update($, nextId, () => 1);
+  drafts.clear();
 }
 function peekTodos($) {
   return read($, todos);
@@ -2553,8 +2556,7 @@ function registerPane(on) {
     return { text: `${TITLE} pane opened.` };
   });
   on("prompt.edit", async ($, e, next) => {
-    if ((await readPane2($)).composing === null)
-      await setKeysInPane($, false);
+    await setKeysInPane($, false);
     return next(e);
   });
   on("prompt.submit", async ($, e, next) => {
@@ -2575,10 +2577,10 @@ function registerPane(on) {
       await scrollKit($, () => offset);
     }
     const message = e.data;
-    const isDockSend = message.type === "press" && (message.button === "send" || message.button === "sendDone");
-    if (e.requestId === PANE && isDockSend)
+    const isDockSend = message?.type === "press" && (message.button === "send" || message.button === "sendDone");
+    if (e.requestId === PANE && message && isDockSend)
       sendDraft($, message.id, message.button === "sendDone", e.surface);
-    else if (e.requestId === PANE) {
+    else if (e.requestId === PANE && message) {
       if (message.type === "press" && message.button === "cancelMessage")
         drafts.delete(message.id);
       act($, message, e.surface);
@@ -2681,7 +2683,6 @@ function registerPane(on) {
       rows: fieldRows,
       autoFocus: true,
       placeholder: "Message the agent",
-      value: draft,
       submitLabel: "send",
       onInput: (value) => {
         drafts.set(id, value);
@@ -2704,7 +2705,6 @@ var MAX_FIELD_ROWS = 8;
 var DOCK_FIXED_ROWS = 2;
 var ONE_ROW_HINT = "⏎ send  ";
 var MULTI_ROW_HINT = "⏎ send · \\⏎ new line  ";
-var drafts = new Map;
 function draftFieldRows(text, width) {
   const rowsBeside = (hint) => {
     const textWidth = Math.max(4, width - cellWidth(hint));

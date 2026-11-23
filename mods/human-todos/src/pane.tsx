@@ -10,7 +10,7 @@ import { composeActionRows, composeHeadRows } from './pane/compose-actions'
 import { drawPlainPane, paneColumns } from './pane/plain-view'
 import { bandModel, paneModel } from './pane/model'
 import type { PaneMessage, PaneModel } from './pane/model'
-import { peekTodos, readPane } from './store'
+import { drafts, peekTodos, readPane } from './store'
 
 // A literal on purpose: the engine's matcher scan reads a string literal, not the imported PLUGIN.
 const PANE = 'human-todos'
@@ -69,10 +69,8 @@ export function registerPane(on: On): void {
     return { text: `${TITLE} pane opened.` }
   })
 
-  // Typing into an open message card raises prompt.edit too, so while one is open the keys stay with the pane;
-  // clearing them here would flash the pane's keyboard marks off and on with every key.
   on('prompt.edit', async ($, e, next) => {
-    if ((await readPane($)).composing === null) await setKeysInPane($, false)
+    await setKeysInPane($, false)
     return next(e)
   })
   on('prompt.submit', async ($, e, next) => {
@@ -93,11 +91,11 @@ export function registerPane(on: On): void {
       const offset = reveal.offset
       await scrollKit($, () => offset)
     }
-    const message = e.data as PaneMessage
+    const message = e.data as PaneMessage | null
     // The docked card's Send buttons carry the draft this hook holds; Cancel drops it.
-    const isDockSend = message.type === 'press' && (message.button === 'send' || message.button === 'sendDone')
-    if (e.requestId === PANE && isDockSend) sendDraft($, message.id, message.button === 'sendDone', e.surface)
-    else if (e.requestId === PANE) {
+    const isDockSend = message?.type === 'press' && (message.button === 'send' || message.button === 'sendDone')
+    if (e.requestId === PANE && message && isDockSend) sendDraft($, message.id, message.button === 'sendDone', e.surface)
+    else if (e.requestId === PANE && message) {
       if (message.type === 'press' && message.button === 'cancelMessage') drafts.delete(message.id)
       // Not awaited, as a Button's onPress is not: a run's start can wait on a slow probe, and the post must not hold it.
       void act($, message, e.surface)
@@ -188,7 +186,6 @@ export function registerPane(on: On): void {
             rows={fieldRows}
             autoFocus
             placeholder="Message the agent"
-            value={draft}
             submitLabel="send"
             onInput={value => {
               drafts.set(id, value)
@@ -213,8 +210,6 @@ const DOCK_FIXED_ROWS = 2
 // The engine draws its key hint beside a focused field: Enter's alone on one row, the newline key's too from two.
 const ONE_ROW_HINT = '⏎ send  '
 const MULTI_ROW_HINT = '⏎ send · \\⏎ new line  '
-// Each open message's draft, by item, so a redraw of the pane hands the Input back what the person typed.
-const drafts = new Map<string, string>()
 
 function draftFieldRows(text: string, width: number): number {
   const rowsBeside = (hint: string) => {

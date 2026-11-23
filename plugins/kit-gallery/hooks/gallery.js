@@ -860,7 +860,7 @@ var DESCRIBED = [
 var WRITE_IN = { label: "Something else", description: "Say what you have in mind", isWriteIn: true };
 var LONG = ["Rename", "Extract", "Inline", "Move", "Split", "Merge", "Delete", "Rewrite", "Document", "Defer"].map((label) => ({ label }));
 var TAB_NAMES = ["Overview", "Install", "Configure", "Usage", "Hooks", "Commands", "Settings", "Tools", "Panes", "Themes", "Testing", "Release", "Upgrade", "Support", "Billing", "Audit", "Export", "Import", "Sync", "Search"];
-var TONES = ["primary", "secondary", "neutral", "caution", "brand"];
+var TONES = ["primary", "secondary", "neutral", "caution", "brand", "thread"];
 function toneRow(ui, tone) {
   const fill = { ...FILL[tone], bold: true };
   return /* @__PURE__ */ h(Row, null, /* @__PURE__ */ h(Span, {
