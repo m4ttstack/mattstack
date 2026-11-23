@@ -329,9 +329,8 @@ restart by hand takes the same path. Calls made during it are not lost:
   retries it.
 - A socket that has gone unanswered, or answered only starting or
   stopping, for 20 seconds cools off for 30: a long-lived client's calls in
-  that window make one attempt instead of waiting. The first real answer
-  ends it. A daemon that comes back after an unanswered stretch starts a
-  fresh 20 seconds.
+  that window make one attempt instead of waiting, and get the daemon's
+  starting reply back as is. The first real answer ends it.
 - `rt daemon restart` reports success once the new daemon serves, not when
   it binds. `rt daemon start` leaves a starting or parked daemon alone; on a
   stopping one it waits out the drain, gives launchd's replacement 3

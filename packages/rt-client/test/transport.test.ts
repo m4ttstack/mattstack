@@ -224,21 +224,29 @@ describe("rtCommand: retry while the daemon restarts", () => {
     expect(Date.now() - started).toBeLessThan(1_000);
   });
 
-  test("a call that sees no socket and then starting replies times the starting stretch from when it began", async () => {
-    __test__.setCoolOffAfterMs(300);
+  test("no socket and then starting replies make one stretch: a daemon flapping between them still cools off", async () => {
+    __test__.setCoolOffAfterMs(150);
     const sock = freshSock();
-    let serving = false;
     const timer = setTimeout(() => {
-      const server = Bun.serve({
-        unix: sock,
-        fetch: () => (serving ? Response.json({ ok: true, data: { n: 1 } }) : Response.json(STARTING, { status: 503 })),
-      });
+      const server = Bun.serve({ unix: sock, fetch: () => Response.json(STARTING, { status: 503 }) });
       stops.push(() => server.stop(true));
-    }, 250);
+    }, 100);
     stops.push(() => clearTimeout(timer));
-    expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 450 })).toEqual(STARTING);
-    setTimeout(() => { serving = true; }, 200);
-    expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).toEqual({ ok: true, data: { n: 1 } });
+    expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 250 })).toEqual(STARTING);
+    const started = Date.now();
+    expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).toEqual(STARTING);
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  test("a running cool-off outlasts the threshold: a miss after it does not start a fresh stretch", async () => {
+    __test__.setCoolOffAfterMs(150);
+    const sock = freshSock();
+    await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 200 });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const started = Date.now();
+    expect((await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).ok).toBe(false);
+    expect((await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).ok).toBe(false);
+    expect(Date.now() - started).toBeLessThan(1_000);
   });
 
   test("a miss long past does not count toward the cool-off of a new one", async () => {
@@ -251,7 +259,7 @@ describe("rtCommand: retry while the daemon restarts", () => {
     expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).toEqual({ ok: true, data: { n: 1 } });
   });
 
-  test("a starting reply ends the cool-off: the daemon is back", async () => {
+  test("during a cool-off a starting reply comes back at once, and the first real answer ends it", async () => {
     __test__.setCoolOffAfterMs(150);
     const sock = freshSock();
     await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 200 });
@@ -262,6 +270,8 @@ describe("rtCommand: retry while the daemon restarts", () => {
     });
     stops.push(() => server.stop(true));
     expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).toEqual(STARTING);
+    expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).toEqual(STARTING);
+    expect(hits).toBe(2);
     expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).toEqual({ ok: true, data: { n: 1 } });
   });
 
