@@ -34,7 +34,7 @@ export interface WatchdogSensors {
 
 export type WedgeVerdict =
   | { kind: "healthy" }
-  | { kind: "wedged"; path: "fast" | "backstop"; evidence: string }
+  | { kind: "wedged"; path: "fast" | "backstop"; evidence: string; /** The open human gate behind the verdict, when that is what it is. */ humanGate?: string }
   | { kind: "finished-lingering"; evidence: string }
   | { kind: "dead" | "modal" };
 
@@ -175,7 +175,7 @@ export function evaluateShepherd(herd: HerdRow, s: WatchdogSensors, cfg: Watchdo
   const now = s.now();
 
   const gate = oldest(s.openHumanGates(herdPrefix(herd.id)).filter((g) => g.ageMs >= ms(cfg.shepherdFastMins)));
-  if (gate) return { kind: "wedged", path: "fast", evidence: `human gate ${gate.id} open ${minutes(gate.ageMs)}m unanswered` };
+  if (gate) return { kind: "wedged", path: "fast", evidence: `human gate ${gate.id} open ${minutes(gate.ageMs)}m unanswered`, humanGate: gate.id };
   const jobs = s.jobs(herd.id);
   // A shepherd that signed off never reads its DMs, so a finished herd left
   // unwrapped would otherwise notify every notifyQuietMins for good. A herd
@@ -231,6 +231,10 @@ export interface WatchdogPersist {
 const SHEPHERD = "@shepherd";
 const WORKER_CAP = 5;
 const SHEPHERD_CAP = 3;
+/** The longest gap between reminders about one unanswered human gate. */
+const HUMAN_GATE_GAP_CAP_MINS = 120;
+/** How long a reminder count outlives its gate's last reminder before it is forgotten. */
+const HUMAN_GATE_MEMORY_MS = 24 * 60 * 60_000;
 const DEAD_EVIDENCE = "pane open but the agent is gone";
 const MODAL_EVIDENCE = "blocked at a modal prompt, parked stuck-at-modal";
 
@@ -259,6 +263,13 @@ export class HerdWatchdog {
       with no memory of the poke, and retryMins would never apply (the live
       double-nag three minutes apart, both logged at strike 1). */
   private readonly lastActionAt = new Map<string, number>();
+  /** Reminders sent per open human gate. Only the person can answer one, so
+      reminding the shepherd every retryMins all night buys nothing: the gap
+      doubles per reminder up to HUMAN_GATE_GAP_CAP_MINS, and a new gate starts
+      over. Kept per gate, not per ladder, because a poke wakes the shepherd,
+      the next sweep reads healthy and the ladder drops. In memory only, so a
+      daemon restart starts the count over. */
+  private readonly humanGateReminders = new Map<string, { count: number; lastAt: number }>();
   /** A sweep pokes panes over the network, so it can outlive its interval.
       The next tick is dropped rather than queued: the ladder's retry clock
       already paces the actions, and two sweeps in flight would double-strike
@@ -299,6 +310,7 @@ export class HerdWatchdog {
       this.ladders.clear();
       this.notifiedAt.clear();
       this.lastActionAt.clear();
+      this.humanGateReminders.clear();
       return;
     }
     if (this.sweeping) {
@@ -308,6 +320,7 @@ export class HerdWatchdog {
     this.sweeping = true;
     try {
       const now = this.sensors.now();
+      for (const [gate, r] of this.humanGateReminders) if (now - r.lastAt > HUMAN_GATE_MEMORY_MS) this.humanGateReminders.delete(gate);
       for (const herd of this.sensors.herds()) {
         if (herd.status !== "active") continue;
         for (const job of this.sensors.jobs(herd.id)) await this.walkWorker(herd, job, cfg, now);
@@ -399,6 +412,13 @@ export class HerdWatchdog {
       this.drop(key);
       return;
     }
+    const gateKey = fresh.humanGate === undefined ? undefined : `${herd.id}/${fresh.humanGate}`;
+    const reminded = gateKey === undefined ? undefined : this.humanGateReminders.get(gateKey);
+    if (reminded) {
+      const gapMs = Math.min(ms(cfg.retryMins) * 2 ** reminded.count, ms(HUMAN_GATE_GAP_CAP_MINS));
+      if (now - reminded.lastAt < gapMs) return;
+    }
+    if (gateKey !== undefined) this.humanGateReminders.set(gateKey, { count: (reminded?.count ?? 0) + 1, lastAt: now });
     this.commit(key, ladder, now, 1, SHEPHERD_CAP);
     const ctx = { herd: herd.id, job: SHEPHERD, path: fresh.path, strike: ladder.strikes };
     if (ladder.strikes >= SHEPHERD_CAP || herd.shepherdPane === null) this.notify(herd.id, summaryText(key, fresh.evidence, ladder, now), herd.shepherdPane, cfg, now, ctx);

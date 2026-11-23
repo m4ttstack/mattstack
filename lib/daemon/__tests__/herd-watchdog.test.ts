@@ -305,7 +305,7 @@ describe("evaluateShepherd", () => {
 
   test("(a) an open human gate older than shepherdFastMins while the shepherd is idle is wedged on the fast path", () => {
     const s = sensors({ ...shepherdIdle, openHumanGates: (prefix) => (prefix === "herd:demo-1/" ? [{ id: "g-9", ageMs: 6 * MIN }] : []) });
-    expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered" });
+    expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered", humanGate: "g-9" });
   });
 
   test("a shepherd with an open kit gate is awaiting an answer: healthy however wedged it otherwise reads", () => {
@@ -337,7 +337,7 @@ describe("evaluateShepherd", () => {
 
   test("an open human gate stays wedged with every job closed: the person is still waiting", () => {
     const s = sensors({ ...shepherdIdle, openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }], jobs: () => [job({ status: "closed" })] });
-    expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered" });
+    expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered", humanGate: "g-9" });
   });
 
   test("(b) unread DMs/mentions for the shepherd handle while idle are wedged on the fast path", () => {
@@ -389,7 +389,7 @@ describe("evaluateShepherd", () => {
 
   test("with no shepherd pane the working exemption is skipped and evidence alone decides; pane state is never asked", () => {
     const evidence = sensors({ paneState: () => { throw new Error("must not be called"); }, openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }] });
-    expect(evaluateShepherd(herd({ shepherdPane: null }), evidence, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered" });
+    expect(evaluateShepherd(herd({ shepherdPane: null }), evidence, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered", humanGate: "g-9" });
     const quiet = sensors({ paneState: () => { throw new Error("must not be called"); } });
     expect(evaluateShepherd(herd({ shepherdPane: null }), quiet, cfg)).toEqual({ kind: "healthy" });
   });
@@ -397,7 +397,7 @@ describe("evaluateShepherd", () => {
   test("a dead, modal or gone shepherd pane counts as not working for the evidence tests", () => {
     for (const state of ["dead", "modal", "gone"] as const) {
       const s = sensors({ paneState: () => state, openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }] });
-      expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered" });
+      expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered", humanGate: "g-9" });
     }
   });
 
@@ -408,7 +408,7 @@ describe("evaluateShepherd", () => {
       unreadDmMentionsFor: () => 1,
       jobs: () => [job({ status: "done", lastReport: 2758, updatedAt: NOW - 35 * MIN })],
     });
-    expect(evaluateShepherd(herd(), all, cfg)).toMatchObject({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered" });
+    expect(evaluateShepherd(herd(), all, cfg)).toMatchObject({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered", humanGate: "g-9" });
     const noGate = sensors({ ...shepherdIdle, unreadDmMentionsFor: () => 1, jobs: () => [job({ status: "done", lastReport: 2758, updatedAt: NOW - 35 * MIN })] });
     expect(evaluateShepherd(herd(), noGate, cfg)).toMatchObject({ evidence: "1 unread DM/mention waiting" });
     const lingering = sensors({ paneState: () => "idle", jobs: () => [job({ status: "done", lastReport: 2758, updatedAt: NOW - 35 * MIN })] });
@@ -436,7 +436,7 @@ describe("evaluateShepherd", () => {
 
   test("RT-355: a shepherd's own background work never hides a human gate it left open", () => {
     const s = sensors({ paneState: () => "idle", backgroundWork: bgFor(5), openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }] });
-    expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered" });
+    expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered", humanGate: "g-9" });
   });
 });
 
@@ -480,7 +480,7 @@ describe("HerdWatchdog ladder", () => {
   const workerWedged = (): Partial<WatchdogSensors> => ({ ...idleFor(3), unreadDmMentionsFor: (h) => (h === "job-a" ? 1 : 0) });
 
   const settle = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
-  const shepherdWedged = (): Partial<WatchdogSensors> => ({ paneState: () => "idle", openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }] });
+  const shepherdWedged = (): Partial<WatchdogSensors> => ({ paneState: () => "idle", unreadDmMentionsFor: (h) => (h === "shepherd" ? 1 : 0) });
 
   function memoryPersist() {
     const ladders = new Map<string, { key: string; strikes: number; lastPokeAt: number | null; since: number; parked: boolean }>();
@@ -786,16 +786,60 @@ describe("HerdWatchdog ladder", () => {
     expect(r.notes).toEqual([]);
   });
 
+  describe("RT-248: an unanswered human gate backs off", () => {
+    const humanGate = (id = "g-9"): Partial<WatchdogSensors> => ({ paneState: () => "idle", openHumanGates: () => [{ id, ageMs: 6 * MIN }] });
+    const reminders = (r: ReturnType<typeof rig>) => r.shepherdPokes().length + r.notes.length;
+
+    test("reminds at once, then at doubling gaps instead of every retryMins", async () => {
+      const r = rig({ jobs: [], sensors: humanGate() });
+      await r.tick();
+      expect(reminders(r)).toBe(1);
+      await r.tick(5);
+      expect(reminders(r)).toBe(1);
+      await r.tick(5);
+      expect(reminders(r)).toBe(2);
+      await r.tick(15);
+      expect(reminders(r)).toBe(2);
+      await r.tick(5);
+      expect(reminders(r)).toBe(3);
+    });
+
+    test("a night with nobody answering gets a handful of reminders, not one every 5 minutes", async () => {
+      const r = rig({ jobs: [], sensors: humanGate(), cfg: { notifyQuietMins: 0 } });
+      for (let i = 0; i < 8 * 12; i++) await r.tick(i === 0 ? 0 : 5);
+      expect(reminders(r)).toBeLessThanOrEqual(9);
+      expect(reminders(r)).toBeGreaterThanOrEqual(5);
+    });
+
+    test("a new human gate gets its first reminder right away", async () => {
+      const gate = { id: "g-9" };
+      const r = rig({ jobs: [], sensors: { paneState: () => "idle", openHumanGates: () => [{ id: gate.id, ageMs: 6 * MIN }] } });
+      await r.tick();
+      await r.tick(5);
+      expect(reminders(r)).toBe(1);
+      gate.id = "g-10";
+      await r.tick(1);
+      expect(reminders(r)).toBe(2);
+    });
+
+    test("unread DMs keep today's cadence", async () => {
+      const r = rig({ jobs: [], sensors: shepherdWedged() });
+      await r.tick();
+      await r.tick(5);
+      expect(r.shepherdPokes()).toHaveLength(2);
+    });
+  });
+
   test("(f) a shepherd poked twice without effect = notifyHuman", async () => {
     const r = rig({ jobs: [], sensors: shepherdWedged() });
     await r.tick();
-    expect(r.pokes).toEqual([{ pane: "w1:p0", text: "watchdog: human gate g-9 open 6m unanswered. Consume it or post status." }]);
+    expect(r.pokes).toEqual([{ pane: "w1:p0", text: "watchdog: 1 unread DM/mention waiting. Consume it or post status." }]);
     await r.tick(5);
     expect(r.pokes).toHaveLength(2);
     expect(r.notes).toHaveLength(0);
     await r.tick(5);
     expect(r.pokes).toHaveLength(2);
-    expect(r.notes).toEqual(["watchdog: demo-1/@shepherd: human gate g-9 open 6m unanswered; strike 3, flagged 10m ago. Check on it."]);
+    expect(r.notes).toEqual(["watchdog: demo-1/@shepherd: 1 unread DM/mention waiting; strike 3, flagged 10m ago. Check on it."]);
   });
 
   test("(g) a second notifyHuman inside notifyQuietMins is suppressed (logged at debug), and fires again once the period passes", async () => {
