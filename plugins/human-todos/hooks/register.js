@@ -168,10 +168,10 @@ var FILL = {
   current: { bg: "#3aa8b8", color: "black" },
   disabled: { bg: "#262626", color: "#5c5c5c" },
   field: { bg: "#2c2c2c", color: "white" },
-  brand: { bg: BRAND.pink, color: BRAND.plum }
+  brand: { bg: BRAND.pink, color: BRAND.plum },
+  thread: { bg: "#3a3150", color: "#d4cbf5" }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
-var PLACEHOLDER = { color: "#7a7a7a" };
 var HOVER_FILL = {
   [BRAND.pink]: "#ff94b9",
   [BRAND.pinkDeep]: "#f57ba6",
@@ -180,7 +180,8 @@ var HOVER_FILL = {
   [FILL.neutral.bg]: "#666666",
   [FILL.caution.bg]: "#d6aa45",
   [FILL.chip.bg]: "#555555",
-  [FILL.current.bg]: "#5fcfdc"
+  [FILL.current.bg]: "#5fcfdc",
+  [FILL.thread.bg]: "#4b4068"
 };
 var PRESS_FILL = {
   [BRAND.pink]: "#ea5d8c",
@@ -190,7 +191,8 @@ var PRESS_FILL = {
   [FILL.neutral.bg]: "#424242",
   [FILL.caution.bg]: "#a58127",
   [FILL.chip.bg]: "#333333",
-  [FILL.current.bg]: "#3394a2"
+  [FILL.current.bg]: "#3394a2",
+  [FILL.thread.bg]: "#30293f"
 };
 var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
 function hoverOf(span) {
@@ -239,7 +241,7 @@ var DONE = { color: "green" };
 var WARN = { color: "yellow" };
 var DIM = { dim: true };
 var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
-var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
+var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.thread.bg]: { bg: "#332d43", color: "#b0a8cc" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
 function muted(span) {
   if (span.mark)
     return { ...span, color: MUTED[span.mark] ?? span.mark, dim: false };
@@ -251,91 +253,8 @@ function muted(span) {
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
   return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
 }
-// packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
-var ROOMY = { indent: 3, pad: 2, gap: 3 };
-var COMPACT = { indent: 1, pad: 1, gap: 1 };
-function buttonSpan(button, pad = ROOMY.pad) {
-  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
-  const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet" && button.tone !== "plain", ...!button.disabled && { action: button.action } });
-}
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
-var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width, indent) {
-  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
-  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
-  const line = [sp(" ".repeat(space.indent))];
-  for (const button of left)
-    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
-  if (!right)
-    return line;
-  const room = width - widthOf(line) - space.gap - 2 * space.pad;
-  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
-  return line;
-}
 // packages/mod-kit/src/widgets/text-edit.ts
 var NAMED = new Set(["up", "down", "left", "right", "return", "enter", "tab", "backspace", "delete", "escape", "pageup", "pagedown", "home", "end", "insert"]);
-var isSpace = (ch) => ch !== undefined && /\s/.test(ch);
-function wordBack(chars, at) {
-  let i = at;
-  while (i > 0 && isSpace(chars[i - 1]))
-    i--;
-  while (i > 0 && !isSpace(chars[i - 1]))
-    i--;
-  return i;
-}
-function wordForward(chars, at) {
-  let i = at;
-  while (i < chars.length && isSpace(chars[i]))
-    i++;
-  while (i < chars.length && !isSpace(chars[i]))
-    i++;
-  return i;
-}
-function editText(edit, ev) {
-  const chars = Array.from(edit.text);
-  const at = Math.min(Math.max(0, edit.at), chars.length);
-  const cut = (from, to) => ({ text: [...chars.slice(0, from), ...chars.slice(to)].join(""), at: from });
-  const move = (to) => ({ text: edit.text, at: to });
-  const { key } = ev;
-  if (key === "backspace") {
-    if (ev.meta)
-      return cut(wordBack(chars, at), at);
-    return at === 0 ? move(0) : cut(at - 1, at);
-  }
-  if (key === "delete") {
-    if (ev.meta)
-      return cut(at, wordForward(chars, at));
-    return cut(at, Math.min(chars.length, at + 1));
-  }
-  if (ev.ctrl && key === "w")
-    return cut(wordBack(chars, at), at);
-  if (ev.ctrl && key === "u")
-    return cut(0, at);
-  if (ev.ctrl && key === "k")
-    return cut(at, chars.length);
-  if (ev.ctrl && key === "a" || key === "home")
-    return move(0);
-  if (ev.ctrl && key === "e" || key === "end")
-    return move(chars.length);
-  if (key === "left")
-    return move(ev.meta ? wordBack(chars, at) : Math.max(0, at - 1));
-  if (key === "right")
-    return move(ev.meta ? wordForward(chars, at) : Math.min(chars.length, at + 1));
-  if (ev.meta && key === "b")
-    return move(wordBack(chars, at));
-  if (ev.meta && key === "f")
-    return move(wordForward(chars, at));
-  if (ev.ctrl || ev.meta)
-    return;
-  const ch = key === "space" ? " " : key;
-  if (NAMED.has(ch) || ch === "")
-    return;
-  const typed = Array.from(ch);
-  return { text: [...chars.slice(0, at), ...typed, ...chars.slice(at)].join(""), at: at + typed.length };
-}
 function wrapKeeping(text, width) {
   const room = Math.max(1, width);
   const rows = [];
@@ -366,17 +285,6 @@ function wrapKeeping(text, width) {
   }
   rows.push(row.join(""));
   return rows;
-}
-function caretRow(rows, at) {
-  let left = at;
-  for (let r = 0;r < rows.length; r++) {
-    const len = Array.from(rows[r]).length;
-    if (left <= len && (left < len || r === rows.length - 1))
-      return { row: r, col: left };
-    left -= len;
-  }
-  const last = rows.length - 1;
-  return { row: last, col: Array.from(rows[last] ?? "").length };
 }
 // packages/mod-kit/src/widgets/scroll-bar.ts
 function scrollBar(rows, total, offset) {
@@ -426,6 +334,315 @@ function gridMove(rows, here, ev, options = {}) {
 function gridLook(span, focus) {
   const base = focus.pressing ? pressed(span) : span;
   return focus.marked ? markButtonAt([span], 0, { pressing: focus.pressing }) : [base];
+}
+// packages/mod-kit/src/interact/pointer.ts
+function lookOf(state, focused) {
+  const hover = state?.hover;
+  const held = state?.pressed;
+  return { focused, hover, pressed: held === hover ? held : undefined };
+}
+var labelOf = (text) => text.split(SYMBOL.selectEdge).join("").trim();
+function runOf(line, n) {
+  const armed = JSON.stringify(line[n].action);
+  const carries = (m) => line[m]?.action !== undefined && JSON.stringify(line[m].action) === armed;
+  let first = n;
+  let last = n;
+  while (carries(first - 1))
+    first--;
+  while (carries(last + 1))
+    last++;
+  return { armed, label: labelOf(line.slice(first, last + 1).map((s) => s.t).join("")) };
+}
+function controlAt(line, x) {
+  if (!line)
+    return;
+  let from = 0;
+  for (let n = 0;n < line.length; n++) {
+    const to = from + cellWidth(line[n].t);
+    if (line[n].action !== undefined && x >= from && x < to)
+      return runOf(line, n);
+    from = to;
+  }
+  return line.action === undefined ? undefined : { armed: JSON.stringify(line.action), label: labelOf(line.map((s) => s.t).join("")) };
+}
+function drawnAction(lines, held) {
+  for (const line of lines) {
+    if (line.action !== undefined && JSON.stringify(line.action) === held.armed && labelOf(line.map((s) => s.t).join("")) === held.label)
+      return line.action;
+    for (let n = 0;n < line.length; n++) {
+      const run = line[n].action === undefined ? undefined : runOf(line, n);
+      if (run && run.armed === held.armed && run.label === held.label)
+        return line[n].action;
+    }
+  }
+  return;
+}
+function attachPointer(surface, lines, opts) {
+  const s = surface.state;
+  const look = lookOf(s, opts.focused);
+  if (s === undefined)
+    return { look };
+  const isActive = opts.isActive ?? (() => true);
+  surface.onPointer((ev) => {
+    const key = hoverKeyAt(lines, ev.y, ev.x);
+    if (ev.type === "down") {
+      opts.onEngage?.();
+      if (!opts.focused || ev.button !== "left" || !key || !isActive())
+        return;
+      const held = controlAt(lines[ev.y], ev.x);
+      return surface.setState({ ...s, pressed: key, hover: key, armed: held?.armed, label: held?.label, pressAt: `${ev.x},${ev.y}` });
+    }
+    if (ev.type === "up") {
+      if (s.pressed === undefined)
+        return;
+      const { armed, label, pressAt } = s;
+      surface.setState({ ...s, pressed: undefined, armed: undefined, label: undefined, pressAt: undefined });
+      if (armed === undefined || label === undefined)
+        return;
+      const here = controlAt(lines[ev.y], ev.x);
+      const isSame = here !== undefined && here.armed === armed && here.label === label;
+      const isStill = s.hover === s.pressed && pressAt === `${ev.x},${ev.y}`;
+      const action = isSame ? hitAt(lines[ev.y], ev.x) : isStill ? drawnAction(lines, { armed, label }) : undefined;
+      if (action !== undefined)
+        opts.onAction(action);
+      return;
+    }
+    const next = ev.type === "leave" ? undefined : key;
+    if (next !== s.hover && isActive())
+      surface.setState({ ...s, hover: next });
+  });
+  return { look };
+}
+
+// packages/mod-kit/src/components/core.tsx
+var current;
+function rendering(tag) {
+  if (!current)
+    throw new Error(`kit: <${tag}> draws only inside kitClient`);
+  return current;
+}
+function drawKit(frame, draw) {
+  const outer = current;
+  const render = { ...frame, entries: new Map, next: 0, handlers: new Map };
+  current = render;
+  try {
+    const tree = draw();
+    return { tree, lines: render.lines ?? [], handlers: render.handlers };
+  } finally {
+    current = outer;
+  }
+}
+function kitComponent(tag, toLines) {
+  const component = (props) => {
+    const render = rendering(tag);
+    const key = `kit:${render.next++}`;
+    render.entries.set(key, { component: kit, props });
+    const { Box } = render.elements;
+    return /* @__PURE__ */ h(Box, {
+      key
+    });
+  };
+  const kit = Object.assign(component, { toLines });
+  return kit;
+}
+function textOf(children) {
+  if (Array.isArray(children))
+    return children.map(textOf).join("");
+  if (typeof children === "string" || typeof children === "number")
+    return String(children);
+  return "";
+}
+function ctxFor(render, owner, view) {
+  const ctx = {
+    ...view,
+    bind: (name, run) => {
+      const key = `${owner}:${name}`;
+      render.handlers.set(key, run);
+      return key;
+    },
+    parts: (nodes, over) => partsOf(render, nodes, { ...view, ...over }),
+    layout: (nodes, over) => ctx.parts(nodes, over).flatMap((part) => ("text" in part) ? [[sp(part.text)]] : part.component.toLines(part.props, part.ctx))
+  };
+  return ctx;
+}
+function partsOf(render, nodes, view) {
+  const out = [];
+  const walk = (node) => {
+    if (node === null || node === undefined || typeof node === "boolean")
+      return;
+    if (Array.isArray(node))
+      return node.forEach(walk);
+    if (typeof node === "string" || typeof node === "number") {
+      out.push({ text: String(node) });
+      return;
+    }
+    const el = node;
+    const key = el.props?.key;
+    const entry = typeof key === "string" ? render.entries.get(key) : undefined;
+    if (entry && typeof key === "string") {
+      out.push({ component: entry.component, props: entry.props, ctx: ctxFor(render, key, view) });
+      return;
+    }
+    const inner = el.children ?? el.props?.children;
+    if (inner === undefined)
+      throw new Error(`kit: a Panel lays out kit components and text, not a ${String(el.type)} element`);
+    walk(inner);
+  };
+  walk(nodes);
+  return out;
+}
+
+// packages/mod-kit/src/components/client.tsx
+var KEY_PRESS_MS = 150;
+function kitClient(body, options = {}) {
+  return function KitClient(props, surface) {
+    const seed = surface.state ?? options.initial?.(props) ?? {};
+    if (surface.state === undefined)
+      surface.setState(seed);
+    let latest = seed;
+    const setState = (next) => {
+      latest = next;
+      surface.setState(next);
+    };
+    const focused = options.focused ? options.focused(props) : props?.focused !== false;
+    const engage = options.engaged && (() => surface.post(options.engaged(props)));
+    let reveal;
+    const ui = {
+      width: surface.columns || 80,
+      focused,
+      get state() {
+        return latest;
+      },
+      setState,
+      post: (message) => surface.post(message),
+      hide: () => surface.post({ type: "hide" }),
+      onKey: (fn) => void surface.onKey((event) => {
+        if (latest.keyPress)
+          return;
+        engage?.();
+        if (focused && !latest.keyboard && options.revealKeys?.includes(event.key)) {
+          setState({ ...latest, keyboard: true });
+          reveal?.();
+          return;
+        }
+        if (fn(event) === true && !latest.keyboard)
+          setState({ ...latest, keyboard: true });
+      }),
+      get keyboard() {
+        return latest.keyboard === true;
+      },
+      get keyPressing() {
+        return latest.keyPress === true;
+      },
+      onReveal: (fn) => {
+        reveal = fn;
+      },
+      pressFor: (run, ms = KEY_PRESS_MS) => {
+        if (latest.keyPress)
+          return;
+        setState({ ...latest, keyPress: true });
+        const stop = surface.every(ms, () => {
+          stop();
+          setState({ ...surface.state, keyPress: undefined });
+          run();
+        });
+      }
+    };
+    const { tree, lines, handlers } = drawKit({ elements: surface.elements, look: lookOf(latest, focused), width: ui.width, focused }, () => body(props, ui));
+    const local = {
+      get state() {
+        return latest;
+      },
+      setState,
+      onPointer: (fn) => surface.onPointer((event) => {
+        fn(event);
+        if (latest.keyboard)
+          setState({ ...latest, keyboard: undefined });
+      })
+    };
+    attachPointer(local, lines, {
+      focused,
+      onAction: (key) => handlers.get(key)?.(),
+      ...engage && { onEngage: engage },
+      ...options.isActive && { isActive: () => options.isActive(latest) }
+    });
+    return tree;
+  };
+}
+
+// packages/mod-kit/src/draw/render.tsx
+function isControl(span, line, row, key) {
+  if (span.action !== undefined)
+    return spanHoverKey(span, row) === key;
+  return span.isLabel === true && lineHoverKey(line) === key;
+}
+function styleOf(span, line, row, look) {
+  if (!look.focused)
+    return muted(span);
+  const overRow = span.rowTint === true && [look.hover, look.pressed].some((key) => key !== undefined && lineHoverKey(line) === key);
+  if (overRow)
+    return span.bg !== undefined && span.bg !== CURSOR_ROW ? span : { ...span, bg: CURSOR_ROW };
+  if (look.pressed !== undefined && isControl(span, line, row, look.pressed))
+    return pressed(span);
+  if (look.hover !== undefined && isControl(span, line, row, look.hover))
+    return hovered(span);
+  return span;
+}
+function renderLines(lines, elements, look) {
+  const { Box, Text } = elements;
+  return /* @__PURE__ */ h(Box, {
+    flexDirection: "column"
+  }, lines.map((line, n) => /* @__PURE__ */ h(Text, {
+    key: `l${n}`,
+    wrap: "truncate-end"
+  }, line.map((span, m) => {
+    const style = styleOf(span, line, n, look);
+    return /* @__PURE__ */ h(Text, {
+      key: `s${m}`,
+      ...style.color && { color: style.color },
+      ...style.bg && { backgroundColor: style.bg },
+      ...style.dim && { dimColor: true },
+      ...style.bold && { bold: true },
+      ...style.italic && { italic: true },
+      ...style.underline && { underline: true },
+      ...style.inverse && { inverse: true }
+    }, span.t);
+  }))));
+}
+
+// packages/mod-kit/src/components/panel.tsx
+function Panel(props) {
+  const render = rendering("Panel");
+  if (render.lines)
+    throw new Error("kit: a Client draws one Panel");
+  const lines = ctxFor(render, "panel", { width: props.width ?? render.width, focused: render.focused }).layout(props.children);
+  render.lines = lines;
+  return renderLines(lines, render.elements, render.look);
+}
+
+// packages/mod-kit/src/widgets/buttons.ts
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, thread: FILL.thread, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
+var ROOMY = { indent: 3, pad: 2, gap: 3 };
+var COMPACT = { indent: 1, pad: 1, gap: 1 };
+function buttonSpan(button, pad = ROOMY.pad) {
+  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
+  const edge = " ".repeat(pad);
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet" && button.tone !== "plain", ...!button.disabled && { action: button.action } });
+}
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
+var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width, indent) {
+  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
+  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
+  const line = [sp(" ".repeat(space.indent))];
+  for (const button of left)
+    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
+  if (!right)
+    return line;
+  const room = width - widthOf(line) - space.gap - 2 * space.pad;
+  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
+  return line;
 }
 // packages/mod-kit/src/patterns/hideable-pane.tsx
 var DEFAULT_BAND_LABEL = "mattstack waiting";
@@ -586,6 +803,36 @@ function windowLines(spec) {
     return [...clipLine([...gutter, ...lead], spec.width - spec.barCells), ...spec.bar[n] ?? []];
   });
 }
+// packages/mod-kit/src/components/buttons.tsx
+function buttonOf(props, ctx) {
+  return { label: props.label ?? textOf(props.children), tone: props.tone, disabled: props.disabled, action: ctx.bind("press", () => props.onPress?.()) };
+}
+var Button = kitComponent("Button", (props, ctx) => [buttonRow([buttonOf(props, ctx)], undefined, ctx.width)]);
+var ButtonRow = kitComponent("ButtonRow", (props, ctx) => {
+  const buttons = (nodes) => ctx.parts(nodes).flatMap((part) => ("component" in part) && part.component === Button ? [buttonOf(part.props, part.ctx)] : []);
+  return [buttonRow(buttons(props.children), buttons(props.right)[0], ctx.width)];
+});
+
+// packages/mod-kit/src/components/lines.tsx
+function keyed(lines, key) {
+  return lines.map((line) => {
+    const out = line.map(({ action, ...span }) => action === undefined ? span : { ...span, action: key(action) });
+    if (line.action !== undefined)
+      out.action = key(line.action);
+    return out;
+  });
+}
+var Lines = kitComponent("Lines", (props, ctx) => keyed(props.lines, (action) => ctx.bind(JSON.stringify(action), () => props.onAction?.(action))));
+var Span = kitComponent("Span", ({ children, ...style }) => [[sp(textOf(children), style)]]);
+var Row = kitComponent("Row", (props, ctx) => [
+  ctx.parts(props.children).flatMap((part) => {
+    if ("text" in part)
+      return [sp(part.text)];
+    if (part.component === Button)
+      return [buttonSpan(buttonOf(part.props, part.ctx))];
+    return part.component.toLines(part.props, part.ctx)[0] ?? [];
+  })
+]);
 // mods/human-todos/src/items.ts
 var PLUGIN = "human-todos";
 var TITLE = "Human Todos";
@@ -1093,12 +1340,12 @@ var todos = atom({ plugin: "human-todos", key: "todos" }, [], { shape: "todos-1"
 var nextId = atom({ plugin: "human-todos", key: "nextId" }, 1);
 var expanded = atom({ plugin: "human-todos", key: "expanded" }, []);
 var composing = atom({ plugin: "human-todos", key: "composing" }, null);
-var composeLines = atom({ plugin: "human-todos", key: "composeLines" }, 1);
 var frame = atom({ plugin: "human-todos", key: "frame" }, 0);
 var workspace = atom({ plugin: "human-todos", key: "herdrWorkspace" }, null);
 var loadedFor = atom({ plugin: "human-todos", key: "loadedFor" }, null);
 var isSaveFailed = atom({ plugin: "human-todos", key: "isSaveFailed" }, false);
 var runnerPref = atom({ plugin: "human-todos", key: "runnerPref" }, "auto");
+var drafts = new Map;
 var LIST_PREFIX = "list:";
 var MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 async function saveList($) {
@@ -1189,6 +1436,7 @@ function resume(t) {
 }
 async function restoreList($) {
   leaving = undefined;
+  drafts.clear();
   const now = await $.clock.now();
   for (const key of await $.store.keys()) {
     if (!key.startsWith(LIST_PREFIX))
@@ -1217,8 +1465,8 @@ async function resetList($) {
   await update($, todos, () => []);
   await update($, expanded, () => []);
   await update($, composing, () => null);
-  await update($, composeLines, () => 1);
   await update($, nextId, () => 1);
+  drafts.clear();
 }
 function peekTodos($) {
   return read($, todos);
@@ -1227,21 +1475,19 @@ async function readPane2($) {
   const list = await read($, todos);
   const open = await read($, composing);
   const isLive = open !== null && list.some((t) => t.id === open && t.status === "open");
-  return { list, openIds: await read($, expanded), spin: await read($, frame), composing: isLive ? open : null, composeLines: isLive ? await read($, composeLines) : 1 };
-}
-var MAX_COMPOSE_LINES = 8;
-async function setComposeLines($, lines) {
-  const next = Math.min(MAX_COMPOSE_LINES, Math.max(1, Math.round(lines)));
-  if (await read($, composeLines) !== next)
-    await update($, composeLines, () => next);
+  return { list, openIds: await read($, expanded), spin: await read($, frame), composing: isLive ? open : null };
 }
 async function toggleComposing($, id) {
-  await update($, composing, (open) => open === id ? null : id);
-  await update($, composeLines, () => 1);
+  const open = await read($, composing);
+  if (open !== null)
+    drafts.delete(open);
+  await update($, composing, () => open === id ? null : id);
 }
 async function closeComposing($) {
+  const open = await read($, composing);
+  if (open !== null)
+    drafts.delete(open);
   await update($, composing, () => null);
-  await update($, composeLines, () => 1);
 }
 async function bumpFrame($) {
   await update($, frame, (n) => n + 1);
@@ -1335,18 +1581,29 @@ async function report($, todo, outcome) {
   const session = await $.session.id();
   const log = await savedOutput($, todo, outcome);
   if (await $.session.id() !== session)
-    return;
+    return false;
   const { patch, text } = settle(todo, outcome, log);
-  await patchTodo($, todo.id, patch);
-  await syncSpinner($);
   const warn = () => {
     $.ui.log(`could not send #${todo.id} to the agent`, { to: "debug" });
     $.ui.toast(`Could not tell the agent about #${todo.id}`);
   };
+  if (outcome.kind === "message") {
+    const sent = await $.prompt.submit({ text: `[${TITLE}] ${text}` }).catch(() => ({ drop: "failed" }));
+    if ("drop" in sent && sent.drop !== undefined) {
+      warn();
+      return false;
+    }
+    await patchTodo($, todo.id, patch);
+    await syncSpinner($);
+    return true;
+  }
+  await patchTodo($, todo.id, patch);
+  await syncSpinner($);
   $.prompt.submit({ text: `[${TITLE}] ${text}` }).then((sent) => {
     if (sent.drop !== undefined)
       warn();
   }).catch(warn);
+  return true;
 }
 
 // mods/human-todos/src/local.ts
@@ -1825,7 +2082,7 @@ var LABELS = {
   openLog: "Open log",
   message: "",
   send: "Send",
-  sendDone: "Send & mark done",
+  sendDone: "Send & Done",
   cancelMessage: "Cancel"
 };
 var RUN_DONE_LABEL = "Done without running";
@@ -1841,7 +2098,7 @@ var TONES = {
   openLog: "neutral",
   stop: "caution",
   forceStop: "caution",
-  message: "quiet",
+  message: "thread",
   send: "neutral",
   sendDone: "plain",
   cancelMessage: "plain"
@@ -1869,9 +2126,8 @@ function buttonsOf(todo, messages, isComposing = false) {
   const main = ids.find((id) => id === "stop" || id === "forceStop") ?? ids[0];
   const label = (id) => id !== "done" ? LABELS[id] : todo.kind === "run" ? RUN_DONE_LABEL : todo.doneLabel ?? LABELS.done;
   const own = ids.map((id) => ({ id, label: label(id), tone: id === main || id === "done" ? TONES[id] : "quiet", todoId: todo.id }));
-  return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: "quiet", todoId: todo.id }] : own;
+  return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: TONES.message, todoId: todo.id }] : own;
 }
-var composeButtons = (todoId) => ["cancelMessage", "sendDone", "send"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));
 function paneModel(input) {
   const { list, expanded, spin, width } = input;
   const messages = input.messages === true;
@@ -1934,11 +2190,6 @@ function paneModel(input) {
       rows.push({ kind: "buttons", buttons: buttonsOf(todo, messages, input.composing === todo.id) });
       if (isConfirming)
         lines("Are you sure you want to run this script?", width, "plain", true);
-      if (messages && todo.status === "open" && input.composing === todo.id) {
-        blank();
-        rows.push({ kind: "compose", todoId: todo.id, lines: Math.max(1, input.composeLines ?? 1) });
-        rows.push({ kind: "composeActions", buttons: composeButtons(todo.id) });
-      }
     }
     spans.push({ first, last: rows.length - 1 });
     blank();
@@ -1991,10 +2242,10 @@ async function pressTodo($, todoId, button, surface) {
 }
 async function sendMessage($, todoId, text, done) {
   const todo = (await peekTodos($)).find((t) => t.id === todoId);
-  await closeComposing($);
   if (!todo || todo.status !== "open" || text.trim() === "")
-    return;
-  await report($, todo, { kind: "message", text: text.trim(), done });
+    return await closeComposing($);
+  if (await report($, todo, { kind: "message", text: text.trim(), done }))
+    await closeComposing($);
 }
 async function clearFinished($) {
   const gone = await removeTodos($, (t) => !isActionable(t));
@@ -2009,8 +2260,6 @@ async function act($, message, surface) {
       return await closeComposing($);
     if (message.type === "send")
       return await sendMessage($, message.id, message.text, message.done);
-    if (message.type === "draftLines")
-      return await setComposeLines($, message.lines);
     if (message.type === "press") {
       await closeComposing($);
       return await pressTodo($, message.id, message.button, surface);
@@ -2046,61 +2295,8 @@ function buttonLines(row, room) {
   const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
   return wrappedButtons(lead, row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, INDENT);
 }
-var CARD_PAD = 2;
-var card = (spans, room) => {
-  const tinted = spans.map((span) => ({ ...span, bg: span.bg ?? CURSOR_ROW }));
-  const used = tinted.reduce((n, span) => n + cellWidth(span.t), 0);
-  return [...tinted, sp(" ".repeat(Math.max(0, room - used)), { bg: CURSOR_ROW })];
-};
-var draftWidth = (width) => Math.max(4, roomOf(width) - 2 * CARD_PAD - 1);
-function draftRows(text, width) {
-  return wrapKeeping(text, draftWidth(width));
-}
-function composeLines2(lines, room, draft) {
-  const pad = sp(" ".repeat(CARD_PAD));
-  const blankRow = () => card([pad], room);
-  const text = draft?.text ?? "";
-  const caretOn = draft?.caret === true;
-  if (text === "")
-    return [blankRow(), card([pad, sp(" ", caretOn ? { inverse: true } : {}), sp("Message the agent", PLACEHOLDER)], room), ...Array.from({ length: lines - 1 }, blankRow), blankRow()];
-  const rows = wrapKeeping(text, Math.max(4, room - 2 * CARD_PAD - 1));
-  const caret = caretRow(rows, draft?.at ?? Array.from(text).length);
-  const from = Math.min(Math.max(0, caret.row - lines + 1), Math.max(0, rows.length - lines));
-  const drawn = Array.from({ length: lines }, (_, n) => {
-    const r = from + n;
-    const chars = Array.from(rows[r] ?? "");
-    if (!caretOn || r !== caret.row)
-      return card([pad, sp(chars.join(""))], room);
-    const under = chars[caret.col] ?? " ";
-    return card([pad, sp(chars.slice(0, caret.col).join("")), sp(under, { inverse: true }), sp(chars.slice(caret.col + 1).join(""))], room);
-  });
-  return [blankRow(), ...drawn, blankRow()];
-}
-function composeActionsLines(buttons, room) {
-  const spans = buttons.map((b) => buttonSpan({ label: b.label, tone: b.tone, action: messageOf(b) }, 1));
-  const rows = [[]];
-  let used = CARD_PAD;
-  for (const span of spans) {
-    const w = cellWidth(span.t) + 1;
-    if (used + w > room && rows.at(-1).length > 0) {
-      rows.push([]);
-      used = CARD_PAD;
-    }
-    rows.at(-1).push([sp(" "), span]);
-    used += w;
-  }
-  return rows.map((row) => {
-    const line = row.flat();
-    const width = line.reduce((n, span) => n + cellWidth(span.t), 0) + CARD_PAD;
-    return card([sp(" ".repeat(Math.max(0, room - width))), ...line, sp(" ".repeat(CARD_PAD))], room);
-  });
-}
-function rowLines(row, room, draft) {
+function rowLines(row, room) {
   switch (row.kind) {
-    case "compose":
-      return composeLines2(row.lines, room, draft);
-    case "composeActions":
-      return [...composeActionsLines(row.buttons, room), card([], room)];
     case "blank":
       return [[]];
     case "text": {
@@ -2145,7 +2341,7 @@ function stopMessage(stop, col) {
 function keyStops(model, layout) {
   const stops = new Map;
   model.rows.forEach((row, r) => {
-    if (row.kind !== "buttons" && row.kind !== "composeActions")
+    if (row.kind !== "buttons")
       return;
     const laid = layout.rows[r];
     for (const button of row.buttons) {
@@ -2180,12 +2376,26 @@ function kitView(model, width, bodyRows, offset) {
     stops: keyStops(model, layout)
   };
 }
-function viewLines(view, width, focus = {}, draft) {
+function viewLines(view, width, focus = {}) {
   const room = roomOf(width);
-  const shown = view.rows.flatMap((row) => rowLines(row, room, draft)).slice(view.skip, view.skip + view.windowRows);
+  const shown = view.rows.flatMap((row) => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows);
   const bar = scrollBar(view.windowRows, view.total, view.top);
   return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus });
 }
+
+// mods/human-todos/src/pane/compose-head.tsx
+function composeHeadRows(title, width) {
+  const lead = `  ${LABELS.message}  `;
+  const name = ellipsize(title, Math.max(1, width - cellWidth(lead) - 1));
+  const used = cellWidth(lead) + cellWidth(name);
+  const band = [sp(lead, FILL.thread), sp(name, { ...FILL.thread, bold: true }), sp(" ".repeat(Math.max(0, width - used)), { bg: FILL.thread.bg })];
+  return [band, [sp(" ".repeat(width), { bg: CURSOR_ROW })]];
+}
+var compose_head_default = kitClient((props) => /* @__PURE__ */ h(Panel, {
+  width: props.width
+}, /* @__PURE__ */ h(Lines, {
+  lines: composeHeadRows(props.title, props.width)
+})));
 
 // mods/human-todos/src/pane/plain-view.tsx
 var HEADER_ROWS = 3;
@@ -2300,7 +2510,7 @@ async function openPane($) {
   $.ui.invalidate("ui.render");
 }
 function modelOf(pane, width, messages = true) {
-  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? "", width, messages, composing: pane.composing, composeLines: pane.composeLines });
+  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? "", width, messages, composing: pane.composing });
 }
 async function waitingBand($) {
   const band = bandModel(await peekTodos($));
@@ -2330,8 +2540,7 @@ function registerPane(on) {
     return { text: `${TITLE} pane opened.` };
   });
   on("prompt.edit", async ($, e, next) => {
-    if ((await readPane2($)).composing === null)
-      await setKeysInPane($, false);
+    await setKeysInPane($, false);
     return next(e);
   });
   on("prompt.submit", async ($, e, next) => {
@@ -2351,8 +2560,9 @@ function registerPane(on) {
       const offset = reveal.offset;
       await scrollKit($, () => offset);
     }
-    if (e.requestId === PANE)
-      act($, e.data, e.surface);
+    const message = e.data;
+    if (e.requestId === PANE && message)
+      act($, message, e.surface);
     return next(e);
   });
   on("ui.scroll", { component: "Pane", requestId: "human-todos" }, async ($, e, next) => {
@@ -2408,23 +2618,100 @@ function registerPane(on) {
       const inner = Math.max(22, paneColumns(e) - 4);
       return drawPlainPane($, e, modelOf(pane, inner - 2, false), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE);
     }
-    const { Client } = $.ui.resolve(e);
+    const { Box, Button, Client, Input } = $.ui.resolve(e);
     const width = paneColumns(e);
-    const bodyRows = paneRows(e);
+    const paneBody = paneRows(e);
+    const todo = pane.composing === null ? undefined : pane.list.find((t) => t.id === pane.composing);
+    const draft = todo ? drafts.get(todo.id) ?? "" : "";
+    const headRows = todo ? composeHeadRows(todo.title, width).length : 0;
+    const fieldRoom = Math.max(1, paneBody - MIN_LIST_ROWS - DOCK_FIXED_ROWS - headRows);
+    const fieldRows = Math.min(fieldRoom, draftFieldRows(draft, width));
+    const dockRows = todo ? DOCK_FIXED_ROWS + headRows + fieldRows : 0;
+    const bodyRows = Math.max(MIN_LIST_ROWS, paneBody - dockRows);
     kitSizes.set(e.surface, { columns: width, bodyRows });
     const props = {
       view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read2($, scrollAtom)),
       focused: e.props.isFocused || await read2($, keysAtom),
-      width,
-      ...pane.composing !== null && { composing: pane.composing, composeLines: pane.composeLines }
+      width
     };
-    return /* @__PURE__ */ h(Client, {
+    const list = /* @__PURE__ */ h(Client, {
       key: "human-todos-pane",
       module: "./pane/kit-view.js",
       height: bodyRows,
       props
     });
+    if (!todo)
+      return list;
+    const id = todo.id;
+    return /* @__PURE__ */ h(Box, {
+      flexDirection: "column"
+    }, list, /* @__PURE__ */ h(Box, {
+      marginTop: 1
+    }, /* @__PURE__ */ h(Client, {
+      key: `message-head-${id}`,
+      module: "./pane/compose-head.js",
+      height: headRows,
+      props: { width, title: todo.title }
+    })), /* @__PURE__ */ h(Box, {
+      flexDirection: "column",
+      backgroundColor: CURSOR_ROW,
+      paddingBottom: 1
+    }, /* @__PURE__ */ h(Input, {
+      key: `message-${id}`,
+      rows: fieldRows,
+      autoFocus: true,
+      placeholder: "Message the agent",
+      submitLabel: "send",
+      onInput: (value) => {
+        drafts.set(id, value);
+        if (Math.min(fieldRoom, draftFieldRows(value, width)) !== fieldRows)
+          $.ui.invalidate("ui.render");
+      },
+      onSubmit: (value) => {
+        drafts.set(id, value);
+        sendDraft($, id, false, e.surface);
+      }
+    })), /* @__PURE__ */ h(Box, {
+      flexDirection: "row",
+      justifyContent: "flex-end",
+      gap: 2,
+      backgroundColor: CURSOR_ROW,
+      paddingBottom: 1
+    }, /* @__PURE__ */ h(Button, {
+      key: `message-cancel-${id}`,
+      label: LABELS.cancelMessage,
+      onPress: () => void act($, { type: "press", id, button: "cancelMessage" }, e.surface)
+    }), /* @__PURE__ */ h(Button, {
+      key: `message-done-${id}`,
+      label: LABELS.sendDone,
+      onPress: () => sendDraft($, id, true, e.surface)
+    }), /* @__PURE__ */ h(Button, {
+      key: `message-send-${id}`,
+      label: LABELS.send,
+      onPress: () => sendDraft($, id, false, e.surface)
+    })));
   });
+}
+var MAX_FIELD_ROWS = 8;
+var MIN_LIST_ROWS = 3;
+var DOCK_FIXED_ROWS = 4;
+var ONE_ROW_HINT = "⏎ send  ";
+var MULTI_ROW_HINT = "⏎ send · \\⏎ new line  ";
+function draftFieldRows(text, width) {
+  const rowsBeside = (hint) => {
+    const textWidth = Math.max(4, width - cellWidth(hint));
+    return text.split(`
+`).reduce((n, line) => n + wrapKeeping(line, textWidth).length, 0);
+  };
+  if (rowsBeside(ONE_ROW_HINT) <= 1)
+    return 1;
+  return Math.min(MAX_FIELD_ROWS, Math.max(2, rowsBeside(MULTI_ROW_HINT)));
+}
+function sendDraft($, id, done, surface) {
+  const text = drafts.get(id) ?? "";
+  if (text.trim() === "")
+    return;
+  act($, { type: "send", id, text, done }, surface);
 }
 // mods/human-todos/src/contract.ts
 var PREFIX = "mcp__human-todos__";

@@ -296,6 +296,19 @@ describe('writeReviewState runStartedAt', () => {
     expect(readReviewStates(db).get(URL_A)?.runStartedAt).toBe(3000);
   });
 
+  test('a relaunch after a hold stamps a new start', () => {
+    const p = reviewFilePath(URL_A);
+    writeReviewState(
+      p,
+      { mrUrl: URL_A, iid: 4821, status: 'queued' },
+      1000,
+      db
+    );
+    writeReviewState(p, { status: 'held' }, 2000, db);
+    writeReviewState(p, { status: 'queued' }, 3000, db);
+    expect(readReviewStates(db).get(URL_A)?.runStartedAt).toBe(3000);
+  });
+
   test('a launch write over a stale queued row stamps a new start', () => {
     const p = reviewFilePath(URL_A);
     writeReviewState(

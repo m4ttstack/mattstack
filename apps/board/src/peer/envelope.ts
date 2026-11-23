@@ -56,6 +56,18 @@ export interface ReviewStatePayload {
   parkedAt?: number;
 }
 
+/** A review lane's status as a peer board receives it. `held` goes out as
+    `error` with its reason: a board older than `held` would store it and
+    leave the asker with no ending. */
+export function wireReviewStatus(
+  status: string,
+  message: string | undefined
+): { status: string; reason?: string } {
+  if (status === 'held')
+    return { status: 'error', reason: message || 'review held' };
+  return { status };
+}
+
 export interface ReReviewRequestPayload {
   mrUrl: string;
   iid: number;

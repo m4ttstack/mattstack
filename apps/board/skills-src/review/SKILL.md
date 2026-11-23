@@ -178,6 +178,8 @@ digraph review_flow {
     "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [shape=plaintext];
     "<status-bin> review-status <state> error <what went wrong>" [shape=plaintext];
     "Review error written: stay in the pane and report" [shape=doublecircle];
+    "<status-bin> review-status <state> held <the reason>" [shape=plaintext];
+    "Review held written: stay in the pane and report" [shape=doublecircle];
     "Review gate gone: ended cleanly, no status write" [shape=doublecircle];
     "Held at a review off-script gate: the pane stays" [shape=doublecircle];
     "Review done: the board closes this tab" [shape=doublecircle style=filled fillcolor=lightgreen];
@@ -247,6 +249,8 @@ digraph review_flow {
     "Delegate the review to the domain skill" -> "Domain review result?";
     "Domain review result?" -> "Append the review-round line to --report" [label="report written, severity levels handed back"];
     "Domain review result?" -> "<status-bin> review-status <state> error <what went wrong>" [label="failed: bad MR, mismatched ticket, fetch failure"];
+    "Domain review result?" -> "<status-bin> review-status <state> held <the reason>" [label="held on purpose for a reason about the MR itself: closing, superseded, waiting on someone"];
+    "<status-bin> review-status <state> held <the reason>" -> "Review held written: stay in the pane and report";
     "rt_verb {args: [skills, writing-style, show]} (review)" -> "rt_verb named a style skill (review)?";
     "rt_verb named a style skill (review)?" -> "Load the named writing-style skill (review)" [label="yes"];
     "rt_verb named a style skill (review)?" -> "Load conversational (review)" [label="no: refused, failed or unavailable"];
@@ -781,6 +785,13 @@ gate <gateId> (review)`.
 
 A failure it reports (a bad MR link, a mismatched MR and ticket, a fetch
 failure) is `error` with its message.
+
+A hold it hands back (it stopped on purpose, with no report) is `held`
+with its reason when the reason is about the MR itself: the author is
+closing it, it was superseded, it waits on someone. The board shows a held
+review quietly and keeps it out of Needs Me until the MR moves. A hold
+whose reason quotes a tool or read error (a 404 or 403, a failed fetch, a
+bad link) is a failure all the same: `error` with its message.
 
 ### Load the named writing-style skill (review)
 

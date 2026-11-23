@@ -45,7 +45,6 @@ declare module 'claude-code' {
       nextId: number
       expanded: string[]
       composing: string | null
-      composeLines: number
       loadedFor: string | null
       isSaveFailed: boolean
       frame: number

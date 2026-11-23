@@ -17,7 +17,7 @@ import {
   type PaneClearable,
 } from './state/index.ts';
 
-export type ReviewStatus = 'queued' | 'reviewing' | 'done' | 'error';
+export type ReviewStatus = 'queued' | 'reviewing' | 'done' | 'error' | 'held';
 export type ReviewOutcome = 'comment' | 'approve';
 
 export interface ReviewState {
@@ -151,7 +151,7 @@ const RUN_STARTS: ReadonlySet<ReviewStatus> = new Set(['queued', 'reviewing']);
 
 /** Read-merge-write a review row. First write stamps startedAt; every write
     stamps updatedAt; a write that moves the lane into queued or reviewing from
-    nothing, done or error stamps runStartedAt unless the patch carries one.
+    nothing, done, error or held stamps runStartedAt unless the patch carries one.
     Tries updateByHandle first; when no row exists it requires `patch.mrUrl`
     and `patch.iid` to insert a fresh row, else there is no identity to key
     the row by and the caller is doing something wrong. */
@@ -164,7 +164,10 @@ export function writeReviewState(
   const prev = readByHandle(handle, db) as ReviewState | null;
   const startsRun =
     RUN_STARTS.has(patch.status) &&
-    (!prev || prev.status === 'done' || prev.status === 'error');
+    (!prev ||
+      prev.status === 'done' ||
+      prev.status === 'error' ||
+      prev.status === 'held');
   const stamped =
     startsRun && patch.runStartedAt === undefined
       ? { ...patch, runStartedAt: now }

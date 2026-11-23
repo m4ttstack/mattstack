@@ -1349,6 +1349,28 @@ describe('groupMRs review', () => {
     ]);
   });
 
+  test('a standing hold groups as review held; one the MR has moved past is not reviewed', () => {
+    const held = (iid: number, mrUpdated: string) =>
+      mr({
+        iid,
+        updatedAt: mrUpdated,
+        review: {
+          status: 'held',
+          updatedAt: Date.parse('2026-01-02T00:00:00Z'),
+        },
+      } as any);
+    const groups = groupMRs(
+      [held(1, '2026-01-01T00:00:00Z'), held(2, '2026-01-03T00:00:00Z')],
+      'review',
+      [],
+      NOW
+    );
+    expect(groups.map(g => [g.label, g.mrs.map(m => m.iid)])).toEqual([
+      ['review held', [1]],
+      ['not reviewed', [2]],
+    ]);
+  });
+
   test('collapses MRs sharing a status into one group', () => {
     const list = [reviewed(1, 'done'), reviewed(2, 'done'), reviewed(3)];
     const groups = groupMRs(list, 'review', [], NOW);

@@ -312,6 +312,7 @@ import {
   canonicalUsername,
   DECLINE_REASONS,
   makeEnvelope,
+  wireReviewStatus,
   type AskKind,
   type DeclineReason,
   type ReReviewRequestPayload,
@@ -6081,7 +6082,12 @@ async function handleAgentSignal(
     await sendReviewState(signal.mrUrl, {
       mrUrl: signal.mrUrl,
       iid: signal.iid,
-      status: signal.status,
+      ...wireReviewStatus(
+        signal.status,
+        signal.status === 'held'
+          ? readReviewStates().get(signal.mrUrl)?.message
+          : undefined
+      ),
       outcome: signal.outcome,
       updatedAt: emittedAt,
     });
@@ -6091,7 +6097,13 @@ async function handleAgentSignal(
   // reconciles anything a down or throwing board misses, so a failure must
   // never fail the agent's status write.
   const latchGw = boardLatchGateway(config, gitlabToken);
-  if (signal.kind === 'review' && signal.status === 'done' && latchGw) {
+  // A held review lands the follow-up with no verdict, like a done one whose
+  // post gate was abandoned.
+  if (
+    signal.kind === 'review' &&
+    (signal.status === 'done' || signal.status === 'held') &&
+    latchGw
+  ) {
     try {
       // Arming honours board.reReview; landing and spending never do, since
       // a latch left running or armed on a team that switched re-review off
@@ -6136,7 +6148,8 @@ async function handleAgentSignal(
           // the run the latch waits on.
           const lane = readReviewStates().get(signal.mrUrl);
           const vouched =
-            lane?.status === 'done' && (lane.outcome ?? null) === outcome;
+            lane?.status === signal.status &&
+            (lane.outcome ?? null) === outcome;
           await applyReviewLatch({
             outcome,
             arm,

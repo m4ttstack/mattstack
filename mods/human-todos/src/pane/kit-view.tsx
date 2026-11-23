@@ -1,20 +1,14 @@
-import { BrandBar, Lines, Panel, editText, gridMove, gridResolve, gridSelection, isButtonInView, kitClient, revealButtonOffset, revealOffset, sp } from '@mattstack/mod-kit'
+import { BrandBar, Lines, Panel, gridMove, gridResolve, gridSelection, isButtonInView, kitClient, revealButtonOffset, revealOffset, sp } from '@mattstack/mod-kit'
 import type { GridSelection, PointerState } from '@mattstack/mod-kit'
 
 import { TITLE } from '../items'
-import { draftRows, stopMessage, viewLines } from './kit-layout'
+import { stopMessage, viewLines } from './kit-layout'
 import type { KitView } from './kit-layout'
 import type { PaneButton, PaneMessage } from './model'
 
-// `composing`: the item whose message row is open.
-// `composeLines`: the rows the hooks module gave the open card's draft; the Client asks for more as the draft wraps.
-type Props = { view: KitView; focused: boolean; width: number; composing?: string; composeLines?: number }
+type Props = { view: KitView; focused: boolean; width: number }
 // Once its button has gone (Run became Confirm, Confirm became Stop), the selection falls to the item's filled button.
-// `draft` is the open message row's text, kept here so typing never waits on the hooks module.
-type State = PointerState & { sel?: GridSelection<PaneButton['id']>; draft?: { id: string; text: string; at: number } }
-
-// The store's cap on the card's rows (store.ts setComposeLines); past it the draft scrolls within the card.
-const MAX_LINES = 8
+type State = PointerState & { sel?: GridSelection<PaneButton['id']> }
 
 export default kitClient<Props, State>(
   (props, ui) => {
@@ -25,30 +19,6 @@ export default kitClient<Props, State>(
     const above = resolved.at - 1
     const here = resolved.hasFallen && stops[resolved.at]?.isItem === false && stops[above]?.isItem ? { at: above, col: stops[above]!.main, hasFallen: true } : resolved
     const current = stops[here.at] && stopMessage(stops[here.at]!, here.col)
-    const composing = props.composing
-    // A row that closed (Cancel, Esc, the bubble again, or a send) drops its draft, so it reopens empty.
-    if (ui.state.draft && ui.state.draft.id !== composing) ui.setState({ ...ui.state, draft: undefined })
-    const editing = composing !== undefined && ui.state.draft?.id === composing ? ui.state.draft : undefined
-    const draft = editing?.text ?? ''
-    const at = editing?.at ?? Array.from(draft).length
-    const setDraft = (text: string, caret = Array.from(text).length) => {
-      if (composing === undefined) return
-      ui.setState({ ...ui.state, draft: { id: composing, text, at: caret } })
-      const lines = Math.min(MAX_LINES, draftRows(text, props.width).length)
-      if (lines !== (props.composeLines ?? 1)) ui.post({ type: 'draftLines', lines })
-    }
-    // Send and Send & mark done carry the draft; a blank one sends nothing.
-    const send = (done: boolean) => {
-      if (composing === undefined || draft.trim() === '') return
-      ui.setState({ ...ui.state, draft: undefined })
-      ui.post({ type: 'send', id: composing, text: draft.trim(), done })
-    }
-    // The pane can narrow or widen with the draft unchanged, so its wrapped height is checked on every draw, not only on edits.
-    if (composing !== undefined) {
-      const lines = Math.min(MAX_LINES, draftRows(draft, props.width).length)
-      if (lines !== (props.composeLines ?? 1)) ui.post({ type: 'draftLines', lines })
-    }
-    const isCompose = (message: PaneMessage | undefined, button: PaneButton['id']) => message?.type === 'press' && message.button === button
 
     const mark = (at: number, col: number) => {
       const sel = gridSelection(stops, { at, col })
@@ -76,8 +46,6 @@ export default kitClient<Props, State>(
     const clicked = (message: PaneMessage) => {
       const wanted = JSON.stringify(message)
       stops.forEach((stop, at) => stop.ids.forEach((_id, col) => JSON.stringify(stopMessage(stop, col)) === wanted && mark(at, col)))
-      if (isCompose(message, 'send')) return send(false)
-      if (isCompose(message, 'sendDone')) return send(true)
       ui.post(message)
     }
 
@@ -87,31 +55,6 @@ export default kitClient<Props, State>(
     // True for a key handled here, which turns on keyboard mode and its marks.
     ui.onKey(ev => {
       if (!ui.focused || stops.length === 0) return false
-      // With a message row open, typing goes to its field; Enter sends and keeps the item open, unless the keys are on
-      // Send & mark done or Cancel; Esc closes the row.
-      if (composing !== undefined) {
-        if (ev.key === 'escape') {
-          ui.setState({ ...ui.state, draft: undefined })
-          ui.post({ type: 'press', id: composing, button: 'cancelMessage' })
-          return true
-        }
-        // ← → move the caret only once there is text; on an empty draft they move along the buttons as ever.
-        const isArrow = ev.key === 'left' || ev.key === 'right'
-        const edit = isArrow && draft === '' ? undefined : editText({ text: draft, at }, ev)
-        if (edit) {
-          setDraft(edit.text, edit.at)
-          return true
-        }
-        const isEnter = ev.key === 'return' || ev.key === 'enter'
-        if (isEnter && !isCompose(current, 'sendDone') && !isCompose(current, 'cancelMessage') && draft.trim() !== '') {
-          send(false)
-          return true
-        }
-        if (isEnter && isCompose(current, 'sendDone')) {
-          send(true)
-          return true
-        }
-      }
       // Tab and Shift+Tab step between items as ↓ and ↑ do, stopping at the ends as gate-form's pages do.
       const move = gridMove(stops, here, ev, { tabSteps: true })
       if (move.handled) {
@@ -138,10 +81,7 @@ export default kitClient<Props, State>(
       <Panel width={props.width}>
         <BrandBar title={TITLE} onHide={ui.hide} />
         <Lines lines={[[sp(' ')]]} />
-        <Lines
-          lines={viewLines(view, props.width, ui.focused && current ? { selected: current, range, marked: ui.keyboard, pressing: ui.keyPressing } : {}, { text: draft, caret: ui.focused, at })}
-          onAction={clicked}
-        />
+        <Lines lines={viewLines(view, props.width, ui.focused && current ? { selected: current, range, marked: ui.keyboard, pressing: ui.keyPressing } : {})} onAction={clicked} />
       </Panel>
     )
   },

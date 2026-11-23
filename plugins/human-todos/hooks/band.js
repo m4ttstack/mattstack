@@ -168,10 +168,10 @@ var FILL = {
   current: { bg: "#3aa8b8", color: "black" },
   disabled: { bg: "#262626", color: "#5c5c5c" },
   field: { bg: "#2c2c2c", color: "white" },
-  brand: { bg: BRAND.pink, color: BRAND.plum }
+  brand: { bg: BRAND.pink, color: BRAND.plum },
+  thread: { bg: "#3a3150", color: "#d4cbf5" }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
-var PLACEHOLDER = { color: "#7a7a7a" };
 var HOVER_FILL = {
   [BRAND.pink]: "#ff94b9",
   [BRAND.pinkDeep]: "#f57ba6",
@@ -180,7 +180,8 @@ var HOVER_FILL = {
   [FILL.neutral.bg]: "#666666",
   [FILL.caution.bg]: "#d6aa45",
   [FILL.chip.bg]: "#555555",
-  [FILL.current.bg]: "#5fcfdc"
+  [FILL.current.bg]: "#5fcfdc",
+  [FILL.thread.bg]: "#4b4068"
 };
 var PRESS_FILL = {
   [BRAND.pink]: "#ea5d8c",
@@ -190,7 +191,8 @@ var PRESS_FILL = {
   [FILL.neutral.bg]: "#424242",
   [FILL.caution.bg]: "#a58127",
   [FILL.chip.bg]: "#333333",
-  [FILL.current.bg]: "#3394a2"
+  [FILL.current.bg]: "#3394a2",
+  [FILL.thread.bg]: "#30293f"
 };
 var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
 function hoverOf(span) {
@@ -239,7 +241,7 @@ var DONE = { color: "green" };
 var WARN = { color: "yellow" };
 var DIM = { dim: true };
 var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
-var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
+var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.thread.bg]: { bg: "#332d43", color: "#b0a8cc" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
 function muted(span) {
   if (span.mark)
     return { ...span, color: MUTED[span.mark] ?? span.mark, dim: false };
@@ -250,30 +252,6 @@ function muted(span) {
   if (span.color)
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
   return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
-}
-// packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
-var ROOMY = { indent: 3, pad: 2, gap: 3 };
-var COMPACT = { indent: 1, pad: 1, gap: 1 };
-function buttonSpan(button, pad = ROOMY.pad) {
-  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
-  const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet" && button.tone !== "plain", ...!button.disabled && { action: button.action } });
-}
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
-var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width, indent) {
-  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
-  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
-  const line = [sp(" ".repeat(space.indent))];
-  for (const button of left)
-    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
-  if (!right)
-    return line;
-  const room = width - widthOf(line) - space.gap - 2 * space.pad;
-  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
-  return line;
 }
 // packages/mod-kit/src/interact/pointer.ts
 function lookOf(state, focused) {
@@ -558,6 +536,31 @@ function Panel(props) {
   const lines = ctxFor(render, "panel", { width: props.width ?? render.width, focused: render.focused }).layout(props.children);
   render.lines = lines;
   return renderLines(lines, render.elements, render.look);
+}
+
+// packages/mod-kit/src/widgets/buttons.ts
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, thread: FILL.thread, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
+var ROOMY = { indent: 3, pad: 2, gap: 3 };
+var COMPACT = { indent: 1, pad: 1, gap: 1 };
+function buttonSpan(button, pad = ROOMY.pad) {
+  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
+  const edge = " ".repeat(pad);
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet" && button.tone !== "plain", ...!button.disabled && { action: button.action } });
+}
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
+var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width, indent) {
+  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
+  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
+  const line = [sp(" ".repeat(space.indent))];
+  for (const button of left)
+    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
+  if (!right)
+    return line;
+  const room = width - widthOf(line) - space.gap - 2 * space.pad;
+  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
+  return line;
 }
 
 // packages/mod-kit/src/components/reopen-band.tsx

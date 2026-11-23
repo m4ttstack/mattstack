@@ -628,6 +628,26 @@ test('a refused message to the agent is told to the person, not dropped', async 
   await pane.unmount()
 })
 
+test('a dropped Send & Done leaves the item open; once it gets through, the item is done', async ($, on) => {
+  const { store, sent, fail } = await seeded($, on, [todo({})])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const status = () => (store.get(`list:${SESSION}`) as { todos: Todo[] }).todos[0]?.status
+  await press(pane, '1', 'message')
+  fail.submit = true
+
+  await pane.post({ type: 'send', id: '1', text: 'here it is', done: true }, { in: 'human-todos-pane' })
+
+  expect(sent).toEqual([])
+  expect(status()).toBe('open')
+
+  fail.submit = false
+  await pane.post({ type: 'send', id: '1', text: 'here it is', done: true }, { in: 'human-todos-pane' })
+
+  expect(sent).toHaveLength(1)
+  expect(status()).toBe('done')
+  await pane.unmount()
+})
+
 test('with the pane closed and nothing drawn, a finished run is still reported', async ($, on) => {
   const { clock, sent } = await seeded($, on, [todo({})], {
     script: async function* () {

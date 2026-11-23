@@ -168,10 +168,10 @@ var FILL = {
   current: { bg: "#3aa8b8", color: "black" },
   disabled: { bg: "#262626", color: "#5c5c5c" },
   field: { bg: "#2c2c2c", color: "white" },
-  brand: { bg: BRAND.pink, color: BRAND.plum }
+  brand: { bg: BRAND.pink, color: BRAND.plum },
+  thread: { bg: "#3a3150", color: "#d4cbf5" }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
-var PLACEHOLDER = { color: "#7a7a7a" };
 var HOVER_FILL = {
   [BRAND.pink]: "#ff94b9",
   [BRAND.pinkDeep]: "#f57ba6",
@@ -180,7 +180,8 @@ var HOVER_FILL = {
   [FILL.neutral.bg]: "#666666",
   [FILL.caution.bg]: "#d6aa45",
   [FILL.chip.bg]: "#555555",
-  [FILL.current.bg]: "#5fcfdc"
+  [FILL.current.bg]: "#5fcfdc",
+  [FILL.thread.bg]: "#4b4068"
 };
 var PRESS_FILL = {
   [BRAND.pink]: "#ea5d8c",
@@ -190,7 +191,8 @@ var PRESS_FILL = {
   [FILL.neutral.bg]: "#424242",
   [FILL.caution.bg]: "#a58127",
   [FILL.chip.bg]: "#333333",
-  [FILL.current.bg]: "#3394a2"
+  [FILL.current.bg]: "#3394a2",
+  [FILL.thread.bg]: "#30293f"
 };
 var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
 function hoverOf(span) {
@@ -239,7 +241,7 @@ var DONE = { color: "green" };
 var WARN = { color: "yellow" };
 var DIM = { dim: true };
 var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
-var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
+var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.thread.bg]: { bg: "#332d43", color: "#b0a8cc" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
 function muted(span) {
   if (span.mark)
     return { ...span, color: MUTED[span.mark] ?? span.mark, dim: false };
@@ -250,133 +252,6 @@ function muted(span) {
   if (span.color)
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
   return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
-}
-// packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
-var ROOMY = { indent: 3, pad: 2, gap: 3 };
-var COMPACT = { indent: 1, pad: 1, gap: 1 };
-function buttonSpan(button, pad = ROOMY.pad) {
-  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
-  const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet" && button.tone !== "plain", ...!button.disabled && { action: button.action } });
-}
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
-var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width, indent) {
-  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
-  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
-  const line = [sp(" ".repeat(space.indent))];
-  for (const button of left)
-    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
-  if (!right)
-    return line;
-  const room = width - widthOf(line) - space.gap - 2 * space.pad;
-  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
-  return line;
-}
-// packages/mod-kit/src/widgets/text-edit.ts
-var NAMED = new Set(["up", "down", "left", "right", "return", "enter", "tab", "backspace", "delete", "escape", "pageup", "pagedown", "home", "end", "insert"]);
-var isSpace = (ch) => ch !== undefined && /\s/.test(ch);
-function wordBack(chars, at) {
-  let i = at;
-  while (i > 0 && isSpace(chars[i - 1]))
-    i--;
-  while (i > 0 && !isSpace(chars[i - 1]))
-    i--;
-  return i;
-}
-function wordForward(chars, at) {
-  let i = at;
-  while (i < chars.length && isSpace(chars[i]))
-    i++;
-  while (i < chars.length && !isSpace(chars[i]))
-    i++;
-  return i;
-}
-function editText(edit, ev) {
-  const chars = Array.from(edit.text);
-  const at = Math.min(Math.max(0, edit.at), chars.length);
-  const cut = (from, to) => ({ text: [...chars.slice(0, from), ...chars.slice(to)].join(""), at: from });
-  const move = (to) => ({ text: edit.text, at: to });
-  const { key } = ev;
-  if (key === "backspace") {
-    if (ev.meta)
-      return cut(wordBack(chars, at), at);
-    return at === 0 ? move(0) : cut(at - 1, at);
-  }
-  if (key === "delete") {
-    if (ev.meta)
-      return cut(at, wordForward(chars, at));
-    return cut(at, Math.min(chars.length, at + 1));
-  }
-  if (ev.ctrl && key === "w")
-    return cut(wordBack(chars, at), at);
-  if (ev.ctrl && key === "u")
-    return cut(0, at);
-  if (ev.ctrl && key === "k")
-    return cut(at, chars.length);
-  if (ev.ctrl && key === "a" || key === "home")
-    return move(0);
-  if (ev.ctrl && key === "e" || key === "end")
-    return move(chars.length);
-  if (key === "left")
-    return move(ev.meta ? wordBack(chars, at) : Math.max(0, at - 1));
-  if (key === "right")
-    return move(ev.meta ? wordForward(chars, at) : Math.min(chars.length, at + 1));
-  if (ev.meta && key === "b")
-    return move(wordBack(chars, at));
-  if (ev.meta && key === "f")
-    return move(wordForward(chars, at));
-  if (ev.ctrl || ev.meta)
-    return;
-  const ch = key === "space" ? " " : key;
-  if (NAMED.has(ch) || ch === "")
-    return;
-  const typed = Array.from(ch);
-  return { text: [...chars.slice(0, at), ...typed, ...chars.slice(at)].join(""), at: at + typed.length };
-}
-function wrapKeeping(text, width) {
-  const room = Math.max(1, width);
-  const rows = [];
-  let row = [];
-  let used = 0;
-  const flush = () => {
-    rows.push(row.join(""));
-    row = [];
-    used = 0;
-  };
-  const place = (ch) => {
-    const w = cellWidth(ch);
-    if (used + w > room && row.length > 0)
-      flush();
-    row.push(ch);
-    used += w;
-  };
-  for (const piece of text.match(/\S+|\s+/g) ?? [""]) {
-    const chars = Array.from(piece);
-    const wide = cellWidth(piece);
-    if (/^\s+$/.test(piece) || used + wide <= room) {
-      chars.forEach(place);
-      continue;
-    }
-    if (row.length > 0)
-      flush();
-    chars.forEach(place);
-  }
-  rows.push(row.join(""));
-  return rows;
-}
-function caretRow(rows, at) {
-  let left = at;
-  for (let r = 0;r < rows.length; r++) {
-    const len = Array.from(rows[r]).length;
-    if (left <= len && (left < len || r === rows.length - 1))
-      return { row: r, col: left };
-    left -= len;
-  }
-  const last = rows.length - 1;
-  return { row: last, col: Array.from(rows[last] ?? "").length };
 }
 // packages/mod-kit/src/widgets/scroll-bar.ts
 function scrollBar(rows, total, offset) {
@@ -707,6 +582,31 @@ function Panel(props) {
   render.lines = lines;
   return renderLines(lines, render.elements, render.look);
 }
+
+// packages/mod-kit/src/widgets/buttons.ts
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, thread: FILL.thread, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
+var ROOMY = { indent: 3, pad: 2, gap: 3 };
+var COMPACT = { indent: 1, pad: 1, gap: 1 };
+function buttonSpan(button, pad = ROOMY.pad) {
+  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
+  const edge = " ".repeat(pad);
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet" && button.tone !== "plain", ...!button.disabled && { action: button.action } });
+}
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
+var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width, indent) {
+  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
+  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
+  const line = [sp(" ".repeat(space.indent))];
+  for (const button of left)
+    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
+  if (!right)
+    return line;
+  const room = width - widthOf(line) - space.gap - 2 * space.pad;
+  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
+  return line;
+}
 // packages/mod-kit/src/patterns/scroll-list.ts
 var maxScroll = (total, windowRows) => Math.max(0, total - windowRows);
 function revealOffset(view, index) {
@@ -1003,7 +903,7 @@ var LABELS = {
   openLog: "Open log",
   message: "",
   send: "Send",
-  sendDone: "Send & mark done",
+  sendDone: "Send & Done",
   cancelMessage: "Cancel"
 };
 var RUN_DONE_LABEL = "Done without running";
@@ -1019,7 +919,7 @@ var TONES = {
   openLog: "neutral",
   stop: "caution",
   forceStop: "caution",
-  message: "quiet",
+  message: "thread",
   send: "neutral",
   sendDone: "plain",
   cancelMessage: "plain"
@@ -1047,9 +947,8 @@ function buttonsOf(todo, messages, isComposing = false) {
   const main = ids.find((id) => id === "stop" || id === "forceStop") ?? ids[0];
   const label = (id) => id !== "done" ? LABELS[id] : todo.kind === "run" ? RUN_DONE_LABEL : todo.doneLabel ?? LABELS.done;
   const own = ids.map((id) => ({ id, label: label(id), tone: id === main || id === "done" ? TONES[id] : "quiet", todoId: todo.id }));
-  return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: "quiet", todoId: todo.id }] : own;
+  return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: TONES.message, todoId: todo.id }] : own;
 }
-var composeButtons = (todoId) => ["cancelMessage", "sendDone", "send"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));
 function paneModel(input) {
   const { list, expanded, spin, width } = input;
   const messages = input.messages === true;
@@ -1112,11 +1011,6 @@ function paneModel(input) {
       rows.push({ kind: "buttons", buttons: buttonsOf(todo, messages, input.composing === todo.id) });
       if (isConfirming)
         lines("Are you sure you want to run this script?", width, "plain", true);
-      if (messages && todo.status === "open" && input.composing === todo.id) {
-        blank();
-        rows.push({ kind: "compose", todoId: todo.id, lines: Math.max(1, input.composeLines ?? 1) });
-        rows.push({ kind: "composeActions", buttons: composeButtons(todo.id) });
-      }
     }
     spans.push({ first, last: rows.length - 1 });
     blank();
@@ -1178,61 +1072,8 @@ function buttonLines(row, room) {
   const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
   return wrappedButtons(lead, row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, INDENT);
 }
-var CARD_PAD = 2;
-var card = (spans, room) => {
-  const tinted = spans.map((span) => ({ ...span, bg: span.bg ?? CURSOR_ROW }));
-  const used = tinted.reduce((n, span) => n + cellWidth(span.t), 0);
-  return [...tinted, sp(" ".repeat(Math.max(0, room - used)), { bg: CURSOR_ROW })];
-};
-var draftWidth = (width) => Math.max(4, roomOf(width) - 2 * CARD_PAD - 1);
-function draftRows(text, width) {
-  return wrapKeeping(text, draftWidth(width));
-}
-function composeLines(lines, room, draft) {
-  const pad = sp(" ".repeat(CARD_PAD));
-  const blankRow = () => card([pad], room);
-  const text = draft?.text ?? "";
-  const caretOn = draft?.caret === true;
-  if (text === "")
-    return [blankRow(), card([pad, sp(" ", caretOn ? { inverse: true } : {}), sp("Message the agent", PLACEHOLDER)], room), ...Array.from({ length: lines - 1 }, blankRow), blankRow()];
-  const rows = wrapKeeping(text, Math.max(4, room - 2 * CARD_PAD - 1));
-  const caret = caretRow(rows, draft?.at ?? Array.from(text).length);
-  const from = Math.min(Math.max(0, caret.row - lines + 1), Math.max(0, rows.length - lines));
-  const drawn = Array.from({ length: lines }, (_, n) => {
-    const r = from + n;
-    const chars = Array.from(rows[r] ?? "");
-    if (!caretOn || r !== caret.row)
-      return card([pad, sp(chars.join(""))], room);
-    const under = chars[caret.col] ?? " ";
-    return card([pad, sp(chars.slice(0, caret.col).join("")), sp(under, { inverse: true }), sp(chars.slice(caret.col + 1).join(""))], room);
-  });
-  return [blankRow(), ...drawn, blankRow()];
-}
-function composeActionsLines(buttons, room) {
-  const spans = buttons.map((b) => buttonSpan({ label: b.label, tone: b.tone, action: messageOf(b) }, 1));
-  const rows = [[]];
-  let used = CARD_PAD;
-  for (const span of spans) {
-    const w = cellWidth(span.t) + 1;
-    if (used + w > room && rows.at(-1).length > 0) {
-      rows.push([]);
-      used = CARD_PAD;
-    }
-    rows.at(-1).push([sp(" "), span]);
-    used += w;
-  }
-  return rows.map((row) => {
-    const line = row.flat();
-    const width = line.reduce((n, span) => n + cellWidth(span.t), 0) + CARD_PAD;
-    return card([sp(" ".repeat(Math.max(0, room - width))), ...line, sp(" ".repeat(CARD_PAD))], room);
-  });
-}
-function rowLines(row, room, draft) {
+function rowLines(row, room) {
   switch (row.kind) {
-    case "compose":
-      return composeLines(row.lines, room, draft);
-    case "composeActions":
-      return [...composeActionsLines(row.buttons, room), card([], room)];
     case "blank":
       return [[]];
     case "text": {
@@ -1277,7 +1118,7 @@ function stopMessage(stop, col) {
 function keyStops(model, layout) {
   const stops = new Map;
   model.rows.forEach((row, r) => {
-    if (row.kind !== "buttons" && row.kind !== "composeActions")
+    if (row.kind !== "buttons")
       return;
     const laid = layout.rows[r];
     for (const button of row.buttons) {
@@ -1312,15 +1153,14 @@ function kitView(model, width, bodyRows, offset) {
     stops: keyStops(model, layout)
   };
 }
-function viewLines(view, width, focus = {}, draft) {
+function viewLines(view, width, focus = {}) {
   const room = roomOf(width);
-  const shown = view.rows.flatMap((row) => rowLines(row, room, draft)).slice(view.skip, view.skip + view.windowRows);
+  const shown = view.rows.flatMap((row) => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows);
   const bar = scrollBar(view.windowRows, view.total, view.top);
   return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus });
 }
 
 // mods/human-todos/src/pane/kit-view.tsx
-var MAX_LINES = 8;
 var kit_view_default = kitClient((props, ui) => {
   const { view } = props;
   const { stops } = view;
@@ -1328,32 +1168,6 @@ var kit_view_default = kitClient((props, ui) => {
   const above = resolved.at - 1;
   const here = resolved.hasFallen && stops[resolved.at]?.isItem === false && stops[above]?.isItem ? { at: above, col: stops[above].main, hasFallen: true } : resolved;
   const current = stops[here.at] && stopMessage(stops[here.at], here.col);
-  const composing = props.composing;
-  if (ui.state.draft && ui.state.draft.id !== composing)
-    ui.setState({ ...ui.state, draft: undefined });
-  const editing = composing !== undefined && ui.state.draft?.id === composing ? ui.state.draft : undefined;
-  const draft = editing?.text ?? "";
-  const at = editing?.at ?? Array.from(draft).length;
-  const setDraft = (text, caret = Array.from(text).length) => {
-    if (composing === undefined)
-      return;
-    ui.setState({ ...ui.state, draft: { id: composing, text, at: caret } });
-    const lines = Math.min(MAX_LINES, draftRows(text, props.width).length);
-    if (lines !== (props.composeLines ?? 1))
-      ui.post({ type: "draftLines", lines });
-  };
-  const send = (done) => {
-    if (composing === undefined || draft.trim() === "")
-      return;
-    ui.setState({ ...ui.state, draft: undefined });
-    ui.post({ type: "send", id: composing, text: draft.trim(), done });
-  };
-  if (composing !== undefined) {
-    const lines = Math.min(MAX_LINES, draftRows(draft, props.width).length);
-    if (lines !== (props.composeLines ?? 1))
-      ui.post({ type: "draftLines", lines });
-  }
-  const isCompose = (message, button) => message?.type === "press" && message.button === button;
   const mark = (at, col) => {
     const sel = gridSelection(stops, { at, col });
     if (!sel)
@@ -1380,38 +1194,12 @@ var kit_view_default = kitClient((props, ui) => {
   const clicked = (message) => {
     const wanted = JSON.stringify(message);
     stops.forEach((stop, at) => stop.ids.forEach((_id, col) => JSON.stringify(stopMessage(stop, col)) === wanted && mark(at, col)));
-    if (isCompose(message, "send"))
-      return send(false);
-    if (isCompose(message, "sendDone"))
-      return send(true);
     ui.post(message);
   };
   ui.onReveal(() => reveal(here.at));
   ui.onKey((ev) => {
     if (!ui.focused || stops.length === 0)
       return false;
-    if (composing !== undefined) {
-      if (ev.key === "escape") {
-        ui.setState({ ...ui.state, draft: undefined });
-        ui.post({ type: "press", id: composing, button: "cancelMessage" });
-        return true;
-      }
-      const isArrow = ev.key === "left" || ev.key === "right";
-      const edit = isArrow && draft === "" ? undefined : editText({ text: draft, at }, ev);
-      if (edit) {
-        setDraft(edit.text, edit.at);
-        return true;
-      }
-      const isEnter = ev.key === "return" || ev.key === "enter";
-      if (isEnter && !isCompose(current, "sendDone") && !isCompose(current, "cancelMessage") && draft.trim() !== "") {
-        send(false);
-        return true;
-      }
-      if (isEnter && isCompose(current, "sendDone")) {
-        send(true);
-        return true;
-      }
-    }
     const move = gridMove(stops, here, ev, { tabSteps: true });
     if (move.handled) {
       if (move.to)
@@ -1438,7 +1226,7 @@ var kit_view_default = kitClient((props, ui) => {
   }), /* @__PURE__ */ h(Lines, {
     lines: [[sp(" ")]]
   }), /* @__PURE__ */ h(Lines, {
-    lines: viewLines(view, props.width, ui.focused && current ? { selected: current, range, marked: ui.keyboard, pressing: ui.keyPressing } : {}, { text: draft, caret: ui.focused, at }),
+    lines: viewLines(view, props.width, ui.focused && current ? { selected: current, range, marked: ui.keyboard, pressing: ui.keyPressing } : {}),
     onAction: clicked
   }));
 }, {

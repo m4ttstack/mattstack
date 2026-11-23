@@ -135,8 +135,10 @@ button.
 ### `Button` and `ButtonRow`
 
 `<Button tone? disabled? onPress?>label</Button>`. Tones: `primary`,
-`secondary`, `neutral`, `caution`, `brand`, and `quiet` (a faint fill that
-brightens under the pointer). Alone it is a row of one button.
+`secondary`, `neutral`, `caution`, `brand`, `thread` (a muted violet for a
+control and the card it opens, which can wear `FILL.thread` to match), and
+`quiet` (a faint fill that brightens under the pointer). Alone it is a row of
+one button.
 
 `<ButtonRow right?>`: children are the left buttons. `right` is one button
 pushed to the right edge.

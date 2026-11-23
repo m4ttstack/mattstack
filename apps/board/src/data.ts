@@ -523,7 +523,7 @@ interface OrphanJoinRow {
   doctor?: ClearableLane | null;
 }
 
-const LANE_FINISHED = new Set(['done', 'error']);
+const LANE_FINISHED = new Set(['done', 'error', 'held']);
 const REVIEW_IN_FLIGHT = new Set(['queued', 'reviewing']);
 const RESPOND_IN_FLIGHT = new Set([
   'queued',
