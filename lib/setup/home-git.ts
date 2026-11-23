@@ -36,11 +36,12 @@ export async function isGitRepo(exec: Probes["exec"], cwd: string): Promise<bool
   return result.code === 0 && result.stdout.trim() === "true";
 }
 
-/** `origin` specifically, not any remote: every push and every ref comparison downstream is origin-only, so an `upstream`-only repo has nothing to push to. An exec failure (missing git, timeout) also reads as "no remote" — same end result as a healthy repo with none configured. */
-export async function hasRemote(exec: Probes["exec"], cwd: string): Promise<boolean> {
-  if (!(await gitUsable(exec))) return false;
+/** `origin` specifically, not any remote: every push and every ref comparison downstream is origin-only, so an `upstream`-only repo has nothing to push to. A git that is missing, fails or times out is `unknown`, never `none`, so a broken git never reads as a deliberate local-only repo. */
+export async function originRemote(exec: Probes["exec"], cwd: string): Promise<"origin" | "none" | "unknown"> {
+  if (!(await gitUsable(exec))) return "unknown";
   const result = await exec(["git", "remote"], { cwd, timeoutMs: GIT_TIMEOUT_MS });
-  return result.code === 0 && result.stdout.split("\n").some((name) => name.trim() === "origin");
+  if (result.code !== 0) return "unknown";
+  return result.stdout.split("\n").some((name) => name.trim() === "origin") ? "origin" : "none";
 }
 
 /** True only when HEAD resolves — false on an unborn branch, where nothing is versioned at all. */

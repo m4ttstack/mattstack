@@ -310,13 +310,14 @@ function redactCredentials(text: string): string {
 
 /**
  * `origin` specifically, not any remote: the push below is `origin`-only, so
- * an `upstream`-only repo would push to a remote that does not exist. An exec
- * failure (spawn error, `GIT_TIMEOUT_MS` kill — `exitCode: -1`) also reads as
- * "no remote", so a broken git goes quiet rather than attempting a push.
+ * an `upstream`-only repo would push to a remote that does not exist. A git
+ * that fails or times out (a spawn error, a `GIT_TIMEOUT_MS` kill) is
+ * `unknown`, never `none`: reading it as no remote would drop a pending push.
  */
-async function hasRemote(exec: ExecFn, cwd: string): Promise<boolean> {
+async function originRemote(exec: ExecFn, cwd: string): Promise<"origin" | "none" | "unknown"> {
   const result = await exec(["git", "remote"], { cwd, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
-  return result.exitCode === 0 && result.stdout.split("\n").some((name) => name.trim() === "origin");
+  if (result.exitCode !== 0) return "unknown";
+  return result.stdout.split("\n").some((name) => name.trim() === "origin") ? "origin" : "none";
 }
 
 /**
@@ -1077,7 +1078,9 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
 
   async function doPull(): Promise<PullResult> {
     pullBlockedBy = [];
-    if (!(await hasRemote(deps.exec, deps.repoDir))) return { outcome: "skipped", detail: "no remote" };
+    const remote = await originRemote(deps.exec, deps.repoDir);
+    if (remote === "none") return { outcome: "skipped", detail: "no remote" };
+    if (remote === "unknown") return { outcome: "skipped", detail: "git did not say whether a remote is set" };
     const branchResult = await deps.exec(["git", "symbolic-ref", "--short", "HEAD"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
     if (branchResult.exitCode !== 0) return { outcome: "skipped", detail: "detached HEAD" };
     const branch = branchResult.stdout.trim();
@@ -1395,7 +1398,15 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // existed, failed to push, and was then removed by hand — without this,
     // a stale failure latches into status() forever and `committed ||
     // pushPending` re-arms a push every cycle that only ever no-ops here.
-    if (!(await hasRemote(deps.exec, deps.repoDir))) {
+    const remote = await originRemote(deps.exec, deps.repoDir);
+    // A git that did not answer is not a push failure either: no broadcast,
+    // and the push stays pending for the next cycle.
+    if (remote === "unknown") {
+      deps.log.warn(`${label}: git did not say whether a remote is set; the push waits for the next cycle`);
+      pushPending = true;
+      return;
+    }
+    if (remote === "none") {
       deps.log.debug(`${label}: no remote configured; nothing to push`);
       pushPending = false;
       lastPushError = null;
@@ -1748,7 +1759,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
 
     if (committed || pushPending) {
       schedulePush();
-    } else if (reason !== "watch" && (await hasRemote(deps.exec, deps.repoDir)) && (await unpushedAgainstOrigin(deps.exec, deps.repoDir))) {
+    } else if (reason !== "watch" && (await originRemote(deps.exec, deps.repoDir)) === "origin" && (await unpushedAgainstOrigin(deps.exec, deps.repoDir))) {
       // The only path that notices a remote attached by hand after commits
       // already existed. Excluded from the watch debounce (and only there):
       // these five git spawns would otherwise run on every no-op fs cycle, to

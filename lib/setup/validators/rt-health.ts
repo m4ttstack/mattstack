@@ -35,7 +35,7 @@ import { agoPhrase, JANITOR_REF_PREFIX, packPhrase, packRemedySteps, packsInZone
 import { teamPackRel } from "../../team/team-pack-path.ts";
 import { parsePorcelainZ } from "../../daemon/home-snapshot-plan.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
-import { hasCommits, hasRemote, isGitRepo, originPushState } from "../home-git.ts";
+import { hasCommits, isGitRepo, originPushState, originRemote } from "../home-git.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { memberPath } from "../member-path.ts";
 import { execWithTimeout, type Probes } from "../probes.ts";
@@ -555,7 +555,9 @@ export async function homeBackupRow(
     return row({ ...base, status: "needs-you", detail: "No commits yet, so nothing is versioned or backed up" });
   }
 
-  if (!(await hasRemote(exec, repoDir))) {
+  const remote = await originRemote(exec, repoDir);
+  if (remote === "unknown") return row({ ...base, status: "needs-you", detail: "Could not tell whether a remote is set" });
+  if (remote === "none") {
     return row({ ...base, status: "ready", detail: "Local only: this Mac holds the only copy of your settings", action: HOME_BACKUP_ADD_REMOTE_ACTION });
   }
 

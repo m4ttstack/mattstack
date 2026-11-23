@@ -50,11 +50,13 @@ function defaultResponders(opts: {
   pushStderr?: string;
   sha?: string;
   hasRemote?: boolean;
+  /** Exit code of `git remote` itself: 124 is runCapture's timeout kill, -1 a spawn failure. */
+  remoteExit?: number;
   hasIdentity?: boolean;
 } = {}): Responder[] {
   const {
     isRepo = true, branch = "main", branchExit = 0, statusZ = "", commitExit = 0, addExit = 0, pushExit = 0, pushStderr = "", sha = "abc123",
-    hasRemote = true, hasIdentity = true,
+    hasRemote = true, remoteExit = 0, hasIdentity = true,
   } = opts;
   return [
     (argv) => (argv[1] === "rev-parse" && argv[2] === "--is-inside-work-tree")
@@ -77,7 +79,9 @@ function defaultResponders(opts: {
       : undefined,
     (argv) => (gitVerb(argv) === "commit") ? { stdout: "", stderr: "", exitCode: commitExit } : undefined,
     // `hasRemote()`'s own probe — most fixtures simulate a repo that already has origin configured, matching every pre-existing push test's assumption.
-    (argv) => (argv[1] === "remote" && argv.length === 2) ? { stdout: hasRemote ? "origin\n" : "", stderr: "", exitCode: 0 } : undefined,
+    (argv) => (argv[1] === "remote" && argv.length === 2)
+      ? (remoteExit === 0 ? { stdout: hasRemote ? "origin\n" : "", stderr: "", exitCode: 0 } : { stdout: "", stderr: "", exitCode: remoteExit })
+      : undefined,
     (argv) => (argv[1] === "push") ? { stdout: "", stderr: pushStderr, exitCode: pushExit } : undefined,
   ];
 }
@@ -834,6 +838,22 @@ describe("startHomeSnapshot — push", () => {
     expect(optsLog[pushIdx]?.timeoutMs).toBeGreaterThan(0);
     expect(handle.status().pushPending).toBe(false);
     expect(handle.status().lastPushAt).toBe(1_000_000);
+  });
+
+  test("RT-56: a git that times out on the remote check keeps the push pending and tries again, with no failure broadcast", async () => {
+    const { fn: execFn, calls } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0", remoteExit: 124 }));
+    const { deps, timers, log, broadcasts } = baseDeps({ exec: execFn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    await handle.runNow("manual");
+    timers.fire((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+    await flushAsync();
+
+    expect(calls.some((c) => c[1] === "push")).toBe(false);
+    expect(handle.status().pushPending).toBe(true);
+    expect(log.calls.some((c) => c.level === "warn")).toBe(true);
+    expect(broadcasts.some((b: { type?: string }) => b.type === "home:push-failed")).toBe(false);
   });
 
   test("push failure sets pushPending + lastPushError and schedules a retry at pushDelaySec*5", async () => {

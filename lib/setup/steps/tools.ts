@@ -15,7 +15,7 @@ import type { ApplyContext } from "../apply.ts";
 import { chromeInstalled } from "../chrome.ts";
 import { claudeMarketplaces, fastBrowserMarketplaceSource, registeredMattstackMarketplace } from "./plugins.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
-import { hasRemote } from "../home-git.ts";
+import { originRemote } from "../home-git.ts";
 import { fetchPermissions } from "../permissions.ts";
 import { waitWhilePreparing } from "../prepare-record.ts";
 import type { Probes } from "../probes.ts";
@@ -285,8 +285,10 @@ async function snapshotPushRun(ctx: ApplyContext): Promise<StepOutcome> {
   // This step only ever observes the daemon's commit, never a push — the
   // daemon pushes async on its own delay, and home.backup (not this step)
   // is the row that confirms whether a push actually landed.
-  const remote = await hasRemote(ctx.p.exec, join(ctx.p.home, ".mattstack", "user"));
-  return { state: "done", detail: remote ? `Committed ${sha}; the daemon pushes it on its next cycle` : `Committed ${sha} on this Mac only; there is no remote to push to` };
+  const remote = await originRemote(ctx.p.exec, join(ctx.p.home, ".mattstack", "user"));
+  if (remote === "none") return { state: "done", detail: `Committed ${sha} on this Mac only; there is no remote to push to` };
+  if (remote === "unknown") return { state: "done", detail: `Committed ${sha}; git did not say whether a remote is set` };
+  return { state: "done", detail: `Committed ${sha}; the daemon pushes it on its next cycle` };
 }
 
 async function snapshotPushRunSafe(ctx: ApplyContext): Promise<StepOutcome> {

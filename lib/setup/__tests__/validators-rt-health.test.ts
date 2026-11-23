@@ -777,6 +777,18 @@ describe("rtHealthRows — home.backup (real git)", () => {
     return repoDir;
   }
 
+  test("RT-56: a git that times out on the remote check never reads as local only", async () => {
+    const repo = await localOnlyRepo();
+    await attachRemote(repo);
+    const stalls: Probes["exec"] = (argv, opts) =>
+      argv[0] === "git" && argv[1] === "remote" && argv.length === 2
+        ? Promise.resolve({ code: 124, stdout: "", stderr: "" })
+        : REAL_EXEC(argv, opts);
+    const row = await homeBackupRow(repo, stalls, NO_RECORD);
+    expect(row.status).toBe("needs-you");
+    expect(row.detail).toBe("Could not tell whether a remote is set");
+  });
+
   test("no remote: local only is a choice, so it reads ready and keeps a way to add a remote", async () => {
     const row = await homeBackupRow(await localOnlyRepo());
     expect(row.status).toBe("ready");
