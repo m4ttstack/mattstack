@@ -2744,9 +2744,9 @@ function registerPane(on) {
     const width = paneColumns(e);
     const paneBody = paneRows(e);
     const todo = pane.composing === null ? undefined : pane.list.find((t) => t.id === pane.composing);
-    const room = Math.max(10, width - GUTTER2 - BAR2);
-    const fieldRows = FIELD_ROWS;
-    const actionRows = todo ? composeActionRows(todo.id, room).length : 0;
+    const draft = todo ? drafts.get(todo.id) ?? "" : "";
+    const fieldRows = draftFieldRows(draft, width);
+    const actionRows = todo ? composeActionRows(todo.id, width).length : 0;
     const dockRows = todo ? DOCK_FIXED_ROWS + fieldRows + actionRows : 0;
     const bodyRows = Math.max(3, paneBody - dockRows);
     kitSizes.set(e.surface, { columns: width, bodyRows });
@@ -2767,29 +2767,24 @@ function registerPane(on) {
     return /* @__PURE__ */ h(Box, {
       flexDirection: "column"
     }, list, /* @__PURE__ */ h(Box, {
-      flexDirection: "column",
-      marginLeft: GUTTER2,
       marginTop: 1,
-      width: room
-    }, /* @__PURE__ */ h(Box, {
-      paddingLeft: CARD_PAD2,
       marginBottom: 1
     }, /* @__PURE__ */ h(Text, {
       bold: true,
       wrap: "truncate-end"
     }, `Message about “${todo.title}”`)), /* @__PURE__ */ h(Box, {
-      flexDirection: "column",
-      backgroundColor: CURSOR_ROW,
-      paddingX: CARD_PAD2,
-      paddingY: 1
+      backgroundColor: CURSOR_ROW
     }, /* @__PURE__ */ h(Input, {
       key: `message-${id}`,
       rows: fieldRows,
       autoFocus: true,
       placeholder: "Message the agent",
+      value: draft,
       submitLabel: "send",
       onInput: (value) => {
         drafts.set(id, value);
+        if (draftFieldRows(value, width) !== fieldRows)
+          $.ui.invalidate("ui.render");
       },
       onSubmit: (value) => {
         drafts.set(id, value);
@@ -2799,16 +2794,25 @@ function registerPane(on) {
       key: `message-actions-${id}`,
       module: "./pane/compose-actions.js",
       height: actionRows,
-      props: { id, width: room }
-    })));
+      props: { id, width }
+    }));
   });
 }
-var GUTTER2 = 2;
-var BAR2 = 3;
-var CARD_PAD2 = 2;
-var FIELD_ROWS = 4;
-var DOCK_FIXED_ROWS = 5;
+var MAX_FIELD_ROWS = 8;
+var DOCK_FIXED_ROWS = 3;
+var ONE_ROW_HINT = "⏎ send  ";
+var MULTI_ROW_HINT = "⏎ send · \\⏎ new line  ";
 var drafts = new Map;
+function draftFieldRows(text, width) {
+  const rowsBeside = (hint) => {
+    const textWidth = Math.max(4, width - cellWidth(hint));
+    return text.split(`
+`).reduce((n, line) => n + wrapKeeping(line, textWidth).length, 0);
+  };
+  if (rowsBeside(ONE_ROW_HINT) <= 1)
+    return 1;
+  return Math.min(MAX_FIELD_ROWS, Math.max(2, rowsBeside(MULTI_ROW_HINT)));
+}
 function sendDraft($, id, done, surface) {
   const text = drafts.get(id) ?? "";
   if (text.trim() === "")
