@@ -22,8 +22,23 @@ describe("applyArgInject", () => {
   test("inserts after the anchor arg unless the skip marker is present", () => {
     expect(applyArgInject(["run", "--", "pnpm", "start"], { afterArg: "run", template: "--preserve-env=${envKeys}", skipIfArgPresent: "--preserve-env" }, ["PORT", "POSTGRES_URL"]))
       .toEqual(["run", "--preserve-env=PORT,POSTGRES_URL", "--", "pnpm", "start"]);
-    expect(applyArgInject(["run", "--preserve-env=X", "cmd"], { afterArg: "run", template: "--preserve-env=${envKeys}", skipIfArgPresent: "--preserve-env" }, ["PORT"]))
-      .toEqual(["run", "--preserve-env=X", "cmd"]);
+  });
+
+  const inject = { afterArg: "run", template: "--preserve-env=${envKeys}", skipIfArgPresent: "--preserve-env" };
+
+  test("merges its keys into a list the script already passes", () => {
+    expect(applyArgInject(["run", "--preserve-env=FEATURES_IS_ENABLED,PORT", "--", "parcel"], inject, ["PORT", "REACT_APP_ENDPOINT"]))
+      .toEqual(["run", "--preserve-env=FEATURES_IS_ENABLED,PORT,REACT_APP_ENDPOINT", "--", "parcel"]);
+  });
+
+  test("leaves a bare skip marker alone, since it already preserves everything", () => {
+    expect(applyArgInject(["run", "--preserve-env", "cmd"], inject, ["PORT"]))
+      .toEqual(["run", "--preserve-env", "cmd"]);
+  });
+
+  test("leaves the args after the command separator alone", () => {
+    expect(applyArgInject(["run", "--", "tool", "--preserve-env=X"], inject, ["PORT"]))
+      .toEqual(["run", "--preserve-env=PORT", "--", "tool", "--preserve-env=X"]);
   });
 });
 
