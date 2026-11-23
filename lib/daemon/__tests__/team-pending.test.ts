@@ -5,7 +5,7 @@ import { dirname, join } from "path";
 import type { RunResult } from "../../subprocess.ts";
 import { readPending } from "../team-pending.ts";
 
-const TEAM_STORE = "mattstack/teams/claimview/settings.team.jsonc";
+const TEAM_STORE = "mattstack/teams/widgets/settings.team.jsonc";
 const ORG_STORE = "mattstack/org/settings.org.jsonc";
 const ORIGIN = "refs/remotes/origin/mattstack";
 
@@ -63,7 +63,7 @@ describe("readPending", () => {
       status: ` M ${TEAM_STORE}\0`,
     });
     expect(await readPending(c.repoDir, c.exec, none)).toEqual([
-      { store: "team:claimview", key: "board.slack", change: "changed" },
+      { store: "team:widgets", key: "board.slack", change: "changed" },
     ]);
   });
 
@@ -85,7 +85,7 @@ describe("readPending", () => {
       origin: { [TEAM_STORE]: `{"k": 1}` },
       ahead: [TEAM_STORE],
     });
-    expect(await readPending(c.repoDir, c.exec, none)).toEqual([{ store: "team:claimview", key: "k", change: "changed" }]);
+    expect(await readPending(c.repoDir, c.exec, none)).toEqual([{ store: "team:widgets", key: "k", change: "changed" }]);
     expect(c.calls.some((a) => a[1] === "diff" && a.includes(`${ORIGIN}...HEAD`))).toBe(true);
   });
 
@@ -107,10 +107,10 @@ describe("readPending", () => {
 
   test("leaves out pack folders, which publish only through skills sync", async () => {
     const c = clone({
-      status: "?? mattstack/teams/claimview/plugin/skills/a/SKILL.md\0 M mattstack/org/packs/base/x.md\0 M .sops.yaml\0",
-      ahead: ["mattstack/teams/claimview/plugin/compiled.json"],
+      status: "?? mattstack/teams/widgets/plugin/skills/a/SKILL.md\0 M mattstack/org/packs/base/x.md\0 M .sops.yaml\0",
+      ahead: ["mattstack/teams/widgets/plugin/compiled.json"],
     });
-    const opts = { unowned: [], heldBack: [], packZones: ["mattstack/teams/claimview/plugin/", "mattstack/org/packs/"] };
+    const opts = { unowned: [], heldBack: [], packZones: ["mattstack/teams/widgets/plugin/", "mattstack/org/packs/"] };
     expect(await readPending(c.repoDir, c.exec, opts)).toEqual([{ path: ".sops.yaml" }]);
   });
 
@@ -126,7 +126,7 @@ describe("readPending", () => {
 
   test("a branch origin does not have compares against nothing", async () => {
     const c = clone({ files: { [TEAM_STORE]: `{"k": 1}` }, hasOrigin: false, ahead: [TEAM_STORE] });
-    expect(await readPending(c.repoDir, c.exec, none)).toEqual([{ store: "team:claimview", key: "k", change: "added" }]);
+    expect(await readPending(c.repoDir, c.exec, none)).toEqual([{ store: "team:widgets", key: "k", change: "added" }]);
     expect(c.calls.some((a) => a[1] === "show")).toBe(false);
   });
 

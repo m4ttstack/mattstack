@@ -463,7 +463,7 @@ describe("teamStatus", () => {
 
   test("json carries pending and the error fields from the daemon", async () => {
     const deps = clonedDeps({ exec: async () => ({ code: 0, stdout: "2026-08-21T10:00:00+00:00\n", stderr: "" }) });
-    const pending = [{ store: "team:claimview", key: "board.slack", change: "changed" }, { path: ".sops.yaml" }];
+    const pending = [{ store: "team:widgets", key: "board.slack", change: "changed" }, { path: ".sops.yaml" }];
     deps.daemon = async (verb) =>
       verb === "team:snapshot-status"
         ? { ok: true, data: [{ slug: SLUG, lastPullAt: 900_000, lastPushAt: 800_000, lastPullSkipped: null, conflicted: null, pullOnly: false, heldBack: [], unownedDirty: ["mattstack/org/settings.org.jsonc"], lastPushError: "fatal: 403", lastCommitError: null, lastPullError: "fatal: could not read Username", layoutHold: { layout: 6, reads: 5 }, pending }] }

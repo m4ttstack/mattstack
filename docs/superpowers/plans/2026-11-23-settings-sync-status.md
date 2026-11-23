@@ -140,7 +140,7 @@
 
 - [ ] **Step 1: Write the failing tests** (`team-pending.test.ts`, fake exec)
 
-  - `maps a changed team store to its keys` → `[{store:"team:claimview",key:"board.slack",change:"changed"}]`.
+  - `maps a changed team store to its keys` → `[{store:"team:widgets",key:"board.slack",change:"changed"}]`.
   - `maps an org store change` → `store:"org"`.
   - `counts commits ahead of origin, not just the working tree`.
   - `leaves out paths this Mac may not push` (in `unowned`).

@@ -6,7 +6,7 @@ A change to an org or team setting in Console reaches teammates through the
 daemon's team snapshot: it commits the org clone about 20s after the write
 (`debounceSec`), pushes, and every other Mac pulls within `pullIntervalSec`
 (300s by default). None of that is visible. After changing a shared setting
-(the example that prompted this: the claimview review channel), Matt had no
+(the example that prompted this: a team review channel), Matt had no
 way to tell whether it had left his Mac, short of running git in
 `~/.mattstack/orgs/<org>`.
 
