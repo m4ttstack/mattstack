@@ -1382,6 +1382,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (branch.exitCode !== 0) {
       pushPending = true;
       lastPushError = "rt could not check your pending changes";
+      pushErrors++;
       return false;
     }
     const paths = await unpublishedPaths(async (argv) => {
@@ -1395,12 +1396,14 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       lastPushError = known.exitCode === 1
         ? `This copy is on ${name}, which origin does not have yet. Push it once with git push -u origin ${name}`
         : "rt could not check your pending changes";
+      pushErrors++;
       return false;
     }
     const current = await authorization({ ref: `refs/remotes/origin/${branch.stdout.trim()}` });
     if (current.pullOnly || [...paths].some((path) => !(current.scope?.(path) ?? true))) {
       pushPending = true;
       lastPushError = pushRefusalSentence(current.refusal);
+      pushErrors++;
       return false;
     }
     return true;
@@ -1492,6 +1495,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       const redactedStderr = redactCredentials(result.stderr);
       pushPending = true;
       lastPushError = redactedStderr;
+      pushErrors++;
       // R042: dedupe by message like the commit/add paths -- an unreachable
       // remote otherwise re-warns and re-persists identically on every
       // retry, indefinitely.
@@ -1943,8 +1947,9 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     }
   }
 
-  /** Counts pushes git accepted, so a push-now round can tell its own push from an early return. */
+  /** Count pushes git accepted and push errors, so a push-now round reads only its own outcome. */
   let pushesLanded = 0;
+  let pushErrors = 0;
   let noRemote = false;
   let pushNowInFlight: Promise<PushNowResult> | null = null;
   /** Set once the in-flight round's commit cycle is done: a caller after that holds changes the round did not take. */
@@ -1983,10 +1988,11 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // A timed push already running captured an older HEAD: let it finish, then push this round's commit.
     if (pushInFlight) await pushInFlight.catch(() => {});
     const landedBefore = pushesLanded;
+    const errorsBefore = pushErrors;
     noRemote = false;
     await doPush();
     if (pushesLanded > landedBefore) return { committed, pushed: true, error: null, skipped: null };
-    if (lastPushError !== null) return { committed, pushed: false, error: lastPushError, skipped: null };
+    if (pushErrors > errorsBefore) return { committed, pushed: false, error: lastPushError, skipped: null };
     const skipped = conflicted ? "conflict" : layoutHold ? "layout-hold" : noRemote ? "no-remote" : "deferred";
     return { committed, pushed: false, error: null, skipped };
   }

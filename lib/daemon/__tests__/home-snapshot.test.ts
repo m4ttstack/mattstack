@@ -1180,16 +1180,39 @@ describe("startHomeSnapshot — push now", () => {
     expect(result).toEqual({ committed: false, pushed: false, error: null, skipped: "no-remote" });
   });
 
-  test("pushNow whose own pull hits a conflict reports the conflict, not a push", async () => {
-    const { fn, calls } = makeFakeExec([...pullResponders({ behind: 1, ahead: 1, rebase: "conflict" }), ...defaultResponders({ statusZ: "" })]);
-    const { deps } = baseDeps({ exec: fn });
+  const conflictAfterReady = async (db?: ReturnType<typeof freshDb>) => {
+    const exec = makeSwitchableExec([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders({ statusZ: "" })]);
+    const { deps } = baseDeps({ exec: exec.fn, ...(db ? { db } : {}) });
     const { repoDir: _r, ...rest } = deps;
     const handle = startSnapshot(teamSpecFor(null), rest);
     await handle.ready;
+    // The round's own pull rebases cleanly; the pull just before the push conflicts.
+    let rebases = 0;
+    const secondRebaseConflicts: Responder = (argv) => {
+      if (gitVerb(argv) !== "rebase" || argv.includes("--abort")) return undefined;
+      return ++rebases === 1 ? { stdout: "", stderr: "", exitCode: 0 } : undefined;
+    };
+    exec.setResponders([secondRebaseConflicts, ...pullResponders({ behind: 1, ahead: 1, rebase: "conflict" }), ...defaultResponders({ statusZ: "" })]);
+    return { handle, calls: exec.calls };
+  };
+
+  test("pushNow whose own pull hits a conflict reports the conflict, not a push", async () => {
+    const { handle, calls } = await conflictAfterReady();
 
     const result = await handle.pushNow();
 
     expect(pushes(calls)).toBe(0);
+    expect(result).toEqual({ committed: false, pushed: false, error: null, skipped: "conflict" });
+    handle.stop();
+  });
+
+  test("an earlier push's error does not stand in for this round's conflict", async () => {
+    const db = freshDb();
+    setKvValue("team-snapshot:acme", "last-push", { at: 1000, ok: false, error: "fatal: 403" }, db);
+    const { handle } = await conflictAfterReady(db);
+
+    const result = await handle.pushNow();
+
     expect(result).toEqual({ committed: false, pushed: false, error: null, skipped: "conflict" });
     handle.stop();
   });
