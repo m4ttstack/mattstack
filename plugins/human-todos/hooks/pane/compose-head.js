@@ -872,7 +872,7 @@ var LABELS = {
   open: "Open",
   copy: "Copy",
   done: "Done",
-  skip: "Skip",
+  skip: "Dismiss",
   confirm: "Confirm",
   cancel: "Cancel",
   show: "Show",

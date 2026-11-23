@@ -27,7 +27,7 @@ export const LABELS: Record<ButtonId, string> = {
   open: 'Open',
   copy: 'Copy',
   done: 'Done',
-  skip: 'Skip',
+  skip: 'Dismiss',
   confirm: 'Confirm',
   cancel: 'Cancel',
   show: 'Show',

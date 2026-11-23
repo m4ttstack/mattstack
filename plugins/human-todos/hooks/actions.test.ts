@@ -242,15 +242,82 @@ test('a runner that cannot start puts the item back to open with a note and a to
   await pane.unmount()
 })
 
-test('Done and Skip mark the item and tell the agent', async ($, on) => {
-  const { sent } = await seeded($, on, [todo({ id: '1' }), todo({ id: '2', kind: 'task', title: 'U', script: undefined })])
+test('Done tells the agent at once and carries a dismissal still waiting', async ($, on) => {
+  const { sent, contexts } = await seeded($, on, [todo({ id: '1' }), todo({ id: '2', kind: 'task', title: 'U', script: undefined })])
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await press(pane, '1', 'done')
   await press(pane, '2', 'skip')
+  expect(await state($)).toBe('#1 [open] T\n    script: ls -la\n#2 [skipped] U')
+  expect(sent).toEqual([])
 
-  expect(await state($)).toBe('#1 [done] T\n    script: ls -la\n#2 [skipped] U')
-  expect(sent).toEqual(['[Human Todos] #1 "T": the user marked it done.', '[Human Todos] #2 "U": the user skipped it.'])
+  await press(pane, '1', 'done')
+  await $.prompt.submit({ text: 'carry on' })
+
+  expect(sent).toEqual(['[Human Todos] #1 "T": the user marked it done.\n[Human Todos] #2 "U": the user dismissed it.', 'carry on'])
+  expect(contexts).toEqual([[], []])
+})
+
+test('a dismissal rides the person\'s next prompt as context, and only that one', async ($, on) => {
+  const { sent, contexts } = await seeded($, on, [todo({ id: '1', kind: 'task', title: 'U', script: undefined })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+
+  await press(pane, '1', 'skip')
+  await $.prompt.submit({ text: 'carry on' })
+  await $.prompt.submit({ text: 'and again' })
+
+  expect(sent).toEqual(['carry on', 'and again'])
+  expect(contexts).toEqual([['[Human Todos] #1 "U": the user dismissed it.'], []])
+  await pane.unmount()
+})
+
+test('a refused prompt keeps the dismissal waiting for the next one that gets through', async ($, on) => {
+  const { sent, contexts, fail } = await seeded($, on, [todo({ id: '1', kind: 'task', title: 'U', script: undefined }), todo({ id: '2' })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const notice = '[Human Todos] #1 "U": the user dismissed it.'
+
+  await press(pane, '1', 'skip')
+  fail.submit = true
+  await press(pane, '2', 'done')
+  await $.prompt.submit({ text: 'refused too' }).catch(() => undefined)
+  fail.submit = false
+  await $.prompt.submit({ text: 'carry on' })
+
+  expect(sent).toEqual(['carry on'])
+  expect(contexts).toEqual([[notice]])
+  await pane.unmount()
+})
+
+test('a pane prompt held by a busy turn carries a dismissal alone; a prompt typed meanwhile does not repeat it', async ($, on) => {
+  const { sent, contexts, fail } = await seeded($, on, [todo({ id: '1', kind: 'task', title: 'U', script: undefined }), todo({ id: '2' })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  let release = () => {}
+  fail.holdSubmit = new Promise<void>(resolve => (release = resolve))
+
+  await press(pane, '1', 'skip')
+  await press(pane, '2', 'done')
+  await $.prompt.submit({ text: 'carry on' })
+  release()
+  await new Promise(resolve => setTimeout(resolve, 0))
+
+  expect(sent).toEqual(['carry on', '[Human Todos] #2 "T": the user marked it done.\n[Human Todos] #1 "U": the user dismissed it.'])
+  expect(contexts).toEqual([[], []])
+  await pane.unmount()
+})
+
+test('Clear finished keeps a dismissal waiting for the next prompt, saved with the list', async ($, on) => {
+  const { store, contexts } = await seeded($, on, [todo({ id: '1', kind: 'task', title: 'U', script: undefined })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const notice = '[Human Todos] #1 "U": the user dismissed it.'
+  const saved = () => (store.get(`list:${SESSION}`) as { notices: string[] }).notices
+
+  await press(pane, '1', 'skip')
+  await pane.post({ type: 'clear' })
+  expect(await state($)).toBe('No to-dos.')
+  expect(saved()).toEqual([notice])
+
+  await $.prompt.submit({ text: 'carry on' })
+  expect(contexts).toEqual([[notice]])
+  expect(saved()).toEqual([])
   await pane.unmount()
 })
 

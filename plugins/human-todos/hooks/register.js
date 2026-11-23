@@ -1338,6 +1338,7 @@ async function resumeWatching($) {
 // mods/human-todos/src/store.ts
 var todos = atom({ plugin: "human-todos", key: "todos" }, [], { shape: "todos-1" });
 var nextId = atom({ plugin: "human-todos", key: "nextId" }, 1);
+var notices = atom({ plugin: "human-todos", key: "notices" }, []);
 var expanded = atom({ plugin: "human-todos", key: "expanded" }, []);
 var composing = atom({ plugin: "human-todos", key: "composing" }, null);
 var frame = atom({ plugin: "human-todos", key: "frame" }, 0);
@@ -1353,6 +1354,7 @@ async function saveList($) {
     const entry = {
       todos: await read($, todos),
       nextId: await read($, nextId),
+      notices: await read($, notices),
       savedAt: await $.clock.now()
     };
     const owner = await read($, loadedFor);
@@ -1409,6 +1411,21 @@ async function patchTodo($, id, change) {
   await update($, todos, (list) => list.map((t) => t.id === id ? { ...t, ...change } : t));
   await saveList($);
 }
+async function addNotice($, text) {
+  await ensureLoaded($);
+  await update($, notices, (list) => [...list, text]);
+  await saveList($);
+}
+async function listNotices($) {
+  await ensureLoaded($);
+  return read($, notices);
+}
+async function dropNotices($, sent) {
+  if (sent.length === 0)
+    return;
+  await update($, notices, (list) => list.filter((n) => !sent.includes(n)));
+  await saveList($);
+}
 async function removeTodos($, pick) {
   await ensureLoaded($);
   const removed = [];
@@ -1451,6 +1468,7 @@ async function restoreList($) {
     await update($, todos, () => mine.todos.map(resume));
     await update($, expanded, () => []);
     await update($, nextId, () => mine.nextId);
+    await update($, notices, () => mine.notices ?? []);
   } else {
     await resetList($);
   }
@@ -1466,6 +1484,7 @@ async function resetList($) {
   await update($, expanded, () => []);
   await update($, composing, () => null);
   await update($, nextId, () => 1);
+  await update($, notices, () => []);
   drafts.clear();
 }
 function peekTodos($) {
@@ -1546,7 +1565,7 @@ function settle(todo, outcome, log) {
     case "done":
       return { patch: { status: "done" }, text: todo.kind !== "run" && todo.doneLabel ? `${who}: the user pressed "${todo.doneLabel}" (done).` : `${who}: the user marked it done.` };
     case "skipped":
-      return { patch: { status: "skipped" }, text: `${who}: the user skipped it.` };
+      return { patch: { status: "skipped" }, text: `${who}: the user dismissed it.` };
     case "message":
       return outcome.done ? { patch: { status: "done" }, text: `${who}: the user marked it done and says: ${outcome.text}` } : { patch: {}, text: `${who}: the user says: ${outcome.text}` };
     case "ran": {
@@ -1577,6 +1596,30 @@ async function savedOutput($, todo, outcome) {
     return null;
   }
 }
+function submitWithNotices($, e, next) {
+  if (e.command)
+    return next(e);
+  return carrying($, (waiting) => next(waiting.length ? { ...e, context: [...e.context ?? [], ...waiting] } : e));
+}
+function submit($, text) {
+  return carrying($, (waiting) => $.prompt.submit({ text: [`[${TITLE}] ${text}`, ...waiting].join(`
+`) }));
+}
+var inFlight = new Set;
+async function carrying($, send) {
+  const waiting = (await listNotices($)).filter((n) => !inFlight.has(n));
+  for (const n of waiting)
+    inFlight.add(n);
+  try {
+    const result = await send(waiting);
+    if (result.drop === undefined)
+      await dropNotices($, waiting);
+    return result;
+  } finally {
+    for (const n of waiting)
+      inFlight.delete(n);
+  }
+}
 async function report($, todo, outcome) {
   const session = await $.session.id();
   const log = await savedOutput($, todo, outcome);
@@ -1588,7 +1631,7 @@ async function report($, todo, outcome) {
     $.ui.toast(`Could not tell the agent about #${todo.id}`);
   };
   if (outcome.kind === "message") {
-    const sent = await $.prompt.submit({ text: `[${TITLE}] ${text}` }).catch(() => ({ drop: "failed" }));
+    const sent = await submit($, text).catch(() => ({ drop: "failed" }));
     if ("drop" in sent && sent.drop !== undefined) {
       warn();
       return false;
@@ -1599,7 +1642,11 @@ async function report($, todo, outcome) {
   }
   await patchTodo($, todo.id, patch);
   await syncSpinner($);
-  $.prompt.submit({ text: `[${TITLE}] ${text}` }).then((sent) => {
+  if (outcome.kind === "skipped") {
+    await addNotice($, `[${TITLE}] ${text}`);
+    return true;
+  }
+  submit($, text).then((sent) => {
     if (sent.drop !== undefined)
       warn();
   }).catch(warn);
@@ -2073,7 +2120,7 @@ var LABELS = {
   open: "Open",
   copy: "Copy",
   done: "Done",
-  skip: "Skip",
+  skip: "Dismiss",
   confirm: "Confirm",
   cancel: "Cancel",
   show: "Show",
@@ -2545,7 +2592,7 @@ function registerPane(on) {
   });
   on("prompt.submit", async ($, e, next) => {
     await setKeysInPane($, false);
-    return next(e);
+    return submitWithNotices($, e, next);
   });
   on("ui.focus", async ($, e, next) => {
     await setKeysInPane($, false);
@@ -2716,19 +2763,19 @@ function sendDraft($, id, done, surface) {
 // mods/human-todos/src/contract.ts
 var PREFIX = "mcp__human-todos__";
 function addDescription(paneTitle) {
-  return `Add a step only the user can do to their "${paneTitle}" pane, which stays beside the transcript while replies scroll away. Use it whenever you need the user to act: a command you cannot run (denied, needs sudo, a TTY, a login or a credential), a step in a browser or another app, or an account or physical action. Add the step as soon as you hit the wall, instead of only writing it in your reply, and keep working on anything else meanwhile. Pick the kind: task (by hand), run (a command the pane runs for them and reports back), terminal (needs their terminal: sudo, password or login prompts), link (a web page), image (screenshots or other images for them to look at, opened in their default image app). You get a message when they finish, skip, stop or run it, or write to you about it from the pane, so never ask them to type "done".`;
+  return `Add a step only the user can do to their "${paneTitle}" pane, which stays beside the transcript while replies scroll away. Use it whenever you need the user to act: a command you cannot run (denied, needs sudo, a TTY, a login or a credential), a step in a browser or another app, or an account or physical action. Add the step as soon as you hit the wall, instead of only writing it in your reply, and keep working on anything else meanwhile. Pick the kind: task (by hand), run (a command the pane runs for them and reports back), terminal (needs their terminal: sudo, password or login prompts), link (a web page), image (screenshots or other images for them to look at, opened in their default image app). You get a message when they finish, stop or run it, or write to you about it from the pane, and a dismissal comes with the next message, so never ask them to type "done".`;
 }
 function guidance(names) {
   return `# To-dos for the user
 When you need the user to do something you cannot do yourself (a command that needs their terminal, sudo, an interactive login or a credential; a step in a browser or another app; a physical or account action), add it with ${names.add} instead of only writing it in your reply. Long replies scroll away; the list stays in a "${TITLE}" pane beside the transcript.
 - Every item has a \`kind\`, which decides the buttons the user gets:
-  - \`task\`: something they do by hand (an account setting, a physical step, a decision). Done or Skip.
+  - \`task\`: something they do by hand (an account setting, a physical step, a decision). Done or Dismiss.
   - \`run\`: a shell command that runs without a TTY. Give \`script\`; the pane offers Run and sends you the exit code and output.
   - \`terminal\`: a command that needs their terminal (sudo, a login or password prompt). Give \`script\`; the pane offers Copy.
   - \`link\`: a step on a web page. Give \`url\`; the pane offers Open.
   - \`image\`: images for the user to look at (screenshots, captures). Give \`paths\`, one absolute path per image; the pane offers Open, which opens them all in their default image app. Use it instead of running \`open\` yourself or wrapping \`open\` in a run script.
 - Give \`doneLabel\` when finishing the step has a natural name ("I've signed in", "Approved it"); it replaces the Done button's word. It does not apply to \`run\` items, whose Done always reads "Done without running".
-- When the user ticks, skips or runs an item, or writes to you about it from the pane (optionally marking it done), you receive a message saying so. Do not ask them to type "done".
+- When the user ticks or runs an item, or writes to you about it from the pane (optionally marking it done), you receive a message saying so. When they dismiss one, you hear it with the next message rather than right away. Do not ask them to type "done".
 - Use ${names.list} to see what is still open, and ${names.withdraw} when an item is no longer needed.`;
 }
 function registerContract(on) {

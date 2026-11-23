@@ -1,10 +1,10 @@
-import type { EngineInterface } from 'claude-code'
+import type { EngineInterface, PromptSubmitInput, PromptSubmitResult } from 'claude-code'
 
 import type { Todo } from '../types'
 import { TITLE, tail } from './items'
 import { writeRunLog } from './logs'
 import { syncSpinner } from './spinner'
-import { patchTodo } from './store'
+import { addNotice, dropNotices, listNotices, patchTodo } from './store'
 
 // `spill` is the output a local run held before `outputTail`, as writeRunLog takes it.
 export type Outcome =
@@ -27,7 +27,7 @@ export function settle(todo: Todo, outcome: Outcome, log?: string | null): { pat
     case 'done':
       return { patch: { status: 'done' }, text: todo.kind !== 'run' && todo.doneLabel ? `${who}: the user pressed "${todo.doneLabel}" (done).` : `${who}: the user marked it done.` }
     case 'skipped':
-      return { patch: { status: 'skipped' }, text: `${who}: the user skipped it.` }
+      return { patch: { status: 'skipped' }, text: `${who}: the user dismissed it.` }
     case 'message':
       return outcome.done
         ? { patch: { status: 'done' }, text: `${who}: the user marked it done and says: ${outcome.text}` }
@@ -61,6 +61,39 @@ async function savedOutput($: EngineInterface, todo: Todo, outcome: Outcome): Pr
   }
 }
 
+// Dismissals reach the agent on the next prompt, the person's or the pane's own, so a dismissal never starts a turn.
+// Each waits until a prompt carrying it is accepted. A slash command leaves them waiting: its context would ride the
+// command, not reach the model as a turn's own words.
+export function submitWithNotices(
+  $: EngineInterface,
+  e: PromptSubmitInput,
+  next: (e: PromptSubmitInput) => Promise<PromptSubmitResult>,
+): Promise<PromptSubmitResult> {
+  if (e.command) return next(e)
+  return carrying($, waiting => next(waiting.length ? { ...e, context: [...(e.context ?? []), ...waiting] } : e))
+}
+
+// The pane's own prompt skips its own submit hook, and a plugin's submit takes no context, so waiting dismissals join its text.
+function submit($: EngineInterface, text: string): Promise<PromptSubmitResult> {
+  return carrying($, waiting => $.prompt.submit({ text: [`[${TITLE}] ${text}`, ...waiting].join('\n') }))
+}
+
+// The notices a prompt still on its way carries. A pane prompt waits for a busy turn to end, so another prompt can
+// overlap it; neither may carry the same notice. A refused or failed prompt hands its notices back.
+const inFlight = new Set<string>()
+
+async function carrying($: EngineInterface, send: (waiting: string[]) => Promise<PromptSubmitResult>): Promise<PromptSubmitResult> {
+  const waiting = (await listNotices($)).filter(n => !inFlight.has(n))
+  for (const n of waiting) inFlight.add(n)
+  try {
+    const result = await send(waiting)
+    if (result.drop === undefined) await dropNotices($, waiting)
+    return result
+  } finally {
+    for (const n of waiting) inFlight.delete(n)
+  }
+}
+
 // False when a message did not reach the agent: the item is then left as it was, so the person can send it again.
 export async function report($: EngineInterface, todo: Todo, outcome: Outcome): Promise<boolean> {
   const session = await $.session.id()
@@ -74,7 +107,7 @@ export async function report($: EngineInterface, todo: Todo, outcome: Outcome): 
   }
   // A message is the person's own words, so it settles the item only once the prompt entered.
   if (outcome.kind === 'message') {
-    const sent = await $.prompt.submit({ text: `[${TITLE}] ${text}` }).catch(() => ({ drop: 'failed' }))
+    const sent = await submit($, text).catch(() => ({ drop: 'failed' }))
     if ('drop' in sent && sent.drop !== undefined) {
       warn()
       return false
@@ -85,8 +118,11 @@ export async function report($: EngineInterface, todo: Todo, outcome: Outcome): 
   }
   await patchTodo($, todo.id, patch)
   await syncSpinner($)
-  void $.prompt
-    .submit({ text: `[${TITLE}] ${text}` })
+  if (outcome.kind === 'skipped') {
+    await addNotice($, `[${TITLE}] ${text}`)
+    return true
+  }
+  void submit($, text)
     .then(sent => {
       if (sent.drop !== undefined) warn()
     })
