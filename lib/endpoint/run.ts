@@ -171,7 +171,11 @@ export async function runInterception(
     // Base = caller's env (inheritance preserves exported vars); rendered role
     // env and hook env layer on top, in that order.
     childEnv = { ...baseEnv, ...rendered, ...hookEnv };
-    finalArgs = applyArgInject(args, match.argInject, envKeys);
+    const injected = applyArgInject(args, match.argInject, envKeys);
+    finalArgs = injected.args;
+    if (injected.missedAnchor) {
+      deps.warn(`${command} may override rt's ${match.role} settings (${envKeys.join(", ")}): rt could not find "${match.argInject!.afterArg}" in the command to add them after`);
+    }
   } catch (err) {
     if (roleCfg.failClosed) deps.fail(`${command} did not start: setting up the ${match.role} role failed (${(err as Error).message})`);
     deps.warn(`${command} ran without an rt port: setting up the ${match.role} role failed (${(err as Error).message})`);
