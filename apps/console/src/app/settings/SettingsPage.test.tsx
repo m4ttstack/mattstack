@@ -896,7 +896,7 @@ describe('repo picker', () => {
     ).toBeInTheDocument();
   });
 
-  it('a per-project row opens on the first project that sets it, in its own Value tab', async () => {
+  it('a per-project row opens with no project picked, and a pick lands in ?repo=', async () => {
     defsResponse = serve([...DEFS, ROLES({ scope: null, file: null })]);
     const explained: string[] = [];
     const read = globalThis.fetch;
@@ -912,7 +912,9 @@ describe('repo picker', () => {
     const picker = (await screen.findAllByLabelText('project')).find(
       el => el.tagName === 'INPUT'
     )!;
-    // No project is named, so it starts on the one project that sets it.
+    expect(picker).toHaveValue('');
+    await userEvent.click(picker);
+    await userEvent.click(await screen.findByRole('option', { name: 'app' }));
     await waitFor(() => expect(picker).toHaveValue('acme/app'));
     await waitFor(() =>
       expect(
@@ -920,7 +922,33 @@ describe('repo picker', () => {
       ).toBe(true)
     );
     expect(screen.getByText('for acme/app')).toBeInTheDocument();
-    expect(new URLSearchParams(window.location.search).get('repo')).toBeNull();
+    expect(new URLSearchParams(window.location.search).get('repo')).toBe(REPO);
+  });
+
+  it('a link with ?explain= and ?repo= reopens the row on that project', async () => {
+    defsResponse = serve([...DEFS, ROLES({ scope: null, file: null })]);
+    window.history.replaceState(
+      null,
+      '',
+      `/settings?explain=rt.roles&repo=${encodeURIComponent(REPO)}`
+    );
+    renderPage();
+    const picker = (await screen.findAllByLabelText('project')).find(
+      el => el.tagName === 'INPUT'
+    )!;
+    await waitFor(() => expect(picker).toHaveValue('acme/app'));
+  });
+
+  it('a ?repo= with no open row is dropped', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      `/settings?repo=${encodeURIComponent(REPO)}`
+    );
+    renderPage();
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get('repo')).toBeNull()
+    );
   });
 });
 

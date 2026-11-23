@@ -1247,7 +1247,8 @@ describe('composite rows', () => {
     );
     await openRow('rt.repoRoots');
     await userEvent.click(screen.getByRole('radio', { name: 'Value' }));
-    expect(screen.getAllByRole('button', { name: 'Clear' })).toHaveLength(2);
+    // The open Value tab's Clear stands in for the header's.
+    expect(screen.getAllByRole('button', { name: 'Clear' })).toHaveLength(1);
     expect(screen.queryByRole('radio', { name: 'JSON' })).toBeNull();
   });
 
@@ -1262,9 +1263,8 @@ describe('composite rows', () => {
     );
     await openRow('board.ticketPrefixes');
     expect(screen.getByRole('radio', { name: 'Value' })).toBeChecked();
-    expect(screen.getAllByRole('button', { name: 'remove RT' })).toHaveLength(
-      1
-    );
+    // The header hides its tags while the Value tab is open.
+    expect(screen.queryByRole('button', { name: 'remove RT' })).toBeNull();
     expect(
       JSON.parse(
         (screen.getByRole('textbox', { name: 'JSON' }) as HTMLTextAreaElement)
@@ -1274,7 +1274,7 @@ describe('composite rows', () => {
     await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
     expect(screen.queryByRole('textbox', { name: 'JSON' })).toBeNull();
     expect(screen.getAllByRole('button', { name: 'remove RT' })).toHaveLength(
-      2
+      1
     );
   });
 });

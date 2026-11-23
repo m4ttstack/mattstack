@@ -466,7 +466,7 @@ describe('structured rows open in JSON', () => {
     ).toHaveValue(RULE.title);
   });
 
-  it('a short string list opens its Value tab in JSON and keeps its tags in the row', async () => {
+  it('a short string list opens its Value tab in JSON, and Form shows its tags once', async () => {
     stubRows([]);
     renderWithProviders(
       <SettingRow
@@ -482,13 +482,11 @@ describe('structured rows open in JSON', () => {
     await openRow('board.ticketPrefixes');
     expect(screen.getByRole('radio', { name: 'Value' })).toBeChecked();
     expect(JSON.parse((editor() as HTMLTextAreaElement).value)).toEqual(['RT']);
-    expect(screen.getAllByRole('button', { name: 'remove RT' })).toHaveLength(
-      1
-    );
+    expect(screen.queryByRole('button', { name: 'remove RT' })).toBeNull();
     await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
     expect(screen.queryByRole('textbox', { name: 'JSON' })).toBeNull();
     expect(screen.getAllByRole('button', { name: 'remove RT' })).toHaveLength(
-      2
+      1
     );
   });
 

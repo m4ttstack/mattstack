@@ -338,10 +338,7 @@ describe('SettingRow disclosure', () => {
       screen.getByRole('button', { name: 'open board.agent.model' })
     );
     await userEvent.click(await screen.findByRole('radio', { name: 'Value' }));
-    const inputs = screen.getAllByRole('textbox', {
-      name: 'board.agent.model',
-    });
-    inputs[1]!.focus();
+    screen.getByRole('textbox', { name: 'board.agent.model' }).focus();
     await userEvent.keyboard('{Escape}');
     expect(screen.getByRole('radio', { name: 'Value' })).toBeInTheDocument();
     screen.getByRole('radio', { name: 'Value' }).focus();
@@ -377,7 +374,9 @@ describe('SettingRow disclosure', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'open board.agent.model' })
     );
-    const input = screen.getByRole('textbox', { name: 'board.agent.model' });
+    const input = await screen.findByRole('textbox', {
+      name: 'board.agent.model',
+    });
     await userEvent.clear(input);
     await userEvent.type(input, 'm-2{Enter}');
     expect(await screen.findByText('store is read-only')).toBeInTheDocument();
@@ -1520,12 +1519,10 @@ describe('a choice setting that explains each option', () => {
     expect(
       within(region).getByRole('radio', { name: /^chatty/ })
     ).toBeChecked();
+    // The radios stand in for the header's dropdown while Value is open.
     expect(
-      within(region).queryByRole('combobox', { name: 'rt.work.gateMode' })
+      screen.queryByRole('combobox', { name: 'rt.work.gateMode' })
     ).toBeNull();
-    expect(
-      screen.getByRole('combobox', { name: 'rt.work.gateMode' })
-    ).toBeInTheDocument();
   });
 
   it('picking an option saves it the way the dropdown does', async () => {
