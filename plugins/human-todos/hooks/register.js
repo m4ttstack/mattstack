@@ -2745,8 +2745,7 @@ function registerPane(on) {
     const paneBody = paneRows(e);
     const todo = pane.composing === null ? undefined : pane.list.find((t) => t.id === pane.composing);
     const room = Math.max(10, width - GUTTER2 - BAR2);
-    const draft = todo ? drafts.get(todo.id) ?? "" : "";
-    const fieldRows = draftFieldRows(draft, room);
+    const fieldRows = FIELD_ROWS;
     const actionRows = todo ? composeActionRows(todo.id, room).length : 0;
     const dockRows = todo ? DOCK_FIXED_ROWS + fieldRows + actionRows : 0;
     const bodyRows = Math.max(3, paneBody - dockRows);
@@ -2790,8 +2789,6 @@ function registerPane(on) {
       submitLabel: "send",
       onInput: (value) => {
         drafts.set(id, value);
-        if (draftFieldRows(value, room) !== fieldRows)
-          $.ui.invalidate("ui.render");
       },
       onSubmit: (value) => {
         drafts.set(id, value);
@@ -2808,17 +2805,9 @@ function registerPane(on) {
 var GUTTER2 = 2;
 var BAR2 = 3;
 var CARD_PAD2 = 2;
-var MIN_FIELD_ROWS = 2;
-var MAX_FIELD_ROWS = 8;
+var FIELD_ROWS = 4;
 var DOCK_FIXED_ROWS = 5;
-var FIELD_HINT = "⏎ send · \\⏎ new line  ";
 var drafts = new Map;
-function draftFieldRows(text, room) {
-  const textWidth = Math.max(4, room - 2 * CARD_PAD2 - cellWidth(FIELD_HINT));
-  const rows = text.split(`
-`).reduce((n, line) => n + wrapKeeping(line, textWidth).length, 0);
-  return Math.min(MAX_FIELD_ROWS, Math.max(MIN_FIELD_ROWS, rows));
-}
 function sendDraft($, id, done, surface) {
   const text = drafts.get(id) ?? "";
   if (text.trim() === "")

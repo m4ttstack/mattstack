@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, RenderSurface } from 'claude-code'
-import { CURSOR_ROW, bandAbovePrompt, cellWidth, wrapKeeping, isEngaged, isPlaced, paneMessage, paneRows, registerPaneRedraw, type HideablePane, type Waiting } from '@mattstack/mod-kit'
+import { CURSOR_ROW, bandAbovePrompt, isEngaged, isPlaced, paneMessage, paneRows, registerPaneRedraw, type HideablePane, type Waiting } from '@mattstack/mod-kit'
 
 import type { Todo } from '../types'
 import { PLUGIN, TITLE } from './items'
@@ -160,8 +160,7 @@ export function registerPane(on: On): void {
     // An engine Input takes no keys inside a Client, and a Client hands its key listener no paste, so the message
     // card docks under the list: the Input drawn here, on the card's tint, and its buttons in a Client of their own.
     const room = Math.max(10, width - GUTTER - BAR)
-    const draft = todo ? (drafts.get(todo.id) ?? '') : ''
-    const fieldRows = draftFieldRows(draft, room)
+    const fieldRows = FIELD_ROWS
     const actionRows = todo ? composeActionRows(todo.id, room).length : 0
     const dockRows = todo ? DOCK_FIXED_ROWS + fieldRows + actionRows : 0
     const bodyRows = Math.max(3, paneBody - dockRows)
@@ -190,7 +189,6 @@ export function registerPane(on: On): void {
               submitLabel="send"
               onInput={value => {
                 drafts.set(id, value)
-                if (draftFieldRows(value, room) !== fieldRows) $.ui.invalidate('ui.render')
               }}
               onSubmit={value => {
                 drafts.set(id, value)
@@ -209,23 +207,12 @@ export function registerPane(on: On): void {
 const GUTTER = 2
 const BAR = 3
 const CARD_PAD = 2
-// The field's rows grow with the draft up to MAX_FIELD_ROWS, then it scrolls within, as the in-list card did.
-const MIN_FIELD_ROWS = 2
-const MAX_FIELD_ROWS = 8
+// A fixed height: the engine's Input cut its text off with an ellipsis when the hook redrew it taller mid-typing.
+const FIELD_ROWS = 4
 // The gap above the card, the title and the gap under it, and the tinted rows above and below the field.
 const DOCK_FIXED_ROWS = 5
-// The engine draws its key hint beside a focused field, on the field's first row.
-const FIELD_HINT = '⏎ send · \\⏎ new line  '
 // Each open message's draft, by item, so a redraw of the pane hands the Input back what the person typed.
 const drafts = new Map<string, string>()
-
-// Never one row: a one-row field cuts its text off with an ellipsis instead of wrapping, and a field that changes
-// between one row and several redraws its hint and its text in odd places.
-function draftFieldRows(text: string, room: number): number {
-  const textWidth = Math.max(4, room - 2 * CARD_PAD - cellWidth(FIELD_HINT))
-  const rows = text.split('\n').reduce((n, line) => n + wrapKeeping(line, textWidth).length, 0)
-  return Math.min(MAX_FIELD_ROWS, Math.max(MIN_FIELD_ROWS, rows))
-}
 
 // Send and Send & mark done carry the draft; a blank one sends nothing.
 function sendDraft($: EngineInterface, id: string, done: boolean, surface: RenderSurface): void {
