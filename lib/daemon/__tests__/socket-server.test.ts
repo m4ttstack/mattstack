@@ -191,7 +191,7 @@ describe("startSocketServer: availability", () => {
       expect(res.status).toBe(503);
       expect(await res.json()).toEqual({
         ok: false,
-        error: "rt daemon is waiting for port 9401, which another process is using; run rt daemon status",
+        error: "rt daemon is waiting for port 9401, which another process is using; see rt daemon logs",
         parked: true,
         pid: 42,
         flavor: "dev",

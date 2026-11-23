@@ -125,8 +125,9 @@ function connectFailed(err: unknown): boolean {
 // is down for good would stall for the whole budget.
 // `kind` says what the misses were: a daemon that comes back after an
 // unanswered stretch gets a fresh clock, while one that keeps answering
-// starting or stopping cools off like a missing one.
-const unanswered = new Map<string, { kind: "unreached" | "unavailable"; firstMissAt: number; downUntil: number }>();
+// starting or stopping cools off like a missing one. A miss older than the
+// threshold is history, not part of the current stretch.
+const unanswered = new Map<string, { kind: "unreached" | "unavailable"; firstMissAt: number; lastMissAt: number; downUntil: number }>();
 let coolOffAfterMs = DAEMON_RETRY_BUDGET_MS;
 
 export const __test__ = {
@@ -179,10 +180,15 @@ export async function rtCommand<T = unknown>(
       return response;
     }
     const kind = outcome === "answered" ? "unavailable" : "unreached";
-    if (unanswered.get(sockPath)?.kind !== kind) {
-      // The call's start, not now: a budget as long as the threshold must
-      // always reach it, whatever the first attempt took.
-      unanswered.set(sockPath, { kind, firstMissAt: startedAt, downUntil: 0 });
+    const now = Date.now();
+    const prior = unanswered.get(sockPath);
+    if (!prior || prior.kind !== kind || now - prior.lastMissAt > coolOffAfterMs) {
+      // A new stretch starts at the call's start, so a budget as long as the
+      // threshold always reaches it; a change of kind starts it now.
+      const firstMissAt = prior && prior.kind !== kind && now - prior.lastMissAt <= coolOffAfterMs ? now : startedAt;
+      unanswered.set(sockPath, { kind, firstMissAt, lastMissAt: now, downUntil: 0 });
+    } else {
+      prior.lastMissAt = now;
     }
     const delay = Math.min(nextRetryDelay(attempt), deadline - Date.now());
     if (delay <= 0) {

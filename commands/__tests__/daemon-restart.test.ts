@@ -48,12 +48,20 @@ function fakeSockets(opts: {
   starting?: () => boolean;
   /** True while the daemon that answers is draining before it exits. */
   stopping?: () => boolean;
+  /** True while the daemon that answers waits for its API port. */
+  parked?: () => boolean;
 }): void {
   const flavor = processFlavor();
   globalThis.fetch = (async (_url: string, init: any) => {
     if (init?.unix === TRAY_SOCK_PATH) return opts.trayReply();
     const pid = opts.pid();
     if (pid === null) throw new Error("connection refused");
+    if (opts.parked?.()) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "rt daemon is waiting for port 9401, which another process is using; see rt daemon logs", parked: true, pid, flavor }),
+        { status: 503 },
+      );
+    }
     if (opts.stopping?.()) {
       return new Response(
         JSON.stringify({ ok: false, error: "rt daemon is restarting; try again in a moment", unavailable: "stopping", pid, flavor }),
@@ -299,4 +307,35 @@ test("start says the daemon is still stopping when the drain outlasts the wait, 
 
   expect(trayCalls).toBe(0);
   expect(output()).toContain("The daemon is still stopping");
+});
+
+test("start after a restart's drain gives the new daemon a moment to appear before asking the tray", async () => {
+  markDaemonInstalled();
+  let trayCalls = 0;
+  let calls = 0;
+  fakeSockets({
+    trayReply: () => { trayCalls += 1; return new Response(JSON.stringify({ ok: true })); },
+    pid: () => { calls += 1; return calls <= 3 ? 333 : calls <= 5 ? null : 555; },
+    stopping: () => calls <= 3,
+  });
+
+  await start();
+
+  expect(trayCalls).toBe(0);
+  expect(output()).toContain("The daemon is already running");
+});
+
+test("start against a daemon parked on its API port says so and does not ask the tray", async () => {
+  markDaemonInstalled();
+  let trayCalls = 0;
+  fakeSockets({
+    trayReply: () => { trayCalls += 1; return new Response(JSON.stringify({ ok: true })); },
+    pid: () => 333,
+    parked: () => true,
+  });
+
+  await start();
+
+  expect(trayCalls).toBe(0);
+  expect(output()).toContain("The daemon is waiting for its port");
 });

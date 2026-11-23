@@ -431,15 +431,16 @@ export async function isDaemonRunning(): Promise<boolean> {
 }
 
 /**
- * Whether a daemon holds rt.sock at all. A starting or stopping daemon is
- * there: a caller that would start a daemon, or touch files a daemon holds
- * open, must treat it as present. A stopping one may not be followed by
- * another.
+ * Whether a daemon holds rt.sock at all. A starting, stopping or parked
+ * daemon is there: a caller that would start a daemon, or touch files a
+ * daemon holds open, must treat it as present. A stopping one may not be
+ * followed by another; a parked one waits for its API port.
  */
-export async function daemonPresence(): Promise<"serving" | "starting" | "stopping" | "absent"> {
+export async function daemonPresence(): Promise<"serving" | "starting" | "stopping" | "parked" | "absent"> {
   const attempt = await trySocketQuery("ping");
   if (attempt.unavailable) return attempt.unavailableState ?? "starting";
-  return attempt.response !== null ? "serving" : "absent";
+  if (attempt.response === null) return "absent";
+  return (attempt.response as { parked?: unknown }).parked === true ? "parked" : "serving";
 }
 
 /**
