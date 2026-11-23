@@ -71,6 +71,16 @@ rt settings unset rt.ui.background --scope user
 
 `--scope` picks the store to write to: `user`, `org`, `team` or `machine`. The value is JSON. For a team write, `--team` names the team, and it defaults to your own. Each setting allows only some scopes, and a write to one it does not allow is refused.
 
+## Automatic updates
+
+`mattstack.autoUpdate` decides whether mattstack installs new releases on every Mac in the org by itself. It is on by default, only an org owner can change it, and it lives only at org scope:
+
+```bash
+rt settings set mattstack.autoUpdate false --scope org
+```
+
+With it off, each person installs updates themselves, and the version telemetry page shows their Macs as turned off by the org. See [Updates](/start/menu-bar-app#updates) for what each setting does.
+
 ## Version reporting
 
 Settings, General, Privacy has a switch, "Share version info with the mattstack admin". It is on by default. Turn it off there, or from a terminal:

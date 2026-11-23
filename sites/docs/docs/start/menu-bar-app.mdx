@@ -74,7 +74,17 @@ The Notifications tab picks the sound for each kind of notification: **Neutral**
 
 ## Updates
 
-mattstack.app updates itself through Sparkle, which verifies the release signature, stages the install, and relaunches the app. It checks every 6 hours and downloads a new release on its own. When a release is ready, the menu item changes to **Update Available: &lt;version&gt;**. The update installs and relaunches the app once none of its windows are open, minimized ones included, and setup isn't running. Until then, a notification says the update is waiting, and the app tries again every minute. Choosing **Update Available** installs it right away, unless setup is running. After the relaunch, a notification says which version you're on.
+mattstack.app updates itself through Sparkle, which verifies the release signature, stages the install, and relaunches the app. It checks every hour, so a new release reaches every Mac within about an hour, with no prompt. The app reopens the windows you had open: the mattstack window, Settings, the worktree panel and the process panel.
+
+An update waits while setup is running, or while the rt daemon is in the middle of something a restart would cut off (creating a worktree, installing a tree's dependencies, an MR action or upload). A notification says it is waiting, and the app tries again every minute. Choosing **Update Available: &lt;version&gt;** installs it right away unless one of those is still running. After the relaunch, a notification says which version you're on.
+
+An org owner can turn automatic installs off for everyone in the org:
+
+```bash
+rt settings set mattstack.autoUpdate false --scope org
+```
+
+With it off, a new release opens Sparkle's update window instead, and each person installs it. The update then waits until no mattstack window is open, minimized ones included, and setup isn't running.
 
 An update never re-runs Install. Instead, the first launch on a new version runs [`rt setup update`](/rt/reference/setup/update) once setup has been finished on this Mac. That run does three things:
 
@@ -84,6 +94,6 @@ An update never re-runs Install. Instead, the first launch on a new version runs
 
 It never asks you anything and never replaces a value you chose. When the check finds something only you can fix, you get a notification that opens the Setup status window.
 
-**Check for Updates…** checks on demand. The dev build (mattstack-dev.app) runs from source and never updates through Sparkle.
+**Check for Updates…** checks on demand. The dev build (mattstack-dev.app) runs from source and never updates through Sparkle: its daemon updates it, along with your clone (see [`rt dev update`](/rt/reference/dev/update)).
 
 See also: the [daemon guide](/start/daemon) for what the daemon itself does, and [`rt daemon`](/rt/reference/daemon) in the command reference.

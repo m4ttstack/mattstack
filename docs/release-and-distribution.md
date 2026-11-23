@@ -281,28 +281,66 @@ real 2.8.1 build. The prod-Mac leg (Create Release → appcast → an installed
 app on real hardware) still awaits the first real tag; treat that first run
 as a verification exercise, not a routine.
 
-A scheduled check that finds an update opens Sparkle's own update window
-in front (`SUAutomaticallyUpdate` is off), so the person installs it from
-there. Silent install was dropped because a Mac with a mattstack window
-open all day never installed, and a held update stops Sparkle checking
-again. While setup runs the window waits: the "Update Available" menu item
-is the reminder, and the next scheduled check opens it.
+Installs are silent by default. The org setting `mattstack.autoUpdate`
+(org scope only, default on; an rt that cannot read it counts as on)
+decides. `UpdaterController.refreshPolicy` reads it at launch, every 10
+minutes and before each retry of a held update, then sets Sparkle's runtime
+properties: `automaticallyChecksForUpdates` on, `automaticallyDownloadsUpdates`
+to the setting, and `updateCheckInterval` to an hour. Sparkle keeps runtime
+values in UserDefaults over the plist, so this is also what switches checking
+back on for a Mac whose person once turned it off; the Settings switch that
+did that is gone. `SUScheduledCheckInterval` is 3600 in `Info.plist`,
+`project.yml`, `build.sh` and `check-bundle.sh`; `SUAutomaticallyUpdate`
+stays false, since the runtime property decides.
 
-An update put off to quit (the person closed Sparkle's window after the
-download) installs and relaunches once no window is open and setup is not
-running. Sparkle offers its install handler once, and the tray keeps it
+With the setting on, Sparkle downloads the update and offers its install
+handler (`willInstallUpdateOnQuit`). Open windows do not hold it; two things
+do (`UpdatePolicy.hold`): a setup run (`setupRunning`), then a busy daemon
+(`daemonBusy`, from the daemon's `daemon:busy` verb, which counts long
+commands, background tree installs and replenish creates; a daemon that does
+not answer is not busy). Before Sparkle quits the app, `WindowRestore`
+records which of the main window, Settings, the worktree panel and the
+detached process panel are open, and the relaunched app reopens them.
+
+With the setting off, today's prompt returns: a scheduled check opens
+Sparkle's own update window in front, except while setup runs (the "Update
+Available" menu item is the reminder then), and an update put off to quit
+waits for no window open and no setup run (`windowsOpen`, `setupRunning`).
+The status file then says `hold: "orgOff"`.
+
+Either way Sparkle offers its install handler once, and the tray keeps it
 (`HeldUpdateInstaller`) rather than declining: a declined update waits for
 a quit, which a login item rarely sees, and Sparkle puts off its next check
-for a week. The tray retries every minute, and the "Update Available" menu
-item installs at once (setup still holds it). An `app_update` notification
-says when an update is waiting and again after the relaunch into the new
-version (`UpdateNotice`).
+for a week. The tray retries every minute with no time limit, and the
+"Update Available" menu item installs at once (setup and a busy daemon still
+hold it). An `app_update` notification says when an update is waiting and
+again after the relaunch into the new version (`UpdateNotice`).
+
+The dev flavor never runs Sparkle. Its daemon runs the `dev-auto-update`
+sweep instead (five minutes after boot, then hourly): with the setting on, it
+starts a detached `rt dev update --auto --json`, because the update's last
+step swaps the app, which restarts the daemon. That run checks the clone
+(`lib/dev/clone-guards.ts`: on `main`, clean including untracked files, no
+commits off `origin/main`, no merge or rebase in progress, `origin/main`
+fetched), then the daemon's busy state and the tools `origin/main` pins, and
+changes nothing until all pass. Then it fast-forwards, runs
+`bun install --frozen-lockfile`, rebuilds the terminal helper, re-registers
+the served apps, swaps the dev app and restarts the daemon. A hold writes the
+status file and posts one `setup_update` notification per version and hold
+(kv `dev-auto-update`/`announced`, so a daemon restart does not repeat it).
+With the setting off, the sweep only writes `hold: "orgOff"`. A locally built
+dev app is never touched. A hand-run `rt dev update` fast-forwards a clone
+that passes the same checks and reports one that does not.
 
 The tray writes what the updater last did to `~/.mattstack/rt/app-update.json`
 (`UpdateStatus`): the last check, the version offered, and a held version
-with what holds it. The daemon's version ping carries it as `appUpdate`, and
-the relay's telemetry page shows it beside each Mac that is behind. An app
-older than the file reports nothing there.
+with what holds it (`rt dev update --auto` and the dev sweep write it on a dev
+Mac). The daemon's version ping carries it as `appUpdate`, and the relay's
+telemetry page shows it beside each Mac that is behind, a dev Mac with a held
+update, and `off (turned off by the org)` for `orgOff`. Hold names:
+`setupRunning`, `windowsOpen`, `daemonBusy`, `orgOff`, `notOnMain`,
+`localCommits`, `dirtyTree`, `mergeInProgress`, `fetchFailed`,
+`updateFailed`. An app older than the file reports nothing there.
 
 ### The daemon restart
 
