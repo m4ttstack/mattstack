@@ -78,7 +78,8 @@ export function collectPreservedKeys(preserveEnv: string[], callerEnv: Record<st
  * Splices an injected arg after the anchor arg (`afterArg`). When the command
  * already passes `<skipIfArgPresent>=<list>`, the env keys are merged into that
  * list instead: skipping it would leave doppler free to overwrite rt's keys.
- * A bare `skipIfArgPresent` is left alone, as is a command with no anchor.
+ * A bare `skipIfArgPresent` or `=true` keeps everything, so it is left alone;
+ * `=false` is replaced by the keys, since a list with it in reads as names.
  * Only args before `--` count, since the rest belong to the wrapped command.
  * `missedAnchor` is true when the keys could not be added because the anchor
  * is missing, which leaves a wrapper like doppler free to overwrite them.
@@ -90,8 +91,9 @@ export function applyArgInject(args: string[], inject: ArgInject | undefined, en
   const listPrefix = `${inject.skipIfArgPresent}=`;
   for (let i = 0; i < ownArgs; i++) {
     const arg = args[i]!;
+    if (arg === `${listPrefix}true`) return { args, missedAnchor: false };
     if (arg.startsWith(listPrefix)) {
-      const existing = arg.slice(listPrefix.length).split(",").filter(Boolean);
+      const existing = arg.slice(listPrefix.length).split(",").filter((key) => key && key !== "false");
       const out = [...args];
       out[i] = `${listPrefix}${[...new Set([...existing, ...envKeys])].join(",")}`;
       return { args: out, missedAnchor: false };

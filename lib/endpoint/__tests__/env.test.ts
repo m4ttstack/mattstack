@@ -36,6 +36,13 @@ describe("applyArgInject", () => {
       .toEqual(["run", "--preserve-env", "cmd"]);
   });
 
+  test("leaves an explicit =true alone, and replaces =false with its keys", () => {
+    expect(applyArgInject(["run", "--preserve-env=true", "cmd"], inject, ["PORT"]))
+      .toEqual({ args: ["run", "--preserve-env=true", "cmd"], missedAnchor: false });
+    expect(applyArgInject(["run", "--preserve-env=false", "cmd"], inject, ["PORT"]).args)
+      .toEqual(["run", "--preserve-env=PORT", "cmd"]);
+  });
+
   test("leaves the args after the command separator alone", () => {
     expect(applyArgInject(["run", "--", "tool", "--preserve-env=X"], inject, ["PORT"]).args)
       .toEqual(["run", "--preserve-env=PORT", "--", "tool", "--preserve-env=X"]);
