@@ -287,6 +287,23 @@ test('a refused prompt keeps the dismissal waiting for the next one that gets th
   await pane.unmount()
 })
 
+test('a pane prompt held by a busy turn carries a dismissal alone; a prompt typed meanwhile does not repeat it', async ($, on) => {
+  const { sent, contexts, fail } = await seeded($, on, [todo({ id: '1', kind: 'task', title: 'U', script: undefined }), todo({ id: '2' })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  let release = () => {}
+  fail.holdSubmit = new Promise<void>(resolve => (release = resolve))
+
+  await press(pane, '1', 'skip')
+  await press(pane, '2', 'done')
+  await $.prompt.submit({ text: 'carry on' })
+  release()
+  await new Promise(resolve => setTimeout(resolve, 0))
+
+  expect(sent).toEqual(['carry on', '[Human Todos] #2 "T": the user marked it done.\n[Human Todos] #1 "U": the user dismissed it.'])
+  expect(contexts).toEqual([[], []])
+  await pane.unmount()
+})
+
 test('Clear finished keeps a dismissal waiting for the next prompt, saved with the list', async ($, on) => {
   const { store, contexts } = await seeded($, on, [todo({ id: '1', kind: 'task', title: 'U', script: undefined })])
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })

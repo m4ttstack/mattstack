@@ -1596,20 +1596,29 @@ async function savedOutput($, todo, outcome) {
     return null;
   }
 }
-async function submitWithNotices($, e, next) {
-  const waiting = e.command ? [] : await listNotices($);
-  const result = await next(waiting.length ? { ...e, context: [...e.context ?? [], ...waiting] } : e);
-  if (result.drop === undefined)
-    await dropNotices($, waiting);
-  return result;
+function submitWithNotices($, e, next) {
+  if (e.command)
+    return next(e);
+  return carrying($, (waiting) => next(waiting.length ? { ...e, context: [...e.context ?? [], ...waiting] } : e));
 }
-async function submit($, text) {
-  const waiting = await listNotices($);
-  const sent = await $.prompt.submit({ text: [`[${TITLE}] ${text}`, ...waiting].join(`
-`) });
-  if (sent.drop === undefined)
-    await dropNotices($, waiting);
-  return sent;
+function submit($, text) {
+  return carrying($, (waiting) => $.prompt.submit({ text: [`[${TITLE}] ${text}`, ...waiting].join(`
+`) }));
+}
+var inFlight = new Set;
+async function carrying($, send) {
+  const waiting = (await listNotices($)).filter((n) => !inFlight.has(n));
+  for (const n of waiting)
+    inFlight.add(n);
+  try {
+    const result = await send(waiting);
+    if (result.drop === undefined)
+      await dropNotices($, waiting);
+    return result;
+  } finally {
+    for (const n of waiting)
+      inFlight.delete(n);
+  }
 }
 async function report($, todo, outcome) {
   const session = await $.session.id();
