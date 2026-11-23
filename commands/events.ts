@@ -65,12 +65,53 @@ export async function eventsEmit(args: string[]): Promise<void> {
   out.json({ ok: true, id: res.data.id });
 }
 
-/** Shared poll loop for wait (one round) and tail (endless). */
-async function pollOnce(pattern: string, after: number | undefined, waitMs: number) {
-  const res = await daemonQuery("events:wait", { pattern, after, waitMs }, IPC_TIMEOUT_MS);
-  if (!res) fail("daemon unavailable — the event bus needs the rt daemon (rt daemon start)");
-  if (!res.ok) fail(res.error ?? "wait failed");
-  return res.data as { events: any[]; cursor: number };
+const RETRY_BACKOFF_START_MS = 1_000;
+const RETRY_BACKOFF_CAP_MS = 5_000;
+
+/**
+ * One long-poll round for wait and tail. A daemon that is not there (a
+ * restart, an update) is retried with backoff until `deadline`, or forever
+ * when it is null, the way `rt gate wait` reconnects. An error the daemon
+ * itself returns throws.
+ */
+export async function pollWithReconnect(
+  pattern: string,
+  after: number | undefined,
+  waitMs: number,
+  deadline: number | null,
+  deps: { query: typeof daemonQuery; sleep(ms: number): Promise<void>; now(): number } = {
+    query: daemonQuery,
+    sleep: (ms) => Bun.sleep(ms),
+    now: () => Date.now(),
+  },
+): Promise<{ events: any[]; cursor: number } | { budget: true }> {
+  let backoffMs = RETRY_BACKOFF_START_MS;
+  let warned = false;
+  while (true) {
+    const remaining = deadline == null ? Infinity : deadline - deps.now();
+    if (remaining <= 0) return { budget: true };
+    const res = await deps.query("events:wait", { pattern, after, waitMs: Math.min(waitMs, remaining) }, IPC_TIMEOUT_MS);
+    if (res) {
+      if (!res.ok) throw new Error(res.error ?? "wait failed");
+      return res.data as { events: any[]; cursor: number };
+    }
+    if (!warned) {
+      out.diagnostic("rt events: daemon unavailable; retrying until it is back...\n");
+      warned = true;
+    }
+    const left = deadline == null ? Infinity : deadline - deps.now();
+    if (left <= 0) return { budget: true };
+    await deps.sleep(Math.min(backoffMs, left));
+    backoffMs = Math.min(backoffMs * 2, RETRY_BACKOFF_CAP_MS);
+  }
+}
+
+async function pollOrFail(pattern: string, after: number | undefined, waitMs: number, deadline: number | null) {
+  try {
+    return await pollWithReconnect(pattern, after, waitMs, deadline);
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+  }
 }
 
 export async function eventsWait(args: string[]): Promise<void> {
@@ -88,11 +129,11 @@ export async function eventsWait(args: string[]): Promise<void> {
 
   while (true) {
     const waitMs = nextWaitMs(deadline, Date.now());
-    if (waitMs === 0) {
+    const data = waitMs === 0 ? { budget: true as const } : await pollOrFail(pattern, after, waitMs, deadline);
+    if ("budget" in data) {
       out.json({ ok: true, timedOut: true, cursor: after ?? null });
       process.exit(124);
     }
-    const data = await pollOnce(pattern, after, waitMs);
     after = data.cursor; // ALWAYS thread the cursor — empty responses included
     if (data.events.length) {
       out.json({ ok: true, events: data.events, cursor: data.cursor });
@@ -136,7 +177,9 @@ export async function eventsTail(args: string[]): Promise<void> {
   after = res.data.cursor;
 
   while (true) {
-    const data = await pollOnce(pattern, after, DAEMON_WAIT_MS);
+    const data = await pollOrFail(pattern, after, DAEMON_WAIT_MS, null);
+    // Unreachable with no deadline; the check is what narrows the type.
+    if ("budget" in data) return;
     after = data.cursor;
     for (const ev of data.events) out.json(ev);
   }
