@@ -2508,9 +2508,10 @@ var tinted = (line, width) => {
 };
 function composeHeadRows(title, width) {
   const lead = "  ↳  ";
-  const band = { bg: BRAND.pink, color: BRAND.plum, bold: true };
-  const text = `${lead}${ellipsize(title, Math.max(1, width - cellWidth(lead) - 1))}`;
-  return [[sp(text, band), sp(" ".repeat(Math.max(0, width - cellWidth(text))), band)], tinted([], width)];
+  const name = ellipsize(title, Math.max(1, width - cellWidth(lead) - 1));
+  const used = cellWidth(lead) + cellWidth(name);
+  const band = [sp(lead, { bg: FILL.chip.bg, dim: true }), sp(name, { ...FILL.chip, bold: true }), sp(" ".repeat(Math.max(0, width - used)), { bg: FILL.chip.bg })];
+  return [band, tinted([], width)];
 }
 function composeActionRows(id, width) {
   return [...composeActionsLines(composeButtons(id), width), tinted([], width)];
