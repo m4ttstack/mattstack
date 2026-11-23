@@ -214,7 +214,7 @@ describe("rtCommand: retry while the daemon restarts", () => {
 
   test("a parked reply is returned at once and never retried", async () => {
     const sock = freshSock();
-    const parked = { ok: false, error: "rt daemon is waiting for port 9401, which another process is using; run rt daemon status", parked: true };
+    const parked = { ok: false, error: "rt daemon is waiting for port 9401, which another process is using; see rt daemon logs", parked: true };
     let hits = 0;
     const server = Bun.serve({ unix: sock, fetch: () => { hits++; return Response.json(parked, { status: 503 }); } });
     stops.push(() => server.stop(true));
@@ -222,6 +222,33 @@ describe("rtCommand: retry while the daemon restarts", () => {
     expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).toEqual(parked);
     expect(hits).toBe(1);
     expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  test("a call that sees no socket and then starting replies times the starting stretch from when it began", async () => {
+    __test__.setCoolOffAfterMs(300);
+    const sock = freshSock();
+    let serving = false;
+    const timer = setTimeout(() => {
+      const server = Bun.serve({
+        unix: sock,
+        fetch: () => (serving ? Response.json({ ok: true, data: { n: 1 } }) : Response.json(STARTING, { status: 503 })),
+      });
+      stops.push(() => server.stop(true));
+    }, 250);
+    stops.push(() => clearTimeout(timer));
+    expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 450 })).toEqual(STARTING);
+    setTimeout(() => { serving = true; }, 200);
+    expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).toEqual({ ok: true, data: { n: 1 } });
+  });
+
+  test("a miss long past does not count toward the cool-off of a new one", async () => {
+    __test__.setCoolOffAfterMs(150);
+    const sock = freshSock();
+    await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 100 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 100 });
+    serveLater(sock, 300);
+    expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).toEqual({ ok: true, data: { n: 1 } });
   });
 
   test("a starting reply ends the cool-off: the daemon is back", async () => {

@@ -188,13 +188,15 @@ describe("daemon-client: a daemon that is starting or stopping", () => {
     }
   }, 12_000);
 
-  test("daemonPresence tells a serving, starting and stopping daemon and no daemon apart", async () => {
+  test("daemonPresence tells a serving, starting, stopping and parked daemon and no daemon apart", async () => {
     expect(await daemonPresence()).toBe("absent");
     let reply: unknown = STARTING;
     daemon = Bun.serve({ unix: DAEMON_SOCK_PATH, fetch: () => (reply === null ? json({ ok: true }) : json(reply, 503)) });
     expect(await daemonPresence()).toBe("starting");
     reply = { ok: false, error: "rt daemon is restarting; try again in a moment", unavailable: "stopping" };
     expect(await daemonPresence()).toBe("stopping");
+    reply = { ok: false, error: "rt daemon is waiting for port 9401, which another process is using; see rt daemon logs", parked: true };
+    expect(await daemonPresence()).toBe("parked");
     reply = null;
     expect(await daemonPresence()).toBe("serving");
   });

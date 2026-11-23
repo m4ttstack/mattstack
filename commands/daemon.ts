@@ -248,12 +248,18 @@ export async function start(): Promise<void> {
   }
   const flavor = processFlavor();
   // A daemon that is still booting counts as there: the tray's start is a
-  // `launchctl kickstart -k`, which would kill it. One that is draining after
-  // a stop is followed by nothing, so wait for it to go and then start one.
+  // `launchctl kickstart -k`, which would kill it. One that is draining may be
+  // a restart, which launchd follows with a new daemon, or a stop, which
+  // nothing follows: wait for it to go, give a new one a moment to bind, and
+  // start one only if none did.
   let presence = await daemonPresence();
   if (presence === "stopping") presence = await withTransientStep("Waiting for the daemon to stop", waitOutDrain);
   if (presence === "stopping") {
     out.print(out.line("pending", "The daemon is still stopping"), out.callout("next", out.cmd("rt daemon start")));
+    return;
+  }
+  if (presence === "parked") {
+    out.print(out.line("pending", "The daemon is waiting for its port", "another process is using it"), out.callout("next", out.cmd("rt daemon logs")));
     return;
   }
   if (presence !== "absent") {
@@ -283,12 +289,17 @@ export async function start(): Promise<void> {
   out.print(out.line("pending", "The daemon has not answered yet"), out.callout("next", out.cmd("rt daemon logs")));
 }
 
-/** Spans the daemon's 5s drain plus its exit. */
-export const STOP_WAIT = { intervalMs: 250, attempts: 40 };
+/** `attempts` spans the daemon's 5s drain plus its exit; `graceAttempts` the
+ *  gap before launchd's replacement binds rt.sock in a restart. */
+export const STOP_WAIT = { intervalMs: 250, attempts: 40, graceAttempts: 12 };
 
 async function waitOutDrain(): Promise<Awaited<ReturnType<typeof daemonPresence>>> {
   let presence: Awaited<ReturnType<typeof daemonPresence>> = "stopping";
   for (let i = 0; i < STOP_WAIT.attempts && presence === "stopping"; i++) {
+    await Bun.sleep(STOP_WAIT.intervalMs);
+    presence = await daemonPresence();
+  }
+  for (let i = 0; i < STOP_WAIT.graceAttempts && presence === "absent"; i++) {
     await Bun.sleep(STOP_WAIT.intervalMs);
     presence = await daemonPresence();
   }

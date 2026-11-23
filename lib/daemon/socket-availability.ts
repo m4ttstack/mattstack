@@ -39,7 +39,7 @@ const UNAVAILABLE_ERROR = {
  * clients must return this at once instead of waiting out their retry.
  */
 export function parkedBody(port: number): { ok: false; error: string; parked: true } {
-  return { ok: false, error: `rt daemon is waiting for port ${port}, which another process is using; run rt daemon status`, parked: true };
+  return { ok: false, error: `rt daemon is waiting for port ${port}, which another process is using; see rt daemon logs`, parked: true };
 }
 
 export function unavailableBody(state: "starting" | "stopping"): {
