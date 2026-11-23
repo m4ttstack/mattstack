@@ -321,7 +321,8 @@ function RowBody({
           )}
         </Stack>
         <Group w={260} gap={8} wrap="nowrap" className={classes.control}>
-          {parts.control}
+          {/* The open Value tab carries the same control. */}
+          {open?.tab !== 'value' && parts.control}
           <SaveStatus row={row} />
         </Group>
       </Group>
