@@ -308,6 +308,8 @@ export { currentRole, isOrgAdmin, mayWritePath, ORG_MANAGED_ROOTS, orgStoreRefus
 export type { OrgRole } from "./settings/org-roles.ts";
 export { orgStoreChangeRefusal } from "./settings/org-store-guard.ts";
 export type { StoreFile } from "./settings/stores.ts";
+export { diffStoreKeys } from "./settings/store-diff.ts";
+export type { PendingKey } from "./settings/store-diff.ts";
 
 export {
   normalizeRemote, identityFromRemote, deriveRepoIdentity, clearIdentityMemo,

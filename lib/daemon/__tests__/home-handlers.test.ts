@@ -35,6 +35,7 @@ function fakeHandle(overrides: Partial<HomeSnapshotHandle> = {}): { handle: Home
     stop: () => {},
     ready: Promise.resolve(),
     runNow: async (reason) => { runNowCalls.push(reason); return result; },
+    pushNow: async () => ({ committed: false, pushed: false, error: null, skipped: null }),
     pullNow: async () => ({ outcome: "skipped", detail: null }),
     status: () => status,
     settled: async () => {},

@@ -16,6 +16,7 @@ await serveMattstackApp({
   relay: [
     { match: t => t === 'run-updated', topic: 'runs' },
     { match: t => t.startsWith('gate/'), topic: 'gates' },
+    { match: t => t === 'team-snapshot-updated', topic: 'settings-sync' },
   ],
   // `as string` keeps TS from resolving the gitignored, build-time-only
   // manifest; `bun build --compile` still sees the literal and embeds it.

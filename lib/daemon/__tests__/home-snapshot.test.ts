@@ -8,7 +8,7 @@ import type { Logger } from "pino";
 import { childEnv, runCapture, type RunResult } from "../../subprocess.ts";
 import type { Owners } from "../../home/snapshot-owners.ts";
 import { openStateDb } from "../../state/db.ts";
-import { closeStateDb, getKvValue } from "../../state/index.ts";
+import { closeStateDb, getKvValue, setKvValue } from "../../state/index.ts";
 import { readHomePushRecord } from "../../home/push-record.ts";
 import { rtDir } from "../../rt-paths.ts";
 import { ORG_LAYOUT } from "../../team/org-marker.ts";
@@ -1021,6 +1021,246 @@ describe("startHomeSnapshot — push", () => {
 });
 
 // ─── state store round-trip (RT-50 collapse) ──────────────────────────────────
+
+describe("startHomeSnapshot — push now", () => {
+  const pushes = (calls: string[][]) => calls.filter((c) => c[0] === "git" && c[1] === "push").length;
+  const commits = (calls: string[][]) => calls.filter((c) => c[0] === "git" && gitVerb(c) === "commit").length;
+
+  test("pushNow commits and pushes without waiting for pushDelaySec", async () => {
+    const { fn: execFn, calls } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    const { deps } = baseDeps({ exec: execFn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const result = await handle.pushNow();
+
+    expect(pushes(calls)).toBe(1);
+    expect(result).toEqual({ committed: true, pushed: true, error: null, skipped: null });
+    expect(handle.status().lastPushAt).toBe(1_000_000);
+  });
+
+  test("pushNow cancels the scheduled push", async () => {
+    const { fn: execFn, calls } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    const { deps, timers } = baseDeps({ exec: execFn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    await handle.runNow("watch");
+    expect([...timers.pending.values()].some((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 1000)).toBe(true);
+    await handle.pushNow();
+    timers.fire((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+    await flushAsync();
+
+    expect(pushes(calls)).toBe(1);
+  });
+
+  test("concurrent pushNow calls share one round", async () => {
+    const { fn: execFn, calls } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    const { deps } = baseDeps({ exec: execFn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const [a, b] = await Promise.all([handle.pushNow(), handle.pushNow()]);
+
+    expect(commits(calls)).toBe(1);
+    expect(pushes(calls)).toBe(1);
+    expect(a.pushed).toBe(true);
+    expect(b.pushed).toBe(true);
+  });
+
+  test("pushNow on a failed push reports the redacted error", async () => {
+    const stderr = "fatal: unable to access 'https://alice:s3cr3t-token@github.com/acme/org.git/': 403";
+    const { fn: execFn } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0", pushExit: 1, pushStderr: stderr }));
+    const { deps } = baseDeps({ exec: execFn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const result = await handle.pushNow();
+
+    expect(result.pushed).toBe(false);
+    expect(result.error).toContain("https://<redacted>@github.com");
+    expect(result.error).not.toContain("s3cr3t-token");
+  });
+
+  test("pushNow while conflicted pushes nothing", async () => {
+    const { fn: execFn, calls } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    const db = freshDb();
+    setKvValue("home-snapshot", "conflict", { at: 1, detail: "CONFLICT (content): a.txt" }, db);
+    const { deps } = baseDeps({ exec: execFn, db });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const result = await handle.pushNow();
+
+    expect(result.pushed).toBe(false);
+    expect(result.skipped).not.toBeNull();
+    expect(pushes(calls)).toBe(0);
+  });
+
+  test("pushNow pushes a commit already waiting on its timer when the tree is clean", async () => {
+    const exec = makeSwitchableExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    const { deps, timers } = baseDeps({ exec: exec.fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    await handle.runNow("watch");
+    exec.setResponders(defaultResponders({ statusZ: "" }));
+
+    const result = await handle.pushNow();
+
+    expect(pushes(exec.calls)).toBe(1);
+    expect(result).toEqual({ committed: false, pushed: true, error: null, skipped: null });
+    timers.fire((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+    await flushAsync();
+    expect(pushes(exec.calls)).toBe(1);
+  });
+
+  test("pushNow retries a failed push at once on a clean tree", async () => {
+    const db = freshDb();
+    setKvValue("home-snapshot", "last-push", { at: 1000, ok: false, error: "fatal: 403" }, db);
+    const { fn, calls } = makeFakeExec(defaultResponders({ statusZ: "" }));
+    const { deps } = baseDeps({ exec: fn, db });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const result = await handle.pushNow();
+
+    expect(pushes(calls)).toBe(1);
+    expect(result.pushed).toBe(true);
+    expect(handle.status().lastPushError).toBeNull();
+  });
+
+  test("a pushNow arriving after a round committed gets a round of its own", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const { fn, calls } = makeGatedPushExec(gate);
+    const { deps } = baseDeps({ exec: fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const first = handle.pushNow();
+    for (let i = 0; i < 20 && pushes(calls) === 0; i++) await flushAsync();
+    expect(commits(calls)).toBe(1);
+    const second = handle.pushNow();
+    release();
+    const [a, b] = await Promise.all([first, second]);
+
+    expect(commits(calls)).toBe(2);
+    expect(pushes(calls)).toBe(2);
+    expect(a.pushed).toBe(true);
+    expect(b).toEqual({ committed: true, pushed: true, error: null, skipped: null });
+  });
+
+  test("three late callers share one trailing round", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const { fn, calls } = makeGatedPushExec(gate);
+    const { deps } = baseDeps({ exec: fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const first = handle.pushNow();
+    for (let i = 0; i < 20 && pushes(calls) === 0; i++) await flushAsync();
+    const late = [handle.pushNow(), handle.pushNow(), handle.pushNow()];
+    release();
+    await Promise.all([first, ...late]);
+
+    expect(commits(calls)).toBe(2);
+    expect(pushes(calls)).toBe(2);
+  });
+
+  test("pushNow with no remote reports nothing pushed", async () => {
+    const { fn, calls } = makeFakeExec(defaultResponders({ statusZ: "", hasRemote: false }));
+    const { deps } = baseDeps({ exec: fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const result = await handle.pushNow();
+
+    expect(pushes(calls)).toBe(0);
+    expect(result).toEqual({ committed: false, pushed: false, error: null, skipped: "no-remote" });
+  });
+
+  const conflictAfterReady = async (db?: ReturnType<typeof freshDb>) => {
+    const exec = makeSwitchableExec([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders({ statusZ: "" })]);
+    const { deps } = baseDeps({ exec: exec.fn, ...(db ? { db } : {}) });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot(teamSpecFor(null), rest);
+    await handle.ready;
+    // The round's own pull rebases cleanly; the pull just before the push conflicts.
+    let rebases = 0;
+    const secondRebaseConflicts: Responder = (argv) => {
+      if (gitVerb(argv) !== "rebase" || argv.includes("--abort")) return undefined;
+      return ++rebases === 1 ? { stdout: "", stderr: "", exitCode: 0 } : undefined;
+    };
+    exec.setResponders([secondRebaseConflicts, ...pullResponders({ behind: 1, ahead: 1, rebase: "conflict" }), ...defaultResponders({ statusZ: "" })]);
+    return { handle, calls: exec.calls };
+  };
+
+  test("pushNow whose own pull hits a conflict reports the conflict, not a push", async () => {
+    const { handle, calls } = await conflictAfterReady();
+
+    const result = await handle.pushNow();
+
+    expect(pushes(calls)).toBe(0);
+    expect(result).toEqual({ committed: false, pushed: false, error: null, skipped: "conflict" });
+    handle.stop();
+  });
+
+  test("an earlier push's error does not stand in for this round's conflict", async () => {
+    const db = freshDb();
+    setKvValue("team-snapshot:acme", "last-push", { at: 1000, ok: false, error: "fatal: 403" }, db);
+    const { handle } = await conflictAfterReady(db);
+
+    const result = await handle.pushNow();
+
+    expect(result).toEqual({ committed: false, pushed: false, error: null, skipped: "conflict" });
+    handle.stop();
+  });
+
+  test("pushNow during a round that read status before the save runs a fresh round", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const base = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    let held = true;
+    const exec: NonNullable<HomeSnapshotDeps["exec"]> = async (argv, opts) => {
+      if (held && gitVerb(argv) === "status") { held = false; await gate; }
+      return base.fn(argv, opts);
+    };
+    const { deps } = baseDeps({ exec });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const watch = handle.runNow("watch");
+    await flushAsync();
+    const pushed = handle.pushNow();
+    release();
+    await Promise.all([watch, pushed]);
+
+    expect(commits(base.calls)).toBe(2);
+  });
+
+  test("restores lastPushAt from the persisted push record", async () => {
+    const db = freshDb();
+    setKvValue("home-snapshot", "last-push", { at: 1000, ok: true }, db);
+    const { deps } = baseDeps({ db });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    expect(handle.status().lastPushAt).toBe(1000);
+    expect(handle.status().lastPushError).toBeNull();
+  });
+
+  test("restores lastPushError from a failed record", async () => {
+    const db = freshDb();
+    setKvValue("home-snapshot", "last-push", { at: 1000, ok: false, error: "fatal: could not read Username" }, db);
+    const { deps } = baseDeps({ db });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    expect(handle.status().lastPushError).toBe("fatal: could not read Username");
+    expect(handle.status().pushPending).toBe(true);
+  });
+});
 
 describe("startHomeSnapshot — state persistence", () => {
   test("nextFirstSeenDirty is persisted to the store and reloaded by a fresh handle sharing the same db", async () => {
@@ -2190,6 +2430,153 @@ describe("startSnapshot: spec", () => {
   });
 });
 
+describe("startSnapshot: pending", () => {
+  test("status carries pending after a round for a spec with pendingOf", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    const { deps } = baseDeps({ exec: fn });
+    const { repoDir: _repoDir, ...specDeps } = deps;
+    const seen: { unowned: string[]; heldBack: string[]; packZones: string[] }[] = [];
+    const spec: SnapshotSpec = {
+      ...homeSnapshotSpec(FAKE_REPO_DIR), id: "team:acme", kvNamespace: "team-snapshot:acme", eventPrefix: "team",
+      pendingOf: async (_exec, opts) => { seen.push(opts); return [{ store: "team:acme", key: "board.slack", change: "changed" }]; },
+    };
+    const handle = startSnapshot(spec, specDeps);
+    await handle.ready;
+    expect(handle.status().pending).toBeUndefined();
+    await handle.runNow("manual");
+    expect(handle.status().pending).toEqual([{ store: "team:acme", key: "board.slack", change: "changed" }]);
+    expect(seen.length).toBeGreaterThan(0);
+    handle.stop();
+  });
+
+  test("the boot pull reads pending, with no file change and no round", async () => {
+    const { fn } = makeFakeExec([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders({ statusZ: "" })]);
+    let updates = 0;
+    const { deps } = baseDeps({ exec: fn, onUpdated: () => { updates++; } });
+    const { repoDir: _repoDir, ...specDeps } = deps;
+    const spec: SnapshotSpec = { ...teamSpecFor(null), pendingOf: async () => [{ path: ".sops.yaml" }] };
+    const handle = startSnapshot(spec, specDeps);
+    await handle.ready;
+    for (let i = 0; i < 20 && handle.status().pending === undefined; i++) await flushAsync();
+
+    expect(handle.status().pending).toEqual([{ path: ".sops.yaml" }]);
+    expect(updates).toBeGreaterThan(0);
+    handle.stop();
+  });
+
+  test("pendingOf gets the zones a round only saves, never commits", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "" }));
+    const { deps } = baseDeps({ exec: fn });
+    const { repoDir: _repoDir, ...specDeps } = deps;
+    const seen: string[][] = [];
+    const spec: SnapshotSpec = {
+      ...homeSnapshotSpec(FAKE_REPO_DIR), id: "team:acme", kvNamespace: "team-snapshot:acme", eventPrefix: "team",
+      standingZones: () => ({
+        "mattstack/teams/web/plugin/": { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" },
+        "prefs/": { owner: "matt", claimedAt: "1970-01-01T00:00:00.000Z" },
+      }),
+      janitorSavesOnly: (_zone, owner) => owner === "skills-publish",
+      pendingOf: async (_exec, opts) => { seen.push(opts.packZones); return []; },
+    };
+    const handle = startSnapshot(spec, specDeps);
+    await handle.ready;
+    await handle.runNow("manual");
+    expect(seen.at(-1)).toEqual(["mattstack/teams/web/plugin/"]);
+    handle.stop();
+  });
+
+  test("a failed pending read keeps the previous list and logs once", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    const { deps, log } = baseDeps({ exec: fn });
+    const { repoDir: _repoDir, ...specDeps } = deps;
+    let calls = 0;
+    const spec: SnapshotSpec = {
+      ...homeSnapshotSpec(FAKE_REPO_DIR), id: "team:acme", kvNamespace: "team-snapshot:acme", eventPrefix: "team",
+      pendingOf: async () => {
+        calls++;
+        if (calls > 1) throw new Error("fatal: index locked");
+        return [{ path: ".sops.yaml" }];
+      },
+    };
+    const handle = startSnapshot(spec, specDeps);
+    await handle.ready;
+    await handle.runNow("manual");
+    await handle.runNow("manual");
+    await handle.runNow("manual");
+    expect(handle.status().pending).toEqual([{ path: ".sops.yaml" }]);
+    expect(log.calls.filter((c) => c.level === "warn" && JSON.stringify(c.args).includes("waiting changes")).length).toBe(1);
+    handle.stop();
+  });
+
+  test("home spec status has no pending", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    const { deps } = baseDeps({ exec: fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    await handle.runNow("manual");
+    expect("pending" in handle.status()).toBe(false);
+    handle.stop();
+  });
+});
+
+describe("startSnapshot: onUpdated", () => {
+  test("fires after a commit and after a push", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    let updates = 0;
+    const { deps, timers } = baseDeps({ exec: fn, onUpdated: () => { updates++; } });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    await handle.runNow("manual");
+    expect(updates).toBe(1);
+    timers.fire((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+    await flushAsync();
+    expect(updates).toBe(2);
+    handle.stop();
+  });
+
+  test("fires after a failed push", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0", pushExit: 1, pushStderr: "connection refused" }));
+    let updates = 0;
+    const { deps } = baseDeps({ exec: fn, onUpdated: () => { updates++; } });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    await handle.pushNow();
+    expect(updates).toBe(2);
+    handle.stop();
+  });
+
+  test("does not fire on a round with nothing new", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "" }));
+    let updates = 0;
+    const { deps } = baseDeps({ exec: fn, onUpdated: () => { updates++; } });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    await handle.runNow("manual");
+    await handle.runNow("manual");
+    expect(updates).toBe(0);
+    handle.stop();
+  });
+
+  test("fires when pending changes, and not again while it holds still", async () => {
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "" }));
+    let updates = 0;
+    const { deps } = baseDeps({ exec: fn, onUpdated: () => { updates++; } });
+    const { repoDir: _repoDir, ...specDeps } = deps;
+    let list: { path: string }[] = [];
+    const spec: SnapshotSpec = { ...homeSnapshotSpec(FAKE_REPO_DIR), id: "team:acme", kvNamespace: "team-snapshot:acme", eventPrefix: "team", pendingOf: async () => list };
+    const handle = startSnapshot(spec, specDeps);
+    await handle.ready;
+    await handle.runNow("manual");
+    const afterFirstRead = updates;
+    list = [{ path: ".sops.yaml" }];
+    await handle.runNow("manual");
+    expect(updates).toBe(afterFirstRead + 1);
+    await handle.runNow("manual");
+    expect(updates).toBe(afterFirstRead + 1);
+    handle.stop();
+  });
+});
+
 describe("teamSnapshotSpec", () => {
   test("names the clone by slug, scopes to the team roots, pulls on the interval, and reads the stored forge token for origin", async () => {
     const p = { ...fakeProbes({ home: "/h" }) };
@@ -2484,7 +2871,7 @@ describe("teamSnapshotSpec", () => {
       expect(result.committed).toBe(false);
       expect(result.skipped).toBe("owners-read-error");
       expect(calls.some((c) => gitVerb(c) === "add" || gitVerb(c) === "commit")).toBe(false);
-      expect(log.calls.filter((c) => c.level === "warn").length).toBe(1);
+      expect(log.calls.filter((c) => c.level === "warn" && !JSON.stringify(c.args).includes("waiting changes")).length).toBe(1);
       expect(handle.status().ownersError).toContain("EACCES");
       handle.stop();
     } finally {

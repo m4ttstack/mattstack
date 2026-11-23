@@ -56,7 +56,8 @@ import { gateVerdict, headHoldsOrgStore, holdSentence, showMarkerAt, shownDataBr
 import { ORG_LAYOUT } from "../team/org-marker.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
-import { HOME_SNAPSHOT_NS, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
+import { HOME_SNAPSHOT_NS, readHomePushRecord, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
+import { readPending, type PendingEntry, type PendingExec } from "./team-pending.ts";
 import { isUnderZone, parsePorcelainZ, planSnapshot, scopeEntries, type JanitorZone, type StatusEntry } from "./home-snapshot-plan.ts";
 import { JANITOR_REF_PREFIX, janitorRefFor, packsInZone, pullBlockedSentence, uniquePacks, zoneOfJanitorRef } from "../team/unpublished-packs.ts";
 import { teamPackRel } from "../team/team-pack-path.ts";
@@ -134,13 +135,25 @@ export interface SnapshotStatus {
   pullBlockedBy?: string[];
   claimedZones: string[];
   firstSeenDirty: Record<string, number>;
+  /** Store keys and other managed paths this Mac holds that origin does not, as of the last round or push. Absent for a spec without `pendingOf`, before the first read, and from a daemon that predates it. */
+  pending?: PendingEntry[];
   /** Set (and cleared) each time status() re-reads the owners file — surfaces a fail-closed readOwners throw without hiding it behind a stale cache. */
   ownersError: string | null;
+}
+
+export interface PushNowResult {
+  committed: boolean;
+  pushed: boolean;
+  error: string | null;
+  /** Why no push ran: the commit cycle's skip reason, "conflict", "layout-hold", or "deferred" when git did not answer. */
+  skipped: string | null;
 }
 
 export interface HomeSnapshotHandle {
   stop(): void;
   runNow(reason: SnapshotReason): Promise<SnapshotResult>;
+  /** Commits, then pushes at once instead of after pushDelaySec, through the same guards as a timed push. Concurrent calls share one round. */
+  pushNow(): Promise<PushNowResult>;
   /** Fetch, then fast-forward or rebase. A spec without a `pull` policy always skips. `converge:false` keeps the post-pull hook out of the caller's own path; a pull that moved HEAD still converges, once the push settles. */
   pullNow(opts?: { converge?: boolean }): Promise<PullResult>;
   status(): SnapshotStatus;
@@ -171,6 +184,8 @@ export interface HomeSnapshotDeps {
   readSettings?: () => HomeSnapshotSettings;
   readOwners?: (path: string) => Owners;
   db?: Database;
+  /** Called when what a person would read from status() changed: a commit, a push outcome, a conflict, a layout hold, a pull error or the waiting list. */
+  onUpdated?: () => void;
 }
 
 function pushRefusalSentence(refusal: Authorization["refusal"]): string {
@@ -226,6 +241,8 @@ export interface SnapshotSpec {
   tokenFor?: () => Promise<string | null>;
   /** The remote `tokenFor` reads for; the token is offered to its https host only. */
   originUrl?: string;
+  /** Lists what is waiting to reach origin; `unowned` and `heldBack` are the engine's own lists from the latest round. */
+  pendingOf?: (exec: PendingExec, opts: { unowned: string[]; heldBack: string[]; packZones: string[] }) => Promise<PendingEntry[]>;
   /** The retired pre-kv state file to import once; home only. */
   legacyStatePath?: string;
 }
@@ -235,6 +252,8 @@ export type SnapshotDeps = Omit<HomeSnapshotDeps, "repoDir">;
 export type SnapshotHandle = HomeSnapshotHandle;
 
 const GIT_TIMEOUT_MS = 15_000;
+/** Commit-cycle skips that also rule out a push; any other skip (nothing new, a locked index) still leaves earlier commits to push. */
+const PUSH_BARRING_SKIPS: ReadonlySet<SkipReason> = new Set(["disabled", "not-a-repo", "not-provisioned", "init-failed", "git-unavailable", "detached", "merge-in-progress", "conflict", "pull-only"]);
 const GIT_PROBE_RETRY_BASE_MS = 30_000;
 const GIT_PROBE_RETRY_MAX_MS = 600_000;
 const PUSH_TIMEOUT_MS = 30_000;
@@ -561,6 +580,7 @@ export function teamSnapshotSpec(
       };
     },
     watch: teamScope,
+    pendingOf: (exec, pendingOpts) => readPending(repoDir, exec, pendingOpts),
     pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled, onUpToDate: opts.onUpToDate, onMoved: opts.onMoved, gate: (ref, branch) => layoutGate(opts.probes.exec, repoDir, ref, branch) },
     pullOnly: opts.ownedRoots.length === 0,
     tokenFor: () => readToken(opts.probes, opts.originUrl),
@@ -860,6 +880,13 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // A conflict outlives the daemon: a restart must not resume pushing a
     // clone whose rebase a human has not yet finished.
     conflicted = getKvValue<{ at: number; detail: string } | null>(spec.kvNamespace, CONFLICT_KEY, null, resolveDb());
+    const lastPush = readHomePushRecord(resolveDb(), spec.kvNamespace);
+    if (lastPush?.ok) lastPushAt = lastPush.at;
+    else if (lastPush) {
+      // Pending, so the next cycle retries the push and a success clears the restored error.
+      lastPushError = lastPush.error ?? "push failed";
+      pushPending = true;
+    }
     if (deps.readSettings().enabled !== false) {
       tryArm();
       // tryArm arms the interval; this is the boot pull, so a daemon that
@@ -950,7 +977,11 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // hook, which runs past `pullInFlight`; `converge:false` therefore only
     // keeps this path from starting a converge.
     if (pullInFlight) return pullInFlight;
-    const p = withGitLock(() => doPull());
+    const p = withGitLock(async () => {
+      const pulled = await doPull();
+      await refreshPending();
+      return pulled;
+    });
     pullInFlight = p;
     let result: PullResult;
     try {
@@ -959,6 +990,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       if (result.outcome !== "skipped") loggedBlockedPull = null;
     } finally {
       pullInFlight = null;
+      notifyIfChanged();
     }
     // A fresh hold on the lock, taken after the pull released its own, so the
     // move never runs beside a commit cycle. A push's pull leaves it to the
@@ -1305,6 +1337,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       await p;
     } finally {
       pushInFlight = null;
+      await withGitLock(() => refreshPending());
+      notifyIfChanged();
       if (pushAgainRequested) {
         pushAgainRequested = false;
         schedulePush();
@@ -1348,6 +1382,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (branch.exitCode !== 0) {
       pushPending = true;
       lastPushError = "rt could not check your pending changes";
+      pushErrors++;
       return false;
     }
     const paths = await unpublishedPaths(async (argv) => {
@@ -1361,12 +1396,14 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       lastPushError = known.exitCode === 1
         ? `This copy is on ${name}, which origin does not have yet. Push it once with git push -u origin ${name}`
         : "rt could not check your pending changes";
+      pushErrors++;
       return false;
     }
     const current = await authorization({ ref: `refs/remotes/origin/${branch.stdout.trim()}` });
     if (current.pullOnly || [...paths].some((path) => !(current.scope?.(path) ?? true))) {
       pushPending = true;
       lastPushError = pushRefusalSentence(current.refusal);
+      pushErrors++;
       return false;
     }
     return true;
@@ -1410,6 +1447,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (remote === "unknown") return deferPush();
     if (remote === "none") {
       deps.log.debug(`${label}: no remote configured; nothing to push`);
+      noRemote = true;
       pushPending = false;
       lastPushError = null;
       return;
@@ -1437,6 +1475,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       result = await remoteGit(["push", "-q", "origin", "HEAD"], PUSH_TIMEOUT_MS);
     }
     if (result.exitCode === 0) {
+      pushesLanded++;
       pushPending = false;
       pushFailureBroadcast = false;
       lastPushAt = deps.now();
@@ -1456,6 +1495,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       const redactedStderr = redactCredentials(result.stderr);
       pushPending = true;
       lastPushError = redactedStderr;
+      pushErrors++;
       // R042: dedupe by message like the commit/add paths -- an unreachable
       // remote otherwise re-warns and re-persists identically on every
       // retry, indefinitely.
@@ -1852,13 +1892,109 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       return { committed: false, sha: null, paths: [], reason, skipped: disabledReason };
     }
     if (runInFlight) return runInFlight;
-    const p = withGitLock(() => doRun(reason));
+    const p = withGitLock(async () => {
+      const result = await doRun(reason);
+      await refreshPending();
+      notifyIfChanged();
+      return result;
+    });
     runInFlight = p;
     try {
       return await p;
     } finally {
       runInFlight = null;
     }
+  }
+
+  let pending: PendingEntry[] | undefined;
+  let lastFingerprint: string | null = null;
+
+  function fingerprint(): string {
+    return JSON.stringify([lastCommit?.sha ?? null, pushPending, lastPushAt, lastPushError, lastCommitError, lastPullError, conflicted, layoutHold, pending]);
+  }
+
+  function notifyIfChanged(): void {
+    const next = fingerprint();
+    if (next === lastFingerprint) return;
+    lastFingerprint = next;
+    try {
+      rawDeps.onUpdated?.();
+    } catch (err) {
+      deps.log.warn({ err }, `${label}: an update listener threw`);
+    }
+  }
+  let lastLoggedPendingError: string | null = null;
+
+  /** True when the list changed. A failed read keeps the previous list. */
+  async function refreshPending(): Promise<boolean> {
+    if (!spec.pendingOf) return false;
+    try {
+      const packZones = spec.janitorSavesOnly
+        ? Object.entries(readClaims().zones).filter(([zone, claim]) => spec.janitorSavesOnly!(zone, claim.owner)).map(([zone]) => zone)
+        : [];
+      const next = await spec.pendingOf(deps.exec, { unowned: [...unownedDirty], heldBack: [...heldBack], packZones });
+      lastLoggedPendingError = null;
+      const changed = JSON.stringify(next) !== JSON.stringify(pending);
+      pending = next;
+      return changed;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message !== lastLoggedPendingError) {
+        deps.log.warn({ err }, `${label}: could not read waiting changes; keeping the last list`);
+        lastLoggedPendingError = message;
+      }
+      return false;
+    }
+  }
+
+  /** Count pushes git accepted and push errors, so a push-now round reads only its own outcome. */
+  let pushesLanded = 0;
+  let pushErrors = 0;
+  let noRemote = false;
+  let pushNowInFlight: Promise<PushNowResult> | null = null;
+  /** Set once the in-flight round's commit cycle is done: a caller after that holds changes the round did not take. */
+  let pushNowPastCommit = false;
+  let pushNowTrailing: Promise<PushNowResult> | null = null;
+
+  function startPushNow(): Promise<PushNowResult> {
+    pushNowPastCommit = false;
+    const p = doPushNow().finally(() => { if (pushNowInFlight === p) pushNowInFlight = null; });
+    pushNowInFlight = p;
+    return p;
+  }
+
+  function pushNow(): Promise<PushNowResult> {
+    if (pushNowInFlight === null) return startPushNow();
+    if (!pushNowPastCommit) return pushNowInFlight;
+    pushNowTrailing ??= pushNowInFlight.catch(() => undefined).then(() => {
+      pushNowTrailing = null;
+      return startPushNow();
+    });
+    return pushNowTrailing;
+  }
+
+  async function doPushNow(): Promise<PushNowResult> {
+    // A round already running may have read status before the caller's save.
+    if (runInFlight) await runInFlight.catch(() => {});
+    const run = await runNow("manual");
+    pushNowPastCommit = true;
+    const committed = run.committed;
+    if (run.skipped && PUSH_BARRING_SKIPS.has(run.skipped)) return { committed, pushed: false, error: null, skipped: run.skipped };
+    if (conflicted) return { committed, pushed: false, error: null, skipped: "conflict" };
+    if (layoutHold) return { committed, pushed: false, error: null, skipped: "layout-hold" };
+    if (pushTimer) { deps.clearTimeout(pushTimer); pushTimer = null; }
+    if (pushRetryTimer) { deps.clearTimeout(pushRetryTimer); pushRetryTimer = null; }
+    pushRetryAttempt = 0;
+    // A timed push already running captured an older HEAD: let it finish, then push this round's commit.
+    if (pushInFlight) await pushInFlight.catch(() => {});
+    const landedBefore = pushesLanded;
+    const errorsBefore = pushErrors;
+    noRemote = false;
+    await doPush();
+    if (pushesLanded > landedBefore) return { committed, pushed: true, error: null, skipped: null };
+    if (pushErrors > errorsBefore) return { committed, pushed: false, error: lastPushError, skipped: null };
+    const skipped = conflicted ? "conflict" : layoutHold ? "layout-hold" : noRemote ? "no-remote" : "deferred";
+    return { committed, pushed: false, error: null, skipped };
   }
 
   function status(): SnapshotStatus {
@@ -1906,6 +2042,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       pullBlockedBy: [...pullBlockedBy],
       claimedZones,
       firstSeenDirty: { ...firstSeenDirty },
+      ...(pending !== undefined ? { pending: [...pending] } : {}),
       ownersError,
     };
   }
@@ -1932,5 +2069,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (gitProbeRetryTimer) deps.clearTimeout(gitProbeRetryTimer);
   }
 
-  return { stop, runNow, pullNow, status, settled, locked: withGitLock, ready: readyPromise };
+  void readyPromise.then(() => { lastFingerprint = fingerprint(); });
+
+  return { stop, runNow, pushNow, pullNow, status, settled, locked: withGitLock, ready: readyPromise };
 }

@@ -37,6 +37,7 @@ import {
   teamSnapshotSpec,
   type HomeSnapshotSettings,
   type PullResult,
+  type PushNowResult,
   type SnapshotHandle,
   type SnapshotStatus,
 } from "./home-snapshot.ts";
@@ -69,6 +70,8 @@ export interface TeamSnapshotsDeps {
   /** Injectable so tests never reach the keychain; the forge token both the engine's git and the data-branch move offer origin. */
   readToken?: (p: Probes, remote: string) => Promise<string | null>;
   moveData?: typeof convergeDataBranch;
+  /** Publishes an events-bus event; `team-snapshot-updated { slug }` goes out whenever a clone's sync status changed. */
+  emitEvent?: (topic: string, payload: unknown) => void;
 }
 
 export interface TeamSnapshotsHandle {
@@ -76,6 +79,8 @@ export interface TeamSnapshotsHandle {
   rescan(): Promise<void>;
   status(): TeamSnapshotEntry[];
   pullNow(slug: string): Promise<PullResult>;
+  /** Commits and pushes this clone now, through the engine's own guards. */
+  pushNow(slug: string): Promise<PushNowResult>;
   /** The data branch move, under the clone engine's git lock so it never lands beside a commit cycle. */
   moveNow(slug: string): Promise<ConvergeResult | null>;
   ready: Promise<void>;
@@ -459,6 +464,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
           clearTimeout: rawDeps.clearTimeout,
           db: rawDeps.db,
           readSettings: () => snapshotSettings(settings()),
+          onUpdated: () => rawDeps.emitEvent?.("team-snapshot-updated", { slug }),
         });
         instances.set(slug, { handle, dir, owned });
         rawDeps.log.info({ slug }, "team-snapshots: watching");
@@ -551,6 +557,9 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
     status: () => [...instances.entries()].map(([slug, inst]) => ({ slug, ...inst.handle.status() })),
     async pullNow(slug) {
       return instanceOf(slug).handle.pullNow();
+    },
+    async pushNow(slug) {
+      return instanceOf(slug).handle.pushNow();
     },
     async moveNow(slug) {
       const inst = instanceOf(slug);

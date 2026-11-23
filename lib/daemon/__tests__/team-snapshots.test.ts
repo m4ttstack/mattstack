@@ -38,7 +38,7 @@ function harness(opts: Record<string, unknown> & { orgsMissingAtBoot?: boolean }
   const parent = mkdtempSync(join(tmpdir(), "rt-team-snapshots-"));
   const root = orgsMissingAtBoot ? join(parent, "orgs") : parent;
   const stopped: string[] = [];
-  const started: { spec: SnapshotSpec; stopped: boolean }[] = [];
+  const started: { spec: SnapshotSpec; stopped: boolean; onUpdated?: () => void }[] = [];
   const watchCalls: { path: string; options: { recursive: boolean } }[] = [];
   // Timers under 10s (the watch debounce) fire inline; anything longer is the
   // interval rescan, parked here so a test drives it via fireInterval().
@@ -55,12 +55,13 @@ function harness(opts: Record<string, unknown> & { orgsMissingAtBoot?: boolean }
     orgsDir: root,
     probes: fakeProbes({ home: root }),
     readSettings: () => ({ ...settings }),
-    start: ((spec: SnapshotSpec) => {
-      const entry = { spec, stopped: false };
+    start: ((spec: SnapshotSpec, startDeps?: { onUpdated?: () => void }) => {
+      const entry = { spec, stopped: false, onUpdated: startDeps?.onUpdated };
       started.push(entry);
       return {
         stop: () => { entry.stopped = true; stopped.push(spec.id); },
         runNow: async () => ({ committed: false, sha: null, paths: [], reason: "manual" as const }),
+        pushNow: async () => ({ committed: true, pushed: true, error: null, skipped: null }),
         pullNow: async () => ({ outcome: "up-to-date" as const, detail: null }),
         status: () => ({ id: spec.id, repoDir: spec.repoDir }),
         settled: () => settled(),
@@ -171,6 +172,29 @@ describe("startTeamSnapshots", () => {
     expect(handle.status().map((s) => s.slug)).toEqual(["acme"]);
     expect((await handle.pullNow("acme")).outcome).toBe("up-to-date");
     await expect(handle.pullNow("nope")).rejects.toThrow(/not cloned/);
+    handle.stop();
+    h.cleanup();
+  });
+
+  test("pushNow routes to the instance; an unknown slug throws no-team", async () => {
+    const h = harness();
+    clone(h.root, "acme");
+    const handle = startTeamSnapshots(h.deps);
+    await handle.ready;
+    expect(await handle.pushNow("acme")).toEqual({ committed: true, pushed: true, error: null, skipped: null });
+    await expect(handle.pushNow("nope")).rejects.toMatchObject({ code: "no-team" });
+    handle.stop();
+    h.cleanup();
+  });
+
+  test("an engine update emits team-snapshot-updated with the slug", async () => {
+    const events: { topic: string; payload: unknown }[] = [];
+    const h = harness({ emitEvent: (topic: string, payload: unknown) => { events.push({ topic, payload }); } });
+    clone(h.root, "acme");
+    const handle = startTeamSnapshots(h.deps);
+    await handle.ready;
+    h.started[0]!.onUpdated!();
+    expect(events).toEqual([{ topic: "team-snapshot-updated", payload: { slug: "acme" } }]);
     handle.stop();
     h.cleanup();
   });

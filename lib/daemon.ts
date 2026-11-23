@@ -1329,6 +1329,11 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           broadcast: emit,
           afterPull: composePullHooks(teamPullHooks((name) => loggerHandle.childLogger(name), toolNoticeHook)),
           afterUpToDatePull: toolNoticeHook,
+          emitEvent: (topic, payload) => {
+            const emittedAt = Date.now();
+            const id = eventsBus.emitAt(topic, payload, emittedAt);
+            emit("event", { id, topic, payload, emittedAt });
+          },
         });
 
         // Herdr agent-status transitions write no run event, so the mirror on

@@ -13,7 +13,7 @@ import * as ui from "../../lib/ui/out.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { setWarningLog, __test__ as warnTest } from "../../lib/ui/warn.ts";
-import { realTeamDeps, teamAdd, teamAnnounce, teamCreate, teamInvite, manageMembershipBlocks, teamManageMembership, teamPeer, teamPublish, teamPull, teamStatus, type TeamDeps } from "../team.ts";
+import { realTeamDeps, teamAdd, teamAnnounce, teamCreate, teamInvite, manageMembershipBlocks, teamManageMembership, teamPeer, teamPublish, teamPull, teamPush, teamStatus, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
@@ -860,6 +860,71 @@ describe("teamManageMembership", () => {
     const body = JSON.parse(deps.lines[0]!);
     expect(body.error.code).toBe("usage");
     expect(body.error.message).toContain("usage:");
+  });
+});
+
+describe("teamPush", () => {
+  const pushed = (data: Record<string, unknown>) => async (cmd: string) => (cmd === "team:snapshot-run" ? { ok: true, data } : { ok: false });
+
+  test("team push --json prints the push result", async () => {
+    let seen: { cmd: string; payload: unknown; timeoutMs?: number } | null = null;
+    const deps = depsWithZone({
+      daemon: async (cmd, payload, timeoutMs) => {
+        seen = { cmd, payload, timeoutMs };
+        return { ok: true, data: { committed: true, pushed: true, error: null, skipped: null } };
+      },
+    });
+    await teamPush(["--team", "acme", "--json"], {}, deps);
+    const { at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(body).toEqual({ contract: 1, slug: "acme", committed: true, pushed: true, error: null, skipped: null });
+    expect(seen!.cmd).toBe("team:snapshot-run");
+    expect(seen!.payload).toEqual({ slug: "acme" });
+    expect(seen!.timeoutMs).toBeGreaterThanOrEqual(120_000);
+  });
+
+  test("team push exits with team-push-failed on a failed push", async () => {
+    const deps = depsWithZone({ daemon: pushed({ committed: true, pushed: false, error: "fatal: unable to access 'https://<redacted>@github.com/acme/org.git/': 403", skipped: null }) });
+    const code = await runExpectingProcessExit(() => teamPush(["--team", "acme", "--json"], {}, deps));
+    expect(code).toBe(2);
+    const body = JSON.parse(deps.lines[0]!);
+    expect(body.error.code).toBe("team-push-failed");
+    expect(body.error.message).toBe("The push to the acme org repo failed");
+    expect(body.error.detail).toContain("403");
+  });
+
+  test("team push names a missing remote in plain words", async () => {
+    const deps = depsWithZone({ daemon: pushed({ committed: false, pushed: false, error: null, skipped: "no-remote" }) });
+    const code = await runExpectingProcessExit(() => teamPush(["--team", "acme", "--json"], {}, deps));
+    expect(code).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error.message).toBe("Your copy of the acme org has no origin remote, so there is nowhere to push");
+  });
+
+  test("team push exits with team-push-skipped while conflicted", async () => {
+    const deps = depsWithZone({ daemon: pushed({ committed: false, pushed: false, error: null, skipped: "conflict" }) });
+    const code = await runExpectingProcessExit(() => teamPush(["--team", "acme", "--json"], {}, deps));
+    expect(code).toBe(2);
+    const body = JSON.parse(deps.lines[0]!);
+    expect(body.error.code).toBe("team-push-skipped");
+    expect(body.error.skipped).toBe("conflict");
+  });
+
+  test("team push without a daemon throws daemon-unreachable", async () => {
+    const deps = depsWithZone({ daemon: async () => null });
+    const code = await runExpectingProcessExit(() => teamPush(["--team", "acme", "--json"], {}, deps));
+    expect(code).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error.code).toBe("daemon-unreachable");
+  });
+
+  test("human output says the changes were pushed", async () => {
+    const deps = depsWithZone({ daemon: pushed({ committed: true, pushed: true, error: null, skipped: null }) });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamPush(["--team", "acme"], {}, deps);
+      expect(io.stdout()).toBe("[ok] Pushed your acme settings changes\n");
+    } finally {
+      io.restore();
+    }
   });
 });
 

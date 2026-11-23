@@ -82,6 +82,23 @@ Editing `mattstack.org` in Settings warns when admins are listed with no owners 
 Team read on save. The design fixture draws one `org-owner` team with someone waiting, an `admin`
 team whose access needs updating, and a third team whose read fails.
 
+Settings shows whether org and team changes have left this Mac (`src/server/settingsSync.ts`,
+`src/shared/settings-sync.ts`). `GET /api/settings/sync` reads `rt team status --json` per org
+clone and derives one state (`deriveSyncState`): unknown (no status, or a daemon whose status has
+no `pending`), stuck (conflict, push error, commit error, an unreachable org repo, a trial branch,
+a layout hold, in that order), waiting (`pending` non-empty), else pushed with this Mac's own
+`lastPushAt`. `POST /api/settings/sync/push` runs `rt team push --json` (one per org at a time;
+a push asked for meanwhile waits and shares one trailing push; 409 on a failed push), which runs
+the daemon's own snapshot round, so every push
+guard still applies. The daemon's `team-snapshot-updated` event reaches the client through the
+relay as the `settings-sync` topic. `SyncPill` (after the team in the
+Settings bar) shows the state and opens what is waiting, why it is stuck and Push now; an org or team
+save pushes at once and its row's `SyncNote` walks pushing → pushed, and `NotPushedMark` marks a row
+still waiting. The design fixture draws one state per
+`CONSOLE_FIXTURE_SYNC` (`pushed` by default, `waiting`, `stuck`, `unknown`) and refuses Push now. The
+settings routes are not fixtured, so `CONSOLE_FIXTURE_SYNC_ORG` and `CONSOLE_FIXTURE_SYNC_TEAM` rename
+its `acme` org and `web` team to the ones the page reads.
+
 ## Runs domain (`src/app/runs/`, `src/server/runs.ts`)
 
 The runs page (`runs-page/`), run detail, search, and their supporting pieces (the `derive/`

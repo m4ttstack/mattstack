@@ -3,6 +3,7 @@ import { lucideWrapperFn, registerIcons } from '@mattstack/app-kit/icons';
 // registration contract.
 // eslint-disable-next-line no-restricted-imports
 import {
+  ArrowUpFromLine,
   ArrowUpRight,
   Bot,
   Boxes,
@@ -15,6 +16,8 @@ import {
   CircleMinus,
   CircleSlash,
   CircleX,
+  CloudCheck,
+  CloudOff,
   Code,
   Columns2,
   CornerDownRight,
@@ -126,4 +129,7 @@ registerIcons({
   code: lucideWrapperFn(Code),
   messageSquareMore: lucideWrapperFn(MessageSquareMore),
   messageSquarePlus: lucideWrapperFn(MessageSquarePlus),
+  arrowUpFromLine: lucideWrapperFn(ArrowUpFromLine),
+  cloudCheck: lucideWrapperFn(CloudCheck),
+  cloudOff: lucideWrapperFn(CloudOff),
 });

@@ -3557,6 +3557,7 @@ export const TREE: Record<string, CommandNode> = {
         agentSafe: true,
         args: [
           { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
+          { name: "Sync only", flag: "--sync", type: "boolean", default: false, hint: "With --json, only the sync fields: what is waiting to reach the org and why" },
           SETUP_JSON_ARG,
         ],
       },
@@ -3596,6 +3597,15 @@ export const TREE: Record<string, CommandNode> = {
         description: "Pull the local team clone up to date with its remote, through the daemon's snapshot supervisor",
         module: "./commands/team.ts",
         fn: "teamPull",
+        args: [
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
+          SETUP_JSON_ARG,
+        ],
+      },
+      push: {
+        description: "Push your waiting org and team settings changes now, instead of waiting for the next automatic push",
+        module: "./commands/team.ts",
+        fn: "teamPush",
         args: [
           { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
           SETUP_JSON_ARG,

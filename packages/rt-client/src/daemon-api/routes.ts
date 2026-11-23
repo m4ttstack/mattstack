@@ -58,7 +58,7 @@ export const WEBSOCKET_EVENTS: readonly { type: string; description: string }[] 
   { type: "status", description: "Full daemon status — after each cache refresh (~5 min)" },
   { type: "ports", description: "Full port list — after each port scan (~30s)" },
   { type: "notification", description: "Notification event — when a transition fires" },
-  { type: "event", description: "Events-bus broadcast frame; topic run-updated announces pipeline run writes" },
+  { type: "event", description: "Events-bus broadcast frame; topic run-updated announces pipeline run writes, team-snapshot-updated { slug } a change in an org clone's sync status" },
 ];
 
 export const statusGetRoute = {

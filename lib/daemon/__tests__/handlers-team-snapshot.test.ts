@@ -9,6 +9,10 @@ const fakeHandle = {
     if (slug !== "acme") throw new UserActionableError("no-team", `team "${slug}" is not cloned locally`);
     return { outcome: "up-to-date" as const, detail: null };
   },
+  pushNow: async (slug: string) => {
+    if (slug !== "acme") throw new UserActionableError("no-team", `team "${slug}" is not cloned locally`);
+    return { committed: true, pushed: true, error: null, skipped: null };
+  },
 } as unknown as import("../team-snapshots.ts").TeamSnapshotsHandle;
 
 describe("team snapshot handlers", () => {
@@ -20,6 +24,19 @@ describe("team snapshot handlers", () => {
     expect(bad.ok).toBe(false);
     expect((bad as { error: string; failure: { code: string } }).error).toContain("not cloned");
     expect((bad as { error: string; failure: { code: string } }).failure.code).toBe("no-team");
+  });
+});
+
+describe("team:snapshot-run", () => {
+  test("team:snapshot-run returns the push result", async () => {
+    const h = createTeamSnapshotHandlers(fakeHandle);
+    expect(await h["team:snapshot-run"]({ slug: "acme" })).toEqual({ ok: true, data: { committed: true, pushed: true, error: null, skipped: null } });
+  });
+
+  test("team:snapshot-run maps no-team to a failure", async () => {
+    const h = createTeamSnapshotHandlers(fakeHandle);
+    const bad = await h["team:snapshot-run"]({ slug: "nope" });
+    expect(bad).toMatchObject({ ok: false, failure: { code: "no-team" } });
   });
 });
 
