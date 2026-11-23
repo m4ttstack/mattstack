@@ -270,6 +270,40 @@ test('a dismissal rides the person\'s next prompt as context, and only that one'
   await pane.unmount()
 })
 
+test('a refused prompt keeps the dismissal waiting for the next one that gets through', async ($, on) => {
+  const { sent, contexts, fail } = await seeded($, on, [todo({ id: '1', kind: 'task', title: 'U', script: undefined }), todo({ id: '2' })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const notice = '[Human Todos] #1 "U": the user dismissed it.'
+
+  await press(pane, '1', 'skip')
+  fail.submit = true
+  await press(pane, '2', 'done')
+  await $.prompt.submit({ text: 'refused too' }).catch(() => undefined)
+  fail.submit = false
+  await $.prompt.submit({ text: 'carry on' })
+
+  expect(sent).toEqual(['carry on'])
+  expect(contexts).toEqual([[notice]])
+  await pane.unmount()
+})
+
+test('Clear finished keeps a dismissal waiting for the next prompt, saved with the list', async ($, on) => {
+  const { store, contexts } = await seeded($, on, [todo({ id: '1', kind: 'task', title: 'U', script: undefined })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const notice = '[Human Todos] #1 "U": the user dismissed it.'
+  const saved = () => (store.get(`list:${SESSION}`) as { notices: string[] }).notices
+
+  await press(pane, '1', 'skip')
+  await pane.post({ type: 'clear' })
+  expect(await state($)).toBe('No to-dos.')
+  expect(saved()).toEqual([notice])
+
+  await $.prompt.submit({ text: 'carry on' })
+  expect(contexts).toEqual([[notice]])
+  expect(saved()).toEqual([])
+  await pane.unmount()
+})
+
 const herdrItem = (over: Partial<Todo> = {}) => todo({ status: 'running', runner: 'herdr', herdrSession: BG, token: 't', paneId: 'pane1', tabId: 'tab1', ...over })
 
 // A herdr that already holds the tab the seeded running item points at.

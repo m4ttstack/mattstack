@@ -1338,6 +1338,7 @@ async function resumeWatching($) {
 // mods/human-todos/src/store.ts
 var todos = atom({ plugin: "human-todos", key: "todos" }, [], { shape: "todos-1" });
 var nextId = atom({ plugin: "human-todos", key: "nextId" }, 1);
+var notices = atom({ plugin: "human-todos", key: "notices" }, []);
 var expanded = atom({ plugin: "human-todos", key: "expanded" }, []);
 var composing = atom({ plugin: "human-todos", key: "composing" }, null);
 var frame = atom({ plugin: "human-todos", key: "frame" }, 0);
@@ -1353,6 +1354,7 @@ async function saveList($) {
     const entry = {
       todos: await read($, todos),
       nextId: await read($, nextId),
+      notices: await read($, notices),
       savedAt: await $.clock.now()
     };
     const owner = await read($, loadedFor);
@@ -1409,6 +1411,21 @@ async function patchTodo($, id, change) {
   await update($, todos, (list) => list.map((t) => t.id === id ? { ...t, ...change } : t));
   await saveList($);
 }
+async function addNotice($, text) {
+  await ensureLoaded($);
+  await update($, notices, (list) => [...list, text]);
+  await saveList($);
+}
+async function listNotices($) {
+  await ensureLoaded($);
+  return read($, notices);
+}
+async function dropNotices($, sent) {
+  if (sent.length === 0)
+    return;
+  await update($, notices, (list) => list.filter((n) => !sent.includes(n)));
+  await saveList($);
+}
 async function removeTodos($, pick) {
   await ensureLoaded($);
   const removed = [];
@@ -1451,6 +1468,7 @@ async function restoreList($) {
     await update($, todos, () => mine.todos.map(resume));
     await update($, expanded, () => []);
     await update($, nextId, () => mine.nextId);
+    await update($, notices, () => mine.notices ?? []);
   } else {
     await resetList($);
   }
@@ -1466,6 +1484,7 @@ async function resetList($) {
   await update($, expanded, () => []);
   await update($, composing, () => null);
   await update($, nextId, () => 1);
+  await update($, notices, () => []);
   drafts.clear();
 }
 function peekTodos($) {
@@ -1546,7 +1565,7 @@ function settle(todo, outcome, log) {
     case "done":
       return { patch: { status: "done" }, text: todo.kind !== "run" && todo.doneLabel ? `${who}: the user pressed "${todo.doneLabel}" (done).` : `${who}: the user marked it done.` };
     case "skipped":
-      return { patch: { status: "skipped", isUnreported: true }, text: `${who}: the user dismissed it.` };
+      return { patch: { status: "skipped" }, text: `${who}: the user dismissed it.` };
     case "message":
       return outcome.done ? { patch: { status: "done" }, text: `${who}: the user marked it done and says: ${outcome.text}` } : { patch: {}, text: `${who}: the user says: ${outcome.text}` };
     case "ran": {
@@ -1577,21 +1596,20 @@ async function savedOutput($, todo, outcome) {
     return null;
   }
 }
-async function takeUnreported($) {
-  const waiting = (await listTodos($)).filter((t) => t.isUnreported);
-  for (const t of waiting)
-    await patchTodo($, t.id, { isUnreported: undefined });
-  return waiting.map((t) => `[${TITLE}] ${settle(t, { kind: "skipped" }).text}`);
-}
-async function withUnreported($, e) {
-  if (e.command)
-    return e;
-  const waiting = await takeUnreported($);
-  return waiting.length ? { ...e, context: [...e.context ?? [], ...waiting] } : e;
+async function submitWithNotices($, e, next) {
+  const waiting = e.command ? [] : await listNotices($);
+  const result = await next(waiting.length ? { ...e, context: [...e.context ?? [], ...waiting] } : e);
+  if (result.drop === undefined)
+    await dropNotices($, waiting);
+  return result;
 }
 async function submit($, text) {
-  return $.prompt.submit({ text: [`[${TITLE}] ${text}`, ...await takeUnreported($)].join(`
+  const waiting = await listNotices($);
+  const sent = await $.prompt.submit({ text: [`[${TITLE}] ${text}`, ...waiting].join(`
 `) });
+  if (sent.drop === undefined)
+    await dropNotices($, waiting);
+  return sent;
 }
 async function report($, todo, outcome) {
   const session = await $.session.id();
@@ -1615,8 +1633,10 @@ async function report($, todo, outcome) {
   }
   await patchTodo($, todo.id, patch);
   await syncSpinner($);
-  if (outcome.kind === "skipped")
+  if (outcome.kind === "skipped") {
+    await addNotice($, `[${TITLE}] ${text}`);
     return true;
+  }
   submit($, text).then((sent) => {
     if (sent.drop !== undefined)
       warn();
@@ -2563,7 +2583,7 @@ function registerPane(on) {
   });
   on("prompt.submit", async ($, e, next) => {
     await setKeysInPane($, false);
-    return next(await withUnreported($, e));
+    return submitWithNotices($, e, next);
   });
   on("ui.focus", async ($, e, next) => {
     await setKeysInPane($, false);
