@@ -100,6 +100,19 @@ const EVENT_MAX_WAIT_MS = 3_000;
  * the same upstream socket, and without that filter this would refetch on
  * every unrelated daemon tick.
  */
+/** The daemon topic Console's relay forwards as `settings-sync`. */
+const SETTINGS_SYNC_TOPIC = 'team-snapshot-updated';
+
+function topicOf(data: unknown): string | null {
+  if (typeof data !== 'string') return null;
+  try {
+    const frame = JSON.parse(data) as { topic?: unknown } | null;
+    return typeof frame?.topic === 'string' ? frame.topic : null;
+  } catch {
+    return null;
+  }
+}
+
 export function useRunEvents() {
   const queryClient = useQueryClient();
 
@@ -145,7 +158,16 @@ export function useRunEvents() {
         // Events sent while the socket was down are gone, not queued.
         if (reopened) refresh();
       };
-      socket.onmessage = coalescer.schedule;
+      socket.onmessage = (ev?: { data?: unknown }) => {
+        if (topicOf(ev?.data) === SETTINGS_SYNC_TOPIC) {
+          void queryClient.invalidateQueries(
+            { queryKey: ['settings-sync'] },
+            { cancelRefetch: false }
+          );
+          return;
+        }
+        coalescer.schedule();
+      };
       socket.onclose = () => {
         if (stopped) return;
         timer = setTimeout(connect, Math.min(30_000, 1_000 * 2 ** attempt++));

@@ -33,6 +33,7 @@ import { ScopeDot } from './ScopeBadge';
 import { ROW_MOTION_MS } from './SettingRow';
 import { SettingsContextBar } from './SettingsContextBar';
 import { SettingsSection } from './SettingsSection';
+import { SettingsSyncProvider } from './SettingsSyncProvider';
 import { UnregisteredNote } from './UnregisteredNote';
 import {
   SettingsDefsContext,
@@ -273,244 +274,187 @@ export function SettingsPage() {
       : null;
 
   return (
-    <SettingsSeedRepoContext.Provider value={repo}>
-      <SettingsRepoContext.Provider value={null}>
-        <SettingsOrgContext.Provider value={store.org}>
-          <SettingsTeamContext.Provider value={store.team}>
-            <SettingsViewTeamContext.Provider value={other ? viewTeam : null}>
-              <SettingsDefsContext.Provider value={store.defs}>
-                <PageShell
-                  headerHeight={HEADER_HEIGHT}
-                  sideBarHeaderBg="var(--tk-panel)"
-                  drawerStateKey="console-settings-index"
-                >
-                  <PageShell.Sidebar hideCollapseButton>
-                    <Index
-                      sections={sections}
-                      filtering={filtering}
-                      active={active}
-                      onPick={jump}
-                    />
-                  </PageShell.Sidebar>
-                  <PageShell.Main>
-                    <PageShell.Header
-                      px={0}
-                      gap={0}
-                      align="stretch"
-                      style={{
-                        borderBottom: '1px solid var(--tk-border)',
-                        boxShadow: scrolled
-                          ? '0 2px 12px color-mix(in srgb, var(--tk-text-1) 14%, transparent)'
-                          : undefined,
-                        transition: 'box-shadow 120ms',
-                      }}
-                    >
-                      <VisuallyHidden component="h1">Settings</VisuallyHidden>
-                      <Stack gap={0} w="100%">
-                        <SettingsContextBar
-                          org={store.org}
-                          team={store.team}
-                          ownTeam={store.ownTeam}
-                          viewer={store.viewer}
-                          other={other}
-                          onPickTeam={setViewTeam}
-                        />
-                        <Group
-                          role="toolbar"
-                          aria-label="settings filters"
-                          gap={10}
-                          px={32}
-                          h={TOOLBAR_ROW}
-                          align="center"
-                          wrap="nowrap"
-                        >
-                          <TextInput
-                            ref={filterRef}
-                            aria-label="filter settings"
-                            // Key names are not words: no macOS
-                            // correction, capitals or spellcheck.
-                            autoCorrect="off"
-                            autoCapitalize="off"
-                            spellCheck={false}
-                            style={{ flex: 1 }}
-                            leftSection={<Icons.search size={16} />}
-                            placeholder={`Filter ${total} settings`}
-                            styles={{ input: { fontSize: 14 } }}
-                            value={query}
-                            onTextChange={setQuery}
-                            onKeyDown={e => {
-                              if (e.key === 'Escape' && query !== '') {
-                                e.stopPropagation();
-                                setQuery('');
-                              }
-                            }}
-                            rightSectionWidth={query ? 110 : 36}
-                            rightSection={
-                              query ? (
-                                <Group gap={6} wrap="nowrap">
-                                  <Text
-                                    fz={12}
-                                    c={text.muted}
-                                  >{`${shown} of ${total}`}</Text>
-                                  <CloseButton
-                                    size="sm"
-                                    aria-label="clear filter"
-                                    onClick={() => setQuery('')}
-                                  />
-                                </Group>
-                              ) : (
-                                <Kbd size="sm">/</Kbd>
-                              )
-                            }
+    <SettingsSyncProvider>
+      <SettingsSeedRepoContext.Provider value={repo}>
+        <SettingsRepoContext.Provider value={null}>
+          <SettingsOrgContext.Provider value={store.org}>
+            <SettingsTeamContext.Provider value={store.team}>
+              <SettingsViewTeamContext.Provider value={other ? viewTeam : null}>
+                <SettingsDefsContext.Provider value={store.defs}>
+                  <PageShell
+                    headerHeight={HEADER_HEIGHT}
+                    sideBarHeaderBg="var(--tk-panel)"
+                    drawerStateKey="console-settings-index"
+                  >
+                    <PageShell.Sidebar hideCollapseButton>
+                      <Index
+                        sections={sections}
+                        filtering={filtering}
+                        active={active}
+                        onPick={jump}
+                      />
+                    </PageShell.Sidebar>
+                    <PageShell.Main>
+                      <PageShell.Header
+                        px={0}
+                        gap={0}
+                        align="stretch"
+                        style={{
+                          borderBottom: '1px solid var(--tk-border)',
+                          boxShadow: scrolled
+                            ? '0 2px 12px color-mix(in srgb, var(--tk-text-1) 14%, transparent)'
+                            : undefined,
+                          transition: 'box-shadow 120ms',
+                        }}
+                      >
+                        <VisuallyHidden component="h1">Settings</VisuallyHidden>
+                        <Stack gap={0} w="100%">
+                          <SettingsContextBar
+                            org={store.org}
+                            team={store.team}
+                            ownTeam={store.ownTeam}
+                            viewer={store.viewer}
+                            other={other}
+                            onPickTeam={setViewTeam}
                           />
-                          {(broken > 0 || needsFixingOnly) && (
-                            <Chip
-                              checked={needsFixingOnly}
-                              onChange={setNeedsFixingOnly}
-                              variant="light"
-                              color="warn"
-                              size="sm"
-                              icon={<Icons.warning size={14} />}
-                              styles={FIX_CHIP_STYLES}
-                            >
-                              {broken === 1
-                                ? '1 needs fixing'
-                                : `${broken} need fixing`}
-                            </Chip>
-                          )}
-                          <SegmentedControl
-                            size="md"
-                            withItemsBorders={false}
-                            value={scope}
-                            onChange={v => setScope(v as ScopeFilter)}
-                            data={[
-                              { value: 'any', label: 'any' },
-                              ...scopes.map(s => ({
-                                value: s,
-                                label: (
+                          <Group
+                            role="toolbar"
+                            aria-label="settings filters"
+                            gap={10}
+                            px={32}
+                            h={TOOLBAR_ROW}
+                            align="center"
+                            wrap="nowrap"
+                          >
+                            <TextInput
+                              ref={filterRef}
+                              aria-label="filter settings"
+                              // Key names are not words: no macOS
+                              // correction, capitals or spellcheck.
+                              autoCorrect="off"
+                              autoCapitalize="off"
+                              spellCheck={false}
+                              style={{ flex: 1 }}
+                              leftSection={<Icons.search size={16} />}
+                              placeholder={`Filter ${total} settings`}
+                              styles={{ input: { fontSize: 14 } }}
+                              value={query}
+                              onTextChange={setQuery}
+                              onKeyDown={e => {
+                                if (e.key === 'Escape' && query !== '') {
+                                  e.stopPropagation();
+                                  setQuery('');
+                                }
+                              }}
+                              rightSectionWidth={query ? 110 : 36}
+                              rightSection={
+                                query ? (
                                   <Group gap={6} wrap="nowrap">
-                                    <ScopeDot scope={s} />
-                                    <span>{s}</span>
+                                    <Text
+                                      fz={12}
+                                      c={text.muted}
+                                    >{`${shown} of ${total}`}</Text>
+                                    <CloseButton
+                                      size="sm"
+                                      aria-label="clear filter"
+                                      onClick={() => setQuery('')}
+                                    />
                                   </Group>
-                                ),
-                              })),
-                            ]}
-                          />
-                        </Group>
-                      </Stack>
-                    </PageShell.Header>
-                    <PageShell.Content
-                      contentContainer={false}
-                      bg="var(--tk-card)"
-                      scrollAreaProps={{
-                        viewportRef: frame,
-                        onScrollPositionChange: ({ y }) => setScrolled(y > 0),
-                        // Above the pinned section headers, which run to the
-                        // pane's edge.
-                        styles: { scrollbar: { zIndex: 3 } },
-                      }}
-                    >
-                      {/* The page's one overflow guard: Mantine's ScrollArea content
+                                ) : (
+                                  <Kbd size="sm">/</Kbd>
+                                )
+                              }
+                            />
+                            {(broken > 0 || needsFixingOnly) && (
+                              <Chip
+                                checked={needsFixingOnly}
+                                onChange={setNeedsFixingOnly}
+                                variant="light"
+                                color="warn"
+                                size="sm"
+                                icon={<Icons.warning size={14} />}
+                                styles={FIX_CHIP_STYLES}
+                              >
+                                {broken === 1
+                                  ? '1 needs fixing'
+                                  : `${broken} need fixing`}
+                              </Chip>
+                            )}
+                            <SegmentedControl
+                              size="md"
+                              withItemsBorders={false}
+                              value={scope}
+                              onChange={v => setScope(v as ScopeFilter)}
+                              data={[
+                                { value: 'any', label: 'any' },
+                                ...scopes.map(s => ({
+                                  value: s,
+                                  label: (
+                                    <Group gap={6} wrap="nowrap">
+                                      <ScopeDot scope={s} />
+                                      <span>{s}</span>
+                                    </Group>
+                                  ),
+                                })),
+                              ]}
+                            />
+                          </Group>
+                        </Stack>
+                      </PageShell.Header>
+                      <PageShell.Content
+                        contentContainer={false}
+                        bg="var(--tk-card)"
+                        scrollAreaProps={{
+                          viewportRef: frame,
+                          onScrollPositionChange: ({ y }) => setScrolled(y > 0),
+                          // Above the pinned section headers, which run to the
+                          // pane's edge.
+                          styles: { scrollbar: { zIndex: 3 } },
+                        }}
+                      >
+                        {/* The page's one overflow guard: Mantine's ScrollArea content
                 wrapper is `min-width: min-content`, so without size
                 containment here any unbreakable descendant (a long path, a
                 JSON value, a nowrap label) widens the page and scrolls it
                 sideways instead of truncating or wrapping in place. */}
-                      <Box px={32} pb={32} style={{ contain: 'inline-size' }}>
-                        {store.error && (
-                          <Alert
-                            color="bad"
-                            variant="light"
-                            mt="md"
-                            icon={<Icons.error size={14} />}
-                          >
-                            <Text fz={12}>{store.error}</Text>
-                          </Alert>
-                        )}
-                        {missing && (
-                          <Alert color="gray" variant="light" mt="md">
-                            <Text
-                              fz={12}
-                            >{`No setting named ${missing}.`}</Text>
-                          </Alert>
-                        )}
-                        {/* The loader only before the first list: a repo switch keeps the
-                  list it has on screen until the new one arrives. */}
-                        {listHeld ? (
-                          <Box pt={28}>
-                            <StepLoader
-                              {...listBind}
-                              steps={['reading the settings stores']}
-                            />
-                          </Box>
-                        ) : visible.length === 0 && total > 0 ? (
-                          <Stack align="center" gap={10} py={48}>
-                            <Icons.search size={24} color={text.muted} />
-                            <Text fz={14} fw={500}>
-                              {query
-                                ? `No settings match “${query}”`
-                                : 'No settings match these filters'}
-                            </Text>
-                            <Text fz={12} c={text.muted}>
-                              The filter reads key names and descriptions, not
-                              values.
-                            </Text>
-                            <Button
-                              size="sm"
-                              variant="default"
-                              onClick={clearAll}
+                        <Box px={32} pb={32} style={{ contain: 'inline-size' }}>
+                          {store.error && (
+                            <Alert
+                              color="bad"
+                              variant="light"
+                              mt="md"
+                              icon={<Icons.error size={14} />}
                             >
-                              Clear filter
-                            </Button>
-                          </Stack>
-                        ) : (
-                          <Box
-                            data-testid="settings-list"
-                            data-scope-filter={scope}
-                            inert={store.loading}
-                            aria-busy={store.loading || undefined}
-                            style={{
-                              opacity: store.loading ? 0.55 : undefined,
-                              transition: 'opacity 120ms',
-                            }}
-                          >
-                            {visible.map(s => (
-                              <SettingsSection
-                                key={s.group.id}
-                                section={s}
-                                store={store}
-                                query={query}
-                                filtering={filtering}
-                                open={openRow.open}
-                                onOpenChange={(key, next) =>
-                                  openRow.set(next ? { key, ...next } : null)
-                                }
-                                onFix={(key, issue) => {
-                                  openRow.set(
-                                    {
-                                      key,
-                                      tab: 'where',
-                                      fix: issue?.scope ?? null,
-                                    },
-                                    { repo: issue?.repo }
-                                  );
-                                  setReveal({
-                                    key,
-                                    settle: reduceMotion ? 0 : ROW_MOTION_MS,
-                                  });
-                                }}
+                              <Text fz={12}>{store.error}</Text>
+                            </Alert>
+                          )}
+                          {missing && (
+                            <Alert color="gray" variant="light" mt="md">
+                              <Text
+                                fz={12}
+                              >{`No setting named ${missing}.`}</Text>
+                            </Alert>
+                          )}
+                          {/* The loader only before the first list: a repo switch keeps the
+                  list it has on screen until the new one arrives. */}
+                          {listHeld ? (
+                            <Box pt={28}>
+                              <StepLoader
+                                {...listBind}
+                                steps={['reading the settings stores']}
                               />
-                            ))}
-                          </Box>
-                        )}
-                        {filtering &&
-                          visible.length > 0 &&
-                          hiddenGroups > 0 && (
-                            <Group gap={8} pt={20}>
-                              <Icons.eyeOff size={14} color={text.muted} />
+                            </Box>
+                          ) : visible.length === 0 && total > 0 ? (
+                            <Stack align="center" gap={10} py={48}>
+                              <Icons.search size={24} color={text.muted} />
+                              <Text fz={14} fw={500}>
+                                {query
+                                  ? `No settings match “${query}”`
+                                  : 'No settings match these filters'}
+                              </Text>
                               <Text fz={12} c={text.muted}>
-                                {hiddenGroups === 1
-                                  ? '1 group has no match.'
-                                  : `${hiddenGroups} groups have no match.`}
+                                The filter reads key names and descriptions, not
+                                values.
                               </Text>
                               <Button
                                 size="sm"
@@ -519,20 +463,79 @@ export function SettingsPage() {
                               >
                                 Clear filter
                               </Button>
-                            </Group>
+                            </Stack>
+                          ) : (
+                            <Box
+                              data-testid="settings-list"
+                              data-scope-filter={scope}
+                              inert={store.loading}
+                              aria-busy={store.loading || undefined}
+                              style={{
+                                opacity: store.loading ? 0.55 : undefined,
+                                transition: 'opacity 120ms',
+                              }}
+                            >
+                              {visible.map(s => (
+                                <SettingsSection
+                                  key={s.group.id}
+                                  section={s}
+                                  store={store}
+                                  query={query}
+                                  filtering={filtering}
+                                  open={openRow.open}
+                                  onOpenChange={(key, next) =>
+                                    openRow.set(next ? { key, ...next } : null)
+                                  }
+                                  onFix={(key, issue) => {
+                                    openRow.set(
+                                      {
+                                        key,
+                                        tab: 'where',
+                                        fix: issue?.scope ?? null,
+                                      },
+                                      { repo: issue?.repo }
+                                    );
+                                    setReveal({
+                                      key,
+                                      settle: reduceMotion ? 0 : ROW_MOTION_MS,
+                                    });
+                                  }}
+                                />
+                              ))}
+                            </Box>
                           )}
-                        {!store.loading && (
-                          <UnregisteredNote entries={store.unregistered} />
-                        )}
-                      </Box>
-                    </PageShell.Content>
-                  </PageShell.Main>
-                </PageShell>
-              </SettingsDefsContext.Provider>
-            </SettingsViewTeamContext.Provider>
-          </SettingsTeamContext.Provider>
-        </SettingsOrgContext.Provider>
-      </SettingsRepoContext.Provider>
-    </SettingsSeedRepoContext.Provider>
+                          {filtering &&
+                            visible.length > 0 &&
+                            hiddenGroups > 0 && (
+                              <Group gap={8} pt={20}>
+                                <Icons.eyeOff size={14} color={text.muted} />
+                                <Text fz={12} c={text.muted}>
+                                  {hiddenGroups === 1
+                                    ? '1 group has no match.'
+                                    : `${hiddenGroups} groups have no match.`}
+                                </Text>
+                                <Button
+                                  size="sm"
+                                  variant="default"
+                                  onClick={clearAll}
+                                >
+                                  Clear filter
+                                </Button>
+                              </Group>
+                            )}
+                          {!store.loading && (
+                            <UnregisteredNote entries={store.unregistered} />
+                          )}
+                        </Box>
+                      </PageShell.Content>
+                    </PageShell.Main>
+                  </PageShell>
+                </SettingsDefsContext.Provider>
+              </SettingsViewTeamContext.Provider>
+            </SettingsTeamContext.Provider>
+          </SettingsOrgContext.Provider>
+        </SettingsRepoContext.Provider>
+      </SettingsSeedRepoContext.Provider>
+    </SettingsSyncProvider>
   );
 }
