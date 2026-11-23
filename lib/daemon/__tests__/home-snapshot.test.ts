@@ -1097,6 +1097,77 @@ describe("startHomeSnapshot — push now", () => {
     expect(pushes(calls)).toBe(0);
   });
 
+  test("pushNow pushes a commit already waiting on its timer when the tree is clean", async () => {
+    const exec = makeSwitchableExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    const { deps, timers } = baseDeps({ exec: exec.fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    await handle.runNow("watch");
+    exec.setResponders(defaultResponders({ statusZ: "" }));
+
+    const result = await handle.pushNow();
+
+    expect(pushes(exec.calls)).toBe(1);
+    expect(result).toEqual({ committed: false, pushed: true, error: null, skipped: null });
+    timers.fire((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+    await flushAsync();
+    expect(pushes(exec.calls)).toBe(1);
+  });
+
+  test("pushNow retries a failed push at once on a clean tree", async () => {
+    const db = freshDb();
+    setKvValue("home-snapshot", "last-push", { at: 1000, ok: false, error: "fatal: 403" }, db);
+    const { fn, calls } = makeFakeExec(defaultResponders({ statusZ: "" }));
+    const { deps } = baseDeps({ exec: fn, db });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const result = await handle.pushNow();
+
+    expect(pushes(calls)).toBe(1);
+    expect(result.pushed).toBe(true);
+    expect(handle.status().lastPushError).toBeNull();
+  });
+
+  test("a pushNow arriving after a round committed gets a round of its own", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const { fn, calls } = makeGatedPushExec(gate);
+    const { deps } = baseDeps({ exec: fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const first = handle.pushNow();
+    for (let i = 0; i < 20 && pushes(calls) === 0; i++) await flushAsync();
+    expect(commits(calls)).toBe(1);
+    const second = handle.pushNow();
+    release();
+    const [a, b] = await Promise.all([first, second]);
+
+    expect(commits(calls)).toBe(2);
+    expect(pushes(calls)).toBe(2);
+    expect(a.pushed).toBe(true);
+    expect(b).toEqual({ committed: true, pushed: true, error: null, skipped: null });
+  });
+
+  test("three late callers share one trailing round", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const { fn, calls } = makeGatedPushExec(gate);
+    const { deps } = baseDeps({ exec: fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const first = handle.pushNow();
+    for (let i = 0; i < 20 && pushes(calls) === 0; i++) await flushAsync();
+    const late = [handle.pushNow(), handle.pushNow(), handle.pushNow()];
+    release();
+    await Promise.all([first, ...late]);
+
+    expect(commits(calls)).toBe(2);
+    expect(pushes(calls)).toBe(2);
+  });
+
   test("restores lastPushAt from the persisted push record", async () => {
     const db = freshDb();
     setKvValue("home-snapshot", "last-push", { at: 1000, ok: true }, db);
@@ -2304,6 +2375,21 @@ describe("startSnapshot: pending", () => {
     await handle.runNow("manual");
     expect(handle.status().pending).toEqual([{ store: "team:acme", key: "board.slack", change: "changed" }]);
     expect(seen.length).toBeGreaterThan(0);
+    handle.stop();
+  });
+
+  test("the boot pull reads pending, with no file change and no round", async () => {
+    const { fn } = makeFakeExec([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders({ statusZ: "" })]);
+    let updates = 0;
+    const { deps } = baseDeps({ exec: fn, onUpdated: () => { updates++; } });
+    const { repoDir: _repoDir, ...specDeps } = deps;
+    const spec: SnapshotSpec = { ...teamSpecFor(null), pendingOf: async () => [{ path: ".sops.yaml" }] };
+    const handle = startSnapshot(spec, specDeps);
+    await handle.ready;
+    for (let i = 0; i < 20 && handle.status().pending === undefined; i++) await flushAsync();
+
+    expect(handle.status().pending).toEqual([{ path: ".sops.yaml" }]);
+    expect(updates).toBeGreaterThan(0);
     handle.stop();
   });
 

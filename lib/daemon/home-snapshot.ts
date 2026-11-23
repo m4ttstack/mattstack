@@ -252,6 +252,8 @@ export type SnapshotDeps = Omit<HomeSnapshotDeps, "repoDir">;
 export type SnapshotHandle = HomeSnapshotHandle;
 
 const GIT_TIMEOUT_MS = 15_000;
+/** Commit-cycle skips that also rule out a push; any other skip (nothing new, a locked index) still leaves earlier commits to push. */
+const PUSH_BARRING_SKIPS: ReadonlySet<SkipReason> = new Set(["disabled", "not-a-repo", "not-provisioned", "init-failed", "git-unavailable", "detached", "merge-in-progress", "conflict", "pull-only"]);
 const GIT_PROBE_RETRY_BASE_MS = 30_000;
 const GIT_PROBE_RETRY_MAX_MS = 600_000;
 const PUSH_TIMEOUT_MS = 30_000;
@@ -975,7 +977,11 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // hook, which runs past `pullInFlight`; `converge:false` therefore only
     // keeps this path from starting a converge.
     if (pullInFlight) return pullInFlight;
-    const p = withGitLock(() => doPull());
+    const p = withGitLock(async () => {
+      const pulled = await doPull();
+      await refreshPending();
+      return pulled;
+    });
     pullInFlight = p;
     let result: PullResult;
     try {
@@ -1933,18 +1939,32 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   }
 
   let pushNowInFlight: Promise<PushNowResult> | null = null;
+  /** Set once the in-flight round's commit cycle is done: a caller after that holds changes the round did not take. */
+  let pushNowPastCommit = false;
+  let pushNowTrailing: Promise<PushNowResult> | null = null;
 
-  function pushNow(): Promise<PushNowResult> {
-    if (pushNowInFlight) return pushNowInFlight;
-    const p = doPushNow().finally(() => { pushNowInFlight = null; });
+  function startPushNow(): Promise<PushNowResult> {
+    pushNowPastCommit = false;
+    const p = doPushNow().finally(() => { if (pushNowInFlight === p) pushNowInFlight = null; });
     pushNowInFlight = p;
     return p;
   }
 
+  function pushNow(): Promise<PushNowResult> {
+    if (pushNowInFlight === null) return startPushNow();
+    if (!pushNowPastCommit) return pushNowInFlight;
+    pushNowTrailing ??= pushNowInFlight.catch(() => undefined).then(() => {
+      pushNowTrailing = null;
+      return startPushNow();
+    });
+    return pushNowTrailing;
+  }
+
   async function doPushNow(): Promise<PushNowResult> {
     const run = await runNow("manual");
+    pushNowPastCommit = true;
     const committed = run.committed;
-    if (run.skipped) return { committed, pushed: false, error: null, skipped: run.skipped };
+    if (run.skipped && PUSH_BARRING_SKIPS.has(run.skipped)) return { committed, pushed: false, error: null, skipped: run.skipped };
     if (conflicted) return { committed, pushed: false, error: null, skipped: "conflict" };
     if (layoutHold) return { committed, pushed: false, error: null, skipped: "layout-hold" };
     if (pushTimer) { deps.clearTimeout(pushTimer); pushTimer = null; }
