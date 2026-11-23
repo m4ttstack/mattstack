@@ -28,7 +28,7 @@ test('an open run item clips the script to two rows, then offers Show all, the c
         { id: 'run', label: 'Run', tone: 'primary', todoId: '1' },
         { id: 'copy', label: 'Copy', tone: 'quiet', todoId: '1' },
         { id: 'done', label: 'Done without running', tone: 'secondary', todoId: '1' },
-        { id: 'skip', label: 'Skip', tone: 'quiet', todoId: '1' },
+        { id: 'skip', label: 'Dismiss', tone: 'quiet', todoId: '1' },
       ],
     },
     BLANK,

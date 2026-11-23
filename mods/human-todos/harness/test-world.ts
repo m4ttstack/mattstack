@@ -57,6 +57,8 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
   const registered: Registered[] = []
   const opened: string[] = []
   const sent: string[] = []
+  // What each submission carried beside its text, in step with `sent`.
+  const contexts: (readonly string[])[] = []
   const fail = { submit: false, save: false }
   let sessionId = SESSION
   let isPlaced = true
@@ -97,6 +99,7 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
   on('prompt.submit', (_, e) => {
     if (fail.submit) return { drop: 'refused' }
     sent.push(e.text)
+    contexts.push(e.context ?? [])
     return { text: e.text }
   })
   on('prompt.compose', () => ({ sections: [] }))
@@ -107,6 +110,7 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
     registered,
     opened,
     sent,
+    contexts,
     fail,
     setPlaced: (value: boolean) => {
       isPlaced = value

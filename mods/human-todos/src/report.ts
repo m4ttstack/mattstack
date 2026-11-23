@@ -1,10 +1,10 @@
-import type { EngineInterface } from 'claude-code'
+import type { EngineInterface, PromptSubmitInput } from 'claude-code'
 
 import type { Todo } from '../types'
 import { TITLE, tail } from './items'
 import { writeRunLog } from './logs'
 import { syncSpinner } from './spinner'
-import { patchTodo } from './store'
+import { listTodos, patchTodo } from './store'
 
 // `spill` is the output a local run held before `outputTail`, as writeRunLog takes it.
 export type Outcome =
@@ -27,7 +27,7 @@ export function settle(todo: Todo, outcome: Outcome, log?: string | null): { pat
     case 'done':
       return { patch: { status: 'done' }, text: todo.kind !== 'run' && todo.doneLabel ? `${who}: the user pressed "${todo.doneLabel}" (done).` : `${who}: the user marked it done.` }
     case 'skipped':
-      return { patch: { status: 'skipped' }, text: `${who}: the user skipped it.` }
+      return { patch: { status: 'skipped', isUnreported: true }, text: `${who}: the user dismissed it.` }
     case 'message':
       return outcome.done
         ? { patch: { status: 'done' }, text: `${who}: the user marked it done and says: ${outcome.text}` }
@@ -62,6 +62,25 @@ async function savedOutput($: EngineInterface, todo: Todo, outcome: Outcome): Pr
 }
 
 // False when a message did not reach the agent: the item is then left as it was, so the person can send it again.
+// Dismissals reach the agent as context on the next prompt, the person's or the pane's own, so a dismissal never starts a turn.
+async function takeUnreported($: EngineInterface): Promise<string[]> {
+  const waiting = (await listTodos($)).filter(t => t.isUnreported)
+  for (const t of waiting) await patchTodo($, t.id, { isUnreported: undefined })
+  return waiting.map(t => `[${TITLE}] ${settle(t, { kind: 'skipped' }).text}`)
+}
+
+// A slash command keeps them waiting: its context would ride the command, not reach the model as a turn's own words.
+export async function withUnreported($: EngineInterface, e: PromptSubmitInput): Promise<PromptSubmitInput> {
+  if (e.command) return e
+  const waiting = await takeUnreported($)
+  return waiting.length ? { ...e, context: [...(e.context ?? []), ...waiting] } : e
+}
+
+// The pane's own prompt skips its own submit hook, and a plugin's submit takes no context, so waiting dismissals join its text.
+async function submit($: EngineInterface, text: string) {
+  return $.prompt.submit({ text: [`[${TITLE}] ${text}`, ...(await takeUnreported($))].join('\n') })
+}
+
 export async function report($: EngineInterface, todo: Todo, outcome: Outcome): Promise<boolean> {
   const session = await $.session.id()
   const log = await savedOutput($, todo, outcome)
@@ -74,7 +93,7 @@ export async function report($: EngineInterface, todo: Todo, outcome: Outcome): 
   }
   // A message is the person's own words, so it settles the item only once the prompt entered.
   if (outcome.kind === 'message') {
-    const sent = await $.prompt.submit({ text: `[${TITLE}] ${text}` }).catch(() => ({ drop: 'failed' }))
+    const sent = await submit($, text).catch(() => ({ drop: 'failed' }))
     if ('drop' in sent && sent.drop !== undefined) {
       warn()
       return false
@@ -85,8 +104,8 @@ export async function report($: EngineInterface, todo: Todo, outcome: Outcome): 
   }
   await patchTodo($, todo.id, patch)
   await syncSpinner($)
-  void $.prompt
-    .submit({ text: `[${TITLE}] ${text}` })
+  if (outcome.kind === 'skipped') return true
+  void submit($, text)
     .then(sent => {
       if (sent.drop !== undefined) warn()
     })

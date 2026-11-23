@@ -10,6 +10,7 @@ import { composeHeadRows } from './pane/compose-head'
 import { drawPlainPane, paneColumns } from './pane/plain-view'
 import { LABELS, bandModel, paneModel } from './pane/model'
 import type { PaneMessage, PaneModel } from './pane/model'
+import { withUnreported } from './report'
 import { drafts, peekTodos, readPane } from './store'
 
 // A literal on purpose: the engine's matcher scan reads a string literal, not the imported PLUGIN.
@@ -75,7 +76,7 @@ export function registerPane(on: On): void {
   })
   on('prompt.submit', async ($, e, next) => {
     await setKeysInPane($, false)
-    return next(e)
+    return next(await withUnreported($, e))
   })
   on('ui.focus', async ($, e, next) => {
     await setKeysInPane($, false)

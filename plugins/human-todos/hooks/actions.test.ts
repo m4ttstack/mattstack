@@ -242,15 +242,31 @@ test('a runner that cannot start puts the item back to open with a note and a to
   await pane.unmount()
 })
 
-test('Done and Skip mark the item and tell the agent', async ($, on) => {
-  const { sent } = await seeded($, on, [todo({ id: '1' }), todo({ id: '2', kind: 'task', title: 'U', script: undefined })])
+test('Done tells the agent at once and carries a dismissal still waiting', async ($, on) => {
+  const { sent, contexts } = await seeded($, on, [todo({ id: '1' }), todo({ id: '2', kind: 'task', title: 'U', script: undefined })])
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await press(pane, '1', 'done')
   await press(pane, '2', 'skip')
+  expect(await state($)).toBe('#1 [open] T\n    script: ls -la\n#2 [skipped] U')
+  expect(sent).toEqual([])
 
-  expect(await state($)).toBe('#1 [done] T\n    script: ls -la\n#2 [skipped] U')
-  expect(sent).toEqual(['[Human Todos] #1 "T": the user marked it done.', '[Human Todos] #2 "U": the user skipped it.'])
+  await press(pane, '1', 'done')
+  await $.prompt.submit({ text: 'carry on' })
+
+  expect(sent).toEqual(['[Human Todos] #1 "T": the user marked it done.\n[Human Todos] #2 "U": the user dismissed it.', 'carry on'])
+  expect(contexts).toEqual([[], []])
+})
+
+test('a dismissal rides the person\'s next prompt as context, and only that one', async ($, on) => {
+  const { sent, contexts } = await seeded($, on, [todo({ id: '1', kind: 'task', title: 'U', script: undefined })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+
+  await press(pane, '1', 'skip')
+  await $.prompt.submit({ text: 'carry on' })
+  await $.prompt.submit({ text: 'and again' })
+
+  expect(sent).toEqual(['carry on', 'and again'])
+  expect(contexts).toEqual([['[Human Todos] #1 "U": the user dismissed it.'], []])
   await pane.unmount()
 })
 

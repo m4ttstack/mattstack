@@ -36,6 +36,8 @@ export type Todo = {
   tabId?: string
   token?: string
   logPath?: string
+  // A dismissal waits here for the next prompt, which carries it to the agent instead of starting a turn of its own.
+  isUnreported?: true
 }
 
 declare module 'claude-code' {
