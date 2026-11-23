@@ -179,9 +179,9 @@ export function registerPane(on: On): void {
         <Box marginTop={1} marginBottom={1}>
           <Text bold wrap="truncate-end">{`Message about “${todo.title}”`}</Text>
         </Box>
-        {/* Only the tint on the Input's box: with a width, margin or padding on a box around it, a focused Input
-            stops wrapping and cuts its text off with an ellipsis. */}
-        <Box backgroundColor={CURSOR_ROW}>
+        {/* Only the tint and paddingY on the Input's box: with a width, margin or side padding on a box around it, a
+            focused Input stops wrapping and cuts its text off with an ellipsis. */}
+        <Box flexDirection="column" backgroundColor={CURSOR_ROW} paddingY={1}>
           <Input
             key={`message-${id}`}
             rows={fieldRows}
@@ -207,8 +207,8 @@ export function registerPane(on: On): void {
 
 // The field grows with the draft up to MAX_FIELD_ROWS, then scrolls within.
 const MAX_FIELD_ROWS = 8
-// The gap above the title, the title, and the gap under it.
-const DOCK_FIXED_ROWS = 3
+// The gap above the title, the title, the gap under it, and the tinted rows above and below the field.
+const DOCK_FIXED_ROWS = 5
 // The engine draws its key hint beside a focused field: Enter's alone on one row, the newline key's too from two.
 const ONE_ROW_HINT = '⏎ send  '
 const MULTI_ROW_HINT = '⏎ send · \\⏎ new line  '

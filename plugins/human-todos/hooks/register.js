@@ -2773,7 +2773,9 @@ function registerPane(on) {
       bold: true,
       wrap: "truncate-end"
     }, `Message about “${todo.title}”`)), /* @__PURE__ */ h(Box, {
-      backgroundColor: CURSOR_ROW
+      flexDirection: "column",
+      backgroundColor: CURSOR_ROW,
+      paddingY: 1
     }, /* @__PURE__ */ h(Input, {
       key: `message-${id}`,
       rows: fieldRows,
@@ -2799,7 +2801,7 @@ function registerPane(on) {
   });
 }
 var MAX_FIELD_ROWS = 8;
-var DOCK_FIXED_ROWS = 3;
+var DOCK_FIXED_ROWS = 5;
 var ONE_ROW_HINT = "⏎ send  ";
 var MULTI_ROW_HINT = "⏎ send · \\⏎ new line  ";
 var drafts = new Map;
