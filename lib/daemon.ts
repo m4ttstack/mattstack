@@ -40,6 +40,9 @@ import {
 import { onNotification, notifyEnabled, notifyEvent, loadNotificationPrefs } from "./notifier.ts";
 import { createForgeAccessSweep } from "./daemon/forge-access-sweep.ts";
 import { createOrgGuardSweep, ORG_GUARD_INTERVAL_MS } from "./daemon/org-guard-sweep.ts";
+import { createDevUpdateSweep, DEV_UPDATE_SCHEDULE } from "./daemon/dev-update-sweep.ts";
+import { writeAppUpdateStatus } from "./dev/auto-update.ts";
+import { childEnv } from "./subprocess.ts";
 import { checkInviteReplies, INVITE_REPLIES_NS, listInviteSlugs, MEMBER_JOINED_CATEGORY } from "./daemon/invite-replies.ts";
 import { readInviteRecords } from "./team/invite-records.ts";
 import { createRelayClient } from "./team/relay-client.ts";
@@ -1000,6 +1003,28 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           "org-guard",
           createOrgGuardSweep({ probes: createRealProbes(), log }),
           { bootDelayMs: 150_000, intervalMs: ORG_GUARD_INTERVAL_MS },
+          log,
+        ));
+        sweepHandles.push(scheduleSweep(
+          "dev-auto-update",
+          createDevUpdateSweep({
+            flavor: () => (daemonFlavor() === "dev" ? "dev" : "prod"),
+            autoUpdateOn: () => getSetting<boolean>("mattstack.autoUpdate").value !== false,
+            spawnUpdate: async () => {
+              // cli.ts named explicitly: the plain self argv here is the
+              // daemon's own entry point and would start a competing daemon.
+              const argv = rtSelfArgv({ main: join(import.meta.dir, "..", "cli.ts") });
+              const child = Bun.spawn([...argv, "dev", "update", "--auto", "--json"], {
+                detached: true,
+                stdio: ["ignore", "ignore", "ignore"],
+                env: childEnv(),
+              });
+              child.unref();
+            },
+            markOff: () => writeAppUpdateStatus(RT_DIR, { offeredVersion: null, heldVersion: null, hold: "orgOff" }),
+            log,
+          }),
+          DEV_UPDATE_SCHEDULE,
           log,
         ));
         sweepHandles.push(scheduleSweep(

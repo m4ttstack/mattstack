@@ -4,6 +4,7 @@
  * the clone is touched; the app swap comes last, because it relaunches the
  * app, which restarts the daemon this run may have been started by.
  */
+import { writeFileSync } from "fs";
 import { join } from "path";
 import { UserActionableError } from "../errors.ts";
 import { chooseDevRelease, listDevReleases, readInstalledDevApp } from "./dev-app.ts";
@@ -150,4 +151,9 @@ export function createNotifyOnce(store: NotifyOnceStore): (version: string, hold
     store.write(key);
     store.notify({ title: "A mattstack update is waiting", message: `mattstack-dev ${version} is ready. ${detail}`, id: `dev_update:${key}` });
   };
+}
+
+/** `~/.mattstack/rt/app-update.json`, which the version ping reads; on a dev Mac nothing else writes it. */
+export function writeAppUpdateStatus(rtDir: string, status: DevAutoStatus, now: Date = new Date()): void {
+  writeFileSync(join(rtDir, "app-update.json"), JSON.stringify({ lastCheckAt: now.toISOString(), ...status }));
 }

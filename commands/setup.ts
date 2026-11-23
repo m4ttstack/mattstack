@@ -187,6 +187,8 @@ export interface ApplyDeps {
   notify?: (category: string, title: string, message: string, id: string) => void;
   /** Looks for a newer dev app on every launch whose setup has finished, stamped or not; absent means no check. Never touches the exit code or the update stamp. */
   devAppNotice?: () => Promise<DevAppNotice | null>;
+  /** The org's mattstack.autoUpdate: on, the daemon installs a new dev app itself, so it is not announced. */
+  autoUpdateOn?: () => boolean;
   /** Single flight for `rt setup update`; absent means the run is not guarded. */
   updateLock?: UpdateLock;
   /** Single flight for a full, `--from` or resumed `rt setup apply`; absent means the run is not guarded. */
@@ -218,6 +220,7 @@ export function realApplyDeps(): ApplyDeps {
       return stageNeedsYou((await composeForm(probes, { secrets: realSecretPresence(), orgs: listOrgs() })).stage);
     },
     devAppNotice: () => devAppNotice({ probes, flavor: processFlavor(), gh: () => resolveTool(probes, "gh").exec }),
+    autoUpdateOn: () => getSetting<boolean>("mattstack.autoUpdate").value !== false,
     updateLock: createUpdateLock(updateLockPath(probes.home)),
     runLock: createUpdateLock(runLockPath, { maxAgeMs: APPLY_RUN_LOCK_MAX_AGE_MS }),
     holderAlive: () => {
@@ -500,6 +503,7 @@ async function finishIfClear(deps: ApplyDeps): Promise<RunWarning | null> {
 /** Runs on a stamped launch too: a dev app released after the stamp would otherwise never be announced. */
 async function announceDevApp(deps: ApplyDeps): Promise<void> {
   try {
+    if (deps.autoUpdateOn?.()) return;
     const notice = await deps.devAppNotice?.();
     if (!notice || readSetupState(deps.probes).devAppAnnounced === notice.version) return;
     (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notice.title, notice.message, notice.id);
