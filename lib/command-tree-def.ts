@@ -1666,6 +1666,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "devUpdate",
         args: [
           { name: "Release", flag: "--release", type: "boolean", default: false, hint: "Swap a dev app built on this Mac for the release's" },
+          { name: "Auto", flag: "--auto", type: "boolean", default: false, hint: "Update the clone and the dev app together only when the clone is clean and on main, as the daemon does each hour" },
           SETUP_JSON_ARG,
         ],
       },

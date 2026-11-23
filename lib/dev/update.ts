@@ -1,11 +1,19 @@
 import { join } from "path";
 import { UserActionableError } from "../errors.ts";
 import { readPins } from "./tools.ts";
-import { buildRtUi, ensureDevApp, ensureTools } from "./stages.ts";
+import { buildRtUi, ensureDevApp, ensureTools, toolchainEnv } from "./stages.ts";
+import type { CloneCheck } from "./clone-guards.ts";
 import { registerApps } from "./setup.ts";
 import type { DevSeams, StageEnding, StageRunner } from "./seams.ts";
 
 export type DevUpdateResult = { clone: string; stages: StageEnding[] };
+
+/** What a hand-run update uses to bring the clone to origin/main when that is safe. */
+export interface CloneSync {
+  checkClone(clone: string): Promise<CloneCheck>;
+  fastForward(clone: string): Promise<{ exitCode: number; stderr: string }>;
+  install(clone: string, env: Record<string, string>): Promise<{ exitCode: number; tail: string }>;
+}
 
 export async function rtUiStale(s: DevSeams, clone: string): Promise<boolean> {
   const bin = join(clone, "ui", "dist", "rt-ui");
@@ -15,7 +23,7 @@ export async function rtUiStale(s: DevSeams, clone: string): Promise<boolean> {
 }
 
 /** `release` swaps a dev app built on this Mac for the release's, which a plain update leaves alone. */
-export async function runDevUpdate(s: DevSeams, stage: StageRunner, opts: { release?: boolean } = {}): Promise<DevUpdateResult> {
+export async function runDevUpdate(s: DevSeams, stage: StageRunner, opts: { release?: boolean; clone?: CloneSync } = {}): Promise<DevUpdateResult> {
   const clone = s.storedSourcePath();
   if (s.flavor !== "dev" || !clone) {
     throw new UserActionableError("dev-not-set-up", "This Mac isn't set up to run mattstack from a clone", {}, { next: "rt dev setup" });
@@ -40,6 +48,25 @@ export async function runDevUpdate(s: DevSeams, stage: StageRunner, opts: { rele
       return t.ending;
     }),
   );
+  const sync = opts.clone;
+  if (sync) {
+    stages.push(
+      await stage("Update your clone", async () => {
+        const check = await sync.checkClone(clone);
+        if (!check.ok) return { status: "skipped", title: "Left your clone as it is", hint: check.detail };
+        if (check.behind === 0) return { status: "skipped", title: "Your clone is up to date" };
+        const ff = await sync.fastForward(clone);
+        if (ff.exitCode !== 0) {
+          throw new UserActionableError("dev-clone-ff-failed", "Fast-forwarding your clone to origin/main failed", {}, { log: ff.stderr, next: "rt dev update" });
+        }
+        const inst = await sync.install(clone, toolchainEnv(s, { bunPath, goPath }));
+        if (inst.exitCode !== 0) {
+          throw new UserActionableError("dev-clone-install-failed", "bun install failed in your clone", {}, { log: inst.tail, next: "rt dev update" });
+        }
+        return { status: "done", title: "Updated your clone", hint: `${check.behind} new commit${check.behind === 1 ? "" : "s"}` };
+      }),
+    );
+  }
   stages.push(
     await stage("Rebuild rt's terminal helper", async () => {
       if (!(await rtUiStale(s, clone))) return { status: "skipped", title: "rt's terminal helper is current" };

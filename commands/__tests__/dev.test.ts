@@ -3,7 +3,7 @@ import { listAgentSafe } from "../../lib/command-tree-resolve.ts";
 import { TREE } from "../../lib/command-tree-def.ts";
 import { UserActionableError } from "../../lib/errors.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
-import { devEnvelope, devSetupBlocks, devUpdateBlocks, failureBlocks } from "../dev.ts";
+import { devAutoBlocks, devEnvelope, devSetupBlocks, devUpdateBlocks, failureBlocks } from "../dev.ts";
 
 const AT = new Date("2026-10-06T15:00:00.000Z");
 
@@ -27,6 +27,19 @@ describe("rt dev", () => {
 
   test("already set up points at update", () => {
     expect(renderPlain(devSetupBlocks({ kind: "already", clone: "/c/mattstack" }))).toContain("rt dev update");
+  });
+
+  test("rt dev update takes --auto", () => {
+    expect(TREE.dev!.subcommands!.update!.args!.some((a) => a.flag === "--auto")).toBe(true);
+  });
+
+  test("--auto says what happened in one line", () => {
+    expect(renderPlain(devAutoBlocks({ kind: "current" }))).toContain("Your dev setup is up to date");
+    expect(renderPlain(devAutoBlocks("locked"))).toContain("Your dev setup is up to date");
+    expect(renderPlain(devAutoBlocks({ kind: "updated", version: "2.23.0" }))).toContain("Updated to mattstack-dev 2.23.0");
+    const held = renderPlain(devAutoBlocks({ kind: "held", version: "2.23.0", hold: "dirtyTree", detail: "Your clone has uncommitted changes." }));
+    expect(held).toContain("An update to mattstack-dev 2.23.0 is waiting");
+    expect(held).toContain("Your clone has uncommitted changes.");
   });
 
   test("update summary names the clone", () => {

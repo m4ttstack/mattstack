@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { basename } from "path";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { DevSeams, StageRunner } from "../seams.ts";
-import { runDevUpdate, rtUiStale } from "../update.ts";
+import { runDevUpdate, rtUiStale, type CloneSync } from "../update.ts";
 
 const CLONE = "/Users/collab/Documents/GitHub/mattstack";
 const BUN = "/Users/collab/.bun/bin/bun";
@@ -147,7 +147,47 @@ describe("runDevUpdate", () => {
     expect(swapCmds).toEqual([]);
   });
 
-  test("never pulls, rebases or checks out the clone", async () => {
+  test("a clone that holds is left alone with its reason as a note, and the app is still installed", async () => {
+    const { s, swapCmds } = seams({});
+    const calls: string[] = [];
+    const clone: CloneSync = {
+      checkClone: async () => { calls.push("check"); return { ok: false, hold: "dirtyTree", detail: "Your clone has uncommitted changes." }; },
+      fastForward: async () => { calls.push("ff"); return { exitCode: 0, stderr: "" }; },
+      install: async () => { calls.push("install"); return { exitCode: 0, tail: "" }; },
+    };
+    const r = await runDevUpdate(s, runner, { clone });
+    expect(calls).toEqual(["check"]);
+    expect(r.stages[1]).toEqual({ status: "skipped", title: "Left your clone as it is", hint: "Your clone has uncommitted changes." });
+    expect(swapCmds.some((c) => c.startsWith("ditto") && c.endsWith("/Applications/mattstack-dev.app"))).toBe(true);
+  });
+
+  test("a clone that passes and is behind is fast-forwarded and installed before the app", async () => {
+    const { s } = seams({});
+    const calls: string[] = [];
+    const clone: CloneSync = {
+      checkClone: async () => { calls.push("check"); return { ok: true, behind: 2 }; },
+      fastForward: async () => { calls.push("ff"); return { exitCode: 0, stderr: "" }; },
+      install: async (_c, env) => { calls.push(`install ${env.PATH}`); return { exitCode: 0, tail: "" }; },
+    };
+    const r = await runDevUpdate(s, runner, { clone });
+    expect(calls).toEqual(["check", "ff", "install /opt/homebrew/bin:/Users/collab/.bun/bin:/usr/bin"]);
+    expect(r.stages[1]).toEqual({ status: "done", title: "Updated your clone", hint: "2 new commits" });
+  });
+
+  test("a clone that is up to date is not fast-forwarded", async () => {
+    const { s } = seams({});
+    const calls: string[] = [];
+    const clone: CloneSync = {
+      checkClone: async () => { calls.push("check"); return { ok: true, behind: 0 }; },
+      fastForward: async () => { calls.push("ff"); return { exitCode: 0, stderr: "" }; },
+      install: async () => { calls.push("install"); return { exitCode: 0, tail: "" }; },
+    };
+    const r = await runDevUpdate(s, runner, { clone });
+    expect(calls).toEqual(["check"]);
+    expect(r.stages[1]).toEqual({ status: "skipped", title: "Your clone is up to date" });
+  });
+
+  test("never pulls, rebases or checks out the clone on its own", async () => {
     const { s, probes } = seams({});
     await runDevUpdate(s, runner);
     const gitCalls = probes.calls.exec.filter((a) => basename(a[0]!) === "git");

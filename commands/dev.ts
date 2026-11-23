@@ -3,7 +3,7 @@
  * step per stage at a terminal, plain lines off one, and a frozen envelope
  * under --json. Every decision lives in lib/dev.
  */
-import { mkdtempSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
@@ -12,7 +12,16 @@ import { resolveTool } from "../lib/deps/resolve.ts";
 import { devWrapperOwnsRt } from "../lib/dev-mode.ts";
 import { DEV_NEEDS_YOU_CODES, DEV_REFUSAL_CODES, type DevSeams, type StageEnding, type StageIO, type StageRunner } from "../lib/dev/seams.ts";
 import { runDevSetup, type DevSetupResult } from "../lib/dev/setup.ts";
-import { runDevUpdate, type DevUpdateResult } from "../lib/dev/update.ts";
+import { runDevUpdate, type CloneSync, type DevUpdateResult } from "../lib/dev/update.ts";
+import { createNotifyOnce, runDevAutoUpdate, type DevAutoDeps, type DevAutoOutcome, type DevAutoStatus } from "../lib/dev/auto-update.ts";
+import { checkClone, realCloneGuardDeps } from "../lib/dev/clone-guards.ts";
+import { rtCommand } from "../packages/rt-client/src/index.ts";
+import { RT_DIR } from "../lib/daemon-config.ts";
+import { trayQuery } from "../lib/daemon-client.ts";
+import { notify } from "../lib/notifier.ts";
+import { createUpdateLock } from "../lib/setup/update-lock.ts";
+import { getKvValue, setKvValueCritical } from "../lib/state/kv-blob.ts";
+import { MUTATING_TIMEOUT_MS, runGit } from "../lib/worktree/git-async.ts";
 import { exitUserError, failureFor, logFailureDetail, UserActionableError } from "../lib/errors.ts";
 import { processFlavor } from "../lib/flavor.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
@@ -55,6 +64,71 @@ function realSeams(json: boolean, scratch: { dir: string | null }): DevSeams {
     installDevTool: (tool, version) => installDevTool(probes, tool, version),
     gh: () => resolveTool(probes, "gh").exec,
     devWrapperOwnsRt,
+  };
+}
+
+function realCloneSync(): CloneSync {
+  const guards = realCloneGuardDeps();
+  return {
+    checkClone: (clone) => checkClone(guards, clone),
+    fastForward: (clone) => runGit(clone, ["merge", "--ff-only", "refs/remotes/origin/main"], { timeoutMs: MUTATING_TIMEOUT_MS }),
+    install: async (clone, env) => {
+      const r = await runCapture(["bun", "install", "--frozen-lockfile"], { cwd: clone, stderr: "pipe", timeoutMs: 15 * 60_000, env: { ...childEnv(), ...env } });
+      return { exitCode: r.exitCode, tail: `${r.stdout}\n${r.stderr}`.trim().split("\n").slice(-OUTPUT_TAIL_LINES).join("\n") };
+    },
+  };
+}
+
+const APP_UPDATE_PATH = () => join(RT_DIR, "app-update.json");
+
+function writeAppUpdate(s: DevAutoStatus): void {
+  writeFileSync(APP_UPDATE_PATH(), JSON.stringify({ lastCheckAt: new Date().toISOString(), ...s }));
+}
+
+function realAutoDeps(): DevAutoDeps {
+  const sync = realCloneSync();
+  return {
+    autoUpdateOn: () => {
+      try {
+        return getSetting<boolean>("mattstack.autoUpdate").value !== false;
+      } catch {
+        return true;
+      }
+    },
+    daemonBusy: async () => {
+      const r = await rtCommand<{ busy: boolean }>("daemon:busy", {}, { timeoutMs: 3000, retryBudgetMs: 0 });
+      return r.ok === true && r.data?.busy === true;
+    },
+    checkClone: sync.checkClone,
+    fastForward: sync.fastForward,
+    install: sync.install,
+    restartDaemon: async () => {
+      await trayQuery("/daemon/restart", "POST");
+    },
+    writeStatus: writeAppUpdate,
+    clearHeld: () => {
+      if (!existsSync(APP_UPDATE_PATH())) return;
+      try {
+        const prior = JSON.parse(readFileSync(APP_UPDATE_PATH(), "utf8")) as Partial<DevAutoStatus>;
+        if (prior.hold) writeAppUpdate({ offeredVersion: null, heldVersion: null, hold: null });
+      } catch {
+        writeAppUpdate({ offeredVersion: null, heldVersion: null, hold: null });
+      }
+    },
+    notifyOnce: createNotifyOnce({
+      read: () => getKvValue<string | null>("dev-auto-update", "announced", null),
+      write: (v) => { setKvValueCritical("dev-auto-update", "announced", v); },
+      notify: (n) => notify(n.title, n.message, undefined, "setup_update", undefined, n.id),
+    }),
+    lock: async (fn) => {
+      const lock = createUpdateLock(join(RT_DIR, "dev-update.lock"));
+      if (!lock.acquire()) return "locked";
+      try {
+        return await fn();
+      } finally {
+        lock.release();
+      }
+    },
   };
 }
 
@@ -125,6 +199,12 @@ export function devSetupBlocks(r: DevSetupResult): Block[] {
   ];
 }
 
+export function devAutoBlocks(r: DevAutoOutcome | "locked"): Block[] {
+  if (r === "locked" || r.kind === "current") return [out.line("done", "Your dev setup is up to date")];
+  if (r.kind === "updated") return [out.line("done", `Updated to mattstack-dev ${r.version}`)];
+  return [out.line("pending", `An update to mattstack-dev ${r.version} is waiting`, r.detail)];
+}
+
 export function devUpdateBlocks(r: DevUpdateResult): Block[] {
   return [out.blank(), out.line("done", "Your dev setup is up to date", r.clone)];
 }
@@ -188,8 +268,15 @@ export async function devSetup(args: string[], _ctx: CommandContext = {}): Promi
 }
 
 export async function devUpdate(args: string[], _ctx: CommandContext = {}): Promise<void> {
+  if (args.includes("--auto")) {
+    await run(args, (s, stage) => runDevAutoUpdate(s, stage, realAutoDeps()), (r, _stages, json) => {
+      if (json) out.json(devEnvelope({ ok: true, ...(r === "locked" ? { kind: "locked" } : r) }, new Date()));
+      else out.print(...devAutoBlocks(r));
+    });
+    return;
+  }
   const release = args.includes("--release");
-  await run(args, (s, stage) => runDevUpdate(s, stage, { release }), (r, stages, json) => {
+  await run(args, (s, stage) => runDevUpdate(s, stage, { release, clone: realCloneSync() }), (r, stages, json) => {
     if (json) out.json(devEnvelope({ ok: true, clone: r.clone, stages }, new Date()));
     else out.print(...devUpdateBlocks(r));
   });

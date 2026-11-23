@@ -1,0 +1,153 @@
+/**
+ * The dev Mac's automatic update: the clone and the dev app move to the
+ * newest release together, or nothing moves. Every guard is checked before
+ * the clone is touched; the app swap comes last, because it relaunches the
+ * app, which restarts the daemon this run may have been started by.
+ */
+import { join } from "path";
+import { UserActionableError } from "../errors.ts";
+import { chooseDevRelease, listDevReleases, readInstalledDevApp } from "./dev-app.ts";
+import type { CloneCheck, CloneHold } from "./clone-guards.ts";
+import { registerApps } from "./setup.ts";
+import type { DevSeams, StageRunner } from "./seams.ts";
+import { buildRtUi, ensureDevApp, requireGh, toolchainEnv } from "./stages.ts";
+import { compareVersions, parseBunPin, parseGoPin, probeDevTools } from "./tools.ts";
+import { rtUiStale } from "./update.ts";
+
+export type DevHold = CloneHold | "daemonBusy" | "orgOff" | "updateFailed";
+export type DevAutoOutcome =
+  | { kind: "current" }
+  | { kind: "held"; version: string; hold: DevHold; detail: string }
+  | { kind: "updated"; version: string };
+
+export interface DevAutoStatus { offeredVersion: string | null; heldVersion: string | null; hold: string | null }
+
+export interface DevAutoDeps {
+  autoUpdateOn(): boolean;
+  /** False when the daemon does not answer. */
+  daemonBusy(): Promise<boolean>;
+  checkClone(clone: string): Promise<CloneCheck>;
+  /** git merge --ff-only origin/main */
+  fastForward(clone: string): Promise<{ exitCode: number; stderr: string }>;
+  /** bun install --frozen-lockfile */
+  install(clone: string, env: Record<string, string>): Promise<{ exitCode: number; tail: string }>;
+  restartDaemon(): Promise<void>;
+  writeStatus(s: DevAutoStatus): void;
+  /** Clears a held status left by an earlier run; writes nothing when none is recorded. */
+  clearHeld(): void;
+  /** One notification per (version, hold). */
+  notifyOnce(version: string, hold: DevHold, detail: string): void;
+  lock<T>(fn: () => Promise<T>): Promise<T | "locked">;
+}
+
+const CURRENT: DevAutoOutcome = { kind: "current" };
+
+export async function runDevAutoUpdate(s: DevSeams, stage: StageRunner, d: DevAutoDeps): Promise<DevAutoOutcome | "locked"> {
+  return d.lock(async () => {
+    const clone = s.storedSourcePath();
+    if (s.flavor !== "dev" || !clone || !s.probes.exists(join(clone, "cli.ts"))) return CURRENT;
+    const installed = await readInstalledDevApp(s.probes);
+    if (installed && !installed.releaseBuild) return CURRENT;
+    const pick = await newestRelease(s);
+    if (!pick || (installed && compareVersions(installed.version, pick.release.version) >= 0)) {
+      d.clearHeld();
+      return CURRENT;
+    }
+    const version = pick.release.version;
+    const held = (hold: DevHold, detail: string): DevAutoOutcome => {
+      d.writeStatus({ offeredVersion: version, heldVersion: hold === "orgOff" ? null : version, hold });
+      if (hold !== "orgOff") d.notifyOnce(version, hold, detail);
+      return { kind: "held", version, hold, detail };
+    };
+
+    if (!d.autoUpdateOn()) return held("orgOff", "Your org turned automatic updates off.");
+    const check = await d.checkClone(clone);
+    if (!check.ok) return held(check.hold, check.detail);
+    if (await d.daemonBusy()) return held("daemonBusy", "The daemon is busy; rt tries again within the hour.");
+
+    const tools = await toolsForOriginMain(s, clone);
+    if ("missing" in tools) return held("updateFailed", tools.missing);
+
+    try {
+      await stage("Update your clone", async () => {
+        const ff = await d.fastForward(clone);
+        if (ff.exitCode !== 0) throw new StepFailed("Fast-forwarding your clone to origin/main failed.");
+        const inst = await d.install(clone, toolchainEnv(s, tools));
+        if (inst.exitCode !== 0) throw new StepFailed("bun install failed in your clone.");
+        return { status: "done", title: "Updated your clone" };
+      });
+      await stage("Rebuild rt's terminal helper", async () => {
+        if (!(await rtUiStale(s, clone))) return { status: "skipped", title: "rt's terminal helper is current" };
+        await asStep(() => buildRtUi(s, clone, tools), "Building rt's terminal helper failed.");
+        return { status: "done", title: "Rebuilt rt's terminal helper" };
+      });
+      await stage("Serve the apps from your clone", async (io) => {
+        await asStep(() => registerApps(s, clone, io), "Serving the apps from your clone failed.");
+        return { status: "done", title: "The apps run from your clone" };
+      });
+      await stage("Update the dev app", (io) => asStep(() => ensureDevApp(s, io, "update", pick), "Installing the dev app failed."));
+    } catch (err) {
+      if (err instanceof StepFailed) return held("updateFailed", err.message);
+      throw err;
+    }
+    await d.restartDaemon();
+    d.writeStatus({ offeredVersion: version, heldVersion: null, hold: null });
+    return { kind: "updated", version };
+  });
+}
+
+class StepFailed extends Error {}
+
+async function asStep<T>(fn: () => Promise<T>, detail: string): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof UserActionableError) throw new StepFailed(detail);
+    throw err;
+  }
+}
+
+/** No release, or GitHub not answering, both mean there is nothing to install this hour. */
+async function newestRelease(s: DevSeams) {
+  try {
+    return await chooseDevRelease(s.probes, await listDevReleases(s.probes, requireGh(s)));
+  } catch (err) {
+    if (err instanceof UserActionableError) return null;
+    throw err;
+  }
+}
+
+/** The pins the clone will have after the fast-forward, read before it, so a missing tool stops the run while nothing has changed. */
+async function toolsForOriginMain(s: DevSeams, clone: string): Promise<{ bunPath: string; goPath: string } | { missing: string }> {
+  const show = (path: string) => s.probes.exec(["git", "-C", clone, "show", `origin/main:${path}`], { timeoutMs: 15_000 });
+  const [pkg, goMod] = await Promise.all([show("package.json"), show("ui/go.mod")]);
+  const bun = pkg.code === 0 ? parseBunPin(pkg.stdout) : null;
+  const go = goMod.code === 0 ? parseGoPin(goMod.stdout) : null;
+  if (!bun || !go) return { missing: "rt could not read which bun and Go versions origin/main needs." };
+  const tools = await probeDevTools(s.probes, { bun, go });
+  const short = tools.find((t) => t.need === "required" && t.state !== "ready");
+  if (short) {
+    return {
+      missing: short.state === "too-old"
+        ? `The update needs ${short.name} ${short.wanted}; this Mac has ${short.version}.`
+        : `The update needs ${short.name} ${short.wanted}, which is not installed.`,
+    };
+  }
+  return { bunPath: tools.find((t) => t.name === "bun")!.found!, goPath: tools.find((t) => t.name === "go")!.found! };
+}
+
+export interface NotifyOnceStore {
+  read(): string | null;
+  write(value: string): void;
+  notify(n: { title: string; message: string; id: string }): void;
+}
+
+/** The record outlives the process, so a daemon restart between hourly runs does not repeat a notice. */
+export function createNotifyOnce(store: NotifyOnceStore): (version: string, hold: DevHold, detail: string) => void {
+  return (version, hold, detail) => {
+    const key = `${version}:${hold}`;
+    if (store.read() === key) return;
+    store.write(key);
+    store.notify({ title: "A mattstack update is waiting", message: `mattstack-dev ${version} is ready. ${detail}`, id: `dev_update:${key}` });
+  };
+}
