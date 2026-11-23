@@ -715,6 +715,73 @@ test('a dropped Send & Done leaves the item open; once it gets through, the item
   await pane.unmount()
 })
 
+test('Send pressed again while a busy turn holds the first message sends it once', async ($, on) => {
+  const { events, store, sent, fail } = await seeded($, on, [todo({})])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const status = () => (store.get(`list:${SESSION}`) as { todos: Todo[] }).todos[0]?.status
+  let release = () => {}
+  fail.holdSubmit = new Promise<void>(resolve => (release = resolve))
+  await press(pane, '1', 'message')
+
+  const first = pane.post({ type: 'send', id: '1', text: 'here it is', done: true }, { in: 'human-todos-pane' })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  await pane.post({ type: 'send', id: '1', text: 'here it is', done: true }, { in: 'human-todos-pane' })
+  await pane.post({ type: 'send', id: '1', text: 'here it is', done: false }, { in: 'human-todos-pane' })
+
+  const waiting = '#1 is already on its way to the agent; it goes in when the current turn ends'
+  expect(toasts(events)).toEqual([waiting, waiting])
+  release()
+  await first
+  // A post can return before the work it started has saved the item, so the test waits for the item itself.
+  for (let tick = 0; tick < 100 && status() !== 'done'; tick++) await new Promise(resolve => setTimeout(resolve, 0))
+
+  expect(sent).toEqual(['[Human Todos] #1 "T": the user marked it done and says: here it is'])
+  expect(status()).toBe('done')
+  await pane.unmount()
+})
+
+// One Client's posts in a tick collapse into the last, so the second Send comes from a second drawing of the pane.
+test('two Sends posted in the same tick send the message once', async ($, on) => {
+  const { events, sent, fail } = await seeded($, on, [todo({})])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const other = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  let release = () => {}
+  fail.holdSubmit = new Promise<void>(resolve => (release = resolve))
+  await press(pane, '1', 'message')
+
+  const posts = [
+    pane.post({ type: 'send', id: '1', text: 'here it is', done: true }, { in: 'human-todos-pane' }),
+    other.post({ type: 'send', id: '1', text: 'here it is', done: true }, { in: 'human-todos-pane' }),
+  ]
+  await new Promise(resolve => setTimeout(resolve, 0))
+  release()
+  await Promise.all(posts)
+  for (let tick = 0; tick < 50; tick++) await new Promise(resolve => setTimeout(resolve, 0))
+
+  expect(toasts(events)).toEqual(['#1 is already on its way to the agent; it goes in when the current turn ends'])
+  expect(sent).toEqual(['[Human Todos] #1 "T": the user marked it done and says: here it is'])
+  await other.unmount()
+  await pane.unmount()
+})
+
+test("a send held from the last session does not block the new session's item with the same number", async ($, on) => {
+  const { events, store, sent, fail, setSession } = await seeded($, on, [todo({})])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  fail.holdSubmit = new Promise<void>(() => {})
+  await press(pane, '1', 'message')
+  void pane.post({ type: 'send', id: '1', text: 'old', done: false }, { in: 'human-todos-pane' })
+  await new Promise(resolve => setTimeout(resolve, 0))
+
+  store.set('list:sess-2', { todos: [todo({ title: 'New' })], nextId: 2, savedAt: 1_000_000 })
+  setSession('sess-2')
+  await state($)
+  await pane.post({ type: 'send', id: '1', text: 'new', done: false }, { in: 'human-todos-pane' })
+
+  expect(toasts(events)).toEqual([])
+  expect(sent).toEqual(['[Human Todos] #1 "New": the user says: new'])
+  await pane.unmount()
+})
+
 test('with the pane closed and nothing drawn, a finished run is still reported', async ($, on) => {
   const { clock, sent } = await seeded($, on, [todo({})], {
     script: async function* () {
