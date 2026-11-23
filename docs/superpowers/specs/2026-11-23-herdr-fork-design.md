@@ -95,7 +95,10 @@ reaches flock users with no flock release.
   4. kitty images in session-control frames (0.9.5 r4)
   5. gate blocked state (below)
   Commits 1 to 4 are flock's `patches/herdr/0.9.5.patch` (r4) split by feature.
-- Builds: arm64 and x86_64, from a tag named `<upstream version>-ms.<n>`
+- Builds: arm64 and x86_64, signed with the Developer ID by jobs on the
+  self-hosted Mac runner that holds it in its keychain, so publishing needs
+  no person and the certificate never leaves the team's machines. Built
+  from a tag named `<upstream version>-ms.<n>`
   (e.g. `0.9.5-ms.1`). The binary reports a version that shows it is a
   mattstack build, so an installer can tell it from stock herdr without
   hashing.
@@ -133,8 +136,14 @@ Installers verify the SHA-256 from the list before swapping the binary in.
   Clean: opens a PR with a draft release. Conflict or red tests: opens an
   issue naming the commit that broke.
 - Merging that PR publishes the release and updates the build list.
-- **`rt:release`:** one check before shipping, that the build mattstack
-  expects is the list's newest. No rebasing in the release.
+- **What mattstack requires:** the newest build in the list, across herdr
+  versions: someone on `0.9.5-ms.3` moves to `0.9.6-ms.1` once it is
+  published. rt also keeps a minimum fork build for features it depends on
+  (the gate form's blocker first), replacing today's `HERDR_FLOOR`.
+- **`rt:release`:** one check before shipping, that rt's minimum build is
+  published in the list. A herdr catch-up never blocks a release; only a
+  mattstack change that raised the minimum can, until that build publishes.
+  No rebasing in the release.
 
 ### 4. Mattstack setup
 
@@ -142,8 +151,19 @@ Installers verify the SHA-256 from the list before swapping the binary in.
   installs from the build list instead of `herdr.dev/install.sh`. Ready means
   a mattstack herdr build that is the list's newest for this herdr, with the
   Claude integration installed. Stock herdr, or an outdated fork build, reads
-  as needing an upgrade. Installing a `changesServer` build restarts the
-  server by herdr's live handoff, so panes stay open.
+  as needing an upgrade, including a stock herdr newer than the fork's
+  newest (the fork wins). Installing a `changesServer` build moves the
+  running server onto it by herdr's live handoff (`herdr update --handoff`
+  uses the same path), so panes stay open. Handoff is built to work across
+  versions; it refuses only when the binary is not the one expected or the
+  handoff format changes. On a refusal: install the binary, leave the old
+  server running, and show "Restart herdr when your agents are done" with a
+  button that ends every pane only when pressed. Nothing ends panes unasked.
+- **A stock herdr earlier on PATH** (e.g. Homebrew's `/opt/homebrew/bin/herdr`):
+  the row reads needs-you and offers to remove it. Setup never removes it
+  silently.
+- **Old flock backups:** setup deletes `herdr.pre-mouse-backup`, since it
+  holds stock herdr.
 - **herdr's own updates:** `herdr update` and herdr's update notice must not
   replace a mattstack build with stock herdr. How (a patch in the fork that
   points `herdr update` at the build list, or one that disables it with a
@@ -155,6 +175,15 @@ Installers verify the SHA-256 from the list before swapping the binary in.
 ### 5. Flock
 
 - The patch catalog reads the build list instead of its compiled table.
+- **No herdr installed:** flock installs the fork's newest build to
+  `~/.local/bin/herdr` and runs `herdr integration install claude`,
+  replacing today's "Install herdr, then relaunch flock" screen. Flock never
+  sends anyone to stock herdr.
+- **Recognising a fork build:** by its version string (`-ms.<n>`), not by
+  flock's backup file, so a herdr that rt setup installed reads as a fork
+  build and gets offered the list's newer builds.
+- **Revert goes**, since it restores stock herdr. Flock stops writing a
+  backup.
 - The install confirmation stays as it is: flock still asks every time before
   replacing herdr. Flock's live-handoff server restart stays.
 - Flock's stock herdr update notice (`herdr.dev/latest.json`, `herdr update`)
@@ -185,6 +214,9 @@ socket method are the builder's call). Behavior:
   (`HERDR_ENV=1`, `HERDR_PANE_ID` set), next to `ringBell`.
 - Keep it raised while any form is open, including a gate set aside to the
   band, since that gate still waits on the person.
+- Board-only gates (`boardAtom`: review posting, respond plans, kit gates the
+  form cannot draw) do not raise it. Only forms count; the board has its own
+  notifications.
 - Clear it when the last open form ends (`openCount === 0`), and on session
   end.
 - Covers every form source: rt gates under `rt.gates.kitForm`, plugin asks
