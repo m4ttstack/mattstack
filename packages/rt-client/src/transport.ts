@@ -123,7 +123,10 @@ function connectFailed(err: unknown): boolean {
 // caller's short budget never takes the retry away from the next caller.
 // Without the cool-off, every call a long-lived client makes to a daemon that
 // is down for good would stall for the whole budget.
-const unanswered = new Map<string, { firstMissAt: number; downUntil: number }>();
+// `kind` says what the misses were: a daemon that comes back after an
+// unanswered stretch gets a fresh clock, while one that keeps answering
+// starting or stopping cools off like a missing one.
+const unanswered = new Map<string, { kind: "unreached" | "unavailable"; firstMissAt: number; downUntil: number }>();
 let coolOffAfterMs = DAEMON_RETRY_BUDGET_MS;
 
 export const __test__ = {
@@ -171,21 +174,20 @@ export async function rtCommand<T = unknown>(
   for (let attempt = 0; ; attempt++) {
     const { response, outcome } = await sendCommand<T>(cmd, payload, sockPath, timeoutMs);
     if (outcome === "dropped") return response;
-    if (outcome === "answered") {
-      // Any answer, a starting one included, means a daemon holds the socket.
+    if (outcome === "answered" && !isUnavailable(response)) {
       unanswered.delete(sockPath);
-      if (!isUnavailable(response)) return response;
-    } else if (!unanswered.has(sockPath)) {
+      return response;
+    }
+    const kind = outcome === "answered" ? "unavailable" : "unreached";
+    if (unanswered.get(sockPath)?.kind !== kind) {
       // The call's start, not now: a budget as long as the threshold must
       // always reach it, whatever the first attempt took.
-      unanswered.set(sockPath, { firstMissAt: startedAt, downUntil: 0 });
+      unanswered.set(sockPath, { kind, firstMissAt: startedAt, downUntil: 0 });
     }
     const delay = Math.min(nextRetryDelay(attempt), deadline - Date.now());
     if (delay <= 0) {
-      const miss = unanswered.get(sockPath);
-      if (miss && (coolingOff || Date.now() - miss.firstMissAt >= coolOffAfterMs)) {
-        miss.downUntil = Date.now() + DAEMON_DOWN_COOLOFF_MS;
-      }
+      const miss = unanswered.get(sockPath)!;
+      if (Date.now() - miss.firstMissAt >= coolOffAfterMs) miss.downUntil = Date.now() + DAEMON_DOWN_COOLOFF_MS;
       return response;
     }
     await new Promise((resolve) => setTimeout(resolve, delay));

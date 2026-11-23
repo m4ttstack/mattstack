@@ -181,6 +181,25 @@ describe("startSocketServer: availability", () => {
     }, availability);
   });
 
+  test("a daemon parked on its API port answers 503 with a reply clients do not retry", async () => {
+    const calls: string[] = [];
+    const availability = createSocketAvailability();
+    availability.parkedPort = 9401;
+    availability.holder = { pid: 42, flavor: "dev" };
+    await withSocketServer(async (cmd) => { calls.push(cmd); return { ok: true }; }, async () => {
+      const res = await post("chat:post");
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({
+        ok: false,
+        error: "rt daemon is waiting for port 9401, which another process is using; run rt daemon status",
+        parked: true,
+        pid: 42,
+        flavor: "dev",
+      });
+      expect(calls).toEqual([]);
+    }, availability);
+  });
+
   test("a stopping daemon answers 503 with the restarting sentence", async () => {
     const calls: string[] = [];
     const availability = createSocketAvailability();

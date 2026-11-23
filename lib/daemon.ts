@@ -287,7 +287,7 @@ export interface BootSeams {
     log: Logger;
     wasVerbShutdown: () => boolean;
   }) => void;
-  bindApiServer: (handleCommand: HandleCommand, log: Logger) => Promise<Server<any>>;
+  bindApiServer: (handleCommand: HandleCommand, log: Logger, onParked: (port: number) => void) => Promise<Server<any>>;
   /** Seamed so the boot test never signals a pid an ambient rt.pid names. */
   evictStaleDaemon: (log: Logger) => Promise<void>;
   bindSocketServer: (handleCommand: HandleCommand, log: Logger, availability: SocketAvailability) => Server<any>;
@@ -328,8 +328,8 @@ function realSeams(): BootSeams {
     resolveUserPath,
     installCrashHandlers,
     installSignalHandlers,
-    bindApiServer: (handleCommand, log) =>
-      withApiPortParkRetry(() => startApiServer({ handleCommand, log }), { sleep: (ms) => Bun.sleep(ms), log }),
+    bindApiServer: (handleCommand, log, onParked) =>
+      withApiPortParkRetry(() => startApiServer({ handleCommand, log }), { sleep: (ms) => Bun.sleep(ms), log, onParked }),
     evictStaleDaemon,
     bindSocketServer: (handleCommand, log, availability) => startSocketServer({ handleCommand, log, availability }),
     writePid: (pid) => writeFileSync(DAEMON_PID_PATH, String(pid)),
@@ -1601,7 +1601,8 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         }, 0);
         log.info("daemon starting");
         setPhase("api");
-        ctx.servers.api = await seams.bindApiServer(handleCommand, log);
+        ctx.servers.api = await seams.bindApiServer(handleCommand, log, (port) => { ctx.availability.parkedPort = port; });
+        ctx.availability.parkedPort = undefined;
       },
       stop() {
         try { ctx.servers.api?.stop(true); } catch { /* server already stopped */ }

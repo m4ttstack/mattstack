@@ -56,6 +56,8 @@ interface SocketQueryAttempt {
   connectFailed: boolean;
   /** True when a booting or draining daemon answered that it cannot serve yet; it did not act on the request. */
   unavailable: boolean;
+  /** Which of the two, when `unavailable`. */
+  unavailableState?: "starting" | "stopping";
 }
 
 async function trySocketQuery(
@@ -86,7 +88,9 @@ async function trySocketQuery(
     _lastQueryWasRefused = false;
     _lastQueryTimedOut   = false;
     const body = (await response.json()) as DaemonResponse;
-    if (isUnavailable(body)) return { response: null, refused: false, timedOut: false, connectFailed: false, unavailable: true };
+    if (isUnavailable(body)) {
+      return { response: null, refused: false, timedOut: false, connectFailed: false, unavailable: true, unavailableState: body.unavailable };
+    }
     return { response: body, refused: false, timedOut: false, connectFailed: false, unavailable: false };
   } catch (err) {
     const code = (err as any)?.code ?? "";
@@ -427,13 +431,14 @@ export async function isDaemonRunning(): Promise<boolean> {
 }
 
 /**
- * Whether a daemon holds rt.sock at all. `unavailable` is one that is booting
- * or draining: a caller that would start a daemon, or touch files a daemon
- * holds open, must treat it as there.
+ * Whether a daemon holds rt.sock at all. A starting or stopping daemon is
+ * there: a caller that would start a daemon, or touch files a daemon holds
+ * open, must treat it as present. A stopping one may not be followed by
+ * another.
  */
-export async function daemonPresence(): Promise<"serving" | "unavailable" | "absent"> {
+export async function daemonPresence(): Promise<"serving" | "starting" | "stopping" | "absent"> {
   const attempt = await trySocketQuery("ping");
-  if (attempt.unavailable) return "unavailable";
+  if (attempt.unavailable) return attempt.unavailableState ?? "starting";
   return attempt.response !== null ? "serving" : "absent";
 }
 
