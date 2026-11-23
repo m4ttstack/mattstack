@@ -226,13 +226,22 @@ describe("rtCommand: retry while the daemon restarts", () => {
     expect(await rtCommand("odd", {}, { sockPath: nullServerSock, retryBudgetMs: 1_000 })).toBeNull();
   });
 
-  test("defaultRetryBudget: 20s, except for a caller whose timeout is under 5s", () => {
+  test("defaultRetryBudget: 20s, except for a caller whose timeout is 5s or less", () => {
     expect(defaultRetryBudget(undefined)).toBe(20_000);
     expect(defaultRetryBudget(10_000)).toBe(20_000);
     expect(defaultRetryBudget(250_000)).toBe(20_000);
-    expect(defaultRetryBudget(5_000)).toBe(20_000);
-    expect(defaultRetryBudget(4_999)).toBe(4_999);
+    expect(defaultRetryBudget(5_001)).toBe(20_000);
+    expect(defaultRetryBudget(5_000)).toBe(5_000);
     expect(defaultRetryBudget(800)).toBe(800);
+  });
+
+  test("a spent budget as long as the cool-off threshold always starts the cool-off", async () => {
+    __test__.setCoolOffAfterMs(300);
+    const sock = freshSock();
+    await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 300 });
+    const started = Date.now();
+    await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 });
+    expect(Date.now() - started).toBeLessThan(2_000);
   });
 
   test("the cool-off is per socket: another socket still gets its budget", async () => {

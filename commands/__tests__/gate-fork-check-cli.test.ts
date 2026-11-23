@@ -2,7 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildForkCheckPayload, forkCheckHookOutput, forkDenyReason, FORK_CHECK_ALLOW } from "../gate.ts";
+import { buildForkCheckPayload, forkCheckHookOutput, forkDenyReason, FORK_CHECK_ALLOW, FORK_CHECK_TIMEOUT_MS } from "../gate.ts";
+import { defaultRetryBudget } from "../../packages/rt-client/src/transport.ts";
+import { GATE_FORK_HOOK_TIMEOUT_SECONDS } from "../../lib/agent-hooks.ts";
+
+describe("fork-check time limit", () => {
+  test("retrying a daemon that is down never outlasts the half of the hook limit the daemon call may spend", () => {
+    expect(FORK_CHECK_TIMEOUT_MS).toBe((GATE_FORK_HOOK_TIMEOUT_SECONDS * 1000) / 2);
+    expect(defaultRetryBudget(FORK_CHECK_TIMEOUT_MS)).toBeLessThanOrEqual(FORK_CHECK_TIMEOUT_MS);
+  });
+});
 
 const agentEnv = {
   RT_GATE_SUBJECT: "herd:acme-x/acme-1234-attorney",

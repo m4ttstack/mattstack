@@ -91,7 +91,7 @@ export function isDaemonTimeout(error: string | undefined): boolean {
 
 /** How long a call keeps trying a daemon that is restarting. */
 export const DAEMON_RETRY_BUDGET_MS = 20_000;
-/** After a spent budget, calls to that socket make one attempt each for this long. */
+/** Once a socket has gone unanswered for a whole retry budget, calls to it make one attempt each for this long. */
 export const DAEMON_DOWN_COOLOFF_MS = 30_000;
 
 /** 100, 200, 400, 800, then 1000 for every later attempt. */
@@ -140,13 +140,13 @@ export function retryBudgetOverride(): number | undefined {
   return Number.isFinite(ms) && ms >= 0 ? ms : undefined;
 }
 
-// A per-attempt timeout under this marks a caller on a time limit of its own
-// (a hook that must answer in under a second), which must not wait out a
-// restart. The wrappers' own 10s-and-up defaults say nothing of the kind.
+// A per-attempt timeout this short marks a caller on a time limit of its own
+// (a hook; the fork check spends 5s of a 10s hook limit), which must not wait
+// out a restart. The wrappers' own 10s-and-up defaults say nothing of the kind.
 const SHORT_TIMEOUT_MS = 5_000;
 
 export function defaultRetryBudget(timeoutMs: number | undefined): number {
-  return timeoutMs !== undefined && timeoutMs < SHORT_TIMEOUT_MS ? timeoutMs : DAEMON_RETRY_BUDGET_MS;
+  return timeoutMs !== undefined && timeoutMs <= SHORT_TIMEOUT_MS ? timeoutMs : DAEMON_RETRY_BUDGET_MS;
 }
 
 /**
@@ -164,7 +164,8 @@ export async function rtCommand<T = unknown>(
   const timeoutMs = opts.timeoutMs ?? 15_000;
   const coolingOff = (unanswered.get(sockPath)?.downUntil ?? 0) > Date.now();
   const budget = coolingOff ? 0 : opts.retryBudgetMs ?? retryBudgetOverride() ?? defaultRetryBudget(opts.timeoutMs);
-  const deadline = Date.now() + budget;
+  const startedAt = Date.now();
+  const deadline = startedAt + budget;
   for (let attempt = 0; ; attempt++) {
     const { response, outcome } = await sendCommand<T>(cmd, payload, sockPath, timeoutMs);
     if (outcome === "dropped") return response;
@@ -173,7 +174,9 @@ export async function rtCommand<T = unknown>(
       unanswered.delete(sockPath);
       if (!isUnavailable(response)) return response;
     } else if (!unanswered.has(sockPath)) {
-      unanswered.set(sockPath, { firstMissAt: Date.now(), downUntil: 0 });
+      // The call's start, not now: a budget as long as the threshold must
+      // always reach it, whatever the first attempt took.
+      unanswered.set(sockPath, { firstMissAt: startedAt, downUntil: 0 });
     }
     const delay = Math.min(nextRetryDelay(attempt), deadline - Date.now());
     if (delay <= 0) {
