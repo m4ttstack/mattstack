@@ -164,7 +164,10 @@ export function writeReviewState(
   const prev = readByHandle(handle, db) as ReviewState | null;
   const startsRun =
     RUN_STARTS.has(patch.status) &&
-    (!prev || prev.status === 'done' || prev.status === 'error' || prev.status === 'held');
+    (!prev ||
+      prev.status === 'done' ||
+      prev.status === 'error' ||
+      prev.status === 'held');
   const stamped =
     startsRun && patch.runStartedAt === undefined
       ? { ...patch, runStartedAt: now }

@@ -16,7 +16,13 @@ import {
   updateByHandle,
 } from '../src/state/index.ts';
 
-const VALID_STATUS: ReviewStatus[] = ['queued', 'reviewing', 'done', 'error', 'held'];
+const VALID_STATUS: ReviewStatus[] = [
+  'queued',
+  'reviewing',
+  'done',
+  'error',
+  'held',
+];
 const VALID_OUTCOME: ReviewOutcome[] = ['comment', 'approve'];
 
 /** Parse ARGV into positional args and a --outcome flag. Keeps the shape

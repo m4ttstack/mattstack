@@ -312,11 +312,11 @@ import {
   canonicalUsername,
   DECLINE_REASONS,
   makeEnvelope,
+  wireReviewStatus,
   type AskKind,
   type DeclineReason,
   type ReReviewRequestPayload,
   type ReviewStatePayload,
-  wireReviewStatus,
 } from './peer/envelope.ts';
 import { makeAskLauncher } from './peer/launch-ask.ts';
 import { boardMaterializeDeps } from './peer/materialize-deps.ts';

@@ -2343,13 +2343,26 @@ describe('landing a follow-up from the pass', () => {
     const { deps, launches, audits } = harness({
       db,
       readReviewStates: () =>
-        new Map([[MR, lane({ status: 'held', outcome: undefined, message: 'author is closing this MR' })]]),
+        new Map([
+          [
+            MR,
+            lane({
+              status: 'held',
+              outcome: undefined,
+              message: 'author is closing this MR',
+            }),
+          ],
+        ]),
       detail: detail(disc('d1', runningBody(), OLD, true)),
     });
     const r = await runLatchPass(deps);
     expect(r.landed).toBe(1);
     expect(launches).toEqual([]);
-    expect(readLatchRow(MR, db)).toMatchObject({ phase: 'armed', launchAt: null, failures: 0 });
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'armed',
+      launchAt: null,
+      failures: 0,
+    });
     expect(audits).toContainEqual(
       expect.objectContaining({ action: 'landed', outcome: 'none' })
     );

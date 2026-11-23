@@ -5,6 +5,7 @@ import type { BoardMR, BoardSyncError } from './data.ts';
 import { hasChangesRequested } from './data.ts';
 import { mrNoun, type ForgeKind } from './mr-ref.ts';
 import { canonicalUsername } from './peer/envelope.ts';
+import { reviewHeldStanding } from './review-held.ts';
 import { projectKeyOf } from './triage/stack.ts';
 import { authorTurn, type TurnConfig } from './turn.ts';
 
@@ -721,7 +722,9 @@ export function statusBucket(mr: BoardMR): { label: string; order: number } {
 
 /** An MR carrying the app-initiated review status the client attaches at
     render time. */
-type ReviewedMR = BoardMR & { review?: { status: ReviewStatus } };
+type ReviewedMR = BoardMR & {
+  review?: { status: ReviewStatus; updatedAt?: number; dismissedAt?: number };
+};
 
 /** Bucket by the review a member kicked off through the board, most-active
     first. MRs with no launched review fall to "not reviewed". Orthogonal to
@@ -737,7 +740,10 @@ function reviewBucket(mr: ReviewedMR): { label: string; order: number } {
     case 'error':
       return { label: 'review failed', order: 3 };
     case 'held':
-      return { label: 'review held', order: 4 };
+      // A hold the MR has moved past no longer shows on the row either.
+      return reviewHeldStanding(mr)
+        ? { label: 'review held', order: 4 }
+        : { label: 'not reviewed', order: 5 };
     default:
       return { label: 'not reviewed', order: 5 };
   }

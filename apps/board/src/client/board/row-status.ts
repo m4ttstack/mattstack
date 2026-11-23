@@ -12,6 +12,7 @@ import { hasChangesRequested } from '../../data.ts';
 import { doctorGoneQuiet } from '../../doctor-quiet.ts';
 import { isFreshPeerReview } from '../../peer/presence.ts';
 import { respondOutcome } from '../../respond-outcome.ts';
+import { reviewHeldStanding } from '../../review-held.ts';
 import { approvalSlots, isOwnMr, statusBucket } from '../../view.ts';
 import type {
   BoardMRWithReview,
@@ -33,6 +34,8 @@ import {
 } from './format.ts';
 import { parseGateCtx } from './gate-ctx.ts';
 import { mrPeople, type People } from './people.ts';
+
+export { reviewHeldStanding };
 
 type Tone = 'bad' | 'warn' | 'work' | 'go' | 'quiet' | 'clear';
 
@@ -698,16 +701,6 @@ function respondLine(
       return line.tone === 'warn' ? line : settled(line, r.updatedAt, now);
     }
   }
-}
-
-/** A review that stopped on purpose, with nothing on the MR since: GitLab's
-    updatedAt moves on a push, a comment or a reopen. An unknown updatedAt
-    keeps the hold standing. */
-export function reviewHeldStanding(mr: BoardMRWithReview): boolean {
-  const r = mr.review;
-  if (r?.status !== 'held' || laneDismissed(r)) return false;
-  const moved = mr.updatedAt ? Date.parse(mr.updatedAt) : NaN;
-  return !(moved > (r.updatedAt ?? 0));
 }
 
 /** A lane the operator dismissed: the row skips it while the stamp is
