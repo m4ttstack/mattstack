@@ -20,6 +20,8 @@ export interface RtResponse<T = unknown> {
    *  to "handler-threw" when the thrown error carries none. Additive; older
    *  daemons and the reject path never set this. */
   failure?: { code: string; message: string };
+  /** Set by a daemon that is booting or shutting down; it did not act on the request. */
+  unavailable?: "starting" | "stopping";
 }
 
 export interface RtClientOptions {
@@ -87,14 +89,89 @@ export function isDaemonTimeout(error: string | undefined): boolean {
   return !!error && error.startsWith(DAEMON_UNREACHABLE_PREFIX) && error.endsWith(DAEMON_TIMEOUT_TAIL);
 }
 
+/** How long a call keeps trying a daemon that is restarting. */
+export const DAEMON_RETRY_BUDGET_MS = 20_000;
+/** After a spent budget, calls to that socket make one attempt each for this long. */
+export const DAEMON_DOWN_COOLOFF_MS = 30_000;
+
+/** 100, 200, 400, 800, then 1000 for every later attempt. */
+export function nextRetryDelay(attempt: number): number {
+  return Math.min(1000, 100 * 2 ** Math.min(attempt, 4));
+}
+
+/** True for a 503 body a starting or stopping daemon sent. */
+export function isUnavailable(r: unknown): r is { ok: false; error: string; unavailable: "starting" | "stopping" } {
+  if (!r || typeof r !== "object") return false;
+  const body = r as { ok?: unknown; unavailable?: unknown };
+  return body.ok === false && (body.unavailable === "starting" || body.unavailable === "stopping");
+}
+
+// The only errors that prove no connection was made, so the daemon cannot
+// have acted on the request. A reset or a broken pipe comes after the daemon
+// accepted the connection and is never retried.
+const CONNECT_FAILED_CODES = new Set(["ENOENT", "ECONNREFUSED"]);
+
+function connectFailed(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" && CONNECT_FAILED_CODES.has(code);
+}
+
+// Keyed by socket path. Without it, every call a long-lived client makes to
+// a daemon that is down for good would stall for the whole budget.
+const downUntil = new Map<string, number>();
+
+export const __test__ = {
+  resetCoolOff(): void { downUntil.clear(); },
+};
+
+function retryBudget(opts: { timeoutMs?: number; retryBudgetMs?: number }): number {
+  if (opts.retryBudgetMs !== undefined) return opts.retryBudgetMs;
+  const fromEnv = Number(process.env.RT_DAEMON_RETRY_BUDGET_MS);
+  if (process.env.RT_DAEMON_RETRY_BUDGET_MS && Number.isFinite(fromEnv)) return fromEnv;
+  // A caller that names a short timeout (a hook with a time limit) has said
+  // how long it can wait in total.
+  return Math.min(DAEMON_RETRY_BUDGET_MS, opts.timeoutMs ?? DAEMON_RETRY_BUDGET_MS);
+}
+
+/**
+ * `retryBudgetMs` bounds the retrying, `timeoutMs` each attempt. A request is
+ * sent again only when the daemon cannot have acted on it: the connection
+ * was never made, or the daemon answered that it is starting or stopping.
+ */
 export async function rtCommand<T = unknown>(
   cmd: string,
   payload: Record<string, unknown>,
-  opts: { sockPath?: string; timeoutMs?: number } = {},
+  opts: { sockPath?: string; timeoutMs?: number; retryBudgetMs?: number } = {},
 ): Promise<RtResponse<T>> {
   const sockPath = opts.sockPath ?? defaultSock();
   assertSockNotForbidden(cmd, sockPath);
   const timeoutMs = opts.timeoutMs ?? 15_000;
+  const coolingOff = (downUntil.get(sockPath) ?? 0) > Date.now();
+  const budget = coolingOff ? 0 : retryBudget(opts);
+  const deadline = Date.now() + budget;
+  for (let attempt = 0; ; attempt++) {
+    const sent = await sendCommand<T>(cmd, payload, sockPath, timeoutMs);
+    const response = "unsent" in sent ? sent.unsent : sent;
+    if (!("unsent" in sent) && !isUnavailable(sent)) {
+      downUntil.delete(sockPath);
+      return response;
+    }
+    if ("unsent" in sent && !sent.retry) return response;
+    const delay = Math.min(nextRetryDelay(attempt), deadline - Date.now());
+    if (delay <= 0) {
+      // A spent budget starts the cool-off, and a miss during it extends it;
+      // a caller that asked for no retry says nothing about the daemon.
+      if (budget > 0 || coolingOff) downUntil.set(sockPath, Date.now() + DAEMON_DOWN_COOLOFF_MS);
+      return response;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+}
+
+/** One attempt. `unsent` is the result for a request that got no answer; `retry` says the daemon cannot have seen it. */
+async function sendCommand<T>(
+  cmd: string, payload: Record<string, unknown>, sockPath: string, timeoutMs: number,
+): Promise<RtResponse<T> | { unsent: RtResponse<T>; retry: boolean }> {
   try {
     const body = JSON.stringify(payload);
     const headers = { "Content-Type": "application/json", "X-RT-Client": `rt-client/${process.pid}` };
@@ -121,7 +198,10 @@ export async function rtCommand<T = unknown>(
     const msg = timedOut
       ? `${cmd} timed out after ${timeoutMs / 1000}s${DAEMON_TIMEOUT_TAIL}`
       : err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `${DAEMON_UNREACHABLE_PREFIX}${sockPath}: ${msg}` };
+    return {
+      unsent: { ok: false, error: `${DAEMON_UNREACHABLE_PREFIX}${sockPath}: ${msg}` },
+      retry: !timedOut && connectFailed(err),
+    };
   }
 }
 

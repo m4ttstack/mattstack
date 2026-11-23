@@ -80,6 +80,11 @@ process.env.TMPDIR = runTmp;
 process.env.HOME = home;
 process.env.RT_TEST_SOCKET_DIR = socketDir;
 
+// Most tests that call the daemon expect none to be there. Without this each
+// such call would wait out the restart retry (20s), in this process and in
+// every child that inherits its env. A test of the retry names its own budget.
+process.env.RT_DAEMON_RETRY_BUDGET_MS = "0";
+
 // board's tests read BOARD_APP_ROOT for their state root; a bare root run must
 // never reach the live board state any more than the live ~/.mattstack.
 const testBoardRoot = mkdtempSync(join(tmpdir(), "mattstack-root-test-board-"));
