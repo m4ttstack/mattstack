@@ -34,6 +34,11 @@ export function useRowProject(): RowProject | null {
     names it here; every other row starts on no project. */
 export const SettingsSeedRepoContext = createContext<string | null>(null);
 
+/** Told the project an open row picks, so a host can keep it in its URL. */
+export const SettingsPickRepoContext = createContext<
+  ((repo: string) => void) | null
+>(null);
+
 /** A per-project row picks its own project: its controls, its panel and
     its writes all read that project's sections, while the rest of the
     page reads none. The row's value is that project's, read from
@@ -68,7 +73,14 @@ export function RowProjectScope({
     repo !== null && explained.def
       ? { ...def, effective: explained.def.effective }
       : def;
-  const project: RowProject = { repo, pick: setRepo };
+  const onPick = useContext(SettingsPickRepoContext);
+  const project: RowProject = {
+    repo,
+    pick: picked => {
+      setRepo(picked);
+      if (open) onPick?.(picked);
+    },
+  };
   return (
     <SettingsRepoContext.Provider value={repo}>
       <RowProjectContext.Provider value={project}>
