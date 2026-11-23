@@ -133,9 +133,12 @@ Installers verify the SHA-256 from the list before swapping the binary in.
 
 - **Nightly job in the fork:** detects a new `herdrdev/herdr` release tag,
   rebases `mattstack` onto it, builds, runs herdr's tests and the patch tests.
-  Clean: opens a PR with a draft release. Conflict or red tests: opens an
-  issue naming the commit that broke.
-- Merging that PR publishes the release and updates the build list.
+  Clean: pushes a `mattstack/<version>` branch and opens an issue with the
+  one-line command that publishes it. Conflict or red tests: opens an issue
+  naming the commit that broke. (A catch-up is a full rebase onto a new
+  base, which a PR cannot merge cleanly, and only the Mac runner signs.)
+- Running that command publishes the signed release and updates the build
+  list.
 - **What mattstack requires:** the newest build in the list, across herdr
   versions: someone on `0.9.5-ms.3` moves to `0.9.6-ms.1` once it is
   published. rt also keeps a minimum fork build for features it depends on
