@@ -703,16 +703,17 @@ function trackCanon(
     : { mrUrl: mr.mrUrl, ...fresh, updatedAt: now };
 }
 
-/** A running or error row whose follow-up has finished: the lane reads done
-    for a run that started at or after the launch. A row with no launch stamp
-    (a first launch that failed) has no follow-up to land. */
+/** A running or error row whose follow-up has finished: the lane reads done,
+    or held (a review that stopped on purpose lands with no verdict), for a
+    run that started at or after the launch. A row with no launch stamp (a
+    first launch that failed) has no follow-up to land. */
 function landable(
   row: LatchRow,
   review: ReviewState | undefined
 ): review is ReviewState {
   return (
     (row.phase === 'running' || row.phase === 'error') &&
-    review?.status === 'done' &&
+    (review?.status === 'done' || review?.status === 'held') &&
     row.launchAt !== null &&
     runStamp(review) >= row.launchAt
   );

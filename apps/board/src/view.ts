@@ -736,8 +736,10 @@ function reviewBucket(mr: ReviewedMR): { label: string; order: number } {
       return { label: 'review ready', order: 2 };
     case 'error':
       return { label: 'review failed', order: 3 };
+    case 'held':
+      return { label: 'review held', order: 4 };
     default:
-      return { label: 'not reviewed', order: 4 };
+      return { label: 'not reviewed', order: 5 };
   }
 }
 

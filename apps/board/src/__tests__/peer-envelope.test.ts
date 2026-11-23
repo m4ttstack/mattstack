@@ -10,6 +10,7 @@ import {
   parseNudgeOutcomePayload,
   parseReReviewRequestPayload,
   parseReviewStatePayload,
+  wireReviewStatus,
 } from '../peer/envelope.ts';
 
 describe('canonicalUsername', () => {
@@ -268,5 +269,23 @@ describe('ask consent wire', () => {
       'not my area',
       'ask me later',
     ]);
+  });
+});
+
+describe('wireReviewStatus', () => {
+  test('a held review goes out as error with its reason, since older boards drop an unknown status', () => {
+    expect(wireReviewStatus('held', 'author is closing this MR')).toEqual({
+      status: 'error',
+      reason: 'author is closing this MR',
+    });
+    expect(wireReviewStatus('held', undefined)).toEqual({
+      status: 'error',
+      reason: 'review held',
+    });
+  });
+
+  test('every other status goes out as it is', () => {
+    expect(wireReviewStatus('done', 'ignored')).toEqual({ status: 'done' });
+    expect(wireReviewStatus('error', undefined)).toEqual({ status: 'error' });
   });
 });

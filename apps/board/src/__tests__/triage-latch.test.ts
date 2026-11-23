@@ -2337,6 +2337,24 @@ describe('landing a follow-up from the pass', () => {
     );
   });
 
+  test('a running row whose review was held lands with no verdict, never retries', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const { deps, launches, audits } = harness({
+      db,
+      readReviewStates: () =>
+        new Map([[MR, lane({ status: 'held', outcome: undefined, message: 'author is closing this MR' })]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    const r = await runLatchPass(deps);
+    expect(r.landed).toBe(1);
+    expect(launches).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({ phase: 'armed', launchAt: null, failures: 0 });
+    expect(audits).toContainEqual(
+      expect.objectContaining({ action: 'landed', outcome: 'none' })
+    );
+  });
+
   test('with no countNew the pass lands as Review posted', async () => {
     const db = tempDb();
     putLatchRow(runningRow(), db);

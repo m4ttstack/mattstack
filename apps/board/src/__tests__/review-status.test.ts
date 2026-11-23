@@ -60,6 +60,19 @@ describe('review-status CLI', () => {
     expect(typeof state?.updatedAt).toBe('number');
   });
 
+  test('writes held with its reason', async () => {
+    const handle = mintHandle('review', URL_A, dir);
+    seed(handle, 4821);
+    const proc = Bun.spawn(
+      ['bun', 'run', CLI, handle, 'held', 'author is closing this MR'],
+      { env: env() }
+    );
+    expect(await proc.exited).toBe(0);
+    const state = readReviewStates(db).get(URL_A);
+    expect(state?.status).toBe('held');
+    expect(state?.message).toBe('author is closing this MR');
+  });
+
   test('rejects an unknown status', async () => {
     const handle = mintHandle('review', URL_A, dir);
     seed(handle, 4821);
