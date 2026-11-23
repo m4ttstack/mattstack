@@ -3,7 +3,7 @@ import { execFileSync } from "child_process";
 import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { checkClone, realCloneGuardDeps, type CloneGuardDeps } from "../clone-guards.ts";
+import { checkClone, fastForwardMain, realCloneGuardDeps, type CloneGuardDeps } from "../clone-guards.ts";
 
 const GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main"];
 
@@ -151,5 +151,27 @@ describe("checkClone", () => {
     git(clone, "branch", "--unset-upstream");
     advanceOrigin(upstream, 1);
     expect(await checkClone(deps, clone)).toEqual({ ok: true, behind: 1 });
+  });
+});
+
+describe("fastForwardMain", () => {
+  test("fast-forwards main to origin/main", async () => {
+    const { clone, upstream } = fixture();
+    advanceOrigin(upstream, 1);
+    git(clone, "fetch", "origin");
+    expect((await fastForwardMain(deps, clone)).exitCode).toBe(0);
+    expect(git(clone, "rev-parse", "HEAD")).toBe(git(clone, "rev-parse", "refs/remotes/origin/main"));
+  });
+
+  test("refuses when the clone left main after the check, and moves nothing", async () => {
+    const { clone, upstream } = fixture();
+    advanceOrigin(upstream, 1);
+    git(clone, "fetch", "origin");
+    git(clone, "switch", "-c", "feature-y");
+    const before = git(clone, "rev-parse", "HEAD");
+    const r = await fastForwardMain(deps, clone);
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr).toContain("not on main");
+    expect(git(clone, "rev-parse", "HEAD")).toBe(before);
   });
 });

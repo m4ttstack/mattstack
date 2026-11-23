@@ -59,3 +59,15 @@ export async function checkClone(deps: CloneGuardDeps, clone: string): Promise<C
   if (ahead > 0) return hold("localCommits", `Your clone has ${ahead} commit(s) that are not on origin/main.`);
   return { ok: true, behind };
 }
+
+/**
+ * `git merge --ff-only refs/remotes/origin/main`, after checking again that
+ * the clone is on main: the checks before it take seconds, and a person can
+ * switch branches in between.
+ */
+export async function fastForwardMain(deps: CloneGuardDeps, clone: string): Promise<{ exitCode: number; stderr: string }> {
+  const branch = await deps.git(clone, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (branch.exitCode !== 0 || branch.stdout.trim() !== "main") return { exitCode: 1, stderr: "Your clone is not on main any more." };
+  const r = await deps.git(clone, ["merge", "--ff-only", "refs/remotes/origin/main"], { timeoutMs: 5 * 60_000 });
+  return { exitCode: r.exitCode, stderr: r.exitCode === 0 ? "" : r.stdout };
+}

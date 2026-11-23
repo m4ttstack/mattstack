@@ -16,6 +16,7 @@ interface World {
   originGo?: string;
   flavor?: "dev" | "prod";
   appBuildFails?: boolean;
+  githubDown?: boolean;
 }
 
 function setup(w: World = {}) {
@@ -54,6 +55,7 @@ function setup(w: World = {}) {
       if (a.includes("CFBundleShortVersionString")) return { code: 0, stdout: `${w.installed ?? "2.22.0"}\n`, stderr: "" };
       if (a.includes("MSDevReleaseBuild")) return w.releaseBuild === false ? { code: 1, stdout: "", stderr: "" } : { code: 0, stdout: "true\n", stderr: "" };
       if (a.includes("api repos/m4ttstack/mattstack/releases")) {
+        if (w.githubDown) return { code: 1, stdout: "", stderr: "HTTP 502" };
         return {
           code: 0,
           stderr: "",
@@ -86,13 +88,13 @@ function setup(w: World = {}) {
   const statuses: Array<{ offeredVersion: string | null; heldVersion: string | null; hold: string | null }> = [];
   const notices: Array<[string, string, string]> = [];
   let checked = 0;
-  const state = { autoUpdate: true, busy: false, clone: { ok: true, behind: 3 } as CloneCheck, installExit: 0, ffExit: 0, cleared: 0 };
+  const state = { autoUpdate: true, busy: false, clone: { ok: true, behind: 3 } as CloneCheck, installExit: 0, ffExit: 0, cleared: 0, installBun: "" };
   const d: DevAutoDeps = {
     autoUpdateOn: () => state.autoUpdate,
     daemonBusy: async () => state.busy,
     checkClone: async () => { checked++; once("fetch"); return state.clone; },
     fastForward: async () => { once("ff"); return { exitCode: state.ffExit, stderr: "" }; },
-    install: async () => { once("install"); return { exitCode: state.installExit, tail: "lockfile changed" }; },
+    install: async (_c, _env, bun) => { once("install"); state.installBun = bun; return { exitCode: state.installExit, tail: "lockfile changed" }; },
     restartDaemon: async () => { once("restart"); },
     writeStatus: (st) => { statuses.push(st); },
     clearHeld: () => { state.cleared++; },
@@ -109,6 +111,19 @@ describe("runDevAutoUpdate", () => {
     expect(t.checked()).toBe(0);
     expect(t.statuses).toEqual([]);
     expect(t.state.cleared).toBe(1);
+  });
+
+  test("GitHub not answering keeps a recorded hold", async () => {
+    const t = setup({ githubDown: true });
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "current" });
+    expect(t.state.cleared).toBe(0);
+    expect(t.checked()).toBe(0);
+  });
+
+  test("the clone's packages install with the bun that was probed", async () => {
+    const t = setup();
+    await runDevAutoUpdate(t.s, runner, t.d);
+    expect(t.state.installBun).toBe(BUN);
   });
 
   test("a locally built dev app: current, the clone is never fetched", async () => {

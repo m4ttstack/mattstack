@@ -76,7 +76,7 @@ The Notifications tab picks the sound for each kind of notification: **Neutral**
 
 mattstack.app updates itself through Sparkle, which verifies the release signature, stages the install, and relaunches the app. It checks every hour, so a new release reaches every Mac within about an hour, with no prompt. The app reopens the windows you had open: the mattstack window, Settings, the worktree panel and the process panel. They stay behind the app you are using unless mattstack was in front.
 
-An update waits while setup is running, or while the rt daemon is in the middle of something a restart would cut off (creating a worktree, installing a tree's dependencies, an MR action or upload). A notification says it is waiting, and the app tries again every minute. Choosing **Update Available: &lt;version&gt;** installs it right away unless one of those is still running. After the relaunch, a notification says which version you're on.
+An update that cannot install by itself, such as one that needs an administrator password, opens Sparkle's update window so you can install it. An update waits while setup is running, or while the rt daemon is in the middle of something a restart would cut off (creating a worktree, installing a tree's dependencies, an MR action or upload). A notification says it is waiting, and the app tries again every minute. Choosing **Update Available: &lt;version&gt;** installs it right away unless one of those is still running. After the relaunch, a notification says which version you're on.
 
 An org owner can turn automatic installs off for everyone in the org:
 

@@ -31,7 +31,8 @@ export interface DevAutoDeps {
   /** git merge --ff-only origin/main */
   fastForward(clone: string): Promise<{ exitCode: number; stderr: string }>;
   /** bun install --frozen-lockfile */
-  install(clone: string, env: Record<string, string>): Promise<{ exitCode: number; tail: string }>;
+  /** `bun` is the path the tools stage probed; Go's directory comes first in `env.PATH`. */
+  install(clone: string, env: Record<string, string>, bun: string): Promise<{ exitCode: number; tail: string }>;
   restartDaemon(): Promise<void>;
   writeStatus(s: DevAutoStatus): void;
   /** Clears a held status left by an earlier run; writes nothing when none is recorded. */
@@ -50,7 +51,8 @@ export async function runDevAutoUpdate(s: DevSeams, stage: StageRunner, d: DevAu
     const installed = await readInstalledDevApp(s.probes);
     if (installed && !installed.releaseBuild) return CURRENT;
     const pick = await newestRelease(s);
-    if (!pick || (installed && compareVersions(installed.version, pick.release.version) >= 0)) {
+    if (!pick) return CURRENT;
+    if (installed && compareVersions(installed.version, pick.release.version) >= 0) {
       d.clearHeld();
       return CURRENT;
     }
@@ -73,7 +75,7 @@ export async function runDevAutoUpdate(s: DevSeams, stage: StageRunner, d: DevAu
       await stage("Update your clone", async () => {
         const ff = await d.fastForward(clone);
         if (ff.exitCode !== 0) throw new StepFailed("Fast-forwarding your clone to origin/main failed.");
-        const inst = await d.install(clone, toolchainEnv(s, tools));
+        const inst = await d.install(clone, toolchainEnv(s, tools), tools.bunPath);
         if (inst.exitCode !== 0) throw new StepFailed("bun install failed in your clone.");
         return { status: "done", title: "Updated your clone" };
       });

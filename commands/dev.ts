@@ -15,14 +15,13 @@ import { runDevSetup, type DevSetupResult } from "../lib/dev/setup.ts";
 import { runDevUpdate, type CloneSync, type DevUpdateResult } from "../lib/dev/update.ts";
 import { createNotifyOnce, runDevAutoUpdate, type DevAutoDeps, type DevAutoOutcome } from "../lib/dev/auto-update.ts";
 import { readAppUpdateHold, writeAppUpdateStatus, type DevAutoStatus } from "../lib/dev/app-update-status.ts";
-import { checkClone, realCloneGuardDeps } from "../lib/dev/clone-guards.ts";
+import { checkClone, fastForwardMain, realCloneGuardDeps } from "../lib/dev/clone-guards.ts";
 import { rtCommand } from "../packages/rt-client/src/index.ts";
 import { RT_DIR } from "../lib/daemon-config.ts";
 import { trayQuery } from "../lib/daemon-client.ts";
 import { notify } from "../lib/notifier.ts";
 import { createUpdateLock } from "../lib/setup/update-lock.ts";
 import { getKvValue, setKvValueCritical } from "../lib/state/kv-blob.ts";
-import { MUTATING_TIMEOUT_MS, runGit } from "../lib/worktree/git-async.ts";
 import { exitUserError, failureFor, logFailureDetail, UserActionableError } from "../lib/errors.ts";
 import { processFlavor } from "../lib/flavor.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
@@ -72,9 +71,9 @@ function realCloneSync(): CloneSync {
   const guards = realCloneGuardDeps();
   return {
     checkClone: (clone) => checkClone(guards, clone),
-    fastForward: (clone) => runGit(clone, ["merge", "--ff-only", "refs/remotes/origin/main"], { timeoutMs: MUTATING_TIMEOUT_MS }),
-    install: async (clone, env) => {
-      const r = await runCapture(["bun", "install", "--frozen-lockfile"], { cwd: clone, stderr: "pipe", timeoutMs: 15 * 60_000, env: { ...childEnv(), ...env } });
+    fastForward: (clone) => fastForwardMain(guards, clone),
+    install: async (clone, env, bun) => {
+      const r = await runCapture([bun, "install", "--frozen-lockfile"], { cwd: clone, stderr: "pipe", timeoutMs: 15 * 60_000, env: { ...childEnv(), ...env } });
       return { exitCode: r.exitCode, tail: `${r.stdout}\n${r.stderr}`.trim().split("\n").slice(-OUTPUT_TAIL_LINES).join("\n") };
     },
   };
@@ -193,7 +192,8 @@ export function devSetupBlocks(r: DevSetupResult): Block[] {
 }
 
 export function devAutoBlocks(r: DevAutoOutcome | "locked"): Block[] {
-  if (r === "locked" || r.kind === "current") return [out.line("done", "Your dev setup is up to date")];
+  if (r === "locked") return [out.line("skipped", "Another dev update is running")];
+  if (r.kind === "current") return [out.line("done", "Your dev setup is up to date")];
   if (r.kind === "updated") return [out.line("done", `Updated to mattstack-dev ${r.version}`)];
   return [out.line("pending", `An update to mattstack-dev ${r.version} is waiting`, r.detail)];
 }

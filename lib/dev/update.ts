@@ -33,7 +33,8 @@ export async function buildServedApps(s: DevSeams, clone: string, env: Record<st
 export interface CloneSync {
   checkClone(clone: string): Promise<CloneCheck>;
   fastForward(clone: string): Promise<{ exitCode: number; stderr: string }>;
-  install(clone: string, env: Record<string, string>): Promise<{ exitCode: number; tail: string }>;
+  /** `bun` is the path the tools stage probed; Go's directory comes first in `env.PATH`. */
+  install(clone: string, env: Record<string, string>, bun: string): Promise<{ exitCode: number; tail: string }>;
 }
 
 export async function rtUiStale(s: DevSeams, clone: string): Promise<boolean> {
@@ -93,7 +94,7 @@ export async function runDevUpdate(s: DevSeams, stage: StageRunner, opts: { rele
     // then failed here.
     stages.push(
       await stage("Install your clone's packages", async () => {
-        const inst = await sync.install(clone, toolchainEnv(s, { bunPath, goPath }));
+        const inst = await sync.install(clone, toolchainEnv(s, { bunPath, goPath }), bunPath);
         if (inst.exitCode !== 0) {
           throw new UserActionableError("dev-clone-install-failed", "bun install failed in your clone", {}, { log: inst.tail, next: "rt dev update" });
         }

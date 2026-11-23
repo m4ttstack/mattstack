@@ -167,10 +167,10 @@ describe("runDevUpdate", () => {
     const clone: CloneSync = {
       checkClone: async () => { calls.push("check"); return { ok: true, behind: 2 }; },
       fastForward: async () => { calls.push(`ff after ${probes.calls.exec.length} probes`); return { exitCode: 0, stderr: "" }; },
-      install: async (_c, env) => { calls.push(`install ${env.PATH}`); return { exitCode: 0, tail: "" }; },
+      install: async (_c, env, bun) => { calls.push(`install ${bun} ${env.PATH}`); return { exitCode: 0, tail: "" }; },
     };
     const r = await runDevUpdate(s, runner, { clone });
-    expect(calls).toEqual(["check", "ff after 0 probes", "install /opt/homebrew/bin:/Users/collab/.bun/bin:/usr/bin"]);
+    expect(calls).toEqual(["check", "ff after 0 probes", "install /Users/collab/.bun/bin/bun /opt/homebrew/bin:/Users/collab/.bun/bin:/usr/bin"]);
     expect(r.stages[0]).toEqual({ status: "done", title: "Updated your clone", hint: "2 new commits" });
     expect(r.stages[2]).toEqual({ status: "done", title: "Installed your clone's packages" });
   });

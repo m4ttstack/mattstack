@@ -120,11 +120,12 @@ grep -q '"ok": *true' "$LOGS/update-check.json" && ok "POST /update/check" \
   || bad "POST /update/check failed: '$(cat "$LOGS/update-check.json")' (an empty body means the app's main thread is blocked; on-screen buttons: $(ax_osa "tell application \"System Events\" to tell process \"$AX_APP\" to get name of every button of window 1" 2>/dev/null | tr '\n' ' '))"
 ax_shot 06-update-check
 
-# There is no "Install and Relaunch" button to wait on: with the org's automatic-update
-# setting on (its default), Sparkle downloads the update itself and UpdaterController's
-# willInstallUpdateOnQuit hands it immediateInstallHandler() unless setup runs or the
-# daemon is busy (UpdatePolicy.hold), so the app installs and relaunches itself. Open
-# windows do not hold it in that mode, but this leg still touches no app UI.
+# This leg posts /update/check, a user-initiated check, so Sparkle shows its own
+# window and `pump` clicks through it; it does not exercise the silent path a
+# scheduled check takes with the org's automatic-update setting on. When the
+# download lands, UpdaterController's willInstallUpdateOnQuit hands Sparkle
+# immediateInstallHandler() unless setup runs or the daemon is busy
+# (UpdatePolicy.hold), so the app installs and relaunches itself.
 install_path=""
 if wait_ver "$NEWV" 300; then
   install_path="installed in place, app relaunched itself"

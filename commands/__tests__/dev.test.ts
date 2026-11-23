@@ -35,7 +35,7 @@ describe("rt dev", () => {
 
   test("--auto says what happened in one line", () => {
     expect(renderPlain(devAutoBlocks({ kind: "current" }))).toContain("Your dev setup is up to date");
-    expect(renderPlain(devAutoBlocks("locked"))).toContain("Your dev setup is up to date");
+    expect(renderPlain(devAutoBlocks("locked"))).toContain("Another dev update is running");
     expect(renderPlain(devAutoBlocks({ kind: "updated", version: "2.23.0" }))).toContain("Updated to mattstack-dev 2.23.0");
     const held = renderPlain(devAutoBlocks({ kind: "held", version: "2.23.0", hold: "dirtyTree", detail: "Your clone has uncommitted changes." }));
     expect(held).toContain("An update to mattstack-dev 2.23.0 is waiting");

@@ -39,6 +39,7 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     private final class PolicyState: @unchecked Sendable {
         var silent = true
         var daemonBusy = false
+        var refreshes = LatestOnly()
     }
 
     private let feedOverride: String?
@@ -103,10 +104,13 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         // last setting stands and the daemon counts as not busy.
         let readSetting = readAutoUpdate
         let probe = daemonBusyProbe
-        let lastSilent = policy.silent
+        let (ticket, lastSilent) = await MainActor.run { (self.policy.refreshes.start(), self.policy.silent) }
         let silent = await firstAnswer(within: Self.readDeadline, otherwise: lastSilent) { await readSetting() }
         let busy = silent ? await firstAnswer(within: Self.readDeadline, otherwise: false) { await probe() } : false
-        await MainActor.run { self.apply(silent: silent, daemonBusy: busy) }
+        await MainActor.run {
+            guard self.policy.refreshes.isLatest(ticket) else { return }
+            self.apply(silent: silent, daemonBusy: busy)
+        }
     }
 
     /// Sparkle keeps a value set at runtime in UserDefaults over the plist, so

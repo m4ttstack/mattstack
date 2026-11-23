@@ -1,9 +1,11 @@
-On a dev Mac, the daemon checks for a new release about once an hour and runs `rt dev update --auto` by itself. It updates your clone and the dev app together, or leaves both alone:
+On a dev Mac, the daemon checks for a new release about once an hour and runs `rt dev update --auto` by itself. It checks everything before it changes anything, then updates your clone and the dev app together:
 
 1. It fetches `origin/main` and checks the clone. It goes on only when the clone is on `main`, has no uncommitted or untracked files, no commits that are not on `origin/main`, and no merge or rebase in progress.
 2. It waits while the daemon is busy, and checks that your bun and Go meet the versions `origin/main` needs.
 3. It fast-forwards the clone, runs `bun install --frozen-lockfile`, rebuilds rt's terminal helper when it changed, builds the served apps, and serves them from the clone again.
 4. Last, it swaps in the new dev app and restarts the daemon.
+
+If a step after the fast-forward fails (the install, a build), the clone is already on the new commit and the dev app is not swapped. The notification names the step; fix it and run `rt dev update`, which redoes the install and the builds.
 
 When the clone does not pass, nothing changes. A notification says why, once per release and reason, for example **Your clone has uncommitted changes.** Commit or set the change aside, switch back to `main`, and the next hourly check finishes the update. A dev app built on this Mac is never replaced, and an org with `mattstack.autoUpdate` off gets no automatic update at all.
 
