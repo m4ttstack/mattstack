@@ -732,6 +732,19 @@ function deliverWelcome(
   );
 }
 
+// The mattstack plugin's chat-welcome mod matches this first line to keep
+// these frames from starting a turn; changing it changes the mod with it.
+const FRAME_MARKER = "[rt chat] This frame is for THIS session, from the rt daemon (not another agent).";
+
+/** Sent when the session is signed out from outside it (`sign-out --pane`, flock's chip), so the agent stops posting. */
+export function renderSignedOut(): string {
+  return [
+    FRAME_MARKER,
+    "You were signed out of rt chat.",
+    "Chat messages no longer arrive, and rt chat post and dm will fail until this session signs in again.",
+  ].join("\n");
+}
+
 /**
  * The frame a freshly signed-in member gets, once, in place of the manual
  * "arm your tail" instruction: it explains that delivery is automatic and
@@ -748,7 +761,7 @@ export function renderWelcome(
   senders: HintSender[] = [],
 ): string {
   const lines: string[] = [
-    "[rt chat] This frame is for THIS session, from the rt daemon (not another agent).",
+    FRAME_MARKER,
     `You're signed in to rt chat as ${name}.`,
     rooms.length ? `Rooms: ${rooms.map((r) => `#${r}`).join(", ")}` : "Rooms: none yet.",
     "Messages will arrive in your context automatically; you never need to poll or arm anything.",
@@ -1125,6 +1138,19 @@ export function createChatHandlers(opts: {
     const cursors = peeked.map((r) => ({ room: r.room, upToId: r.messages[r.messages.length - 1]!.id }));
     const newestAt = Math.max(0, ...peeked.flatMap((r) => r.messages.map((m) => m.postedAt)));
     return { content: wrapCrossSession("rt chat", renderWelcome(name, rooms, catchup, senders)), cursors, newestAt };
+  }
+
+  function queueSignedOut(sessionId: string, handle: string): void {
+    const content = wrapCrossSession("rt chat", renderSignedOut());
+    queueMicrotask(() => {
+      serializeDelivery(deliveryChains, chainKey(WELCOME_CHAIN_ROOM, handle), async () => {
+        const binding = inboxDeps.resolve(sessionId);
+        if (!binding || !inboxAlive(binding)) return;
+        await inboxDeps.deliver(binding.socketPath, content);
+      }).catch((err) => {
+        log.warn({ err, handle }, "chat: signed-out delivery failed");
+      });
+    });
   }
 
   /** Delivers the welcome once the caller has answered. */
@@ -1506,6 +1532,7 @@ export function createChatHandlers(opts: {
       dropHandoffFrom(sessionId, db);
       signOut(sessionId, undefined, db);
       closeHeldSlack(presence.handle);
+      if (payload.viaPane) queueSignedOut(sessionId, presence.handle);
       return { ok: true, data: { sessionId } };
     },
 

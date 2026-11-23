@@ -5,7 +5,8 @@ import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { identityName, insertAgent, isValidChatName, openStateDb, postMessage, reserveAgentHandle } from "../../state/index.ts";
-import { createChatHandlers, inviteText, renderWelcome, type InboxDeps } from "../handlers/chat.ts";
+import { createChatHandlers, inviteText, renderSignedOut, renderWelcome, type InboxDeps } from "../handlers/chat.ts";
+import { wrapCrossSession } from "../inbox.ts";
 import { herdrRequest } from "../../herdr/client.ts";
 import { bgSocketPath } from "../bg-service.ts";
 import { fakeHerdr, HerdrFakeError, type FakeHerdrHandler } from "../../herdr/__tests__/fake-herdr.ts";
@@ -994,6 +995,57 @@ test("chat:sign-out viaPane resolves the pane's Claude session via herdr (the sa
     | { signed_out_at: number | null }
     | null;
   expect(row?.signed_out_at).not.toBeNull();
+});
+
+test("chat:sign-out viaPane tells the pane's session it was signed out", async () => {
+  const uuid = "44444444-4444-4444-4444-444444444444";
+  const { sock: herdrSock, stop } = fakeHerdr(paneSnapshotHandler("w1:p1", uuid));
+  stops.push(stop);
+  const herdr: typeof herdrRequest = (m, p, o) => herdrRequest(m, p, { ...o, sockPath: herdrSock });
+  const inboxSock = fakeSocketPath();
+  const calls: Array<[string, string]> = [];
+  const inboxDeps: InboxDeps = {
+    resolve: (sessionId) => (sessionId === uuid ? { pid: process.pid, socketPath: inboxSock, status: "idle" } : null),
+    deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
+  };
+  const db = openStateDb(join(tmpdir(), `chat-viapane-out-frame-${process.pid}-${n++}.db`));
+  const h = createChatHandlers({ db, emitEvent: () => 0, herdr, inboxDeps });
+
+  await h["chat:sign-in"]({ sessionId: uuid, continue: "x" });
+  await Bun.sleep(0);
+  calls.length = 0;
+
+  const res = await h["chat:sign-out"]({ pane: "w1:p1", viaPane: true });
+  expect(res.ok).toBe(true);
+  await Bun.sleep(0);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]![0]).toBe(inboxSock);
+  expect(calls[0]![1]).toBe(wrapCrossSession("rt chat", renderSignedOut()));
+});
+
+test("chat:sign-out by the session itself sends no signed-out frame", async () => {
+  const calls: string[] = [];
+  const inboxDeps: InboxDeps = {
+    resolve: () => ({ pid: process.pid, socketPath: fakeSocketPath(), status: "idle" }),
+    deliver: async (_socketPath, content) => { calls.push(content); return { ok: true }; },
+  };
+  const db = openStateDb(join(tmpdir(), `chat-self-out-${process.pid}-${n++}.db`));
+  const h = createChatHandlers({ db, emitEvent: () => 0, inboxDeps });
+
+  await h["chat:sign-in"]({ sessionId: "self-out", continue: "y" });
+  await Bun.sleep(0);
+  calls.length = 0;
+
+  await h["chat:sign-out"]({ sessionId: "self-out" });
+  await Bun.sleep(0);
+  expect(calls).toEqual([]);
+});
+
+test("the welcome and signed-out frames open with the line the mattstack chat-welcome mod matches", () => {
+  const marker = "[rt chat] This frame is for THIS session, from the rt daemon (not another agent).";
+  expect(renderWelcome("vivian", ["mattstack"], []).split("\n")[0]).toBe(marker);
+  expect(renderSignedOut().split("\n")[0]).toBe(marker);
+  expect(renderSignedOut()).toContain("You were signed out of rt chat.");
 });
 
 test("chat:sign-out viaPane refuses a pane herdr has no Claude session for", async () => {
