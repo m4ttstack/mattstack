@@ -391,7 +391,11 @@ itself from here. Return to your own checkout and dispose of any fix tree
 ### Clear your context
 
 Every tick re-reads the forge, so the earlier ticks in your context are
-stale. As the tick's last call, after `ScheduleWakeup`:
+stale. A chat message already delivered to your context is never delivered
+again, and `chat_read` skips it, so before the clear every message since
+the last one is in the ledger: each handoff acked and on its own line,
+each owner's push, reply or leaving on its PR's line. As the tick's last
+call, after `ScheduleWakeup`:
 
 `fresh_context {mode: "clear", ledger: "<the ledger file's full text>\n\nLedger file: <its path>"}`
 
