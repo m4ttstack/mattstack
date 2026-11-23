@@ -61,22 +61,35 @@ async function savedOutput($: EngineInterface, todo: Todo, outcome: Outcome): Pr
   }
 }
 
-export async function report($: EngineInterface, todo: Todo, outcome: Outcome): Promise<void> {
+// False when a message did not reach the agent: the item is then left as it was, so the person can send it again.
+export async function report($: EngineInterface, todo: Todo, outcome: Outcome): Promise<boolean> {
   const session = await $.session.id()
   const log = await savedOutput($, todo, outcome)
   // patchTodo matches by id alone, so after a session switch it would settle the new session's item of the same number.
-  if ((await $.session.id()) !== session) return
+  if ((await $.session.id()) !== session) return false
   const { patch, text } = settle(todo, outcome, log)
-  await patchTodo($, todo.id, patch)
-  await syncSpinner($)
   const warn = () => {
     $.ui.log(`could not send #${todo.id} to the agent`, { to: 'debug' })
     $.ui.toast(`Could not tell the agent about #${todo.id}`)
   }
+  // A message is the person's own words, so it settles the item only once the prompt entered.
+  if (outcome.kind === 'message') {
+    const sent = await $.prompt.submit({ text: `[${TITLE}] ${text}` }).catch(() => ({ drop: 'failed' }))
+    if ('drop' in sent && sent.drop !== undefined) {
+      warn()
+      return false
+    }
+    await patchTodo($, todo.id, patch)
+    await syncSpinner($)
+    return true
+  }
+  await patchTodo($, todo.id, patch)
+  await syncSpinner($)
   void $.prompt
     .submit({ text: `[${TITLE}] ${text}` })
     .then(sent => {
       if (sent.drop !== undefined) warn()
     })
     .catch(warn)
+  return true
 }

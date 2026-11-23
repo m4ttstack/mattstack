@@ -1,15 +1,16 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On } from 'claude-code'
-import { bandAbovePrompt, isEngaged, isPlaced, paneMessage, paneRows, registerPaneRedraw, type HideablePane, type Waiting } from '@mattstack/mod-kit'
+import type { EngineInterface, On, RenderSurface } from 'claude-code'
+import { CURSOR_ROW, bandAbovePrompt, cellWidth, wrapKeeping, isEngaged, isPlaced, paneMessage, paneRows, registerPaneRedraw, type HideablePane, type Waiting } from '@mattstack/mod-kit'
 
 import type { Todo } from '../types'
 import { PLUGIN, TITLE } from './items'
 import { act } from './pane/act'
 import { kitLayout, kitView, maxOffset, modelWidth } from './pane/kit-layout'
+import { composeHeadRows } from './pane/compose-head'
 import { drawPlainPane, paneColumns } from './pane/plain-view'
-import { bandModel, paneModel } from './pane/model'
+import { LABELS, bandModel, paneModel } from './pane/model'
 import type { PaneMessage, PaneModel } from './pane/model'
-import { peekTodos, readPane } from './store'
+import { drafts, peekTodos, readPane } from './store'
 
 // A literal on purpose: the engine's matcher scan reads a string literal, not the imported PLUGIN.
 const PANE = 'human-todos'
@@ -31,9 +32,9 @@ export async function openPane($: EngineInterface): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
-// The kit drawer offers each item's message row; the plain drawer has no field to type in.
-function modelOf(pane: { list: Todo[]; openIds: string[]; spin: number; composing: string | null; composeLines: number }, width: number, messages = true): PaneModel {
-  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? '', width, messages, composing: pane.composing, composeLines: pane.composeLines })
+// The kit drawer offers each item's message card; the plain drawer has no field to type in.
+function modelOf(pane: { list: Todo[]; openIds: string[]; spin: number; composing: string | null }, width: number, messages = true): PaneModel {
+  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? '', width, messages, composing: pane.composing })
 }
 
 async function waitingBand($: EngineInterface): Promise<Waiting | undefined> {
@@ -68,10 +69,8 @@ export function registerPane(on: On): void {
     return { text: `${TITLE} pane opened.` }
   })
 
-  // Typing into an open message card raises prompt.edit too, so while one is open the keys stay with the pane;
-  // clearing them here would flash the pane's keyboard marks off and on with every key.
   on('prompt.edit', async ($, e, next) => {
-    if ((await readPane($)).composing === null) await setKeysInPane($, false)
+    await setKeysInPane($, false)
     return next(e)
   })
   on('prompt.submit', async ($, e, next) => {
@@ -92,8 +91,9 @@ export function registerPane(on: On): void {
       const offset = reveal.offset
       await scrollKit($, () => offset)
     }
+    const message = e.data as PaneMessage | null
     // Not awaited, as a Button's onPress is not: a run's start can wait on a slow probe, and the post must not hold it.
-    if (e.requestId === PANE) void act($, e.data as PaneMessage, e.surface)
+    if (e.requestId === PANE && message) void act($, message, e.surface)
     return next(e)
   })
 
@@ -145,16 +145,91 @@ export function registerPane(on: On): void {
       const inner = Math.max(22, paneColumns(e) - 4)
       return drawPlainPane($, e, modelOf(pane, inner - 2, false), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE)
     }
-    const { Client } = $.ui.resolve(e)
+    const { Box, Button, Client, Input } = $.ui.resolve(e)
     const width = paneColumns(e)
-    const bodyRows = paneRows(e)
+    const paneBody = paneRows(e)
+    const todo = pane.composing === null ? undefined : pane.list.find(t => t.id === pane.composing)
+    // An engine Input takes no keys inside a Client, and a Client hands its key listener no paste, so the message
+    // card docks under the list, drawn here. Its buttons are the engine's too, so Tab reaches them from the field:
+    // a Client takes keys only after a click.
+    const draft = todo ? (drafts.get(todo.id) ?? '') : ''
+    const headRows = todo ? composeHeadRows(todo.title, width).length : 0
+    // The list keeps MIN_LIST_ROWS; in a short pane the field stops growing sooner and scrolls within.
+    const fieldRoom = Math.max(1, paneBody - MIN_LIST_ROWS - DOCK_FIXED_ROWS - headRows)
+    const fieldRows = Math.min(fieldRoom, draftFieldRows(draft, width))
+    const dockRows = todo ? DOCK_FIXED_ROWS + headRows + fieldRows : 0
+    const bodyRows = Math.max(MIN_LIST_ROWS, paneBody - dockRows)
     kitSizes.set(e.surface, { columns: width, bodyRows })
     const props = {
       view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read($, scrollAtom)),
       focused: e.props.isFocused || (await read($, keysAtom)),
       width,
-      ...(pane.composing !== null && { composing: pane.composing, composeLines: pane.composeLines }),
     }
-    return <Client key="human-todos-pane" module="./pane/kit-view.tsx" height={bodyRows} props={props} />
+    const list = <Client key="human-todos-pane" module="./pane/kit-view.tsx" height={bodyRows} props={props} />
+    if (!todo) return list
+    const id = todo.id
+    return (
+      <Box flexDirection="column">
+        {list}
+        <Box marginTop={1}>
+          <Client key={`message-head-${id}`} module="./pane/compose-head.tsx" height={headRows} props={{ width, title: todo.title }} />
+        </Box>
+        {/* Only the tint and paddingBottom on the Input's box: with a width, margin or side padding on a box around it,
+            a focused Input stops wrapping and cuts its text off with an ellipsis. */}
+        <Box flexDirection="column" backgroundColor={CURSOR_ROW} paddingBottom={1}>
+          <Input
+            key={`message-${id}`}
+            rows={fieldRows}
+            autoFocus
+            placeholder="Message the agent"
+            submitLabel="send"
+            onInput={value => {
+              drafts.set(id, value)
+              if (Math.min(fieldRoom, draftFieldRows(value, width)) !== fieldRows) $.ui.invalidate('ui.render')
+            }}
+            onSubmit={value => {
+              drafts.set(id, value)
+              sendDraft($, id, false, e.surface)
+            }}
+          />
+        </Box>
+        <Box flexDirection="row" justifyContent="flex-end" gap={2} backgroundColor={CURSOR_ROW} paddingBottom={1}>
+          <Button
+            key={`message-cancel-${id}`}
+            label={LABELS.cancelMessage}
+            onPress={() => void act($, { type: 'press', id, button: 'cancelMessage' }, e.surface)}
+          />
+          <Button key={`message-done-${id}`} label={LABELS.sendDone} onPress={() => sendDraft($, id, true, e.surface)} />
+          <Button key={`message-send-${id}`} label={LABELS.send} onPress={() => sendDraft($, id, false, e.surface)} />
+        </Box>
+      </Box>
+    )
   })
+}
+
+// The field grows with the draft up to MAX_FIELD_ROWS, then scrolls within.
+const MAX_FIELD_ROWS = 8
+// The list rows the open card always leaves showing.
+const MIN_LIST_ROWS = 3
+// The gap above the card, the tinted row under the field, the buttons row and the tinted row under it.
+const DOCK_FIXED_ROWS = 4
+// The engine draws its key hint beside a focused field: Enter's alone on one row, the newline key's too from two.
+const ONE_ROW_HINT = '⏎ send  '
+const MULTI_ROW_HINT = '⏎ send · \\⏎ new line  '
+
+function draftFieldRows(text: string, width: number): number {
+  const rowsBeside = (hint: string) => {
+    const textWidth = Math.max(4, width - cellWidth(hint))
+    return text.split('\n').reduce((n, line) => n + wrapKeeping(line, textWidth).length, 0)
+  }
+  if (rowsBeside(ONE_ROW_HINT) <= 1) return 1
+  return Math.min(MAX_FIELD_ROWS, Math.max(2, rowsBeside(MULTI_ROW_HINT)))
+}
+
+// Send and Send & Done carry the draft; a blank one sends nothing. The draft goes when its card closes after the send
+// reaches the agent (act.ts sendMessage), so a dropped send keeps it.
+function sendDraft($: EngineInterface, id: string, done: boolean, surface: RenderSurface): void {
+  const text = drafts.get(id) ?? ''
+  if (text.trim() === '') return
+  void act($, { type: 'send', id, text, done }, surface)
 }

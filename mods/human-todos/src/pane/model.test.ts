@@ -247,19 +247,6 @@ test('in the kit drawer an open item ends its row with the message button; the p
   expect(ids(paneModel({ list: [todo({ status: 'running', runner: 'local' })], expanded: [], spin: '⠋', width: 38, messages: true }).rows)).not.toContain('message')
 })
 
-test('the item whose message card is open gets its draft rows, then Cancel, Send & mark done and Send', () => {
-  const { rows, spans } = paneModel({ list: [todo({})], expanded: [], spin: '⠋', width: 38, messages: true, composing: '1', composeLines: 3 })
-  const at = rows.findIndex(r => r.kind === 'compose')
-  expect(rows[at]).toEqual({ kind: 'compose', todoId: '1', lines: 3 })
-  const after = rows[at + 1]
-  expect(after?.kind === 'composeActions' && after.buttons.map(b => [b.id, b.label])).toEqual([
-    ['cancelMessage', 'Cancel'],
-    ['sendDone', 'Send & mark done'],
-    ['send', 'Send'],
-  ])
-  expect(spans[0]!.last).toBe(at + 1)
-})
-
 test("an agent's doneLabel replaces the Done button's word, and Done keeps its fill", () => {
   const row = build([todo({ doneLabel: "I've signed in" })]).rows.find(r => r.kind === 'buttons') as { buttons: { id: string; label: string; tone: string }[] }
   expect(row.buttons[0]).toMatchObject({ id: 'done', label: "I've signed in", tone: 'secondary' })

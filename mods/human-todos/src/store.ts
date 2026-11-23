@@ -9,16 +9,17 @@ import { syncSpinner } from './spinner'
 export const todos = atom({ plugin: 'human-todos', key: 'todos' } as const, [] as Todo[], { shape: 'todos-1' })
 export const nextId = atom({ plugin: 'human-todos', key: 'nextId' } as const, 1)
 export const expanded = atom({ plugin: 'human-todos', key: 'expanded' } as const, [] as string[])
-// The item whose message row is open, at most one at a time.
+// The item whose message card is open, at most one at a time.
 export const composing = atom({ plugin: 'human-todos', key: 'composing' } as const, null as string | null)
-// How many rows the open message card's draft wraps onto, as the kit Client reports it.
-export const composeLines = atom({ plugin: 'human-todos', key: 'composeLines' } as const, 1)
 export const frame = atom({ plugin: 'human-todos', key: 'frame' } as const, 0)
 // The shared workspace's id goes with the herdr server it is on, so a switch between servers never reuses an id from the other.
 export const workspace = atom({ plugin: 'human-todos', key: 'herdrWorkspace' } as const, null as { session: string; id: string } | null)
 export const loadedFor = atom({ plugin: 'human-todos', key: 'loadedFor' } as const, null as string | null)
 export const isSaveFailed = atom({ plugin: 'human-todos', key: 'isSaveFailed' } as const, false)
 export const runnerPref = atom({ plugin: 'human-todos', key: 'runnerPref' } as const, 'auto' as 'auto' | 'herdr' | 'local')
+// Each message card's unsent text, by item id. Ids restart with a new list, so every list change empties it; a
+// card that closes drops its own, since its field reopens empty.
+export const drafts = new Map<string, string>()
 
 const LIST_PREFIX = 'list:'
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
@@ -124,6 +125,7 @@ function resume(t: Todo): Todo {
 
 export async function restoreList($: EngineInterface): Promise<void> {
   leaving = undefined
+  drafts.clear()
   const now = await $.clock.now()
   for (const key of await $.store.keys()) {
     if (!key.startsWith(LIST_PREFIX)) continue
@@ -155,8 +157,8 @@ export async function resetList($: EngineInterface): Promise<void> {
   await update($, todos, () => [])
   await update($, expanded, () => [])
   await update($, composing, () => null)
-  await update($, composeLines, () => 1)
   await update($, nextId, () => 1)
+  drafts.clear()
 }
 
 // Drawing is pure: a render reads what is loaded and leaves any restore to the next hook that may write.
@@ -164,30 +166,25 @@ export function peekTodos($: EngineInterface): Promise<Todo[]> {
   return read($, todos)
 }
 
-export async function readPane($: EngineInterface): Promise<{ list: Todo[]; openIds: string[]; spin: number; composing: string | null; composeLines: number }> {
+export async function readPane($: EngineInterface): Promise<{ list: Todo[]; openIds: string[]; spin: number; composing: string | null }> {
   const list = await read($, todos)
-  // A message row belongs to an open item: once its item is done, skipped, running or withdrawn, the row is shut.
+  // A message card belongs to an open item: once its item is done, skipped, running or withdrawn, the card is shut.
   const open = await read($, composing)
   const isLive = open !== null && list.some(t => t.id === open && t.status === 'open')
-  return { list, openIds: await read($, expanded), spin: await read($, frame), composing: isLive ? open : null, composeLines: isLive ? await read($, composeLines) : 1 }
+  return { list, openIds: await read($, expanded), spin: await read($, frame), composing: isLive ? open : null }
 }
 
-// The card grows with the draft, up to MAX_COMPOSE_LINES rows; past that its text scrolls within the card.
-const MAX_COMPOSE_LINES = 8
-export async function setComposeLines($: EngineInterface, lines: number): Promise<void> {
-  const next = Math.min(MAX_COMPOSE_LINES, Math.max(1, Math.round(lines)))
-  if ((await read($, composeLines)) !== next) await update($, composeLines, () => next)
-}
-
-// Opening one item's message row closes any other; pressing its button again closes it.
+// Opening one item's message card closes any other; pressing its button again closes it.
 export async function toggleComposing($: EngineInterface, id: string): Promise<void> {
-  await update($, composing, open => (open === id ? null : id))
-  await update($, composeLines, () => 1)
+  const open = await read($, composing)
+  if (open !== null) drafts.delete(open)
+  await update($, composing, () => (open === id ? null : id))
 }
 
 export async function closeComposing($: EngineInterface): Promise<void> {
+  const open = await read($, composing)
+  if (open !== null) drafts.delete(open)
   await update($, composing, () => null)
-  await update($, composeLines, () => 1)
 }
 
 export async function bumpFrame($: EngineInterface): Promise<void> {

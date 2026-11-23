@@ -12,17 +12,12 @@ export type PaneRow =
   | { kind: 'buttons'; buttons: PaneButton[]; lead?: { text: string; tone: Tone; spin?: true; pad?: true }; flush?: true }
   | { kind: 'finished'; mark: string; tone: Tone; title: string; exit?: number }
   | { kind: 'blank' }
-  // The item's message card: `lines` rows of draft (the kit Client holds the text and says when it wraps onto another
-  // row), then its actions as plain words on the card's last row.
-  | { kind: 'compose'; todoId: string; lines: number }
-  | { kind: 'composeActions'; buttons: PaneButton[] }
 export type PaneModel = { rows: PaneRow[]; spans: { first: number; last: number }[]; hasFinished: boolean }
 export type PaneMessage =
   | { type: 'press'; id: string; button: ButtonId }
   | { type: 'toggle'; id: string }
   | { type: 'clear' }
   | { type: 'send'; id: string; text: string; done: boolean }
-  | { type: 'draftLines'; lines: number }
 
 const SCRIPT_ROWS = 2
 const FINISHED_SHOWN = 8
@@ -42,7 +37,7 @@ export const LABELS: Record<ButtonId, string> = {
   // The Nerd Font chat bubble (codicon comment); Chat about this in gate-form uses the two-bubble comment_discussion.
   message: '\u{EA6B}',
   send: 'Send',
-  sendDone: 'Send & mark done',
+  sendDone: 'Send & Done',
   cancelMessage: 'Cancel',
 }
 
@@ -61,7 +56,7 @@ const TONES: Record<ButtonId, ButtonTone> = {
   openLog: 'neutral',
   stop: 'caution',
   forceStop: 'caution',
-  message: 'quiet',
+  message: 'thread',
   send: 'neutral',
   sendDone: 'plain',
   cancelMessage: 'plain',
@@ -89,23 +84,19 @@ function markFor(todo: Todo): { mark: string; tone: Tone } {
 }
 
 // Only an item's main button and Done are filled (Done always looks the same), the rest stay quiet until the pointer is over them. A running item lists Show or Open log before Stop, so Stop is its main one.
-// An open item in the kit drawer ends its row with the message button, a quiet chat bubble after Done and Skip.
-// The chevron turns down while the item's message row is open, and points right while it is shut.
+// An open item in the kit drawer ends its row with the message button, a chat bubble in the thread tone the docked
+// message card's band shares. The chevron turns down while the item's card is open, and points right while it is shut.
 function buttonsOf(todo: Todo, messages: boolean, isComposing = false): PaneButton[] {
   const ids = buttonsFor(todo)
   const main = ids.find(id => id === 'stop' || id === 'forceStop') ?? ids[0]
   const label = (id: ButtonId) => (id !== 'done' ? LABELS[id] : todo.kind === 'run' ? RUN_DONE_LABEL : (todo.doneLabel ?? LABELS.done))
   const own = ids.map((id): PaneButton => ({ id, label: label(id), tone: id === main || id === 'done' ? TONES[id] : 'quiet', todoId: todo.id }))
-  return messages && todo.status === 'open' ? [...own, { id: 'message', label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: 'quiet', todoId: todo.id }] : own
+  return messages && todo.status === 'open' ? [...own, { id: 'message', label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: TONES.message, todoId: todo.id }] : own
 }
 
-// Left to right as the card draws them: the quiet way out first, Send last at the edge.
-const composeButtons = (todoId: string): PaneButton[] =>
-  (['cancelMessage', 'sendDone', 'send'] as const).map(id => ({ id, label: LABELS[id], tone: TONES[id], todoId }))
-
 // A title wraps at the full inner width; everything else at `width`, two columns narrower.
-// `messages`: the kit drawer, which offers an item's message row; `composing` is the item whose row is open.
-export function paneModel(input: { list: Todo[]; expanded: string[]; spin: string; width: number; messages?: boolean; composing?: string | null; composeLines?: number }): PaneModel {
+// `messages`: the kit drawer, which offers an item's message card; `composing` is the item whose card is open.
+export function paneModel(input: { list: Todo[]; expanded: string[]; spin: string; width: number; messages?: boolean; composing?: string | null }): PaneModel {
   const { list, expanded, spin, width } = input
   const messages = input.messages === true
   const inner = width + 2
@@ -167,11 +158,6 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
       // Confirm lands on the row Run was on, so the prompt goes under the buttons rather than pushing them down.
       rows.push({ kind: 'buttons', buttons: buttonsOf(todo, messages, input.composing === todo.id) })
       if (isConfirming) lines('Are you sure you want to run this script?', width, 'plain', true)
-      if (messages && todo.status === 'open' && input.composing === todo.id) {
-        blank()
-        rows.push({ kind: 'compose', todoId: todo.id, lines: Math.max(1, input.composeLines ?? 1) })
-        rows.push({ kind: 'composeActions', buttons: composeButtons(todo.id) })
-      }
     }
     spans.push({ first, last: rows.length - 1 })
     blank()
