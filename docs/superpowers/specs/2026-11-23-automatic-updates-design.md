@@ -92,12 +92,23 @@ Three parts, built in this order. Part 1 stands alone and ships first.
 
 Decided by Matt: approach A, and it must cover manual restarts.
 
-**Client retry.** `rtCommand` retries when the connection could not be
-made: the socket file is missing, or the connect is refused. It retries
-with short backoff for up to about 20 seconds in total, then returns
-today's "daemon unreachable" result. It does not retry a request whose
-connection was made and then dropped, because the daemon may already
-have acted on it. A caller's own timeout still bounds the whole call.
+**Client retry.** Both daemon clients retry: `rtCommand`
+(`packages/rt-client/src/transport.ts`, used by MCP tools and chat) and
+`daemonQuery` (`lib/daemon-client.ts`, used by most `rt` verbs). The
+retry lives in each client's transport, not at its call sites (my call).
+A request is retried in two cases, both of which mean the daemon has not
+acted on it:
+
+- the connection could not be made (the socket file is missing, or the
+  connect is refused);
+- the daemon answered "starting" (see Early bind).
+
+It retries with short backoff for up to about 20 seconds in total, then
+returns what it returns today (`rtCommand`'s "daemon unreachable"
+result, `daemonQuery`'s null). It does not retry a request whose
+connection was made and then dropped or timed out, because the daemon
+may already have acted on it. `daemonQuery` keeps asking the tray to
+start a daemon whose socket is gone.
 
 **`rt events wait` reconnects** the way `rt gate wait` does
 (`commands/gate.ts`): a missing daemon mid-wait is retried with backoff,
@@ -106,9 +117,11 @@ not a failure.
 **Early bind.** The new daemon binds `rt.sock` as early in boot as it
 can: after the park gate and after `evictStaleDaemon` (which must run
 first, so a new daemon never unlinks a live daemon's socket), and before
-the databases open. Requests that arrive before boot finishes are held
-and answered once handlers are ready. The socket bind no longer waits
-behind the API port bind.
+the databases open. A request that arrives before boot finishes gets an
+immediate "starting" reply, which clients retry (my call: holding the
+request instead would outlast `daemonQuery`'s 2s timeout, and a timeout
+is not safe to retry). The socket bind no longer waits behind the API
+port bind.
 
 **Drain.** On SIGTERM the old daemon stops accepting connections,
 settles its long-poll waiters (`events:wait`, `gate:wait`) with their
@@ -121,6 +134,17 @@ Sessions already running keep their old client code until
 `/reload-plugins` or a new session, so the first restart after this
 ships is not covered for them.
 
+**Busy check.** Decided by Matt: an automatic update waits while the
+daemon is doing work a restart would cut off. The daemon gains a verb
+that says whether it is busy: a worktree provision or install in
+progress, or a long request in flight (job traces,
+`worktree:stop-holders`). Parts 2 and 3 ask it before they install.
+While it is busy the update holds with the reason "daemon busy", shown
+in telemetry, and is retried each minute. There is no time limit. A
+daemon that does not answer counts as not busy, so a dead daemon never
+blocks the update that would fix it (my call). A restart done by hand
+does not ask.
+
 ### Part 2: prod installs at once, silently
 
 Decided by Matt: install and relaunch as soon as the download finishes,
@@ -128,10 +152,14 @@ with no prompt, no countdown and no snooze, with windows open.
 
 - `SUAutomaticallyUpdate` becomes true, in `Info.plist` and wherever
   `build.sh`, `check-bundle.sh` and the generated plists assert it.
-- `UpdatePolicy.hold` no longer holds for open windows. A running setup
-  still holds the update (my call: a relaunch would kill a setup run
-  partway); `HeldUpdateInstaller` keeps retrying each minute until setup
-  ends.
+- `UpdatePolicy.hold` no longer holds for open windows. Two things hold
+  an update: a running setup (my call: a relaunch would kill a setup run
+  partway) and a busy daemon (part 1's busy check). `HeldUpdateInstaller`
+  keeps retrying each minute until both clear.
+- Decided by Matt: the "Check for updates automatically" switch in
+  Settings (`rt-tray/Sources/Settings/GeneralPane.swift`) is removed. A
+  Mac that had turned it off is switched back on at the next launch.
+  There is no opt-out, in prod or dev.
 - Sparkle's update window no longer opens for a scheduled check. The
   "Update Available" menu item and the `app_update` notification after
   the relaunch stay.
@@ -160,10 +188,18 @@ as today. When a newer one exists, it checks the clone:
 Work in other worktrees does not count (my call: rt and the daemon run
 from the main clone only).
 
+4. The daemon is not busy (part 1's busy check).
+
 - **All pass:** fast-forward the clone to `origin/main` (my call: main,
-  not the release tag, since dev Macs follow main), then run the stages
-  `rt dev update` runs. The dev app relaunches and the daemon restarts,
-  protected by part 1.
+  not the release tag, since dev Macs follow main). Then make the pulled
+  tree runnable: rerun every step of `rt dev setup` whose result depends
+  on the tree's contents, which `rt dev update` does not all do today.
+  `bun install` (whose postinstall builds the rt-client, settings-kit
+  and tui-kit `dist/` folders) is one; the builder lists the rest from
+  `lib/dev/setup.ts` (my call). Then run the stages `rt dev update`
+  runs. The dev app relaunches and the daemon restarts last, protected
+  by part 1, so the old daemon is not left running over a half-built
+  tree for longer than those steps take.
 - **Any fails:** nothing changes. The person gets one notification per
   waiting version, saying an update is waiting and which check held it.
   The next hourly check tries again.
