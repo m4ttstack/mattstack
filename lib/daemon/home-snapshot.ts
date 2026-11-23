@@ -1444,6 +1444,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (remote === "unknown") return deferPush();
     if (remote === "none") {
       deps.log.debug(`${label}: no remote configured; nothing to push`);
+      noRemote = true;
       pushPending = false;
       lastPushError = null;
       return;
@@ -1471,6 +1472,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       result = await remoteGit(["push", "-q", "origin", "HEAD"], PUSH_TIMEOUT_MS);
     }
     if (result.exitCode === 0) {
+      pushesLanded++;
       pushPending = false;
       pushFailureBroadcast = false;
       lastPushAt = deps.now();
@@ -1941,6 +1943,9 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     }
   }
 
+  /** Counts pushes git accepted, so a push-now round can tell its own push from an early return. */
+  let pushesLanded = 0;
+  let noRemote = false;
   let pushNowInFlight: Promise<PushNowResult> | null = null;
   /** Set once the in-flight round's commit cycle is done: a caller after that holds changes the round did not take. */
   let pushNowPastCommit = false;
@@ -1964,6 +1969,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   }
 
   async function doPushNow(): Promise<PushNowResult> {
+    // A round already running may have read status before the caller's save.
+    if (runInFlight) await runInFlight.catch(() => {});
     const run = await runNow("manual");
     pushNowPastCommit = true;
     const committed = run.committed;
@@ -1975,10 +1982,12 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     pushRetryAttempt = 0;
     // A timed push already running captured an older HEAD: let it finish, then push this round's commit.
     if (pushInFlight) await pushInFlight.catch(() => {});
+    const landedBefore = pushesLanded;
+    noRemote = false;
     await doPush();
-    if (!pushPending) return { committed, pushed: true, error: null, skipped: null };
+    if (pushesLanded > landedBefore) return { committed, pushed: true, error: null, skipped: null };
     if (lastPushError !== null) return { committed, pushed: false, error: lastPushError, skipped: null };
-    const skipped = conflicted ? "conflict" : layoutHold ? "layout-hold" : "deferred";
+    const skipped = conflicted ? "conflict" : layoutHold ? "layout-hold" : noRemote ? "no-remote" : "deferred";
     return { committed, pushed: false, error: null, skipped };
   }
 

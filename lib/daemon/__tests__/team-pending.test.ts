@@ -25,6 +25,8 @@ interface Clone {
   origin?: Record<string, string>;
   /** False when origin has no copy of the branch. */
   hasOrigin?: boolean;
+  /** Files at the merge-base with origin; origin's tip when left out. */
+  base?: Record<string, string>;
 }
 
 function clone(opts: Clone) {
@@ -43,9 +45,11 @@ function clone(opts: Clone) {
     if (verb === "rev-parse") return opts.hasOrigin === false ? { stdout: "", stderr: "", exitCode: 1 } : ok("abc\n");
     if (verb === "status") return ok(opts.status ?? "");
     if (verb === "diff") return ok((opts.ahead ?? []).map((p) => `${p}\0`).join(""));
+    if (verb === "merge-base") return ok("base\n");
     if (verb === "show") {
+      const ref = rest[0]!.slice(0, rest[0]!.indexOf(":"));
       const path = rest[0]!.slice(rest[0]!.indexOf(":") + 1);
-      const text = opts.origin?.[path];
+      const text = (ref === "base" ? (opts.base ?? opts.origin) : opts.origin)?.[path];
       return text === undefined ? { stdout: "", stderr: `fatal: path '${path}' does not exist`, exitCode: 128 } : ok(text);
     }
     return ok("");
@@ -112,6 +116,16 @@ describe("readPending", () => {
     });
     const opts = { unowned: [], heldBack: [], packZones: ["mattstack/teams/widgets/plugin/", "mattstack/org/packs/"] };
     expect(await readPending(c.repoDir, c.exec, opts)).toEqual([{ path: ".sops.yaml" }]);
+  });
+
+  test("a key origin changed after this clone forked is not waiting", async () => {
+    const c = clone({
+      files: { [TEAM_STORE]: `{"k": 2}` },
+      base: { [TEAM_STORE]: `{"k": 1}` },
+      origin: { [TEAM_STORE]: `{"k": 1, "upstream": true}` },
+      status: ` M ${TEAM_STORE}\0`,
+    });
+    expect(await readPending(c.repoDir, c.exec, none)).toEqual([{ store: "team:widgets", key: "k", change: "changed" }]);
   });
 
   test("nothing waiting reads as an empty list", async () => {

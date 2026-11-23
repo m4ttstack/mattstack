@@ -888,7 +888,15 @@ describe("teamPush", () => {
     expect(code).toBe(2);
     const body = JSON.parse(deps.lines[0]!);
     expect(body.error.code).toBe("team-push-failed");
-    expect(body.error.message).toContain("403");
+    expect(body.error.message).toBe("The push to the acme org repo failed");
+    expect(body.error.detail).toContain("403");
+  });
+
+  test("team push names a missing remote in plain words", async () => {
+    const deps = depsWithZone({ daemon: pushed({ committed: false, pushed: false, error: null, skipped: "no-remote" }) });
+    const code = await runExpectingProcessExit(() => teamPush(["--team", "acme", "--json"], {}, deps));
+    expect(code).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error.message).toBe("Your copy of the acme org has no origin remote, so there is nowhere to push");
   });
 
   test("team push exits with team-push-skipped while conflicted", async () => {

@@ -37,6 +37,8 @@ export async function readPending(repoDir: string, exec: PendingExec, opts: { un
   const branch = (await git(["symbolic-ref", "--quiet", "--short", "HEAD"])).stdout.trim();
   const originRef = `refs/remotes/origin/${branch}`;
   const hasOrigin = (await git(["rev-parse", "--verify", "-q", originRef], true)).exitCode === 0;
+  // Keys origin changed after this clone forked are not this Mac's to push.
+  const base = hasOrigin ? (await git(["merge-base", originRef, "HEAD"])).stdout.trim() : null;
 
   const paths = new Set<string>();
   for (const entry of parsePorcelainZ((await git(["status", "--porcelain=v1", "-uall", "-z"])).stdout)) {
@@ -59,7 +61,7 @@ export async function readPending(repoDir: string, exec: PendingExec, opts: { un
       out.push(heldBack.has(path) ? { path, heldBack: true } : { path });
       continue;
     }
-    const before = hasOrigin ? await originText(git, originRef, path) : null;
+    const before = base ? await originText(git, base, path) : null;
     for (const key of diffStoreKeys(path, before, workingText(repoDir, path))) out.push({ store, ...key });
   }
   return out;

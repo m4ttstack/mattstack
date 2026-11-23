@@ -1168,6 +1168,54 @@ describe("startHomeSnapshot — push now", () => {
     expect(pushes(calls)).toBe(2);
   });
 
+  test("pushNow with no remote reports nothing pushed", async () => {
+    const { fn, calls } = makeFakeExec(defaultResponders({ statusZ: "", hasRemote: false }));
+    const { deps } = baseDeps({ exec: fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const result = await handle.pushNow();
+
+    expect(pushes(calls)).toBe(0);
+    expect(result).toEqual({ committed: false, pushed: false, error: null, skipped: "no-remote" });
+  });
+
+  test("pushNow whose own pull hits a conflict reports the conflict, not a push", async () => {
+    const { fn, calls } = makeFakeExec([...pullResponders({ behind: 1, ahead: 1, rebase: "conflict" }), ...defaultResponders({ statusZ: "" })]);
+    const { deps } = baseDeps({ exec: fn });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot(teamSpecFor(null), rest);
+    await handle.ready;
+
+    const result = await handle.pushNow();
+
+    expect(pushes(calls)).toBe(0);
+    expect(result).toEqual({ committed: false, pushed: false, error: null, skipped: "conflict" });
+    handle.stop();
+  });
+
+  test("pushNow during a round that read status before the save runs a fresh round", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const base = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    let held = true;
+    const exec: NonNullable<HomeSnapshotDeps["exec"]> = async (argv, opts) => {
+      if (held && gitVerb(argv) === "status") { held = false; await gate; }
+      return base.fn(argv, opts);
+    };
+    const { deps } = baseDeps({ exec });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const watch = handle.runNow("watch");
+    await flushAsync();
+    const pushed = handle.pushNow();
+    release();
+    await Promise.all([watch, pushed]);
+
+    expect(commits(base.calls)).toBe(2);
+  });
+
   test("restores lastPushAt from the persisted push record", async () => {
     const db = freshDb();
     setKvValue("home-snapshot", "last-push", { at: 1000, ok: true }, db);

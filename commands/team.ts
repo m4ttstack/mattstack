@@ -649,6 +649,7 @@ const PUSH_SKIPPED_COPY: Record<string, (slug: string) => string> = {
   "layout-hold": (slug) => `Your copy of the ${slug} org is waiting on an app update, so rt is not pushing yet`,
   deferred: () => "git did not answer, so rt will try the push again at its next round",
   disabled: () => "Team snapshots are turned off on this Mac",
+  "no-remote": (slug) => `Your copy of the ${slug} org has no origin remote, so there is nowhere to push`,
 };
 
 export async function teamPush(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
@@ -670,7 +671,7 @@ export async function teamPush(args: string[], _ctx: CommandContext = {}, deps: 
     }
     const { committed, pushed, error, skipped } = res.data;
     if (!pushed) {
-      if (error !== null) throw new UserActionableError("team-push-failed", error, { slug });
+      if (error !== null) throw new UserActionableError("team-push-failed", `The push to the ${slug} org repo failed`, { slug, detail: error }, { log: error });
       const reason = skipped ?? "unknown";
       throw new UserActionableError("team-push-skipped", PUSH_SKIPPED_COPY[reason]?.(slug) ?? `rt did not push your ${slug} settings changes (${reason})`, { slug, skipped: reason });
     }
