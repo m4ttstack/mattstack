@@ -3600,6 +3600,15 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      push: {
+        description: "Push your waiting org and team settings changes now, instead of waiting for the next automatic push",
+        module: "./commands/team.ts",
+        fn: "teamPush",
+        args: [
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
+          SETUP_JSON_ARG,
+        ],
+      },
     },
   },
 };

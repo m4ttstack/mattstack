@@ -179,6 +179,14 @@ describe("teamStatus", () => {
       lastPullSkipped: null,
       conflicted: null,
       pullOnly: false,
+      heldBack: [],
+      pending: null,
+      lastPushError: null,
+      lastCommitError: null,
+      lastPullError: null,
+      layoutHold: false,
+      unownedDirty: [],
+      pullIntervalSec: 300,
       relayFailed: false,
     });
   });
@@ -414,7 +422,54 @@ describe("teamStatus", () => {
       io.restore();
     }
     await teamStatus(["--team", SLUG, "--json"], {}, deps);
-    expect(JSON.parse(deps.lines.at(-1)!).heldBack).toBeUndefined();
+    expect(JSON.parse(deps.lines.at(-1)!).heldBack).toEqual([".claude-plugin/marketplace.json"]);
+  });
+
+  test("json carries pending and the error fields from the daemon", async () => {
+    const deps = clonedDeps({ exec: async () => ({ code: 0, stdout: "2026-08-21T10:00:00+00:00\n", stderr: "" }) });
+    const pending = [{ store: "team:claimview", key: "board.slack", change: "changed" }, { path: ".sops.yaml" }];
+    deps.daemon = async (verb) =>
+      verb === "team:snapshot-status"
+        ? { ok: true, data: [{ slug: SLUG, lastPullAt: 900_000, lastPushAt: 800_000, lastPullSkipped: null, conflicted: null, pullOnly: false, heldBack: [], unownedDirty: ["mattstack/org/settings.org.jsonc"], lastPushError: "fatal: 403", lastCommitError: null, lastPullError: "fatal: could not read Username", layoutHold: { layout: 6, reads: 5 }, pending }] }
+        : null;
+
+    await teamStatus(["--team", SLUG, "--json"], {}, deps);
+
+    const body = JSON.parse(deps.lines[0]!);
+    expect(body.pending).toEqual(pending);
+    expect(body.lastPushError).toBe("fatal: 403");
+    expect(body.lastCommitError).toBeNull();
+    expect(body.lastPullError).toBe("fatal: could not read Username");
+    expect(body.layoutHold).toBe(true);
+    expect(body.unownedDirty).toEqual(["mattstack/org/settings.org.jsonc"]);
+    expect(body.heldBack).toEqual([]);
+    expect(body.pullIntervalSec).toBe(300);
+  });
+
+  test("json pending is null when the daemon predates it", async () => {
+    const deps = clonedDeps({ exec: async () => ({ code: 0, stdout: "2026-08-21T10:00:00+00:00\n", stderr: "" }) });
+    deps.daemon = async (verb) =>
+      verb === "team:snapshot-status"
+        ? { ok: true, data: [{ slug: SLUG, lastPullAt: 900_000, lastPushAt: 0, lastPullSkipped: null, conflicted: null, pullOnly: false }] }
+        : null;
+
+    await teamStatus(["--team", SLUG, "--json"], {}, deps);
+
+    const body = JSON.parse(deps.lines[0]!);
+    expect(body.pending).toBeNull();
+    expect(body.layoutHold).toBe(false);
+    expect(body.lastPushError).toBeNull();
+  });
+
+  test("json pending is null when the daemon is unreachable", async () => {
+    const deps = clonedDeps({ exec: async () => ({ code: 0, stdout: "2026-08-21T10:00:00+00:00\n", stderr: "" }) });
+    deps.daemon = async () => null;
+
+    await teamStatus(["--team", SLUG, "--json"], {}, deps);
+
+    const body = JSON.parse(deps.lines[0]!);
+    expect(body.pending).toBeNull();
+    expect(body.unownedDirty).toEqual([]);
   });
 
   test("no board.title -> name falls back to the slug", async () => {

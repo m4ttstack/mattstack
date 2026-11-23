@@ -84,6 +84,8 @@ import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { daemonQuery } from "../lib/daemon-client.ts";
 import type { TeamSnapshotEntry } from "../lib/daemon/team-snapshots.ts";
+import type { PendingEntry } from "../lib/daemon/team-pending.ts";
+import { clampPullIntervalSec } from "../lib/daemon/snapshot-interval.ts";
 import type { PullHold } from "../lib/team/org-layout.ts";
 
 export interface TeamDeps {
@@ -261,6 +263,7 @@ function usageError(deps: TeamDeps, json: boolean, title: string, usage: string)
 
 /** rt declining by policy rather than failing: a person reads a refused line, never a failure block. */
 const REFUSAL_CODES = new Set([
+  "team-push-skipped",
   "not-on-team",
   "team-pull-only",
   "not-rt-created",
@@ -635,6 +638,47 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
       const hint = res.data.detail ? `outcome: ${outcome}, ${res.data.detail}` : `outcome: ${outcome}`;
       out.print(out.line("warn", `The ${slug} team pull ended in a way rt does not recognize`, hint));
     }
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+const PUSH_SKIPPED_COPY: Record<string, (slug: string) => string> = {
+  conflict: (slug) => `Your copy of the ${slug} org has changes that clash with origin, so rt is not pushing until they are sorted out`,
+  "layout-hold": (slug) => `Your copy of the ${slug} org is waiting on an app update, so rt is not pushing yet`,
+  deferred: () => "git did not answer, so rt will try the push again at its next round",
+  disabled: () => "Team snapshots are turned off on this Mac",
+};
+
+export async function teamPush(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  try {
+    const slug = resolveTeamSlug(args, "team push");
+    const call = deps.daemon ?? daemonQuery;
+    const res = (await call("team:snapshot-run", { slug }, PULL_TIMEOUT_MS)) as
+      | { ok: boolean; data?: { committed: boolean; pushed: boolean; error: string | null; skipped: string | null }; error?: string; failure?: { code: string; message: string } }
+      | null;
+    if (!res) {
+      throw new UserActionableError("daemon-unreachable", "The rt daemon is not running", {}, {
+        why: "It pushes your org and team settings changes. You can also push with git in the org's folder.",
+        next: "rt daemon start",
+      });
+    }
+    if (!res.ok || !res.data) {
+      throw new UserActionableError(res.failure?.code ?? "team-push-failed", res.failure?.message ?? res.error ?? "team push failed");
+    }
+    const { committed, pushed, error, skipped } = res.data;
+    if (!pushed) {
+      if (error !== null) throw new UserActionableError("team-push-failed", error, { slug });
+      const reason = skipped ?? "unknown";
+      throw new UserActionableError("team-push-skipped", PUSH_SKIPPED_COPY[reason]?.(slug) ?? `rt did not push your ${slug} settings changes (${reason})`, { slug, skipped: reason });
+    }
+    if (json) {
+      deps.print(JSON.stringify(envelope({ slug, committed, pushed, error, skipped })));
+      return;
+    }
+    out.print(out.line("done", `Pushed your ${slug} settings changes`));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
@@ -1208,11 +1252,21 @@ interface TeamSyncFields {
   pullOnly: boolean;
   /** True only when the daemon answered `team:snapshot-status` and named this slug; never leaked into the JSON envelope, only used to pick the human line's "ok"/"unknown". */
   reachable: boolean;
-  /** Paths the snapshot held back last round; human output only, like `reachable`. */
+  /** Paths the snapshot held back last round. */
   heldBack: string[];
+  /** What this clone holds that origin does not; null when the daemon is unreachable or predates the field, which reads as unknown, never as nothing waiting. */
+  pending: PendingEntry[] | null;
+  lastPushError: string | null;
+  lastCommitError: string | null;
+  lastPullError: string | null;
+  layoutHold: boolean;
+  unownedDirty: string[];
 }
 
-const NO_SYNC: TeamSyncFields = { lastPull: null, lastPushAt: null, lastPullSkipped: null, conflicted: null, pullOnly: false, reachable: false, heldBack: [] };
+const NO_SYNC: TeamSyncFields = {
+  lastPull: null, lastPushAt: null, lastPullSkipped: null, conflicted: null, pullOnly: false, reachable: false, heldBack: [],
+  pending: null, lastPushError: null, lastCommitError: null, lastPullError: null, layoutHold: false, unownedDirty: [],
+};
 
 /** `deps.daemon?.("team:snapshot-status", {})` round trip, reduced to the five fields `teamStatus` shows for `slug`. Any failure (daemon down, malformed response, slug absent from the list) collapses to `NO_SYNC` rather than throwing; sync state is a nicety on top of the local status, never a reason to fail the whole command. */
 async function readTeamSyncFields(deps: TeamDeps, slug: string): Promise<TeamSyncFields> {
@@ -1230,6 +1284,12 @@ async function readTeamSyncFields(deps: TeamDeps, slug: string): Promise<TeamSyn
       pullOnly: entry.pullOnly === true,
       reachable: true,
       heldBack: entry.heldBack ?? [],
+      pending: Array.isArray(entry.pending) ? entry.pending : null,
+      lastPushError: entry.lastPushError ?? null,
+      lastCommitError: entry.lastCommitError ?? null,
+      lastPullError: entry.lastPullError ?? null,
+      layoutHold: entry.layoutHold != null,
+      unownedDirty: entry.unownedDirty ?? [],
     };
   } catch {
     return NO_SYNC;
@@ -1284,7 +1344,9 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
     const remote = snapshot.remote !== null ? stripUserinfo(snapshot.remote) : null;
 
-    const { reachable, heldBack, ...sync } = await readTeamSyncFields(deps, slug);
+    const { reachable, ...sync } = await readTeamSyncFields(deps, slug);
+    const heldBack = sync.heldBack;
+    const pullIntervalSec = clampPullIntervalSec(Number(read<{ pullIntervalSec?: unknown }>("rt.teamSnapshot")?.pullIntervalSec));
 
     const rosterForInvites = everyone.flatMap((member) => {
       const username = (member as { username?: unknown } | null)?.username;
@@ -1313,7 +1375,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     const { invites, relayFailed } = inviteResult;
     const replied = invites.filter((invite) => invite.state === "replied").map((invite) => invite.handle);
 
-    const result = { slug, name, remote, branch, dataBranch: homeBranch, trial, lastPush, members: membersWithPeering, invites, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync, relayFailed, adminSecrets };
+    const result = { slug, name, remote, branch, dataBranch: homeBranch, trial, lastPush, members: membersWithPeering, invites, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync, pullIntervalSec, relayFailed, adminSecrets };
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
