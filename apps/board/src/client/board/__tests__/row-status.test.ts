@@ -405,6 +405,37 @@ describe('rowStatus: review lane', () => {
     });
     expect(s.bar).toBe('bad');
   });
+
+  test('held is a quiet line with its reason and no bar, until the MR moves after the hold', () => {
+    const review = {
+      status: 'held',
+      message: 'author is closing this MR',
+      updatedAt: NOW - 60_000,
+    };
+    const s = rowStatus(
+      mr({ review, updatedAt: new Date(NOW - 120_000).toISOString() } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(s.line).toMatchObject({
+      tone: 'quiet',
+      word: 'review held',
+      detail: 'author is closing this MR',
+    });
+    expect(s.line.verbs).toEqual([
+      { kind: 'launch-review', label: 'review anyway' },
+      { kind: 'dismiss', label: 'dismiss', domain: 'review' },
+    ]);
+    expect(s.bar).toBeNull();
+    const [moved] = candidateLines(
+      mr({ review, updatedAt: new Date(NOW - 30_000).toISOString() } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(moved?.word).not.toBe('review held');
+  });
 });
 
 describe('rowStatus: interrupted executor', () => {

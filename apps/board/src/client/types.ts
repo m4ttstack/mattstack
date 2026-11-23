@@ -43,7 +43,7 @@ export interface ExecutorView {
   openGateIds: string[];
 }
 
-export type ReviewStatus = 'queued' | 'reviewing' | 'done' | 'error';
+export type ReviewStatus = 'queued' | 'reviewing' | 'done' | 'error' | 'held';
 export interface ReviewInfo {
   status: ReviewStatus;
   message?: string;

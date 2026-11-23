@@ -12,6 +12,7 @@ import { hasChangesRequested } from '../../data.ts';
 import { doctorGoneQuiet } from '../../doctor-quiet.ts';
 import { isFreshPeerReview } from '../../peer/presence.ts';
 import { respondOutcome } from '../../respond-outcome.ts';
+import { reviewHeldStanding } from '../../review-held.ts';
 import { approvalSlots, isOwnMr, statusBucket } from '../../view.ts';
 import type {
   BoardMRWithReview,
@@ -33,6 +34,8 @@ import {
 } from './format.ts';
 import { parseGateCtx } from './gate-ctx.ts';
 import { mrPeople, type People } from './people.ts';
+
+export { reviewHeldStanding };
 
 type Tone = 'bad' | 'warn' | 'work' | 'go' | 'quiet' | 'clear';
 
@@ -488,6 +491,17 @@ function reviewLine(
         now
       );
     }
+    case 'held':
+      if (!reviewHeldStanding(mr)) return null;
+      return {
+        tone: 'quiet',
+        word: 'review held',
+        detail: r.message || undefined,
+        verbs: [
+          { kind: 'launch-review', label: 'review anyway' },
+          { kind: 'dismiss', label: 'dismiss', domain: 'review' },
+        ],
+      };
     case 'error':
       return {
         tone: 'bad',
