@@ -91,8 +91,13 @@ a layout hold, in that order), waiting (`pending` non-empty), else pushed with t
 a push asked for meanwhile waits and shares one trailing push; 409 on a failed push), which runs
 the daemon's own snapshot round, so every push
 guard still applies. The daemon's `team-snapshot-updated` event reaches the client through the
-relay as the `settings-sync` topic. The design fixture draws one state per
-`CONSOLE_FIXTURE_SYNC` (`pushed` by default, `waiting`, `stuck`, `unknown`) and refuses Push now.
+relay as the `settings-sync` topic. `SyncPill` (after the team in the
+Settings bar) shows the state and opens what is waiting, why it is stuck and Push now; an org or team
+save pushes at once and its row's `SyncNote` walks pushing → pushed, and `NotPushedMark` marks a row
+still waiting. The design fixture draws one state per
+`CONSOLE_FIXTURE_SYNC` (`pushed` by default, `waiting`, `stuck`, `unknown`) and refuses Push now. The
+settings routes are not fixtured, so `CONSOLE_FIXTURE_SYNC_ORG` and `CONSOLE_FIXTURE_SYNC_TEAM` rename
+its `acme` org and `web` team to the ones the page reads.
 
 ## Runs domain (`src/app/runs/`, `src/server/runs.ts`)
 
