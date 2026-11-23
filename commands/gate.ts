@@ -8,7 +8,7 @@
  *   rt gate fork-check                           # AskUserQuestion hook endpoint: stdin JSON in, hook decision out
  *   rt gate answer <id> --answers <json> --by <surface> [--session <id>] [--override]
  *   rt gate wait <id> [--timeout <duration>]     # default: wait forever
- *   rt gate list [--open] [--subject-prefix <p>] [--kind <k>] [--limit <n>] [--cursor <n>]
+ *   rt gate list [--open] [--subject-prefix <p>] [--kind <k>] [--run <id>] [--limit <n>] [--cursor <n>]
  *   rt gate park <id>
  *   rt gate close <id> --reason <abandoned|superseded|pruned>
  *   rt gate subscribe --subject-prefix <p> --session <addr>
@@ -48,7 +48,7 @@ const FLAGS_WITH_VALUES = new Set([
   "--subject", "--kind", "--questions", "--meta", "--agent", "--pane", "--nudge",
   "--context", "--origin",
   "--answers", "--by", "--timeout", "--subject-prefix", "--reason", "--session",
-  "--limit", "--cursor",
+  "--limit", "--cursor", "--run",
 ]);
 function positional(args: string[]): string | undefined {
   for (let i = 0; i < args.length; i++) {
@@ -389,6 +389,8 @@ export function buildListPayload(args: string[]): Commands["gate:list"]["payload
   if (subjectPrefix !== undefined) payload.subjectPrefix = subjectPrefix;
   const kind = flagValue(args, "--kind");
   if (kind !== undefined) payload.kind = kind;
+  const run = flagValue(args, "--run");
+  if (run !== undefined) payload.run = run;
   const limitRaw = flagValue(args, "--limit");
   if (limitRaw !== undefined) {
     const limit = Number(limitRaw);

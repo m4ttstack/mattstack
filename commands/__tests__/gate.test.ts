@@ -109,6 +109,10 @@ describe("buildListPayload", () => {
     });
   });
 
+  test("--run lists the gates filed against that run", () => {
+    expect(buildListPayload(["--open", "--run", "run-1"])).toEqual({ status: ["open", "parked"], run: "run-1" });
+  });
+
   test("limit and cursor are numeric (F7)", () => {
     expect(buildListPayload(["--limit", "50", "--cursor", "12"])).toEqual({ limit: 50, cursor: 12 });
   });

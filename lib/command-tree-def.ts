@@ -126,6 +126,7 @@ const gateSubcommands: Record<string, CommandNode> = {
       { name: "Open only", flag: "--open", type: "boolean", default: false, hint: "Only unanswered gates, parked ones included" },
       { name: "Subject prefix", flag: "--subject-prefix", type: "text", placeholder: "run:", hint: "Filter by subject prefix" },
       { name: "Kind", flag: "--kind", type: "text", placeholder: "approval", hint: "Filter by kind" },
+      { name: "Run", flag: "--run", type: "text", placeholder: "run id", hint: "Only gates that belong to this run" },
       { name: "Limit", flag: "--limit", type: "text", placeholder: "100", hint: "Cap the number of returned gates" },
       { name: "Cursor", flag: "--cursor", type: "text", placeholder: "42", hint: "Resume paging from a previous response's cursor" },
       { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Accepted and ignored; output is always JSON" },
