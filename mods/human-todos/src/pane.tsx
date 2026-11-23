@@ -145,16 +145,67 @@ export function registerPane(on: On): void {
       const inner = Math.max(22, paneColumns(e) - 4)
       return drawPlainPane($, e, modelOf(pane, inner - 2, false), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE)
     }
-    const { Client } = $.ui.resolve(e)
+    const { Box, Client, Text, Input, Button } = $.ui.resolve(e)
     const width = paneColumns(e)
-    const bodyRows = paneRows(e)
+    const paneBody = paneRows(e)
+    const todo = pane.composing === null ? undefined : pane.list.find(t => t.id === pane.composing)
+    // An engine Input takes no keys inside a Client, and a Client hands its key listener no paste, so the message
+    // field docks under the list, drawn by this hook.
+    const bodyRows = todo ? Math.max(3, paneBody - DOCK_ROWS) : paneBody
     kitSizes.set(e.surface, { columns: width, bodyRows })
     const props = {
-      view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read($, scrollAtom)),
+      view: kitView(modelOf({ ...pane, composing: null }, modelWidth(width)), width, bodyRows, await read($, scrollAtom)),
       focused: e.props.isFocused || (await read($, keysAtom)),
       width,
-      ...(pane.composing !== null && { composing: pane.composing, composeLines: pane.composeLines }),
     }
-    return <Client key="human-todos-pane" module="./pane/kit-view.tsx" height={bodyRows} props={props} />
+    const list = <Client key="human-todos-pane" module="./pane/kit-view.tsx" height={bodyRows} props={props} />
+    if (!todo) return list
+    const id = todo.id
+    const send = (done: boolean) => {
+      const text = drafts.get(id) ?? ''
+      if (text.trim() === '') return
+      drafts.delete(id)
+      void act($, { type: 'send', id, text, done }, e.surface)
+    }
+    return (
+      <Box flexDirection="column">
+        {list}
+        <Text dimColor>{'─'.repeat(Math.max(1, width - 2))}</Text>
+        <Text color="suggestion" wrap="truncate-end">{`Message about “${todo.title}”`}</Text>
+        <Input
+          key={`message-${id}`}
+          rows={DRAFT_ROWS}
+          autoFocus
+          placeholder="Type or paste a message for Claude"
+          value={drafts.get(id) ?? ''}
+          submitLabel="send"
+          onInput={value => {
+            drafts.set(id, value)
+          }}
+          onSubmit={value => {
+            drafts.set(id, value)
+            send(false)
+          }}
+        />
+        <Box flexDirection="row" gap={2} justifyContent="flex-end">
+          <Button
+            key={`message-cancel-${id}`}
+            label="Cancel"
+            onPress={() => {
+              drafts.delete(id)
+              void act($, { type: 'press', id, button: 'cancelMessage' }, e.surface)
+            }}
+          />
+          <Button key={`message-done-${id}`} label="Send & mark done" onPress={() => send(true)} />
+          <Button key={`message-send-${id}`} label="Send" onPress={() => send(false)} />
+        </Box>
+      </Box>
+    )
   })
 }
+
+// The docked message field: a rule, the title line, the field's rows and the buttons row.
+const DRAFT_ROWS = 3
+const DOCK_ROWS = DRAFT_ROWS + 3
+// Each open message's draft, by item, so a redraw of the pane hands the Input back what the person typed.
+const drafts = new Map<string, string>()

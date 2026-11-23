@@ -2408,24 +2408,79 @@ function registerPane(on) {
       const inner = Math.max(22, paneColumns(e) - 4);
       return drawPlainPane($, e, modelOf(pane, inner - 2, false), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE);
     }
-    const { Client } = $.ui.resolve(e);
+    const { Box, Client, Text, Input, Button } = $.ui.resolve(e);
     const width = paneColumns(e);
-    const bodyRows = paneRows(e);
+    const paneBody = paneRows(e);
+    const todo = pane.composing === null ? undefined : pane.list.find((t) => t.id === pane.composing);
+    const bodyRows = todo ? Math.max(3, paneBody - DOCK_ROWS) : paneBody;
     kitSizes.set(e.surface, { columns: width, bodyRows });
     const props = {
-      view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read2($, scrollAtom)),
+      view: kitView(modelOf({ ...pane, composing: null }, modelWidth(width)), width, bodyRows, await read2($, scrollAtom)),
       focused: e.props.isFocused || await read2($, keysAtom),
-      width,
-      ...pane.composing !== null && { composing: pane.composing, composeLines: pane.composeLines }
+      width
     };
-    return /* @__PURE__ */ h(Client, {
+    const list = /* @__PURE__ */ h(Client, {
       key: "human-todos-pane",
       module: "./pane/kit-view.js",
       height: bodyRows,
       props
     });
+    if (!todo)
+      return list;
+    const id = todo.id;
+    const send = (done) => {
+      const text = drafts.get(id) ?? "";
+      if (text.trim() === "")
+        return;
+      drafts.delete(id);
+      act($, { type: "send", id, text, done }, e.surface);
+    };
+    return /* @__PURE__ */ h(Box, {
+      flexDirection: "column"
+    }, list, /* @__PURE__ */ h(Text, {
+      dimColor: true
+    }, "─".repeat(Math.max(1, width - 2))), /* @__PURE__ */ h(Text, {
+      color: "suggestion",
+      wrap: "truncate-end"
+    }, `Message about “${todo.title}”`), /* @__PURE__ */ h(Input, {
+      key: `message-${id}`,
+      rows: DRAFT_ROWS,
+      autoFocus: true,
+      placeholder: "Type or paste a message for Claude",
+      value: drafts.get(id) ?? "",
+      submitLabel: "send",
+      onInput: (value) => {
+        drafts.set(id, value);
+      },
+      onSubmit: (value) => {
+        drafts.set(id, value);
+        send(false);
+      }
+    }), /* @__PURE__ */ h(Box, {
+      flexDirection: "row",
+      gap: 2,
+      justifyContent: "flex-end"
+    }, /* @__PURE__ */ h(Button, {
+      key: `message-cancel-${id}`,
+      label: "Cancel",
+      onPress: () => {
+        drafts.delete(id);
+        act($, { type: "press", id, button: "cancelMessage" }, e.surface);
+      }
+    }), /* @__PURE__ */ h(Button, {
+      key: `message-done-${id}`,
+      label: "Send & mark done",
+      onPress: () => send(true)
+    }), /* @__PURE__ */ h(Button, {
+      key: `message-send-${id}`,
+      label: "Send",
+      onPress: () => send(false)
+    })));
   });
 }
+var DRAFT_ROWS = 3;
+var DOCK_ROWS = DRAFT_ROWS + 3;
+var drafts = new Map;
 // mods/human-todos/src/contract.ts
 var PREFIX = "mcp__human-todos__";
 function addDescription(paneTitle) {
