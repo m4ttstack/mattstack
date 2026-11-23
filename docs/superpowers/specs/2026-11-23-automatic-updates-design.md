@@ -145,13 +145,39 @@ daemon that does not answer counts as not busy, so a dead daemon never
 blocks the update that would fix it (my call). A restart done by hand
 does not ask.
 
+### The org setting
+
+Decided by Matt: automatic updates are an org-level setting, on by
+default.
+
+- One org-only settings key (`scopes: ["org"]`), a boolean, default
+  true. The org owner sets it; a member cannot override it. A Mac in no
+  org, and an org that never set it, get the default.
+- **On:** parts 2 and 3 behave as described below.
+- **Off:** the Mac behaves as it does today. Prod: a scheduled check
+  opens Sparkle's window and the person clicks Install. Dev: no
+  automatic update; `rt dev update` by hand. So today's prompt path
+  stays in the code as the off path.
+- One key covers both prod and dev.
+- The tray reads the resolved value through rt, since the resolver is
+  rt's. If it cannot be read, the tray uses the default (my call: a
+  broken rt must not stop the update that would fix it).
+- A Mac whose org turned it off shows that on the telemetry page.
+- Part 1 does not depend on the setting.
+- The key's name, its description and its registration follow the
+  `rt:settings` skill (left to the builder).
+
 ### Part 2: prod installs at once, silently
 
 Decided by Matt: install and relaunch as soon as the download finishes,
 with no prompt, no countdown and no snooze, with windows open.
 
-- `SUAutomaticallyUpdate` becomes true, in `Info.plist` and wherever
-  `build.sh`, `check-bundle.sh` and the generated plists assert it.
+- Sparkle downloads and installs without asking when the org setting is
+  on, and prompts when it is off. The builder picks how that is set
+  (the `SUAutomaticallyUpdate` plist default, which `build.sh`,
+  `check-bundle.sh` and the generated plists assert, or the updater's
+  runtime property), so long as a change to the org setting takes
+  effect without reinstalling the app.
 - `UpdatePolicy.hold` no longer holds for open windows. Two things hold
   an update: a running setup (my call: a relaunch would kill a setup run
   partway) and a busy daemon (part 1's busy check). `HeldUpdateInstaller`
@@ -159,8 +185,9 @@ with no prompt, no countdown and no snooze, with windows open.
 - Decided by Matt: the "Check for updates automatically" switch in
   Settings (`rt-tray/Sources/Settings/GeneralPane.swift`) is removed. A
   Mac that had turned it off is switched back on at the next launch.
-  There is no opt-out, in prod or dev.
-- Sparkle's update window no longer opens for a scheduled check. The
+  The only opt-out is the org setting.
+- With the setting on, Sparkle's update window no longer opens for a
+  scheduled check. The
   "Update Available" menu item and the `app_update` notification after
   the relaunch stay.
 - `SUScheduledCheckInterval` becomes 3600 (my call: with silent installs
