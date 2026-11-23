@@ -162,8 +162,6 @@ export function syncRoutes({
   return new Hono()
     .get('/api/settings/sync', async c => {
       if (fixture) return c.json({ orgs: fixture }, 200);
-      // rt team status can outlast Bun.serve's 10s idle timeout on a busy Mac.
-      (c.env as BunTimeout | undefined)?.timeout?.(c.req.raw, 0);
       const now = Date.now();
       const synced = await Promise.all(
         orgs().map(async org =>
@@ -184,8 +182,8 @@ export function syncRoutes({
       if (typeof org !== 'string' || !orgs().includes(org)) {
         return c.json({ error: 'unknown org' }, 400);
       }
-      // A push round can outlast Bun.serve's 10s idle timeout, which would
-      // reset the connection before the result arrives.
+      // A push here can wait out a running push and then its own round, up to
+      // twice rt's 190s, past the server's 255s idle timeout.
       (c.env as BunTimeout | undefined)?.timeout?.(c.req.raw, 0);
       const { status, body: reply } = await pushOrg(org);
       return c.json(reply, status);
