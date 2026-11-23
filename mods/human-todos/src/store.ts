@@ -17,7 +17,8 @@ export const workspace = atom({ plugin: 'human-todos', key: 'herdrWorkspace' } a
 export const loadedFor = atom({ plugin: 'human-todos', key: 'loadedFor' } as const, null as string | null)
 export const isSaveFailed = atom({ plugin: 'human-todos', key: 'isSaveFailed' } as const, false)
 export const runnerPref = atom({ plugin: 'human-todos', key: 'runnerPref' } as const, 'auto' as 'auto' | 'herdr' | 'local')
-// Each message card's unsent text, by item id. Ids restart with a new list, so every list change empties it.
+// Each message card's unsent text, by item id. Ids restart with a new list, so every list change empties it; a
+// card that closes drops its own, since its field reopens empty.
 export const drafts = new Map<string, string>()
 
 const LIST_PREFIX = 'list:'
@@ -175,10 +176,14 @@ export async function readPane($: EngineInterface): Promise<{ list: Todo[]; open
 
 // Opening one item's message card closes any other; pressing its button again closes it.
 export async function toggleComposing($: EngineInterface, id: string): Promise<void> {
-  await update($, composing, open => (open === id ? null : id))
+  const open = await read($, composing)
+  if (open !== null) drafts.delete(open)
+  await update($, composing, () => (open === id ? null : id))
 }
 
 export async function closeComposing($: EngineInterface): Promise<void> {
+  const open = await read($, composing)
+  if (open !== null) drafts.delete(open)
   await update($, composing, () => null)
 }
 

@@ -153,10 +153,12 @@ export function registerPane(on: On): void {
     // card docks under the list, drawn here. Its buttons are the engine's too, so Tab reaches them from the field:
     // a Client takes keys only after a click.
     const draft = todo ? (drafts.get(todo.id) ?? '') : ''
-    const fieldRows = draftFieldRows(draft, width)
     const headRows = todo ? composeHeadRows(todo.title, width).length : 0
+    // The list keeps MIN_LIST_ROWS; in a short pane the field stops growing sooner and scrolls within.
+    const fieldRoom = Math.max(1, paneBody - MIN_LIST_ROWS - DOCK_FIXED_ROWS - headRows)
+    const fieldRows = Math.min(fieldRoom, draftFieldRows(draft, width))
     const dockRows = todo ? DOCK_FIXED_ROWS + headRows + fieldRows : 0
-    const bodyRows = Math.max(3, paneBody - dockRows)
+    const bodyRows = Math.max(MIN_LIST_ROWS, paneBody - dockRows)
     kitSizes.set(e.surface, { columns: width, bodyRows })
     const props = {
       view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read($, scrollAtom)),
@@ -183,7 +185,7 @@ export function registerPane(on: On): void {
             submitLabel="send"
             onInput={value => {
               drafts.set(id, value)
-              if (draftFieldRows(value, width) !== fieldRows) $.ui.invalidate('ui.render')
+              if (Math.min(fieldRoom, draftFieldRows(value, width)) !== fieldRows) $.ui.invalidate('ui.render')
             }}
             onSubmit={value => {
               drafts.set(id, value)
@@ -195,10 +197,7 @@ export function registerPane(on: On): void {
           <Button
             key={`message-cancel-${id}`}
             label={LABELS.cancelMessage}
-            onPress={() => {
-              drafts.delete(id)
-              void act($, { type: 'press', id, button: 'cancelMessage' }, e.surface)
-            }}
+            onPress={() => void act($, { type: 'press', id, button: 'cancelMessage' }, e.surface)}
           />
           <Button key={`message-done-${id}`} label={LABELS.sendDone} onPress={() => sendDraft($, id, true, e.surface)} />
           <Button key={`message-send-${id}`} label={LABELS.send} onPress={() => sendDraft($, id, false, e.surface)} />
@@ -210,6 +209,8 @@ export function registerPane(on: On): void {
 
 // The field grows with the draft up to MAX_FIELD_ROWS, then scrolls within.
 const MAX_FIELD_ROWS = 8
+// The list rows the open card always leaves showing.
+const MIN_LIST_ROWS = 3
 // The gap above the card, the tinted row under the field, the buttons row and the tinted row under it.
 const DOCK_FIXED_ROWS = 4
 // The engine draws its key hint beside a focused field: Enter's alone on one row, the newline key's too from two.
@@ -225,10 +226,10 @@ function draftFieldRows(text: string, width: number): number {
   return Math.min(MAX_FIELD_ROWS, Math.max(2, rowsBeside(MULTI_ROW_HINT)))
 }
 
-// Send and Send & Done carry the draft; a blank one sends nothing.
+// Send and Send & Done carry the draft; a blank one sends nothing. The draft goes when its card closes after the send
+// reaches the agent (act.ts sendMessage), so a dropped send keeps it.
 function sendDraft($: EngineInterface, id: string, done: boolean, surface: RenderSurface): void {
   const text = drafts.get(id) ?? ''
   if (text.trim() === '') return
-  drafts.delete(id)
   void act($, { type: 'send', id, text, done }, surface)
 }

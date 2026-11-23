@@ -21,9 +21,9 @@ async function pressTodo($: EngineInterface, todoId: string, button: ButtonId, s
 // A message goes to the agent through the same channel as Done and Skip; Send & Done also finishes the item.
 async function sendMessage($: EngineInterface, todoId: string, text: string, done: boolean): Promise<void> {
   const todo = (await peekTodos($)).find(t => t.id === todoId)
-  await closeComposing($)
-  if (!todo || todo.status !== 'open' || text.trim() === '') return
-  await report($, todo, { kind: 'message', text: text.trim(), done })
+  if (!todo || todo.status !== 'open' || text.trim() === '') return await closeComposing($)
+  // A message that did not reach the agent keeps its card open with the draft, so it can be sent again.
+  if (await report($, todo, { kind: 'message', text: text.trim(), done })) await closeComposing($)
 }
 
 async function clearFinished($: EngineInterface): Promise<void> {

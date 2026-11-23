@@ -1478,9 +1478,15 @@ async function readPane2($) {
   return { list, openIds: await read($, expanded), spin: await read($, frame), composing: isLive ? open : null };
 }
 async function toggleComposing($, id) {
-  await update($, composing, (open) => open === id ? null : id);
+  const open = await read($, composing);
+  if (open !== null)
+    drafts.delete(open);
+  await update($, composing, () => open === id ? null : id);
 }
 async function closeComposing($) {
+  const open = await read($, composing);
+  if (open !== null)
+    drafts.delete(open);
   await update($, composing, () => null);
 }
 async function bumpFrame($) {
@@ -1575,18 +1581,29 @@ async function report($, todo, outcome) {
   const session = await $.session.id();
   const log = await savedOutput($, todo, outcome);
   if (await $.session.id() !== session)
-    return;
+    return false;
   const { patch, text } = settle(todo, outcome, log);
-  await patchTodo($, todo.id, patch);
-  await syncSpinner($);
   const warn = () => {
     $.ui.log(`could not send #${todo.id} to the agent`, { to: "debug" });
     $.ui.toast(`Could not tell the agent about #${todo.id}`);
   };
+  if (outcome.kind === "message") {
+    const sent = await $.prompt.submit({ text: `[${TITLE}] ${text}` }).catch(() => ({ drop: "failed" }));
+    if ("drop" in sent && sent.drop !== undefined) {
+      warn();
+      return false;
+    }
+    await patchTodo($, todo.id, patch);
+    await syncSpinner($);
+    return true;
+  }
+  await patchTodo($, todo.id, patch);
+  await syncSpinner($);
   $.prompt.submit({ text: `[${TITLE}] ${text}` }).then((sent) => {
     if (sent.drop !== undefined)
       warn();
   }).catch(warn);
+  return true;
 }
 
 // mods/human-todos/src/local.ts
@@ -2225,10 +2242,10 @@ async function pressTodo($, todoId, button, surface) {
 }
 async function sendMessage($, todoId, text, done) {
   const todo = (await peekTodos($)).find((t) => t.id === todoId);
-  await closeComposing($);
   if (!todo || todo.status !== "open" || text.trim() === "")
-    return;
-  await report($, todo, { kind: "message", text: text.trim(), done });
+    return await closeComposing($);
+  if (await report($, todo, { kind: "message", text: text.trim(), done }))
+    await closeComposing($);
 }
 async function clearFinished($) {
   const gone = await removeTodos($, (t) => !isActionable(t));
@@ -2606,10 +2623,11 @@ function registerPane(on) {
     const paneBody = paneRows(e);
     const todo = pane.composing === null ? undefined : pane.list.find((t) => t.id === pane.composing);
     const draft = todo ? drafts.get(todo.id) ?? "" : "";
-    const fieldRows = draftFieldRows(draft, width);
     const headRows = todo ? composeHeadRows(todo.title, width).length : 0;
+    const fieldRoom = Math.max(1, paneBody - MIN_LIST_ROWS - DOCK_FIXED_ROWS - headRows);
+    const fieldRows = Math.min(fieldRoom, draftFieldRows(draft, width));
     const dockRows = todo ? DOCK_FIXED_ROWS + headRows + fieldRows : 0;
-    const bodyRows = Math.max(3, paneBody - dockRows);
+    const bodyRows = Math.max(MIN_LIST_ROWS, paneBody - dockRows);
     kitSizes.set(e.surface, { columns: width, bodyRows });
     const props = {
       view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read2($, scrollAtom)),
@@ -2646,7 +2664,7 @@ function registerPane(on) {
       submitLabel: "send",
       onInput: (value) => {
         drafts.set(id, value);
-        if (draftFieldRows(value, width) !== fieldRows)
+        if (Math.min(fieldRoom, draftFieldRows(value, width)) !== fieldRows)
           $.ui.invalidate("ui.render");
       },
       onSubmit: (value) => {
@@ -2662,10 +2680,7 @@ function registerPane(on) {
     }, /* @__PURE__ */ h(Button, {
       key: `message-cancel-${id}`,
       label: LABELS.cancelMessage,
-      onPress: () => {
-        drafts.delete(id);
-        act($, { type: "press", id, button: "cancelMessage" }, e.surface);
-      }
+      onPress: () => void act($, { type: "press", id, button: "cancelMessage" }, e.surface)
     }), /* @__PURE__ */ h(Button, {
       key: `message-done-${id}`,
       label: LABELS.sendDone,
@@ -2678,6 +2693,7 @@ function registerPane(on) {
   });
 }
 var MAX_FIELD_ROWS = 8;
+var MIN_LIST_ROWS = 3;
 var DOCK_FIXED_ROWS = 4;
 var ONE_ROW_HINT = "⏎ send  ";
 var MULTI_ROW_HINT = "⏎ send · \\⏎ new line  ";
@@ -2695,7 +2711,6 @@ function sendDraft($, id, done, surface) {
   const text = drafts.get(id) ?? "";
   if (text.trim() === "")
     return;
-  drafts.delete(id);
   act($, { type: "send", id, text, done }, surface);
 }
 // mods/human-todos/src/contract.ts
