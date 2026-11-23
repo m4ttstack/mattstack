@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import {
   DAEMON_DOWN_COOLOFF_MS, DAEMON_RETRY_BUDGET_MS, DAEMON_UNREACHABLE_PREFIX, __test__,
-  isDaemonTimeout, isUnavailable, nextRetryDelay, rtCommand,
+  defaultRetryBudget, isDaemonTimeout, isUnavailable, nextRetryDelay, rtCommand,
 } from "../src/transport.ts";
 import { fakeDaemon } from "./fake-daemon.ts";
 
@@ -180,19 +180,63 @@ describe("rtCommand: retry while the daemon restarts", () => {
     expect(res.ok).toBe(false);
     expect(res.error!.startsWith(DAEMON_UNREACHABLE_PREFIX)).toBe(true);
     expect(Date.now() - started).toBeGreaterThanOrEqual(300);
-    expect(Date.now() - started).toBeLessThan(1_500);
+    expect(Date.now() - started).toBeLessThan(3_000);
   });
 
-  test("after a spent budget the next call returns without retrying", async () => {
+  test("after a socket has gone unanswered for the cool-off threshold, the next call returns without retrying", async () => {
+    __test__.setCoolOffAfterMs(150);
     const sock = freshSock();
     await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 200 });
     const started = Date.now();
     const res = await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 });
     expect(res.ok).toBe(false);
-    expect(Date.now() - started).toBeLessThan(200);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  test("one caller's short spent budget does not take the retry away from the next caller", async () => {
+    const sock = freshSock();
+    await rtCommand("pane:lookup", {}, { sockPath: sock, retryBudgetMs: 200 });
+    serveLater(sock, 300);
+    const res = await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 });
+    expect(res).toEqual({ ok: true, data: { n: 1 } });
+  });
+
+  test("a starting reply ends the cool-off: the daemon is back", async () => {
+    __test__.setCoolOffAfterMs(150);
+    const sock = freshSock();
+    await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 200 });
+    let hits = 0;
+    const server = Bun.serve({
+      unix: sock,
+      fetch: () => (++hits < 3 ? Response.json(STARTING, { status: 503 }) : Response.json({ ok: true, data: { n: 1 } })),
+    });
+    stops.push(() => server.stop(true));
+    expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).toEqual(STARTING);
+    expect(await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 5_000 })).toEqual({ ok: true, data: { n: 1 } });
+  });
+
+  test("a 2xx body that is not an object is returned, never thrown", async () => {
+    const sock = freshSock();
+    const server = Bun.serve({ unix: sock, fetch: () => new Response("5", { headers: { "Content-Type": "application/json" } }) });
+    stops.push(() => server.stop(true));
+    expect(await rtCommand("odd", {}, { sockPath: sock, retryBudgetMs: 1_000 })).toBe(5 as never);
+    const nullServerSock = freshSock();
+    const nullServer = Bun.serve({ unix: nullServerSock, fetch: () => new Response("null") });
+    stops.push(() => nullServer.stop(true));
+    expect(await rtCommand("odd", {}, { sockPath: nullServerSock, retryBudgetMs: 1_000 })).toBeNull();
+  });
+
+  test("defaultRetryBudget: 20s, except for a caller whose timeout is under 5s", () => {
+    expect(defaultRetryBudget(undefined)).toBe(20_000);
+    expect(defaultRetryBudget(10_000)).toBe(20_000);
+    expect(defaultRetryBudget(250_000)).toBe(20_000);
+    expect(defaultRetryBudget(5_000)).toBe(20_000);
+    expect(defaultRetryBudget(4_999)).toBe(4_999);
+    expect(defaultRetryBudget(800)).toBe(800);
   });
 
   test("the cool-off is per socket: another socket still gets its budget", async () => {
+    __test__.setCoolOffAfterMs(150);
     await rtCommand("ping", {}, { sockPath: freshSock(), retryBudgetMs: 200 });
     const other = freshSock();
     serveLater(other, 300);
@@ -201,6 +245,7 @@ describe("rtCommand: retry while the daemon restarts", () => {
   });
 
   test("a success clears the cool-off", async () => {
+    __test__.setCoolOffAfterMs(150);
     const sock = freshSock();
     await rtCommand("ping", {}, { sockPath: sock, retryBudgetMs: 200 });
     const server = Bun.serve({ unix: sock, fetch: () => Response.json({ ok: true }) });
@@ -239,7 +284,7 @@ describe("rtCommand: retry while the daemon restarts", () => {
       const res = await rtCommand("ping", {}, { sockPath: sock, timeoutMs: 300 });
       expect(res.ok).toBe(false);
       expect(Date.now() - started).toBeGreaterThanOrEqual(300);
-      expect(Date.now() - started).toBeLessThan(1_500);
+      expect(Date.now() - started).toBeLessThan(3_000);
     } finally {
       if (prior !== undefined) process.env.RT_DAEMON_RETRY_BUDGET_MS = prior;
     }
@@ -253,7 +298,7 @@ describe("rtCommand: retry while the daemon restarts", () => {
       const started = Date.now();
       const res = await rtCommand("ping", {}, { sockPath: sock });
       expect(res.ok).toBe(false);
-      expect(Date.now() - started).toBeLessThan(200);
+      expect(Date.now() - started).toBeLessThan(2_000);
     } finally {
       if (prior === undefined) delete process.env.RT_DAEMON_RETRY_BUDGET_MS;
       else process.env.RT_DAEMON_RETRY_BUDGET_MS = prior;

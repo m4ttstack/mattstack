@@ -52,6 +52,8 @@ interface SocketQueryAttempt {
   refused: boolean;
   /** True when the request itself exceeded timeoutMs. */
   timedOut: boolean;
+  /** True when no connection was made (rt.sock missing when the query was sent, or refused), so the daemon cannot have seen the request. */
+  connectFailed: boolean;
   /** True when a booting or draining daemon answered that it cannot serve yet; it did not act on the request. */
   unavailable: boolean;
 }
@@ -65,7 +67,7 @@ async function trySocketQuery(
   if (!existsSync(DAEMON_SOCK_PATH)) {
     _lastQueryWasRefused = false;
     _lastQueryTimedOut   = false;
-    return { response: null, refused: false, timedOut: false, unavailable: false };
+    return { response: null, refused: false, timedOut: false, connectFailed: true, unavailable: false };
   }
 
   try {
@@ -84,8 +86,8 @@ async function trySocketQuery(
     _lastQueryWasRefused = false;
     _lastQueryTimedOut   = false;
     const body = (await response.json()) as DaemonResponse;
-    if (isUnavailable(body)) return { response: null, refused: false, timedOut: false, unavailable: true };
-    return { response: body, refused: false, timedOut: false, unavailable: false };
+    if (isUnavailable(body)) return { response: null, refused: false, timedOut: false, connectFailed: false, unavailable: true };
+    return { response: body, refused: false, timedOut: false, connectFailed: false, unavailable: false };
   } catch (err) {
     const code = (err as any)?.code ?? "";
     const name = (err as any)?.name ?? "";
@@ -94,7 +96,9 @@ async function trySocketQuery(
     const timedOut = name === "TimeoutError" || name === "AbortError" || msg.includes("timed out");
     _lastQueryWasRefused = refused;
     _lastQueryTimedOut   = timedOut;
-    return { response: null, refused, timedOut, unavailable: false };
+    // The socket file can vanish between the existsSync above and the connect.
+    const connectFailed = refused || code === "ENOENT";
+    return { response: null, refused, timedOut, connectFailed, unavailable: false };
   }
 }
 
@@ -324,13 +328,13 @@ export async function daemonQueryAttributed(
   if (first.unavailable) return first;
 
   // 2. Check if user opted in
-  if (!isDaemonInstalled()) return { response: null, refused: false, timedOut: false, unavailable: false }; // not installed → silent fallback
+  if (!isDaemonInstalled()) return { ...first, refused: false, timedOut: false }; // not installed → silent fallback
 
-  // 3. If the socket file still exists AND the connection wasn't refused,
-  //    the daemon IS running — this query timed out or hit a transient error.
-  //    Return null silently. But if the connection was refused, the socket is
-  //    stale (daemon died without cleaning up) — fall through to attempt restart.
-  if (existsSync(DAEMON_SOCK_PATH) && !first.refused) return first;
+  // 3. Only a query that never reached a daemon may be sent again. One whose
+  //    connection was made and then timed out or dropped is returned as is:
+  //    the daemon may have acted on it, even if rt.sock is gone by now (a
+  //    restart cut it off).
+  if (!first.connectFailed) return first;
 
   // 4. Socket is gone → daemon is genuinely not running. Attempt restart.
   const restarted = await attemptRestart();

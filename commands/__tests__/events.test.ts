@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { pollWithReconnect } from "../events.ts";
+import { pinCursor, pollWithReconnect } from "../events.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 type Reply = { ok: boolean; data?: any; error?: string } | null;
@@ -72,5 +72,22 @@ describe("pollWithReconnect", () => {
     const h = harness([{ ok: false, error: "bad pattern" }]);
     await expect(pollWithReconnect("[", undefined, 240_000, null, h.deps)).rejects.toThrow("bad pattern");
     expect(h.sleeps).toEqual([]);
+  });
+});
+
+describe("pinCursor", () => {
+  test("asks the journal for its head without reading any event", async () => {
+    const calls: Array<{ cmd: string; payload: any }> = [];
+    const query = (async (cmd: string, payload?: Record<string, any>) => {
+      calls.push({ cmd, payload });
+      return { ok: true, data: { events: [], cursor: 41 } };
+    }) as any;
+    expect(await pinCursor("job/*", query)).toBe(41);
+    expect(calls).toEqual([{ cmd: "events:list", payload: { pattern: "job/*", after: Number.MAX_SAFE_INTEGER } }]);
+  });
+
+  test("is undefined when the daemon is not there or refuses, so the wait starts from now once it connects", async () => {
+    expect(await pinCursor("job/*", (async () => null) as any)).toBeUndefined();
+    expect(await pinCursor("job/*", (async () => ({ ok: false, error: "bad pattern" })) as any)).toBeUndefined();
   });
 });

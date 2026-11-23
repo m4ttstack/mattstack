@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "fs";
+import { createServer } from "node:net";
 import { DAEMON_SOCK_PATH, RT_DIR, TRAY_SOCK_PATH, markDaemonInstalled, markDaemonUninstalled } from "../daemon-config.ts";
 import { __test__, daemonQuery, daemonQueryAttributed, daemonSocketQuery, isDaemonRunning, pingDaemon } from "../daemon-client.ts";
 import { captureOut } from "../ui/__tests__/capture-out.ts";
@@ -66,7 +67,7 @@ describe("daemon-client: a daemon that is starting or stopping", () => {
     const cap = captureOut();
     try {
       const attempt = await daemonQueryAttributed("status");
-      expect(attempt).toEqual({ response: null, refused: false, timedOut: false, unavailable: true });
+      expect(attempt).toEqual({ response: null, refused: false, timedOut: false, connectFailed: false, unavailable: true });
       expect(trayStartCalls).toBe(0);
       expect(cap.stderr()).toBe("");
     } finally {
@@ -114,6 +115,55 @@ describe("daemon-client: a daemon that is starting or stopping", () => {
     const attempt = await daemonQueryAttributed("status", {}, 500);
     expect(attempt.response).toEqual({ ok: true, data: 7 });
   }, 10_000);
+
+  test("a request the daemon accepted and dropped is sent once, even when rt.sock is gone afterwards", async () => {
+    process.env.RT_DAEMON_RETRY_BUDGET_MS = "3000";
+    fakeTray();
+    let hits = 0;
+    const dropper = createServer((conn) => {
+      conn.on("data", () => {
+        hits++;
+        rmSync(DAEMON_SOCK_PATH, { force: true });
+        conn.destroy();
+      });
+    });
+    await new Promise<void>((resolve) => dropper.listen(DAEMON_SOCK_PATH, resolve));
+    try {
+      const attempt = await daemonQueryAttributed("mr:action", { action: "merge" }, 1_000);
+      expect(attempt.response).toBeNull();
+      expect(hits).toBe(1);
+      expect(trayStartCalls).toBe(0);
+    } finally {
+      dropper.close();
+    }
+  });
+
+  test("a query that timed out is not sent again when rt.sock is gone afterwards", async () => {
+    process.env.RT_DAEMON_RETRY_BUDGET_MS = "3000";
+    fakeTray();
+    let hits = 0;
+    daemon = Bun.serve({
+      unix: DAEMON_SOCK_PATH,
+      fetch: () => { hits++; rmSync(DAEMON_SOCK_PATH, { force: true }); return new Promise<Response>(() => {}); },
+    });
+    const attempt = await daemonQueryAttributed("mr:action", { action: "merge" }, 150);
+    expect(attempt.timedOut).toBe(true);
+    expect(hits).toBe(1);
+    expect(trayStartCalls).toBe(0);
+  });
+
+  test("a socket that is missing when the query is sent still asks the tray for a start", async () => {
+    process.env.RT_DAEMON_RETRY_BUDGET_MS = "0";
+    fakeTray({ ok: false });
+    const cap = captureOut();
+    try {
+      const attempt = await daemonQueryAttributed("status");
+      expect(attempt.response).toBeNull();
+      expect(trayStartCalls).toBe(1);
+    } finally {
+      cap.restore();
+    }
+  });
 
   test("a timed-out query is not retried", async () => {
     process.env.RT_DAEMON_RETRY_BUDGET_MS = "5000";

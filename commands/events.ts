@@ -106,6 +106,16 @@ export async function pollWithReconnect(
   }
 }
 
+/**
+ * The journal's head, for a wait or tail that was given no --after. A
+ * reconnect that asked again with no cursor would start from the head at
+ * that moment and skip everything emitted while the daemon was away.
+ */
+export async function pinCursor(pattern: string, query: typeof daemonQuery = daemonQuery): Promise<number | undefined> {
+  const res = await query("events:list", { pattern, after: Number.MAX_SAFE_INTEGER }, 10_000);
+  return res?.ok ? (res.data.cursor as number) : undefined;
+}
+
 async function pollOrFail(pattern: string, after: number | undefined, waitMs: number, deadline: number | null) {
   try {
     return await pollWithReconnect(pattern, after, waitMs, deadline);
@@ -126,6 +136,7 @@ export async function eventsWait(args: string[]): Promise<void> {
     if (ms == null) fail(`--timeout: bad duration "${t}" (use 30s, 5m, 500ms, or bare seconds)`);
     deadline = Date.now() + ms;
   }
+  after ??= await pinCursor(pattern);
 
   while (true) {
     const waitMs = nextWaitMs(deadline, Date.now());
