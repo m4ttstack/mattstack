@@ -54,7 +54,7 @@ export const FILL = {
   disabled: { bg: '#262626', color: '#5c5c5c' },
   field: { bg: '#2c2c2c', color: 'white' },
   brand: { bg: BRAND.pink, color: BRAND.plum },
-  thread: { bg: '#34402c', color: '#d2e0c2' },
+  thread: { bg: '#3a3150', color: '#d4cbf5' },
 }
 
 // A scroll bar's column, drawn as background colour: the track runs the window's height, the thumb sits on it.
@@ -73,7 +73,7 @@ const HOVER_FILL: Record<string, string> = {
   [FILL.caution.bg]: '#d6aa45',
   [FILL.chip.bg]: '#555555',
   [FILL.current.bg]: '#5fcfdc',
-  [FILL.thread.bg]: '#45543a',
+  [FILL.thread.bg]: '#4b4068',
 }
 // A press steps only a little below the resting fill, so the button never sinks into the background.
 const PRESS_FILL: Record<string, string> = {
@@ -85,7 +85,7 @@ const PRESS_FILL: Record<string, string> = {
   [FILL.caution.bg]: '#a58127',
   [FILL.chip.bg]: '#333333',
   [FILL.current.bg]: '#3394a2',
-  [FILL.thread.bg]: '#2b3524',
+  [FILL.thread.bg]: '#30293f',
 }
 
 // A quiet button: a light label on a faint fill at rest (never the disabled grey), a brighter fill and a white label under the pointer.
@@ -155,7 +155,7 @@ export const rail = <A = never>(style: Style): Span<A>[] => [sp(SYMBOL.bar, styl
 // dimColor does nothing on a span that names a colour, so the unfocused look steps each level down to an explicit shade, keeping their order. Dark terminals only for now.
 const MUTED: Record<string, string> = { cyan: '#62a4b0', green: '#72b072', yellow: '#baa75c', red: '#c46e6e', gray: '#6e6e6e', [BRAND.pink]: '#b05680' }
 
-const MUTED_FILL: Record<string, Style> = { [BRAND.pink]: { bg: '#9e5270', color: '#1f1a2b' }, [BRAND.pinkDeep]: { bg: '#884465', color: '#1f1a2b' }, [FILL.secondary.bg]: { bg: '#334659', color: '#b8b8b8' }, [FILL.thread.bg]: { bg: '#2f3529', color: '#b2bda6' }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: '#323232', color: '#b8b8b8' }, [SCROLL.track]: { bg: '#353535' }, [SCROLL.thumb]: { bg: '#646464' } }
+const MUTED_FILL: Record<string, Style> = { [BRAND.pink]: { bg: '#9e5270', color: '#1f1a2b' }, [BRAND.pinkDeep]: { bg: '#884465', color: '#1f1a2b' }, [FILL.secondary.bg]: { bg: '#334659', color: '#b8b8b8' }, [FILL.thread.bg]: { bg: '#332d43', color: '#b0a8cc' }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: '#323232', color: '#b8b8b8' }, [SCROLL.track]: { bg: '#353535' }, [SCROLL.thumb]: { bg: '#646464' } }
 
 // A mark (the ▎ edge) keeps its own hue a step down, so an unfocused pane still shows where the keys were.
 export function muted<S extends Style>(span: S): S {
