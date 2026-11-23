@@ -40,10 +40,12 @@ export const SettingsSeedRepoContext = createContext<string | null>(null);
     /explain, until a project is picked. */
 export function RowProjectScope({
   def,
+  open,
   seed,
   children,
 }: {
   def: SettingDefWire;
+  open: boolean;
   seed: string | null;
   children: (def: SettingDefWire, project: RowProject) => ReactNode;
 }) {
@@ -51,6 +53,12 @@ export function RowProjectScope({
   useEffect(() => {
     if (seed) setRepo(seed);
   }, [seed]);
+  // A project picked while open must not linger in the closed header,
+  // where its control would write to a repo no longer on screen.
+  useEffect(() => {
+    if (!open) setRepo(seed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs on close only
+  }, [open]);
   // Each new def from the page follows a write or a reload, so the
   // project's own value is read again with it.
   const [revision, setRevision] = useState(0);
