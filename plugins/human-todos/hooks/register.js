@@ -2507,10 +2507,10 @@ var tinted = (line, width) => {
   return [...line.map((span) => ({ ...span, bg: CURSOR_ROW })), sp(" ".repeat(Math.max(0, width - used)), { bg: CURSOR_ROW })];
 };
 function composeHeadRows(title, width) {
-  const lead = "  ↳  ";
+  const lead = `  ${LABELS.message}  `;
   const name = ellipsize(title, Math.max(1, width - cellWidth(lead) - 1));
   const used = cellWidth(lead) + cellWidth(name);
-  const band = [sp(lead, { bg: FILL.chip.bg, dim: true }), sp(name, { ...FILL.chip, bold: true }), sp(" ".repeat(Math.max(0, width - used)), { bg: FILL.chip.bg })];
+  const band = [sp(lead, FILL.chip), sp(name, { ...FILL.chip, bold: true }), sp(" ".repeat(Math.max(0, width - used)), { bg: FILL.chip.bg })];
   return [band, tinted([], width)];
 }
 function composeActionRows(id, width) {
