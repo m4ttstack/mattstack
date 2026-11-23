@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { hasCommits, hasRemote, isGitRepo, originPushState, resetCltCacheForTests } from "../home-git.ts";
+import { hasCommits, isGitRepo, originPushState, originRemote, resetCltCacheForTests } from "../home-git.ts";
 import type { Probes } from "../probes.ts";
 
 type Result = { code: number; stdout: string; stderr: string };
@@ -25,7 +25,7 @@ describe("home-git without command line tools", () => {
     const { exec, calls } = scriptedExec((argv) => (argv[0] === "xcode-select" ? fail() : ok("true\n")));
 
     expect(await isGitRepo(exec, "/home/user")).toBe(false);
-    expect(await hasRemote(exec, "/home/user")).toBe(false);
+    expect(await originRemote(exec, "/home/user")).toBe("unknown");
     expect(await hasCommits(exec, "/home/user")).toBe(false);
     expect(await originPushState(exec, "/home/user")).toEqual({ kind: "unknown" });
     expect(calls.every((argv) => argv[0] !== "git")).toBe(true);
@@ -57,7 +57,7 @@ describe("home-git with command line tools", () => {
       return ok();
     });
     expect(await isGitRepo(exec, "/home/user")).toBe(true);
-    expect(await hasRemote(exec, "/home/user")).toBe(true);
+    expect(await originRemote(exec, "/home/user")).toBe("origin");
   });
 });
 
