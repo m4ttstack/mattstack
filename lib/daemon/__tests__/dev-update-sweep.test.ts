@@ -52,10 +52,16 @@ describe("dev update sweep", () => {
     await first;
   });
 
-  test("a settings read that throws is logged and does not throw out of the sweep", async () => {
+  test("a settings read that throws is logged and counts as on", async () => {
     const h = harness({ on: () => { throw new Error("settings unreadable"); } });
     await h.sweep();
     expect(h.warns.length).toBe(1);
-    expect(h.spawns()).toBe(0);
+    expect(h.spawns()).toBe(1);
+  });
+
+  test("a spawn that throws is logged and does not throw out of the sweep", async () => {
+    const h = harness({ spawn: async () => { throw new Error("no bun"); } });
+    await h.sweep();
+    expect(h.warns.length).toBe(1);
   });
 });

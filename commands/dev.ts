@@ -3,7 +3,7 @@
  * step per stage at a terminal, plain lines off one, and a frozen envelope
  * under --json. Every decision lives in lib/dev.
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
@@ -13,7 +13,8 @@ import { devWrapperOwnsRt } from "../lib/dev-mode.ts";
 import { DEV_NEEDS_YOU_CODES, DEV_REFUSAL_CODES, type DevSeams, type StageEnding, type StageIO, type StageRunner } from "../lib/dev/seams.ts";
 import { runDevSetup, type DevSetupResult } from "../lib/dev/setup.ts";
 import { runDevUpdate, type CloneSync, type DevUpdateResult } from "../lib/dev/update.ts";
-import { createNotifyOnce, runDevAutoUpdate, writeAppUpdateStatus, type DevAutoDeps, type DevAutoOutcome, type DevAutoStatus } from "../lib/dev/auto-update.ts";
+import { createNotifyOnce, runDevAutoUpdate, type DevAutoDeps, type DevAutoOutcome } from "../lib/dev/auto-update.ts";
+import { readAppUpdateHold, writeAppUpdateStatus, type DevAutoStatus } from "../lib/dev/app-update-status.ts";
 import { checkClone, realCloneGuardDeps } from "../lib/dev/clone-guards.ts";
 import { rtCommand } from "../packages/rt-client/src/index.ts";
 import { RT_DIR } from "../lib/daemon-config.ts";
@@ -79,8 +80,6 @@ function realCloneSync(): CloneSync {
   };
 }
 
-const APP_UPDATE_PATH = () => join(RT_DIR, "app-update.json");
-
 function writeAppUpdate(s: DevAutoStatus): void {
   writeAppUpdateStatus(RT_DIR, s);
 }
@@ -107,13 +106,7 @@ function realAutoDeps(): DevAutoDeps {
     },
     writeStatus: writeAppUpdate,
     clearHeld: () => {
-      if (!existsSync(APP_UPDATE_PATH())) return;
-      try {
-        const prior = JSON.parse(readFileSync(APP_UPDATE_PATH(), "utf8")) as Partial<DevAutoStatus>;
-        if (prior.hold) writeAppUpdate({ offeredVersion: null, heldVersion: null, hold: null });
-      } catch {
-        writeAppUpdate({ offeredVersion: null, heldVersion: null, hold: null });
-      }
+      if (readAppUpdateHold(RT_DIR) !== null) writeAppUpdate({ offeredVersion: null, heldVersion: null, hold: null });
     },
     notifyOnce: createNotifyOnce({
       read: () => getKvValue<string | null>("dev-auto-update", "announced", null),

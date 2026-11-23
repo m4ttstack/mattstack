@@ -218,6 +218,23 @@ describe("createNotifyOnce", () => {
     }]);
   });
 
+  test("holds that alternate for one version notify once each", () => {
+    const { notifyOnce, sent } = store();
+    notifyOnce("2.23.0", "daemonBusy", "a");
+    notifyOnce("2.23.0", "updateFailed", "b");
+    notifyOnce("2.23.0", "daemonBusy", "a");
+    notifyOnce("2.23.0", "updateFailed", "b");
+    expect(sent.map((n) => n.id)).toEqual(["dev_update:2.23.0:daemonBusy", "dev_update:2.23.0:updateFailed"]);
+  });
+
+  test("a new version starts afresh", () => {
+    const { notifyOnce, sent } = store();
+    notifyOnce("2.23.0", "dirtyTree", "a");
+    notifyOnce("2.24.0", "dirtyTree", "a");
+    notifyOnce("2.23.0", "dirtyTree", "a");
+    expect(sent.map((n) => n.id)).toEqual(["dev_update:2.23.0:dirtyTree", "dev_update:2.24.0:dirtyTree", "dev_update:2.23.0:dirtyTree"]);
+  });
+
   test("a different hold for the same version notifies once more", () => {
     const { notifyOnce, sent } = store();
     notifyOnce("2.23.0", "dirtyTree", "a");

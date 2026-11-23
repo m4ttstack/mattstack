@@ -41,7 +41,7 @@ import { onNotification, notifyEnabled, notifyEvent, loadNotificationPrefs } fro
 import { createForgeAccessSweep } from "./daemon/forge-access-sweep.ts";
 import { createOrgGuardSweep, ORG_GUARD_INTERVAL_MS } from "./daemon/org-guard-sweep.ts";
 import { createDevUpdateSweep, DEV_UPDATE_SCHEDULE } from "./daemon/dev-update-sweep.ts";
-import { writeAppUpdateStatus } from "./dev/auto-update.ts";
+import { writeAppUpdateStatus } from "./dev/app-update-status.ts";
 import { childEnv } from "./subprocess.ts";
 import { checkInviteReplies, INVITE_REPLIES_NS, listInviteSlugs, MEMBER_JOINED_CATEGORY } from "./daemon/invite-replies.ts";
 import { readInviteRecords } from "./team/invite-records.ts";

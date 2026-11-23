@@ -23,7 +23,7 @@ export function createDevUpdateSweep(deps: DevUpdateSweepDeps): () => Promise<vo
     if (running || deps.flavor() !== "dev") return;
     running = true;
     try {
-      if (!deps.autoUpdateOn()) {
+      if (!settingOn(deps)) {
         deps.markOff();
         return;
       }
@@ -35,4 +35,14 @@ export function createDevUpdateSweep(deps: DevUpdateSweepDeps): () => Promise<vo
       running = false;
     }
   };
+}
+
+/** A setting that cannot be read counts as on, its default. */
+function settingOn(deps: DevUpdateSweepDeps): boolean {
+  try {
+    return deps.autoUpdateOn();
+  } catch (err) {
+    deps.log.warn({ err, sweep: "dev-auto-update" }, "mattstack.autoUpdate unreadable; treating it as on");
+    return true;
+  }
 }

@@ -4,7 +4,6 @@
  * the clone is touched; the app swap comes last, because it relaunches the
  * app, which restarts the daemon this run may have been started by.
  */
-import { writeFileSync } from "fs";
 import { join } from "path";
 import { UserActionableError } from "../errors.ts";
 import { chooseDevRelease, listDevReleases, readInstalledDevApp } from "./dev-app.ts";
@@ -21,7 +20,8 @@ export type DevAutoOutcome =
   | { kind: "held"; version: string; hold: DevHold; detail: string }
   | { kind: "updated"; version: string };
 
-export interface DevAutoStatus { offeredVersion: string | null; heldVersion: string | null; hold: string | null }
+import type { DevAutoStatus } from "./app-update-status.ts";
+export type { DevAutoStatus };
 
 export interface DevAutoDeps {
   autoUpdateOn(): boolean;
@@ -143,17 +143,18 @@ export interface NotifyOnceStore {
   notify(n: { title: string; message: string; id: string }): void;
 }
 
-/** The record outlives the process, so a daemon restart between hourly runs does not repeat a notice. */
+/**
+ * The record outlives the process, so a daemon restart between hourly runs
+ * does not repeat a notice. It keeps every hold announced for the waiting
+ * version (`<version>:<hold>,<hold>`), so holds that alternate notify once each.
+ */
 export function createNotifyOnce(store: NotifyOnceStore): (version: string, hold: DevHold, detail: string) => void {
   return (version, hold, detail) => {
-    const key = `${version}:${hold}`;
-    if (store.read() === key) return;
-    store.write(key);
-    store.notify({ title: "A mattstack update is waiting", message: `mattstack-dev ${version} is ready. ${detail}`, id: `dev_update:${key}` });
+    const [storedVersion, storedHolds = ""] = (store.read() ?? "").split(":");
+    const holds = storedVersion === version ? storedHolds.split(",").filter(Boolean) : [];
+    if (holds.includes(hold)) return;
+    store.write(`${version}:${[...holds, hold].join(",")}`);
+    store.notify({ title: "A mattstack update is waiting", message: `mattstack-dev ${version} is ready. ${detail}`, id: `dev_update:${version}:${hold}` });
   };
 }
 
-/** `~/.mattstack/rt/app-update.json`, which the version ping reads; on a dev Mac nothing else writes it. */
-export function writeAppUpdateStatus(rtDir: string, status: DevAutoStatus, now: Date = new Date()): void {
-  writeFileSync(join(rtDir, "app-update.json"), JSON.stringify({ lastCheckAt: now.toISOString(), ...status }));
-}

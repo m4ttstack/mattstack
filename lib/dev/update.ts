@@ -36,8 +36,27 @@ export async function runDevUpdate(s: DevSeams, stage: StageRunner, opts: { rele
       { why: "It was moved or deleted. Setup finds or clones it again and points rt at it.", next: "rt dev setup" },
     );
   }
-  const pins = await readPins(s.probes, clone);
   const stages: StageEnding[] = [];
+  const sync = opts.clone;
+  // The clone moves before its pins are read, so the tools are checked
+  // against what it will build with.
+  let synced = false;
+  if (sync) {
+    stages.push(
+      await stage("Update your clone", async () => {
+        const check = await sync.checkClone(clone);
+        if (!check.ok) return { status: "skipped", title: "Left your clone as it is", hint: check.detail };
+        synced = true;
+        if (check.behind === 0) return { status: "skipped", title: "Your clone is up to date" };
+        const ff = await sync.fastForward(clone);
+        if (ff.exitCode !== 0) {
+          throw new UserActionableError("dev-clone-ff-failed", "Fast-forwarding your clone to origin/main failed", {}, { log: ff.stderr, next: "rt dev update" });
+        }
+        return { status: "done", title: "Updated your clone", hint: `${check.behind} new commit${check.behind === 1 ? "" : "s"}` };
+      }),
+    );
+  }
+  const pins = await readPins(s.probes, clone);
   let bunPath = "";
   let goPath = "";
   stages.push(
@@ -48,22 +67,16 @@ export async function runDevUpdate(s: DevSeams, stage: StageRunner, opts: { rele
       return t.ending;
     }),
   );
-  const sync = opts.clone;
-  if (sync) {
+  if (sync && synced) {
+    // Every time, not only after a pull: an earlier run may have pulled and
+    // then failed here.
     stages.push(
-      await stage("Update your clone", async () => {
-        const check = await sync.checkClone(clone);
-        if (!check.ok) return { status: "skipped", title: "Left your clone as it is", hint: check.detail };
-        if (check.behind === 0) return { status: "skipped", title: "Your clone is up to date" };
-        const ff = await sync.fastForward(clone);
-        if (ff.exitCode !== 0) {
-          throw new UserActionableError("dev-clone-ff-failed", "Fast-forwarding your clone to origin/main failed", {}, { log: ff.stderr, next: "rt dev update" });
-        }
+      await stage("Install your clone's packages", async () => {
         const inst = await sync.install(clone, toolchainEnv(s, { bunPath, goPath }));
         if (inst.exitCode !== 0) {
           throw new UserActionableError("dev-clone-install-failed", "bun install failed in your clone", {}, { log: inst.tail, next: "rt dev update" });
         }
-        return { status: "done", title: "Updated your clone", hint: `${check.behind} new commit${check.behind === 1 ? "" : "s"}` };
+        return { status: "done", title: "Installed your clone's packages" };
       }),
     );
   }
