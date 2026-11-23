@@ -1050,7 +1050,7 @@ function buttonsOf(todo, messages, isComposing = false) {
   const main = ids.find((id) => id === "stop" || id === "forceStop") ?? ids[0];
   const label = (id) => id !== "done" ? LABELS[id] : todo.kind === "run" ? RUN_DONE_LABEL : todo.doneLabel ?? LABELS.done;
   const own = ids.map((id) => ({ id, label: label(id), tone: id === main || id === "done" ? TONES[id] : "quiet", todoId: todo.id }));
-  return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: isComposing ? "thread" : "quiet", todoId: todo.id }] : own;
+  return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: "thread", todoId: todo.id }] : own;
 }
 var composeButtons = (todoId) => ["cancelMessage", "sendDone", "send"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));
 function paneModel(input) {
