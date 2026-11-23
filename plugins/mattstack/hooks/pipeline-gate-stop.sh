@@ -107,6 +107,25 @@ STATE="${BEST##*|}"
 REST="${BEST#*|}"; RUN_ID="${REST%%|*}"
 REST="${REST#*|}"; STAGE="${REST%%|*}"
 
+# A gate opened without runDb (the board's posting gate) arms no waiting-gate,
+# but the daemon still files it against the session's run, so an open or
+# parked one means the run is waiting on a person. Any failure keeps the block.
+# The rows are matched to the run here too: an rt older than --run ignores the
+# flag and lists every open gate.
+OPEN_GATES="$(bounded_rt gate list --open --run "$RUN_ID" 2>/dev/null | python3 -c '
+import json, sys
+run = sys.argv[1]
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+if d.get("ok") is not True or not isinstance(d.get("gates"), list):
+    raise SystemExit(1)
+mine = [g for g in d["gates"] if isinstance(g, dict) and g.get("status") in ("open", "parked")
+        and (g.get("subject") == "run:" + run or (g.get("origin") or {}).get("runId") == run)]
+print(len(mine))
+' "$RUN_ID" 2>/dev/null)" && [ "${OPEN_GATES:-0}" -gt 0 ] && exit 0
+
 # A Stop with a backgrounded MCP call or an async agent still pending is not
 # a prose ending: the task's notification re-invokes the pane. The scan runs
 # only once a run is open, and every failure of it (no transcript, a bad line,
