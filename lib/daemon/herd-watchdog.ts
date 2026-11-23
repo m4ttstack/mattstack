@@ -34,7 +34,7 @@ export interface WatchdogSensors {
 
 export type WedgeVerdict =
   | { kind: "healthy" }
-  | { kind: "wedged"; path: "fast" | "backstop"; evidence: string }
+  | { kind: "wedged"; path: "fast" | "backstop"; evidence: string; /** The open human gate behind the verdict, when that is what it is. */ humanGate?: string }
   | { kind: "finished-lingering"; evidence: string }
   | { kind: "dead" | "modal" };
 
@@ -167,15 +167,15 @@ export function evaluateJob(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogCo
     duration is unknowable here: "idle" is the instantaneous pane state, and
     the ages come from the evidence itself (gate age, report age). A herd
     with no recorded shepherd pane is judged on evidence alone. */
-export function evaluateShepherd(herd: HerdRow, s: WatchdogSensors, cfg: WatchdogConfig): WedgeVerdict {
+export function evaluateShepherd(herd: HerdRow, s: WatchdogSensors, cfg: WatchdogConfig, quietGate: (id: string) => boolean = () => false): WedgeVerdict {
   if (herd.status !== "active") return HEALTHY;
   if (herd.shepherdPane !== null && s.paneState(herd.shepherdPane) === "working") return HEALTHY;
   // The shepherd's own kit form leaves its pane idle, and a poke would land in it.
   if (s.openKitGate(herd.shepherdSession)) return HEALTHY;
   const now = s.now();
 
-  const gate = oldest(s.openHumanGates(herdPrefix(herd.id)).filter((g) => g.ageMs >= ms(cfg.shepherdFastMins)));
-  if (gate) return { kind: "wedged", path: "fast", evidence: `human gate ${gate.id} open ${minutes(gate.ageMs)}m unanswered` };
+  const gate = oldest(s.openHumanGates(herdPrefix(herd.id)).filter((g) => g.ageMs >= ms(cfg.shepherdFastMins) && !quietGate(g.id)));
+  if (gate) return { kind: "wedged", path: "fast", evidence: `human gate ${gate.id} open ${minutes(gate.ageMs)}m unanswered`, humanGate: gate.id };
   const jobs = s.jobs(herd.id);
   // A shepherd that signed off never reads its DMs, so a finished herd left
   // unwrapped would otherwise notify every notifyQuietMins for good. A herd
@@ -231,6 +231,10 @@ export interface WatchdogPersist {
 const SHEPHERD = "@shepherd";
 const WORKER_CAP = 5;
 const SHEPHERD_CAP = 3;
+/** The longest gap between reminders about one unanswered human gate. */
+const HUMAN_GATE_GAP_CAP_MINS = 120;
+/** How long a reminder count outlives its gate's last reminder before it is forgotten. */
+const HUMAN_GATE_MEMORY_MS = 24 * 60 * 60_000;
 const DEAD_EVIDENCE = "pane open but the agent is gone";
 const MODAL_EVIDENCE = "blocked at a modal prompt, parked stuck-at-modal";
 
@@ -259,6 +263,13 @@ export class HerdWatchdog {
       with no memory of the poke, and retryMins would never apply (the live
       double-nag three minutes apart, both logged at strike 1). */
   private readonly lastActionAt = new Map<string, number>();
+  /** Reminders sent per open human gate. Only the person can answer one, so
+      reminding the shepherd every retryMins all night buys nothing: the gap
+      doubles per reminder up to HUMAN_GATE_GAP_CAP_MINS, and a new gate starts
+      over. Kept per gate, not per ladder, because a poke wakes the shepherd,
+      the next sweep reads healthy and the ladder drops. In memory only, so a
+      daemon restart starts the count over. */
+  private readonly humanGateReminders = new Map<string, { count: number; lastAt: number }>();
   /** A sweep pokes panes over the network, so it can outlive its interval.
       The next tick is dropped rather than queued: the ladder's retry clock
       already paces the actions, and two sweeps in flight would double-strike
@@ -299,6 +310,7 @@ export class HerdWatchdog {
       this.ladders.clear();
       this.notifiedAt.clear();
       this.lastActionAt.clear();
+      this.humanGateReminders.clear();
       return;
     }
     if (this.sweeping) {
@@ -308,6 +320,7 @@ export class HerdWatchdog {
     this.sweeping = true;
     try {
       const now = this.sensors.now();
+      for (const [gate, r] of this.humanGateReminders) if (now - r.lastAt > HUMAN_GATE_MEMORY_MS) this.humanGateReminders.delete(gate);
       for (const herd of this.sensors.herds()) {
         if (herd.status !== "active") continue;
         for (const job of this.sensors.jobs(herd.id)) await this.walkWorker(herd, job, cfg, now);
@@ -386,23 +399,37 @@ export class HerdWatchdog {
 
   private async walkShepherd(herd: HerdRow, cfg: WatchdogConfig, now: number): Promise<void> {
     const key = `${herd.id}/${SHEPHERD}`;
-    const verdict = evaluateShepherd(herd, this.sensors, cfg);
+    const quiet = (gate: string): boolean => this.humanGateQuiet(herd.id, gate, now, cfg);
+    const verdict = evaluateShepherd(herd, this.sensors, cfg, quiet);
     if (verdict.kind !== "wedged") {
-      this.drop(key);
+      // A gate waiting out its gap still keeps the shepherd wedged, so the
+      // ladder keeps its strikes and reaches the person at the usual rung.
+      if (evaluateShepherd(herd, this.sensors, cfg).kind !== "wedged") this.drop(key);
       return;
     }
     const ladder = this.track(key, now);
     if (!this.canAct(key, ladder, now, cfg)) return;
     // Same re-read-before-commit as the worker path, for the same reason.
-    const fresh = evaluateShepherd(herd, this.sensors, cfg);
+    const fresh = evaluateShepherd(herd, this.sensors, cfg, quiet);
     if (fresh.kind !== "wedged") {
-      this.drop(key);
+      if (evaluateShepherd(herd, this.sensors, cfg).kind !== "wedged") this.drop(key);
       return;
+    }
+    if (fresh.humanGate !== undefined) {
+      const gateKey = `${herd.id}/${fresh.humanGate}`;
+      this.humanGateReminders.set(gateKey, { count: (this.humanGateReminders.get(gateKey)?.count ?? 0) + 1, lastAt: now });
     }
     this.commit(key, ladder, now, 1, SHEPHERD_CAP);
     const ctx = { herd: herd.id, job: SHEPHERD, path: fresh.path, strike: ladder.strikes };
     if (ladder.strikes >= SHEPHERD_CAP || herd.shepherdPane === null) this.notify(herd.id, summaryText(key, fresh.evidence, ladder, now), herd.shepherdPane, cfg, now, ctx);
     else await this.poke(herd.shepherdPane, pokeText(fresh.evidence), ctx, "poked shepherd");
+  }
+
+  /** True while a human gate is inside its gap since its last reminder: the gap doubles per reminder, up to HUMAN_GATE_GAP_CAP_MINS. */
+  private humanGateQuiet(herd: string, gate: string, now: number, cfg: WatchdogConfig): boolean {
+    const reminded = this.humanGateReminders.get(`${herd}/${gate}`);
+    if (!reminded) return false;
+    return now - reminded.lastAt < Math.min(ms(cfg.retryMins) * 2 ** reminded.count, ms(HUMAN_GATE_GAP_CAP_MINS));
   }
 
   private track(key: string, now: number): Ladder {
