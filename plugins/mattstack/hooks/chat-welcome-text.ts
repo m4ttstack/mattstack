@@ -1,6 +1,10 @@
 // rt's daemon opens both frames with this line (FRAME_MARKER in
 // lib/daemon/handlers/chat.ts); a change there changes this with it.
 const MARKER = '[rt chat] This frame is for THIS session, from the rt daemon (not another agent).'
+// A chat delivery's label always carries "(dm)" or "(#room)" and its body opens
+// "[dm]" or "[#room]", so only the daemon's own frame can open either way, with
+// or without the envelope.
+const FRAME_STARTS = [`<cross-session-message from-name="rt chat">\n${MARKER}\n`, `${MARKER}\n`]
 const SIGNED_IN = /^You're signed in to rt chat as (.+)\.$/m
 const SIGNED_OUT = /^You were signed out of rt chat\.$/m
 const ROOMS = /^Rooms: (.+)$/m
@@ -10,7 +14,7 @@ export type ChatFrame = { kind: 'signed-in'; name: string; rooms: string[] } | {
 
 /** A daemon frame the mod takes in place of a turn, or null for anything else, a welcome with catch-up included. */
 export function parseChatFrame(text: string): ChatFrame | null {
-  if (!text.includes(MARKER)) return null
+  if (!FRAME_STARTS.some(start => text.startsWith(start))) return null
   if (SIGNED_OUT.test(text)) return { kind: 'signed-out' }
   // Catch-up lines are unread messages the agent has to act on, so that welcome keeps its turn.
   if (CATCH_UP.test(text)) return null

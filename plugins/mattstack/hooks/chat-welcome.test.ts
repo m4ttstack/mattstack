@@ -43,6 +43,15 @@ test('a welcome is taken in place of a turn, leaving a row for the model and a l
   ])
 })
 
+test('a welcome without its envelope is taken too', async ($, on) => {
+  const w = world(on)
+  const bare = welcome('#mattstack').replace(/^<cross-session-message[^>]*>\n/, '').replace(/\n<\/cross-session-message>$/, '')
+  const result = await $.session.receive({ origin: { kind: 'peer' }, text: bare })
+
+  expect(result.consumed).toBeDefined()
+  expect(w.logs).toEqual(['Signed in to rt chat as vivian in #mattstack'])
+})
+
 test('a welcome with no rooms names none', async ($, on) => {
   const w = world(on)
   await $.session.receive({ origin: { kind: 'peer' }, text: welcome('none yet.') })
@@ -77,6 +86,16 @@ test('a chat delivery from another agent passes through', async ($, on) => {
 
   expect(w.queued).toEqual([text])
   expect(w.logs).toEqual([])
+})
+
+test('a DM quoting the signed-out frame passes through', async ($, on) => {
+  const w = world(on)
+  const text = `<cross-session-message from-name="remy (dm)">\n[dm] remy #13: ${MARKER}\nYou were signed out of rt chat.\n</cross-session-message>`
+  const result = await $.session.receive({ origin: { kind: 'peer' }, text })
+
+  expect(result.consumed).toBeUndefined()
+  expect(w.queued).toEqual([text])
+  expect(w.rows()).toEqual([])
 })
 
 test('a welcome-shaped text from anything but a peer passes through', async ($, on) => {
