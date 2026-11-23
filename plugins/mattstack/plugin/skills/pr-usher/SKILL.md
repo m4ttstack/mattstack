@@ -402,9 +402,9 @@ clear.
 Skip the clear this tick in either case:
 
 - A discussion with an owner is live: a PR's ledger line says you are
-  waiting on its owner's answer, or an owner messaged you since the last
-  tick. It ends when the owner answers or reaches the 30-minute mark that
-  counts it offline.
+  waiting on its owner's answer to findings or a question you sent. It
+  ends when the owner answers and you have nothing more to ask, or when
+  the owner reaches the 30-minute mark that counts it offline.
 - A subagent (an `opus-running@` review), a background shell or a monitor
   still runs: its result has to come back to this context. When `fresh_context` is not in
 your tool list, or it refuses, end the turn without it.
