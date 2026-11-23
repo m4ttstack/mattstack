@@ -397,6 +397,32 @@ describe("gate:ask stamps origin.worktree through the real command-router wiring
 });
 
 describe("runs:abandon settles the run's gates through the real command-router wiring (BOARD-61)", () => {
+  test("one gate that fails to close does not stop the run's other gates from closing", async () => {
+    runsRoot = mkdtempSync(join(tmpdir(), "rt-gate-owner-router-"));
+    process.env.RT_RUNS_ROOT = runsRoot;
+    const started = runStart(runsRoot, { repo: "widget-forge", workType: "feature", pipeline: "default", spawnedBy: "shepherdr", env: {} });
+    if (!started.ok) throw new Error(started.error);
+    const { handlers, gatesStore } = buildHandlers();
+    const questions = [{ id: "q", label: "Pick", multi: false, options: ["a", "b"] }];
+    const open = async (subject: string) => {
+      const res = await handlers["gate:open"]!({ subject, kind: "clarify", questions, origin: { presentation: "wait", runId: started.runId } });
+      if (!(res as any).ok) throw new Error((res as any).error);
+      return (res as any).data.id as string;
+    };
+    const first = await open(`run:${started.runId}`);
+    const second = await open("mr:widget-forge!7");
+    const realClose = gatesStore.close.bind(gatesStore);
+    gatesStore.close = ((id: string, reason: Parameters<typeof realClose>[1]) => {
+      if (id === first) throw new Error("database is locked");
+      return realClose(id, reason);
+    }) as typeof gatesStore.close;
+
+    const res = await handlers["runs:abandon"]!({ runId: started.runId });
+
+    expect((res as any).ok).toBe(true);
+    expect(gatesStore.get(second)).toMatchObject({ status: "closed", closedReason: "abandoned" });
+  });
+
   test("a gate under the run and one under its MR that names the run close; another run's stays open", async () => {
     runsRoot = mkdtempSync(join(tmpdir(), "rt-gate-owner-router-"));
     process.env.RT_RUNS_ROOT = runsRoot;
