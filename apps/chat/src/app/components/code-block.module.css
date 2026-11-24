@@ -53,6 +53,15 @@
   display: flex;
   gap: 2px;
   padding: 2px;
+  pointer-events: auto;
+}
+
+/* With no hover to hide behind, the toolbar always shows, so the code ends
+   short of it: two buttons, and the 8px on either side. */
+@media (hover: none) {
+  .pre {
+    margin-right: 68px;
+  }
 }
 
 /* Hidden by opacity, so Tab can still reach the buttons and reveal it. */
