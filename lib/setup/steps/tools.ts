@@ -155,8 +155,14 @@ async function flockInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   // An update run must not put back a Flock the member removed after rt installed it.
   if (ctx.update && readSetupState(ctx.p).flockInstalledAt) return { state: "skipped", detail: "Flock was removed after rt installed it, so rt left it alone" };
   const result = await installTool(ctx.p, "flock", []);
-  if (result.ok) return { state: "done", detail: result.detail };
-  return { state: "failed", detail: result.detail, remedy: "Open setup's Flock row and press Install" };
+  return result.ok ? { state: "done", detail: result.detail } : flockNotInstalled(ctx, result.detail);
+}
+
+/** An unattended run has nobody to press Retry, and a failure would stop it before services.start, so Flock's row carries the miss. */
+function flockNotInstalled(ctx: ApplyContext, detail: string): StepOutcome {
+  if (ctx.update) return { state: "failed", detail, remedy: "Open setup's Flock row and press Install" };
+  if (ctx.nonInteractive) return { state: "skipped", detail };
+  return { state: "failed", detail, remedy: "Install Flock from github.com/m4ttstack/flock/releases, then Retry" };
 }
 
 export const flockInstallStep: StepDef = {
@@ -169,7 +175,7 @@ export const flockInstallStep: StepDef = {
     try {
       return await flockInstallRun(ctx);
     } catch (err) {
-      return toFailedOutcome(err);
+      return flockNotInstalled(ctx, err instanceof Error ? err.message : String(err));
     }
   },
 };

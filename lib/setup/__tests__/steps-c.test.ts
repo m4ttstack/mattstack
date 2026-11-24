@@ -2433,11 +2433,57 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect((await flockInstallStep.run(makeCtx(p).ctx)).state).toBe("done");
     });
 
-    test("a failed install names the row", async () => {
+    const FEED_DOWN = "rt could not read Flock's release feed from m4ttstack/flock";
+
+    test("a failed install on an update run names the row", async () => {
       const p = flockMac({ feedStatus: 404 });
-      const outcome = await flockInstallStep.run(makeCtx(p).ctx);
-      expect(outcome).toEqual({ state: "failed", detail: "rt could not read Flock's release feed from m4ttstack/flock", remedy: "Open setup's Flock row and press Install" });
+      const outcome = await flockInstallStep.run(makeCtx(p, { update: true }).ctx);
+      expect(outcome).toEqual({ state: "failed", detail: FEED_DOWN, remedy: "Open setup's Flock row and press Install" });
       expect(readSetupState(p).flockInstalledAt).toBeUndefined();
+    });
+
+    test("a failed install on an unattended run is skipped, so it never stops the run", async () => {
+      const p = flockMac({ feedStatus: 404 });
+      expect(await flockInstallStep.run(makeCtx(p, { nonInteractive: true }).ctx)).toEqual({ state: "skipped", detail: FEED_DOWN });
+    });
+
+    test("a failed install with a person there fails with the manual route", async () => {
+      const p = flockMac({ feedStatus: 404 });
+      expect(await flockInstallStep.run(makeCtx(p).ctx)).toEqual({ state: "failed", detail: FEED_DOWN, remedy: "Install Flock from github.com/m4ttstack/flock/releases, then Retry" });
+    });
+
+    test("a throw follows the same three outcomes", async () => {
+      const throwing = () => {
+        const p = flockMac();
+        p.exists = () => {
+          throw new Error("disk gone");
+        };
+        return p;
+      };
+      expect(await flockInstallStep.run(makeCtx(throwing(), { update: true }).ctx)).toEqual({ state: "failed", detail: "disk gone", remedy: "Open setup's Flock row and press Install" });
+      expect(await flockInstallStep.run(makeCtx(throwing(), { nonInteractive: true }).ctx)).toEqual({ state: "skipped", detail: "disk gone" });
+      expect(await flockInstallStep.run(makeCtx(throwing()).ctx)).toEqual({ state: "failed", detail: "disk gone", remedy: "Install Flock from github.com/m4ttstack/flock/releases, then Retry" });
+    });
+
+    test("waits for a running prepare accounts before reading the machine", async () => {
+      const startedAt = new Date("2026-10-30T10:00:00.000Z");
+      const record = { stage: "accounts", startedAt: startedAt.toISOString(), pid: process.pid, items: ["flock"], failed: [] };
+      let sleeps = 0;
+      const base = flockMac({ installed: true });
+      const p: Probes = fakeProbes({
+        home,
+        now: startedAt,
+        files: { [INSTALLED_PLIST]: "plist", [preparePath(home, "accounts")]: JSON.stringify(record) },
+        exec: async (argv, opts) => {
+          if (argv[0] === "sleep" && ++sleeps === 2) p.writeFile(preparePath(home, "accounts"), JSON.stringify({ ...record, pid: undefined, endedAt: startedAt.toISOString() }));
+          return argv[0] === "/usr/bin/plutil" ? ok(argv[2] === "CFBundleIdentifier" ? "dev.mattstack.Flock\n" : "0.12.2\n") : base.exec(argv, opts);
+        },
+      });
+      const { ctx, logs } = makeCtx(p);
+      expect((await flockInstallStep.run(ctx)).state).toBe("skipped");
+      const calls = (p as ReturnType<typeof fakeProbes>).calls.exec;
+      expect(calls.slice(0, 2)).toEqual([["sleep", "5"], ["sleep", "5"]]);
+      expect(logs.filter((l) => l.line === "Waiting for the background installs to finish")).toEqual([{ id: "flock.install", line: "Waiting for the background installs to finish" }]);
     });
 
     test("the step is titled Install Flock", () => {
