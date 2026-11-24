@@ -3327,7 +3327,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "toolsInstall",
         omitBehavior: "picker",
         args: [
-          { name: "Tool", type: "text", placeholder: "herdr", hint: "Tool name (herdr, claude, apple-clt, or a team-declared tool)" },
+          { name: "Tool", type: "text", placeholder: "herdr", hint: "Tool name (herdr, flock, claude, apple-clt, or a team-declared tool)" },
           SETUP_JSON_ARG,
         ],
       },

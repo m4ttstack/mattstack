@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { BUNDLED_VSIX_FILES, VENDOR_INSTALLERS, VSIX_NOT_FOUND_DETAIL, claudeConfigDirs, findBundledVsixes, installRoute, installTool, parseCltLabel, setupTool, type ToolsInstallSeams } from "../tools-install.ts";
 import { detectEditors } from "../../editors.ts";
+import { FLOCK_APPCAST_URL } from "../flock-install.ts";
 import { HERDR_ASSET_PREFIX, HERDR_BUILDS_URL } from "../herdr-builds.ts";
 import { processFlavor } from "../../flavor.ts";
 import { DEV_TRAY_APP_BUNDLE, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
@@ -60,6 +61,21 @@ describe("installTool — tool.herdr (the fork's build list)", () => {
     expect(p.calls.exec.find((argv) => argv[0] === "curl")?.[2]).toBe(url);
     expect(p.calls.exec.some((argv) => argv[0] === "sh" || argv[0] === "bash" || (argv[0] === "brew" && argv[1] === "install"))).toBe(false);
     expect(VENDOR_INSTALLERS.herdr).toBeUndefined();
+  });
+});
+
+describe("installTool — tool.flock (the notarized app from m4ttstack/flock)", () => {
+  test("installRoute(flock) is download", async () => {
+    const p = fakeProbes();
+    expect(await installRoute(p, "flock", [], NOOP_SEAMS)).toBe("download");
+    expect(p.calls.exec).toEqual([]);
+  });
+
+  test("installTool(flock) runs installFlock", async () => {
+    const p = fakeProbes({ fetch: async () => ({ status: 404, body: "", headers: {} }) });
+    const result = await installTool(p, "flock", [], NOOP_SEAMS);
+    expect(p.calls.fetch).toEqual([FLOCK_APPCAST_URL]);
+    expect(result).toEqual({ via: "download", ok: false, detail: "rt could not read Flock's release feed from m4ttstack/flock" });
   });
 });
 

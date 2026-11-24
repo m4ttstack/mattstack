@@ -253,22 +253,23 @@ function plan(): unknown {
     [row("access.team-repo", "access", "Team repo reachable", "github.com/acme/mattstack-team-acme", true, "ready", "ls-remote ok", null)];
   const tools = [
     row("tool.herdr", "tool", "herdr", "Runs the agents that do the work.", true, "ready", "0.9.2", null),
+    row("tool.flock", "tool", "Flock", "The Mac app for your herdr panes and agents.", true, "ready", "Flock 0.12.2", null),
     row("tool.fast-browser", "tool", "Fast Browser", "Browser automation for evidence.", true, "needs-you", "extension not loaded",
         { type: "steps", label: "Show steps…", steps: FAST_BROWSER_STEPS }),
     row("tool.chrome", "tool", "Google Chrome", "Evidence capture.", false, "skipped", null,
         { type: "open-url", label: "Download", url: "https://www.google.com/chrome/" }, "manual", "Works without this."),
   ];
   if (scenario === "solo") {
-    tools[1]!.required = false;
-    tools[1]!.optionalNote = "Works without this; only the browser skills need it.";
+    tools[2]!.required = false;
+    tools[2]!.optionalNote = "Works without this; only the browser skills need it.";
   }
   // Scenarios other than perm-denied-then-granted are installable out of the box so
   // flows can reach Install without connecting anything; perm-denied-then-granted
   // gates only on perm.fda so the second plan() call can flip canInstall to true.
   const installableScenario = ["join-happy", "create-happy", "apply-fail-retry", "clone-partial", "restore", "uninstall", "perm-denied-then-granted", "finish-gate", "writing-style", "join-team-accounts"].includes(scenario);
-  // accounts[0] and tools[1] are the fixed literal elements built above — non-null
+  // accounts[0] and tools[2] are the fixed literal elements built above — non-null
   // is safe, not a runtime guess.
-  if (installableScenario) { accounts[0]!.status = "ready"; accounts[0]!.detail = "token can see group acme"; tools[1]!.status = "ready"; tools[1]!.detail = "extension loaded"; }
+  if (installableScenario) { accounts[0]!.status = "ready"; accounts[0]!.detail = "token can see group acme"; tools[2]!.status = "ready"; tools[2]!.detail = "extension loaded"; }
   const gated: { id: string; status: string; waived?: boolean }[] =
     scenario === "finish-gate" ? [extensionRow(), missionControlRow()]
     : scenario === "writing-style" ? [REAL_WRITING_STYLE ? realWritingStyleRow() : writingStyleRow()]

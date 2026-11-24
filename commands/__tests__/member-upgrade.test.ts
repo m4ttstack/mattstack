@@ -230,7 +230,7 @@ async function context(p: Probes, events: ApplyEvent[], opts: { update?: true } 
  * tool but git and claude. Every other required row (the org, team, pack,
  * plugin and skills rows) must pass.
  */
-const MACHINE_ONLY_CHECKS = new Set(["perm.fda", "perm.login-items", "tool.macos", "tool.arch", "tool.herdr", "tool.claude", "tool.fast-browser", "tool.chrome", "tool.app", "tool.daemon", "access.team-repo", "access.forge"]);
+const MACHINE_ONLY_CHECKS = new Set(["perm.fda", "perm.login-items", "tool.macos", "tool.arch", "tool.herdr", "tool.flock", "tool.claude", "tool.fast-browser", "tool.chrome", "tool.app", "tool.daemon", "access.team-repo", "access.forge"]);
 
 /** The team-packs migration a waiting layout left pending is the only one the next run owes, and it finishes and records there. */
 function expectPackMigrationFinished(run: Awaited<ReturnType<typeof runUpdate>>, p: Probes): void {
