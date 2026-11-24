@@ -30,8 +30,8 @@ import { DEFAULT_EXPOSED } from "../lib/deps/links.ts";
 import { listOrgs } from "../lib/settings/stores.ts";
 import { fastBrowserMarketplaceSource, registeredMattstackMarketplace } from "../lib/setup/steps/plugins.ts";
 
-function tool(args: string[]): string | undefined {
-  return args.find((a) => !a.startsWith("--"));
+function tool(args: string[], valueFlag?: string): string | undefined {
+  return args.find((a, i) => !a.startsWith("--") && (valueFlag === undefined || args[i - 1] !== valueFlag));
 }
 
 /** Mirrors composePlan's own team resolution (readIntent → orgRefFromIntent) so a team-declared brew formula/vendor URL is found the same way the plan row that offered this Install action found it. No joined team is not an error: plenty of tools (herdr, claude, apple-clt) need no reqs at all. */
@@ -156,7 +156,7 @@ const HERDR_SERVER_TOOLS = ["herdr"];
 async function requireHerdr(args: string[], verb: "restart" | "stale", usage: string, ask: string, refusal: string): Promise<void> {
   const json = args.includes("--json");
   const command = `rt tools ${verb} herdr`;
-  let t = tool(args);
+  let t = tool(args, "--server");
   if (!t) {
     if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
       t = (await pickTool(ask, HERDR_SERVER_TOOLS)) ?? undefined;

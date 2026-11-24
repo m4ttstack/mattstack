@@ -130,6 +130,14 @@ describe("rt tools restart", () => {
     expect(p.calls.exec.filter((argv) => argv[1] === "server" && argv[2] === "stop")).toHaveLength(1);
   });
 
+  test("a server's name is never read as the tool", async () => {
+    const p = herdrProbes();
+    await toolsRestart(["--server", "review", "herdr", "--json"], {}, p);
+    expect(JSON.parse(io.stdout()).stopped).toEqual(["review"]);
+    await expect(toolsRestart(["--server", "review"], {}, p)).rejects.toThrow("exit 2");
+    expect(io.stderr()).toBe("Which tool?\n  next: rt tools restart herdr\n");
+  });
+
   for (const args of [["herdr", "--server"], ["herdr", "--server", "--json"], ["herdr", "--server", ""], ["herdr", "--server="], ["herdr", "--server", "work", "--server"]]) {
     test(`a --server without its name stops nothing: ${args.join(" ")}`, async () => {
       const p = herdrProbes();
