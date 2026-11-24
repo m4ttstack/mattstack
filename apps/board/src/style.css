@@ -8882,8 +8882,8 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-help-slot {
   position: fixed;
-  right: 16px;
   bottom: 16px;
+  left: 16px;
 }
 .tui-help {
   display: inline-flex;
@@ -8956,16 +8956,6 @@ a.tui-id-card-ref:focus-visible {
 /* The last row's actions scroll clear of the button. */
 .tui-app:has(.tui-help) {
   padding-bottom: 72px;
-}
-/* Toasts lift over the button, and step aside for its card. */
-body:has(.tui-help) [data-part='toasthost'] {
-  bottom: 64px;
-}
-@media (min-width: 760px) {
-  body:has(.tui-help-popup) [data-part='toasthost'] {
-    right: 406px;
-    bottom: 16px;
-  }
 }
 
 .tui-help-popup {
@@ -9247,6 +9237,7 @@ body:has(.tui-help) [data-part='toasthost'] {
   .tui-help-popup {
     width: min(380px, 100vw - 32px);
   }
+  /* The two corners meet in a narrow window. */
   body:has(.tui-help) [data-part='toasthost'] {
     bottom: 68px;
   }

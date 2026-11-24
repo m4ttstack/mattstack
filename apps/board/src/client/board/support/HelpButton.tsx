@@ -252,7 +252,7 @@ export function HelpButton({ help }: { help: Help }) {
         open={open}
         onOpenChange={setOpen}
         side="top"
-        align="end"
+        align="start"
         sideOffset={8}
         ariaLabel={`Ask ${read.persona}`}
         initialFocus={first}
