@@ -2,7 +2,7 @@ import Foundation
 @testable import MattstackCore
 
 private let check = "tools stale herdr --json"
-private let restart = "tools restart herdr --json"
+private let restart = "tools restart herdr --server work --json"
 
 private final class Clock: @unchecked Sendable {
     var now = Date(timeIntervalSince1970: 1_000)
@@ -78,11 +78,22 @@ let herdrRestartChecks: [Check] = [
         rt.sequences[restart] = [(0, #"{"stopped":["work"],"failed":[]}"#)]
         let m = await model(rt)
         _ = await m.refresh()
-        let error = await m.restart()
+        let error = await m.restart(["work"])
         c.expectEqual(error, nil)
         let needs = await m.needsRestart
         c.expect(!needs, "still offered after the restart")
         c.expectEqual(rt.calls.map { $0.args.joined(separator: " ") }, [check, restart, check])
+    },
+    Check("a restart names every confirmed server, and none restarts without a name") { c in
+        let rt = ScriptedRt()
+        rt.sequences[check] = [(0, #"{"stale":["work","side","late"]}"#)]
+        rt.answers["tools restart herdr"] = (0, #"{"stopped":["work","side"],"failed":[]}"#)
+        let m = await model(rt)
+        _ = await m.restart(["work", "side"])
+        c.expectEqual(rt.calls.first?.args ?? [], ["tools", "restart", "herdr", "--server", "work", "--server", "side", "--json"])
+        rt.calls = []
+        _ = await m.restart([])
+        c.expect(!rt.calls.contains { $0.args.contains("restart") }, "an empty list would restart every stale server")
     },
     Check("a restart that failed says why and stays offered") { c in
         let rt = ScriptedRt()
@@ -90,7 +101,7 @@ let herdrRestartChecks: [Check] = [
         rt.sequences[restart] = [(2, #"{"stopped":[],"failed":["work"],"error":{"code":"herdr-restart-failed","message":"herdr did not stop: work"}}"#)]
         let m = await model(rt)
         _ = await m.refresh()
-        let error = await m.restart()
+        let error = await m.restart(["work"])
         c.expectEqual(error, "herdr did not stop: work")
         let needs = await m.needsRestart
         c.expect(needs, "gave up the offer after a failed restart")
@@ -100,8 +111,8 @@ let herdrRestartChecks: [Check] = [
         rt.sequences[check] = [(0, #"{"stale":[]}"#)]
         rt.sequences[restart] = [(0, #"{"stopped":["work"],"failed":[]}"#)]
         let m = await model(rt)
-        rt.duringNextRun = { _ = await m.restart() }
-        _ = await m.restart()
+        rt.duringNextRun = { _ = await m.restart(["work"]) }
+        _ = await m.restart(["work"])
         c.expectEqual(rt.calls.filter { $0.args.joined(separator: " ") == restart }.count, 1)
     },
     Check("the confirmation names the servers and says their panes end") { c in

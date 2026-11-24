@@ -742,7 +742,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 HerdrRestartAlert.inform(HerdrRestartCopy.checkFailedTitle, why)
             case .stale(let names):
                 guard HerdrRestartAlert.confirm(names) else { return }
-                let error = await model.restart()
+                let error = await model.restart(names)
                 TrayLog.info("herdr restart", ["servers": names.joined(separator: ","), "err": error ?? ""])
                 if let error { HerdrRestartAlert.inform(HerdrRestartCopy.failedTitle, error) }
             }

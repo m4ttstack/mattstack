@@ -411,6 +411,18 @@ describe("herdr helpers", () => {
     expect(stops).toEqual([{ argv: [DEST, "server", "stop"], env: { HERDR_SOCKET_PATH: "/s/work.sock" } }]);
   });
 
+  test("restartStaleHerdrServers given names stops only those, and only while they are stale", async () => {
+    const { p, seen } = setup({
+      sessions: [
+        { name: "work", socket: "/s/work.sock", version: "0.9.5" },
+        { name: "side", socket: "/s/side.sock", version: "0.9.5" },
+        { name: "fresh", socket: "/s/fresh.sock", version: "0.9.5-ms.2" },
+      ],
+    });
+    expect(await restartStaleHerdrServers(p, ["side", "fresh", "gone"])).toEqual({ stopped: ["side"], failed: [] });
+    expect(seen.filter((c) => c.argv[2] === "stop").map((c) => c.env?.HERDR_SOCKET_PATH)).toEqual(["/s/side.sock"]);
+  });
+
   test("restartStaleHerdrServers leaves a server no build since has changed", async () => {
     const { p, seen } = setup({ sessions: [{ name: "work", socket: "/s/work.sock", version: "0.9.5-ms.1" }] }, {}, { builds: { "0.9.5-ms.1": true, "0.9.5-ms.2": false } });
     expect(await restartStaleHerdrServers(p)).toEqual({ stopped: [], failed: [] });

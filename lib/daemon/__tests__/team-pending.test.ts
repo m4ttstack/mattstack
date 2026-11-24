@@ -3,7 +3,8 @@ import { execFileSync } from "child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { childEnv, runCapture, type RunResult } from "../../subprocess.ts";
+import { scrubGitEnv } from "../../../packages/git-core/src/exec.ts";
+import { runCapture, type RunResult } from "../../subprocess.ts";
 import { readPending } from "../team-pending.ts";
 
 const TEAM_STORE = "mattstack/teams/widgets/settings.team.jsonc";
@@ -64,7 +65,8 @@ describe("readPending", () => {
   test("leaves the clone's index alone, so it never holds the lock a commit needs", async () => {
     const repoDir = mkdtempSync(join(tmpdir(), "rt-team-pending-"));
     dirs.push(repoDir);
-    const git = (...args: string[]) => execFileSync("git", args, { cwd: repoDir, env: childEnv() });
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: repoDir, env: scrubGitEnv() });
+    const inRepo: typeof runCapture = (argv, opts) => runCapture(argv, { ...opts, env: scrubGitEnv(opts?.env) as Record<string, string> });
     git("init", "-q", "-b", "mattstack");
     writeFileSync(join(repoDir, "README.md"), "widgets\n");
     git("add", "-A");
@@ -74,7 +76,7 @@ describe("readPending", () => {
     const index = join(repoDir, ".git", "index");
     const before = readFileSync(index);
 
-    expect(await readPending(repoDir, runCapture, none)).toEqual([]);
+    expect(await readPending(repoDir, inRepo, none)).toEqual([]);
 
     expect(readFileSync(index).equals(before)).toBe(true);
   });

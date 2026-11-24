@@ -1756,7 +1756,9 @@ function register(on) {
   on("classic.SessionStart", async ($, e, next) => {
     const started = await next(e);
     if (e.source === "clear" || e.source === "resume") {
-      writeForms($, (list) => list).catch(() => {
+      writeForms($, (list) => list).then(() => blocker.chain).then(() => {
+        blocker.again = RAISES - 1;
+      }).catch(() => {
         return;
       });
     }

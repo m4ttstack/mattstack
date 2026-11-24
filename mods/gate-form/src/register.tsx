@@ -721,8 +721,14 @@ export function register(on: On): void {
   on('classic.SessionStart', async ($, e, next) => {
     const started = await next(e)
     if (e.source === 'clear' || e.source === 'resume') {
-      // A write that changes nothing shows what is stored, in order with any other write.
-      void writeForms($, list => list).catch(() => undefined)
+      // A write that changes nothing shows what is stored, in order with any other write. The clear that ended the
+      // session stops the watch and its repeats, so they are granted once it has run.
+      void writeForms($, list => list)
+        .then(() => blocker.chain)
+        .then(() => {
+          blocker.again = RAISES - 1
+        })
+        .catch(() => undefined)
     }
     return started
   })

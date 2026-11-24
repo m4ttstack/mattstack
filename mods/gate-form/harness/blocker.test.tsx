@@ -364,6 +364,20 @@ test('a form open across /clear is raised again for the session that follows', a
   expect(w.blockers).toEqual([raiseArgs('p-1', 'plan-review'), clearArgs('p-1'), raiseArgs('p-1', 'plan-review')])
 })
 
+test('a form open across /clear is raised twice more, as after a session start', async ($, on) => {
+  const w = world(on, { env: WATCHED, socket: () => 1 })
+  await startInHerdr($, w)
+  await ask($)
+  await settled()
+  for (let i = 0; i < 3; i++) await check(w)
+  await $.session.end({ reason: 'clear', sessionId: SESSION, resume: { id: SESSION } } as never)
+  await startedBy($, 'clear')
+  await settled()
+  w.blockers.splice(0)
+  for (let i = 0; i < 4; i++) await check(w)
+  expect(w.blockers).toEqual(Array(2).fill(raiseArgs('p-1', 'plan-review')))
+})
+
 test('/clear with no form open leaves the pane alone', async ($, on) => {
   const w = world(on, { env: HERDR })
   await startInHerdr($, w)

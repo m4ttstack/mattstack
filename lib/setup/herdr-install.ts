@@ -251,8 +251,10 @@ export async function checkStaleHerdrServers(p: Probes): Promise<{ stale: string
   return { stale: stale.map((s) => s.name), ...(error ? { error } : {}) };
 }
 
-export async function restartStaleHerdrServers(p: Probes): Promise<{ stopped: string[]; failed: string[]; error?: string }> {
-  const { herdr, stale, error } = await staleServersOfInstalled(p);
+/** `only` names the servers a person agreed to stop: one that turned stale since keeps running, and one no longer stale is left alone. */
+export async function restartStaleHerdrServers(p: Probes, only?: readonly string[]): Promise<{ stopped: string[]; failed: string[]; error?: string }> {
+  const { herdr, stale: found, error } = await staleServersOfInstalled(p);
+  const stale = only ? found.filter((s) => only.includes(s.name)) : found;
   if (error) return { stopped: [], failed: [], error: `${error}, so rt stopped nothing` };
   const results = await Promise.all(stale.map((s) => p.exec([herdr, "server", "stop"], { env: { HERDR_SOCKET_PATH: s.socket }, timeoutMs: PROBE_TIMEOUT_MS })));
   return {

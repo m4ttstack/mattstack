@@ -46,19 +46,21 @@ public final class HerdrRestartModel: ObservableObject {
         return found
     }
 
-    /// Nil once every older server stopped, else why not.
-    public func restart() async -> String? {
-        guard !isRestarting else { return nil }
+    /// Stops the servers the person agreed to and no others: one that turned older while the question was open keeps
+    /// running. An rt that answers `tools stale` takes names; before that, names are ignored and every older server stops.
+    /// Nil once they stopped, else why not.
+    public func restart(_ servers: [String]) async -> String? {
+        guard !isRestarting, !servers.isEmpty else { return nil }
         isRestarting = true
         defer { isRestarting = false }
-        let error = await runRestart()
+        let error = await runRestart(servers)
         await refresh()
         return error
     }
 
-    private func runRestart() async -> String? {
+    private func runRestart(_ servers: [String]) async -> String? {
         do {
-            let r = try await rt.run(["tools", "restart", "herdr", "--json"], stdin: nil)
+            let r = try await rt.run(["tools", "restart", "herdr"] + servers.flatMap { ["--server", $0] } + ["--json"], stdin: nil)
             guard r.exitCode != 0 else { return nil }
             return r.userError?.message ?? r.failureCopy(verb: "tools restart")
         } catch {

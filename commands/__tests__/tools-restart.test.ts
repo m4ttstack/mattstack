@@ -123,6 +123,21 @@ describe("rt tools restart", () => {
     expect(io.stdout()).toBe("[ok] No herdr server needed a restart\n");
   });
 
+  test("--server stops only the named servers", async () => {
+    const p = herdrProbes();
+    await toolsRestart(["herdr", "--server", "review", "--server", "fresh", "--json"], {}, p);
+    expect(JSON.parse(io.stdout()).stopped).toEqual(["review"]);
+    expect(p.calls.exec.filter((argv) => argv[1] === "server" && argv[2] === "stop")).toHaveLength(1);
+  });
+
+  for (const args of [["herdr", "--server"], ["herdr", "--server", "--json"], ["herdr", "--server", ""], ["herdr", "--server="], ["herdr", "--server", "work", "--server"]]) {
+    test(`a --server without its name stops nothing: ${args.join(" ")}`, async () => {
+      const p = herdrProbes();
+      await expect(toolsRestart(args, {}, p)).rejects.toThrow("exit 2");
+      expect(p.calls.exec).toEqual([]);
+    });
+  }
+
   test("restart rejects another tool", async () => {
     const p = herdrProbes();
     await expect(toolsRestart(["claude"], {}, p)).rejects.toThrow("exit 2");
@@ -132,7 +147,7 @@ describe("rt tools restart", () => {
 
   test("restart rejects another tool under --json with the usage envelope", async () => {
     await expect(toolsRestart(["claude", "--json"], {}, herdrProbes())).rejects.toThrow("exit 2");
-    expect(JSON.parse(io.stdout()).error).toEqual({ code: "usage", message: "usage: rt tools restart herdr [--json]" });
+    expect(JSON.parse(io.stdout()).error).toEqual({ code: "usage", message: "usage: rt tools restart herdr [--server <name>]… [--json]" });
     expect(io.stderr()).toBe("");
   });
 

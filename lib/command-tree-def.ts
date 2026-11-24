@@ -3347,7 +3347,11 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/tools.ts",
         fn: "toolsRestart",
         omitBehavior: "picker",
-        args: [{ name: "Tool", type: "text", placeholder: "herdr", hint: "Tool name (herdr)" }, SETUP_JSON_ARG],
+        args: [
+          { name: "Tool", type: "text", placeholder: "herdr", hint: "Tool name (herdr)" },
+          { name: "Server", flag: "--server", type: "text", placeholder: "work", hint: "Stop only this server (repeatable), and only while it runs an older herdr" },
+          SETUP_JSON_ARG,
+        ],
       },
       stale: {
         description: "See which of herdr's servers run an older herdr",

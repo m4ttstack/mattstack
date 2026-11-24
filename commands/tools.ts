@@ -3,7 +3,7 @@
  *
  *   rt tools install <tool> [--json]
  *   rt tools setup <tool> [--config-dir <dir>]… [--json]
- *   rt tools restart herdr [--json]
+ *   rt tools restart herdr [--server <name>]… [--json]
  *   rt tools stale herdr [--json]
  *
  * Thin CLI shell over lib/setup/tools-install.ts: this module only parses
@@ -153,9 +153,8 @@ export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: P
 const HERDR_SERVER_TOOLS = ["herdr"];
 
 /** Resolves once the one tool with servers is named; anything else is a usage failure. */
-async function requireHerdr(args: string[], verb: "restart" | "stale", ask: string, refusal: string): Promise<void> {
+async function requireHerdr(args: string[], verb: "restart" | "stale", usage: string, ask: string, refusal: string): Promise<void> {
   const json = args.includes("--json");
-  const usage = `usage: rt tools ${verb} herdr [--json]`;
   const command = `rt tools ${verb} herdr`;
   let t = tool(args);
   if (!t) {
@@ -175,12 +174,28 @@ async function requireHerdr(args: string[], verb: "restart" | "stale", ask: stri
   process.exit(2);
 }
 
-/** Ends the herdr servers still on an older herdr, which ends their panes. */
+const RESTART_USAGE = "usage: rt tools restart herdr [--server <name>]… [--json]";
+
+/** The named servers, undefined with none named, or null when a --server has no name: that must never read as every server. */
+function namedServers(args: string[]): string[] | undefined | null {
+  const flags = args.filter((a) => a === "--server" || a.startsWith("--server=")).length;
+  if (flags === 0) return undefined;
+  const names = flagValues(args, "--server");
+  return names.length === flags && names.every((name) => name !== "" && !name.startsWith("-")) ? names : null;
+}
+
+/** Ends the herdr servers still on an older herdr, or only the named ones of them, which ends their panes. */
 export async function toolsRestart(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
   const json = args.includes("--json");
-  await requireHerdr(args, "restart", "Restart which tool?", "rt can only restart herdr");
+  await requireHerdr(args, "restart", RESTART_USAGE, "Restart which tool?", "rt can only restart herdr");
+  const servers = namedServers(args);
+  if (servers === null) {
+    if (json) exitUserError(new UserActionableError("usage", RESTART_USAGE), json);
+    out.fail(usageFailure("Which server?", "rt tools restart herdr --server <name>"));
+    process.exit(2);
+  }
 
-  const result = await restartStaleHerdrServers(p);
+  const result = await restartStaleHerdrServers(p, servers);
   const failed = result.error !== undefined || result.failed.length > 0;
   if (json) {
     const message = result.error ?? `herdr did not stop: ${result.failed.join(", ")}`;
@@ -211,7 +226,7 @@ export async function toolsRestart(args: string[], _ctx: CommandContext = {}, p:
  */
 export async function toolsStale(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
   const json = args.includes("--json");
-  await requireHerdr(args, "stale", "Check which tool?", "rt can only check herdr");
+  await requireHerdr(args, "stale", "usage: rt tools stale herdr [--json]", "Check which tool?", "rt can only check herdr");
 
   const { stale, error } = await checkStaleHerdrServers(p);
   if (json) {
