@@ -13,11 +13,13 @@ import {
   checkToolRows,
   checkCatalog,
   checkExtension,
+  checkHerdrMinimum,
   checkSchemaLock,
   runPreflight,
   type PreflightSeams,
   type DepsRow,
 } from "../preflight.ts";
+import { HERDR_BUILDS_URL, HERDR_MIN_BUILD } from "../../setup/herdr-builds.ts";
 
 const ok = (stdout: string) => Promise.resolve({ stdout, stderr: "", exitCode: 0 });
 const failExec = () => Promise.resolve({ stdout: "", stderr: "boom", exitCode: 1 });
@@ -419,6 +421,47 @@ describe("checkExtension", () => {
   });
 });
 
+function herdrList(versions: string[]) {
+  const sha = "a".repeat(64);
+  const prefix = "https://github.com/m4ttstack/herdr/releases/download/";
+  return {
+    schema: 1,
+    newest: versions[versions.length - 1],
+    builds: versions.map((version, i) => ({
+      version,
+      herdr: "0.9.5",
+      revision: i + 1,
+      changesServer: false,
+      assets: { arm64: { url: `${prefix}v${version}/herdr-macos-aarch64`, sha256: sha } },
+      supersedes: [],
+    })),
+    flockPatchSha256: [],
+  };
+}
+
+describe("checkHerdrMinimum", () => {
+  test("ok when the minimum is in the list", async () => {
+    const r = await checkHerdrMinimum(seams({
+      fetchJson: (url) => (url === HERDR_BUILDS_URL ? Promise.resolve(herdrList([HERDR_MIN_BUILD, "0.9.5-ms.9"])) : Promise.reject(new Error("x"))),
+    }));
+    expect(r.id).toBe("herdr-minimum");
+    expect(r.status).toBe("ok");
+    expect(r.pinned).toBe(HERDR_MIN_BUILD);
+    expect(r.current).toBe("0.9.5-ms.9");
+  });
+
+  test("stale when it is not", async () => {
+    const r = await checkHerdrMinimum(seams({ fetchJson: () => Promise.resolve(herdrList(["0.9.4-ms.1"])) }));
+    expect(r.status).toBe("stale");
+    expect(r.detail).toBe(`rt needs herdr ${HERDR_MIN_BUILD}, which m4ttstack/herdr has not published`);
+  });
+
+  test("error when the list cannot be read", async () => {
+    expect((await checkHerdrMinimum(seams())).status).toBe("error");
+    expect((await checkHerdrMinimum(seams({ fetchJson: () => Promise.resolve({ nope: 1 }) }))).status).toBe("error");
+  });
+});
+
 describe("runPreflight", () => {
   test("aggregates rows, counts, and the clean flag", async () => {
     const s = seams({
@@ -479,7 +522,11 @@ describe("runPreflight", () => {
         return null;
       },
       fetchJson: (url) =>
-        url.includes("rt-client") ? Promise.resolve({ version: "0.20.0" }) : Promise.reject(new Error("x")),
+        url.includes("rt-client")
+          ? Promise.resolve({ version: "0.20.0" })
+          : url === HERDR_BUILDS_URL
+            ? Promise.resolve(herdrList([HERDR_MIN_BUILD]))
+            : Promise.reject(new Error("x")),
     });
     const report = await runPreflight(s);
     expect(report.errorCount).toBe(0);
