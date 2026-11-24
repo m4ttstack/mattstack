@@ -110,6 +110,7 @@ const USES = new Set<ButtonId>(['run', 'confirm', 'copy', 'open'])
 async function askFirst($: EngineInterface, todo: Todo): Promise<void> {
   const cwd = todo.cwd?.trim() ? todo.cwd : await $.session.cwd()
   if (!cwd.startsWith('/')) return $.ui.toast(`#${todo.id} has no absolute folder to run in, so it cannot be run`)
+  if (unseenField({ ...todo, cwd })) return $.ui.toast(`#${todo.id} has hidden characters in its cwd, so it cannot be used`)
   await patchTodo($, todo.id, { status: 'confirming', cwd })
 }
 

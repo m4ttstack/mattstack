@@ -140,3 +140,10 @@ test('a run item with no cwd keeps the folder the session is in, so Confirm show
   const saved = w.store.get('list:sess-1') as { todos: { cwd?: string }[] }
   expect(saved.todos.map(t => t.cwd)).toEqual(['/work', '/elsewhere', undefined, '/work'])
 })
+
+test('add refuses a run item whose session folder has hidden characters', async ($, on) => {
+  world(on, { cwd: '/w\u{202E}' })
+  await startSession($)
+  expect(await $.tool.call({ tool: ADD, kind: 'run', title: 'x', script: 'ls' })).toMatchObject({ deny: expect.stringMatching(/^cwd has characters/) })
+  expect((await $.tool.call({ tool: LIST })).result).toBe('No to-dos.')
+})

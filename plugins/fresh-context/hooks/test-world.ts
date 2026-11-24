@@ -20,7 +20,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   const agents: Agent[] = []
   const commandsRegistered: { name: string; description: string }[] = []
   const argv0: string[] = []
-  const state = { sessionId: OLD, compact: { skip: undefined as string | undefined }, stopBlocks: false, rtOverruns: false, overrunMs: 10_000, onBegin: undefined as undefined | (() => Promise<unknown>), appendRefused: false, submitFails: false }
+  const state = { sessionId: OLD, compact: { skip: undefined as string | undefined }, stopBlocks: false, rtOverruns: false, overrunMs: 10_000, onBegin: undefined as undefined | (() => Promise<unknown>), appendRefused: false, submitFails: false, submitDrops: false }
 
   on('session.id', () => ({ value: state.sessionId }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -75,6 +75,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   })
   on('prompt.submit', (_, e) => {
     if (state.submitFails) throw new Error('refused')
+    if (state.submitDrops) return { drop: 'refused' }
     submitted.push(e.text)
     return { text: e.text }
   })

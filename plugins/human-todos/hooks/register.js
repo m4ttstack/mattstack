@@ -843,7 +843,7 @@ var LINE_MAX = 300;
 var TAIL_MAX = 8 * 1024;
 var UNSEEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
 var UNSEEN_IN_PROSE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/u;
-var EMOJI2 = /\p{Extended_Pictographic}[️\p{Emoji_Modifier}]?(?:‍\p{Extended_Pictographic}[️\p{Emoji_Modifier}]?)*/gu;
+var EMOJI2 = /\p{Extended_Pictographic}[\u{FE0F}\p{Emoji_Modifier}]?(?:\u{200D}\p{Extended_Pictographic}[\u{FE0F}\p{Emoji_Modifier}]?)*/gu;
 var isUnseenPath = (path) => UNSEEN.test(path.replace(EMOJI2, ""));
 function unseenField(input) {
   if (UNSEEN.test((input.script ?? "").replace(/[\n\t]/g, "")))
@@ -2052,6 +2052,8 @@ async function askFirst($, todo) {
   const cwd = todo.cwd?.trim() ? todo.cwd : await $.session.cwd();
   if (!cwd.startsWith("/"))
     return $.ui.toast(`#${todo.id} has no absolute folder to run in, so it cannot be run`);
+  if (unseenField({ ...todo, cwd }))
+    return $.ui.toast(`#${todo.id} has hidden characters in its cwd, so it cannot be used`);
   await patchTodo($, todo.id, { status: "confirming", cwd });
 }
 async function press($, todo, button, surface) {

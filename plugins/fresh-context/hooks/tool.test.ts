@@ -112,13 +112,13 @@ test('space before a named command does not get it past the check', async ($, on
   expect(w.commands).toEqual([])
 })
 
-test('a then whose prompt is refused still reaches the fresh context, as a note', async ($, on) => {
+for (const failure of ['submitFails', 'submitDrops'] as const) test(`a then whose prompt is refused (${failure}) still reaches the fresh context, as a note`, async ($, on) => {
   const w = world(on, { signedIn: false })
   await startSession($)
   await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'Goal: x', then: 'carry on' })
   await stop($)
   await w.clock.settle()
-  w.state.submitFails = true
+  w.state[failure] = true
   w.state.sessionId = NEW
   await $.classic.SessionStart({ source: 'clear', session_id: NEW })
   await w.clock.settle()

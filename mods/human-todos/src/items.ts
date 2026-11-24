@@ -20,7 +20,8 @@ const UNSEEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u
 const UNSEEN_IN_PROSE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/u
 
 // A file name can hold an emoji, whose own joiners and presentation mark are part of it; they stay refused elsewhere.
-const EMOJI = /\p{Extended_Pictographic}[️\p{Emoji_Modifier}]?(?:‍\p{Extended_Pictographic}[️\p{Emoji_Modifier}]?)*/gu
+// Keycaps and tag-sequence flags stay refused: they are not built on a pictograph.
+const EMOJI = /\p{Extended_Pictographic}[\u{FE0F}\p{Emoji_Modifier}]?(?:\u{200D}\p{Extended_Pictographic}[\u{FE0F}\p{Emoji_Modifier}]?)*/gu
 const isUnseenPath = (path: string) => UNSEEN.test(path.replace(EMOJI, ''))
 
 type Checked = Pick<Todo, 'title' | 'script' | 'cwd' | 'url' | 'paths' | 'detail' | 'doneLabel'>

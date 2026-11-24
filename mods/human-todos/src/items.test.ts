@@ -26,7 +26,7 @@ test('an svg is refused: its default app may be a browser, which runs what is in
 })
 
 test('a script, folder, link or path with characters the pane cannot show is refused', () => {
-  for (const hidden of ['\x1b[2K', '\r', '\x03', '‮', '⁦', '​', '️', ' ']) {
+  for (const hidden of ['\x1b[2K', '\r', '\x03', '\u{202E}', '\u{2066}', '\u{200B}', '\u{FE0F}', '\u{2028}']) {
     expect(checkKind({ kind: 'run', title: 'x', script: `ls${hidden}` })).toMatch(/^script has characters/)
     expect(checkKind({ kind: 'terminal', title: 'x', script: `ls${hidden}` })).toMatch(/^script has characters/)
     expect(checkKind({ kind: 'run', title: 'x', script: 'ls', cwd: `/w${hidden}` })).toMatch(/^cwd has characters/)
@@ -39,12 +39,12 @@ test('a script, folder, link or path with characters the pane cannot show is ref
 
 test('a title, detail or doneLabel refuses control and direction characters but keeps emoji', () => {
   for (const field of ['title', 'detail', 'doneLabel'] as const) {
-    for (const hidden of ['\x1b[2J', '‮', '⁧']) {
+    for (const hidden of ['\x1b[2J', '\u{202E}', '\u{2067}']) {
       expect(checkKind({ kind: 'task', title: 'x', [field]: `a${hidden}b` })).toMatch(new RegExp(`^${field} has characters`))
     }
   }
   expect(checkKind({ kind: 'task', title: 'a\nb' })).toMatch(/^title has characters/)
-  expect(checkKind({ kind: 'task', title: 'Ship it 👩‍💻', detail: 'one\ntwo' })).toBeUndefined()
+  expect(checkKind({ kind: 'task', title: 'Ship it 👩\u{200D}💻', detail: 'one\ntwo' })).toBeUndefined()
 })
 
 test('toTodo drops the fields that do not belong to the kind', () => {
@@ -147,10 +147,10 @@ test('describe quotes a title and indents a script, so neither can pass for a ro
 })
 
 test('a path or folder keeps the emoji a file name can hold, and refuses their joiners anywhere else', () => {
-  for (const path of ['/a ❤️.png', '/b 👩🏽‍💻.png']) expect(checkKind({ kind: 'image', title: 'x', paths: [path] })).toBeUndefined()
-  expect(checkKind({ kind: 'run', title: 'x', script: 'ls', cwd: '/w/👩‍💻' })).toBeUndefined()
+  for (const path of ['/a ❤\u{FE0F}.png', '/b 👩🏽\u{200D}💻.png']) expect(checkKind({ kind: 'image', title: 'x', paths: [path] })).toBeUndefined()
+  expect(checkKind({ kind: 'run', title: 'x', script: 'ls', cwd: '/w/👩\u{200D}💻' })).toBeUndefined()
   expect(checkKind({ kind: 'image', title: 'x', paths: ['/a\u200db.png'] })).toMatch(/^paths has characters/)
-  expect(checkKind({ kind: 'run', title: 'x', script: 'echo ❤️' })).toMatch(/^script has characters/)
+  expect(checkKind({ kind: 'run', title: 'x', script: 'echo ❤\u{FE0F}' })).toMatch(/^script has characters/)
 })
 
 test('a relative cwd is refused, since Confirm could not say which folder it means', () => {
