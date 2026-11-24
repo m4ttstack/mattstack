@@ -3,7 +3,8 @@
  *
  *   rt tools install <tool> [--json]
  *   rt tools setup <tool> [--config-dir <dir>]… [--json]
- *   rt tools restart herdr [--json]
+ *   rt tools restart herdr [--server <name>]… [--json]
+ *   rt tools stale herdr [--json]
  *
  * Thin CLI shell over lib/setup/tools-install.ts: this module only parses
  * args, resolves the joined team's pack requirements (for team-declared
@@ -19,7 +20,7 @@ import { usageFailure } from "../lib/ui/usage.ts";
 import { warn } from "../lib/ui/warn.ts";
 import { readIntent, orgRefFromIntent } from "../lib/setup/intent.ts";
 import { FLOCK_TOOL } from "../lib/setup/flock-install.ts";
-import { restartStaleHerdrServers } from "../lib/setup/herdr-install.ts";
+import { checkStaleHerdrServers, restartStaleHerdrServers } from "../lib/setup/herdr-install.ts";
 import { recordToolInstall } from "../lib/setup/prepare.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { readPackRequirements, type PackRequirements } from "../lib/setup/requirements.ts";
@@ -29,8 +30,8 @@ import { DEFAULT_EXPOSED } from "../lib/deps/links.ts";
 import { listOrgs } from "../lib/settings/stores.ts";
 import { fastBrowserMarketplaceSource, registeredMattstackMarketplace } from "../lib/setup/steps/plugins.ts";
 
-function tool(args: string[]): string | undefined {
-  return args.find((a) => !a.startsWith("--"));
+function tool(args: string[], valueFlag?: string): string | undefined {
+  return args.find((a, i) => !a.startsWith("--") && (valueFlag === undefined || args[i - 1] !== valueFlag));
 }
 
 /** Mirrors composePlan's own team resolution (readIntent → orgRefFromIntent) so a team-declared brew formula/vendor URL is found the same way the plan row that offered this Install action found it. No joined team is not an error: plenty of tools (herdr, claude, apple-clt) need no reqs at all. */
@@ -102,10 +103,10 @@ export async function toolsInstall(args: string[], _ctx: CommandContext = {}, p:
   }
   if (!result.ok) {
     if (result.reason && result.reason !== "no-bundle") out.note(out.line("refused", `rt left your ${t} alone`, result.detail));
-    else out.fail({ title: `${t} was not installed`, why: result.detail });
+    else out.fail({ title: result.title ?? `${t} was not installed`, why: result.detail });
     process.exit(1);
   }
-  out.print(out.line("done", `Installed ${t}`, result.detail));
+  out.print(out.line("done", result.title ?? `Installed ${t}`, result.detail));
 }
 
 export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
@@ -149,30 +150,52 @@ export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: P
   out.print(out.line("done", `Set up ${t}`, result.detail));
 }
 
-const RESTART_TOOLS = ["herdr"];
+const HERDR_SERVER_TOOLS = ["herdr"];
 
-/** Ends the herdr servers still on an older herdr, which ends their panes. */
-export async function toolsRestart(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
+/** Resolves once the one tool with servers is named; anything else is a usage failure. */
+async function requireHerdr(args: string[], verb: "restart" | "stale", usage: string, ask: string, refusal: string): Promise<void> {
   const json = args.includes("--json");
-  let t = tool(args);
+  const command = `rt tools ${verb} herdr`;
+  let t = tool(args, "--server");
   if (!t) {
     if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
-      t = (await pickTool("Restart which tool?", RESTART_TOOLS)) ?? undefined;
+      t = (await pickTool(ask, HERDR_SERVER_TOOLS)) ?? undefined;
       if (!t) process.exit(0);
     } else if (json) {
-      exitUserError(new UserActionableError("usage", "usage: rt tools restart herdr [--json]"), json);
+      exitUserError(new UserActionableError("usage", usage), json);
     } else {
-      out.fail(usageFailure("Which tool?", "rt tools restart herdr"));
+      out.fail(usageFailure("Which tool?", command));
       process.exit(2);
     }
   }
-  if (t !== "herdr") {
-    if (json) exitUserError(new UserActionableError("usage", "usage: rt tools restart herdr [--json]"), json);
-    out.fail(usageFailure("rt can only restart herdr", "rt tools restart herdr"));
+  if (t === "herdr") return;
+  if (json) exitUserError(new UserActionableError("usage", usage), json);
+  out.fail(usageFailure(refusal, command));
+  process.exit(2);
+}
+
+const RESTART_USAGE = "usage: rt tools restart herdr [--server <name>]… [--json]";
+
+/** The named servers, undefined with none named, or null when a --server has no name: that must never read as every server. */
+function namedServers(args: string[]): string[] | undefined | null {
+  const flags = args.filter((a) => a === "--server" || a.startsWith("--server=")).length;
+  if (flags === 0) return undefined;
+  const names = flagValues(args, "--server");
+  return names.length === flags && names.every((name) => name !== "" && !name.startsWith("-")) ? names : null;
+}
+
+/** Ends the herdr servers still on an older herdr, or only the named ones of them, which ends their panes. */
+export async function toolsRestart(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
+  const json = args.includes("--json");
+  await requireHerdr(args, "restart", RESTART_USAGE, "Restart which tool?", "rt can only restart herdr");
+  const servers = namedServers(args);
+  if (servers === null) {
+    if (json) exitUserError(new UserActionableError("usage", RESTART_USAGE), json);
+    out.fail(usageFailure("Which server?", "rt tools restart herdr --server <name>"));
     process.exit(2);
   }
 
-  const result = await restartStaleHerdrServers(p);
+  const result = await restartStaleHerdrServers(p, servers);
   const failed = result.error !== undefined || result.failed.length > 0;
   if (json) {
     const message = result.error ?? `herdr did not stop: ${result.failed.join(", ")}`;
@@ -194,4 +217,31 @@ export async function toolsRestart(args: string[], _ctx: CommandContext = {}, p:
     return;
   }
   out.print(out.line("done", "Stopped herdr's older servers", result.stopped.join(", ")));
+}
+
+/**
+ * Names the herdr servers a restart would stop, and stops none. Its own verb
+ * rather than a flag on restart: rt ignores a flag it does not know, so an
+ * older rt asked to check would restart.
+ */
+export async function toolsStale(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
+  const json = args.includes("--json");
+  await requireHerdr(args, "stale", "usage: rt tools stale herdr [--json]", "Check which tool?", "rt can only check herdr");
+
+  const { stale, error } = await checkStaleHerdrServers(p);
+  if (json) {
+    out.json(envelope({ stale, ...(error ? { error: { code: "herdr-check-failed", message: error } } : {}) }));
+    // The app reads an envelope's error only on exit 2.
+    if (error) process.exit(2);
+    return;
+  }
+  if (error) {
+    out.fail({ title: "rt could not check herdr's servers", why: error });
+    process.exit(1);
+  }
+  if (stale.length === 0) {
+    out.print(out.line("done", "No herdr server needs a restart"));
+    return;
+  }
+  out.print(out.line("stale", stale.length === 1 ? "1 herdr server runs an older herdr" : `${stale.length} herdr servers run an older herdr`, stale.join(", ")));
 }

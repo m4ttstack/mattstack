@@ -257,7 +257,7 @@ describe("installHerdrBuild", () => {
     expect(p.calls.exec.some((argv) => argv[0] === "curl")).toBe(false);
     expect(p.calls.renames).toEqual([]);
     expect(uninstalls(seen)).toEqual([["/opt/homebrew/bin/brew", "uninstall", "herdr"]]);
-    expect(result).toEqual({ via: "download", ok: true, detail: "Removed Homebrew's herdr" });
+    expect(result).toEqual({ via: "download", ok: true, title: "herdr was already current", detail: "Removed Homebrew's herdr" });
   });
 
   test("a dev build newer than the list's newest is never downgraded to remove Homebrew's herdr", async () => {
@@ -324,6 +324,7 @@ describe("installHerdrBuild", () => {
     expect(await installHerdrBuild(p, "arm64")).toEqual({
       via: "download",
       ok: false,
+      title: "Homebrew's herdr was not removed",
       detail: "Homebrew's herdr is still installed (brew uninstall exit 1). Remove it in a terminal: /opt/homebrew/bin/brew uninstall herdr",
       remedy: "Run /opt/homebrew/bin/brew uninstall herdr in a terminal",
     });
@@ -334,6 +335,7 @@ describe("installHerdrBuild", () => {
     const result = await installHerdrBuild(p, "arm64");
     expect(p.calls.renames).toEqual([[STAGED, DEST]]);
     expect(result.ok).toBe(false);
+    expect(result.title).toBe("herdr was installed, but Homebrew's copy was not removed");
     expect(result.detail).toBe("Installed herdr 0.9.5-ms.2; Homebrew's herdr is still installed (brew uninstall exit 1). Remove it in a terminal: /opt/homebrew/bin/brew uninstall herdr");
   });
 
@@ -407,6 +409,18 @@ describe("herdr helpers", () => {
     expect(await restartStaleHerdrServers(p)).toEqual({ stopped: ["work"], failed: [] });
     const stops = seen.filter((c) => c.argv[1] === "server" && c.argv[2] === "stop");
     expect(stops).toEqual([{ argv: [DEST, "server", "stop"], env: { HERDR_SOCKET_PATH: "/s/work.sock" } }]);
+  });
+
+  test("restartStaleHerdrServers given names stops only those, and only while they are stale", async () => {
+    const { p, seen } = setup({
+      sessions: [
+        { name: "work", socket: "/s/work.sock", version: "0.9.5" },
+        { name: "side", socket: "/s/side.sock", version: "0.9.5" },
+        { name: "fresh", socket: "/s/fresh.sock", version: "0.9.5-ms.2" },
+      ],
+    });
+    expect(await restartStaleHerdrServers(p, ["side", "fresh", "gone"])).toEqual({ stopped: ["side"], failed: [] });
+    expect(seen.filter((c) => c.argv[2] === "stop").map((c) => c.env?.HERDR_SOCKET_PATH)).toEqual(["/s/side.sock"]);
   });
 
   test("restartStaleHerdrServers leaves a server no build since has changed", async () => {

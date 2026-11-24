@@ -20,6 +20,7 @@ rt tools restart <tool> [flags]
 | Flag / Arg | Type | Default | Description |
 | --- | --- | --- | --- |
 | `<tool>` | text |  | Tool name (herdr) |
+| `--server` | text |  | Stop only this server (repeatable), and only while it runs an older herdr |
 | [`--json`](/rt/guides/common-flags) | boolean | `false` | Machine-readable result |
 
 _See code: [commands/tools.ts › toolsRestart](https://github.com/m4ttstack/mattstack/blob/main/commands/tools.ts)_

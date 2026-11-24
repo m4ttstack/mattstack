@@ -5,7 +5,7 @@ import { join } from "path";
 import { fakeProbes, ok } from "../../lib/setup/__tests__/fakes.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { toolsRestart } from "../tools.ts";
+import { toolsRestart, toolsStale } from "../tools.ts";
 
 describe("rt tools restart", () => {
   let home: string;
@@ -123,6 +123,29 @@ describe("rt tools restart", () => {
     expect(io.stdout()).toBe("[ok] No herdr server needed a restart\n");
   });
 
+  test("--server stops only the named servers", async () => {
+    const p = herdrProbes();
+    await toolsRestart(["herdr", "--server", "review", "--server", "fresh", "--json"], {}, p);
+    expect(JSON.parse(io.stdout()).stopped).toEqual(["review"]);
+    expect(p.calls.exec.filter((argv) => argv[1] === "server" && argv[2] === "stop")).toHaveLength(1);
+  });
+
+  test("a server's name is never read as the tool", async () => {
+    const p = herdrProbes();
+    await toolsRestart(["--server", "review", "herdr", "--json"], {}, p);
+    expect(JSON.parse(io.stdout()).stopped).toEqual(["review"]);
+    await expect(toolsRestart(["--server", "review"], {}, p)).rejects.toThrow("exit 2");
+    expect(io.stderr()).toBe("Which tool?\n  next: rt tools restart herdr\n");
+  });
+
+  for (const args of [["herdr", "--server"], ["herdr", "--server", "--json"], ["herdr", "--server", ""], ["herdr", "--server="], ["herdr", "--server", "work", "--server"]]) {
+    test(`a --server without its name stops nothing: ${args.join(" ")}`, async () => {
+      const p = herdrProbes();
+      await expect(toolsRestart(args, {}, p)).rejects.toThrow("exit 2");
+      expect(p.calls.exec).toEqual([]);
+    });
+  }
+
   test("restart rejects another tool", async () => {
     const p = herdrProbes();
     await expect(toolsRestart(["claude"], {}, p)).rejects.toThrow("exit 2");
@@ -132,12 +155,65 @@ describe("rt tools restart", () => {
 
   test("restart rejects another tool under --json with the usage envelope", async () => {
     await expect(toolsRestart(["claude", "--json"], {}, herdrProbes())).rejects.toThrow("exit 2");
-    expect(JSON.parse(io.stdout()).error).toEqual({ code: "usage", message: "usage: rt tools restart herdr [--json]" });
+    expect(JSON.parse(io.stdout()).error).toEqual({ code: "usage", message: "usage: rt tools restart herdr [--server <name>]… [--json]" });
     expect(io.stderr()).toBe("");
   });
 
   test("no tool named, off a terminal: a plain question and the command, exit 2", async () => {
     await expect(toolsRestart([], {}, herdrProbes())).rejects.toThrow("exit 2");
     expect(io.stderr()).toBe("Which tool?\n  next: rt tools restart herdr\n");
+  });
+
+  describe("rt tools stale", () => {
+    const stops = (p: ReturnType<typeof herdrProbes>) => p.calls.exec.filter((argv) => argv[1] === "server");
+
+    test("--json names the servers a restart would stop, and stops none", async () => {
+      const p = herdrProbes();
+      await toolsStale(["herdr", "--json"], {}, p);
+      const body = JSON.parse(io.stdout());
+      expect(Object.keys(body)).toEqual(["contract", "at", "stale"]);
+      expect(body.stale).toEqual(["work", "review"]);
+      expect(stops(p)).toEqual([]);
+    });
+
+    test("a person reads the names", async () => {
+      const p = herdrProbes();
+      await toolsStale(["herdr"], {}, p);
+      expect(io.stdout()).toBe("[out of date] 2 herdr servers run an older herdr  work, review\n");
+      expect(stops(p)).toEqual([]);
+    });
+
+    test("no stale server says so", async () => {
+      const p = fakeProbes({ home, exec: (argv) => (argv[1] === "--version" ? ok("herdr 0.9.5-ms.2\n") : ok(JSON.stringify({ sessions: [] }))) });
+      await toolsStale(["herdr"], {}, p);
+      expect(io.stdout()).toBe("[ok] No herdr server needs a restart\n");
+    });
+
+    test("servers that cannot be checked are an error, never an empty list alone", async () => {
+      await expect(toolsStale(["herdr", "--json"], {}, herdrProbes({ unlisted: true }))).rejects.toThrow("exit 2");
+      const body = JSON.parse(io.stdout());
+      expect(body.stale).toEqual([]);
+      expect(body.error).toEqual({ code: "herdr-check-failed", message: "herdr could not list its sessions" });
+    });
+
+    test("a person reads why the check failed, exit 1", async () => {
+      await expect(toolsStale(["herdr"], {}, herdrProbes({ broken: true }))).rejects.toThrow("exit 1");
+      expect(io.stderr()).toBe("rt could not check herdr's servers\n  why: ~/.local/bin/herdr does not run (exit 127)\n");
+      expect(io.stdout()).toBe("");
+    });
+
+    test("only herdr can be checked", async () => {
+      const p = herdrProbes();
+      await expect(toolsStale(["claude"], {}, p)).rejects.toThrow("exit 2");
+      expect(io.stderr()).toStartWith("rt can only check herdr\n  next: rt tools stale herdr\n");
+      await expect(toolsStale(["claude", "--json"], {}, p)).rejects.toThrow("exit 2");
+      expect(JSON.parse(io.stdout()).error).toEqual({ code: "usage", message: "usage: rt tools stale herdr [--json]" });
+      expect(p.calls.exec).toEqual([]);
+    });
+
+    test("no tool named, off a terminal: a plain question and the command, exit 2", async () => {
+      await expect(toolsStale([], {}, herdrProbes())).rejects.toThrow("exit 2");
+      expect(io.stderr()).toBe("Which tool?\n  next: rt tools stale herdr\n");
+    });
   });
 });

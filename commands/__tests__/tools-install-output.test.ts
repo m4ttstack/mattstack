@@ -55,6 +55,34 @@ test("the --json envelope never carries placed", async () => {
   }
 });
 
+for (const [name, result, stdout, stderr] of [
+  ["uninstall only", { ok: true, title: "herdr was already current", detail: "Removed Homebrew's herdr" }, "[ok] herdr was already current  Removed Homebrew's herdr\n", ""],
+  ["uninstall failed after a download", { ok: false, title: "herdr was installed, but Homebrew's copy was not removed", detail: "Remove it in a terminal" }, "", "herdr was installed, but Homebrew's copy was not removed\n  why: Remove it in a terminal\n"],
+  ["no title of its own", { ok: true, detail: "Installed herdr 0.9.5-ms.2" }, "[ok] Installed herdr  Installed herdr 0.9.5-ms.2\n", ""],
+] as const) {
+  test(`an install's own title is what a person reads, and the envelope never carries it: ${name}`, async () => {
+    const install = spyOn(toolsInstallModule, "installTool").mockResolvedValue({ via: "download", ...result });
+    const exit = spyOn(process, "exit").mockImplementation(((c?: number) => { throw new Error(`exit ${c}`); }) as typeof process.exit);
+    const io = captureOut();
+    out.__test__.setHuman(() => false);
+    const run = (args: string[]) => toolsInstall(args, {}, fakeProbes({ home: "/home/x" })).catch((err: Error) => expect(err.message).toBe("exit 1"));
+    try {
+      await run(["herdr"]);
+      expect(io.stdout()).toBe(stdout);
+      expect(io.stderr()).toBe(stderr);
+      io.clear();
+      io.reset();
+      out.__test__.setHuman(() => false);
+      await run(["herdr", "--json"]);
+      expect(Object.keys(JSON.parse(io.stdout()))).toEqual(["contract", "at", "via", "ok", "detail"]);
+    } finally {
+      exit.mockRestore();
+      install.mockRestore();
+      io.restore();
+    }
+  });
+}
+
 function failedPresses(p: ReturnType<typeof fakeProbes>) {
   return readPrepare(p, "accounts", () => false, () => p.now())?.pressFailed;
 }

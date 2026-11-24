@@ -7,12 +7,16 @@ export function currentForm(list: Form[]): Form | undefined {
 
 export const openCount = (list: Form[]) => list.filter(f => f.status === 'open').length
 
-// What the band and herdr's blocker say while a form waits; null with none open.
-export function waitingTitle(list: Form[]): string | null {
+// What the band and herdr's blocker say while a form waits; null with none open. Over `max` characters the title
+// gives up its end, so the count of the rest stays.
+export function waitingTitle(list: Form[], max = Infinity): string | null {
   const form = currentForm(list)
   if (form?.status !== 'open') return null
   const more = openCount(list) - 1
-  return more > 0 ? `${form.title}, ${more} more waiting` : form.title
+  const rest = more > 0 ? `, ${more} more waiting` : ''
+  const title = [...form.title]
+  const room = max - rest.length
+  return (title.length > room ? `${title.slice(0, room - 1).join('')}…` : form.title) + rest
 }
 
 // One form per gate: a form for a gate already listed, or for the gate it supersedes, takes that form's place,

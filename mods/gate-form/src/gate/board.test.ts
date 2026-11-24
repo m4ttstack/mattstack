@@ -54,8 +54,7 @@ test('a board gate joins the list once, and takes the place of the gate it super
 
 test('the bell is herdr’s request notification, named after the working directory, as herdr-doorbell.sh rings it', () => {
   const long = 'x'.repeat(200)
-  expect(bellArgs('/Users/t/repo/', [{ label: 'Plan  tier\nnow' }, { label: 'b' }])).toEqual([
-    'herdr',
+  expect(bellArgs('/Users/t/repo/', [{ label: 'Plan  tier\nnow' }, { label: 'b' }], 'request')).toEqual([
     'notification',
     'show',
     'repo needs you',
@@ -64,7 +63,11 @@ test('the bell is herdr’s request notification, named after the working direct
     '--sound',
     'request',
   ])
-  expect(bellArgs('/', [{ label: long }])[5]).toBe(`${'x'.repeat(137)}...`)
-  expect(bellArgs('/', [{ label: '' }])[3]).toBe('claude needs you')
-  expect(bellArgs('/', [{ label: '' }])[5]).toBe('needs an answer')
+  expect(bellArgs('/', [{ label: long }], 'request')[4]).toBe(`${'x'.repeat(137)}...`)
+  expect(bellArgs('/', [{ label: '' }], 'request')[2]).toBe('claude needs you')
+  expect(bellArgs('/', [{ label: '' }], 'request')[4]).toBe('needs an answer')
+})
+
+test('a bell can show without a sound', () => {
+  expect(bellArgs('/Users/t/repo', [{ label: 'Plan tier' }], 'none').slice(-2)).toEqual(['--sound', 'none'])
 })

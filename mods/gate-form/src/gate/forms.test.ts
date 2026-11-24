@@ -36,6 +36,17 @@ test('waitingTitle is null with no open form, the current title alone, and count
   expect(waitingTitle([form('a', { status: 'answered' }), form('b', { status: 'cancelled' })])).toBeNull()
 })
 
+test('a waitingTitle over the cap gives up the end of the title, never the count of the rest', () => {
+  const long = form('a', { title: 'x'.repeat(100) })
+  const alone = waitingTitle([long], 80)!
+  expect(alone).toBe(`${'x'.repeat(79)}…`)
+  const counted = waitingTitle([long, form('b')], 80)!
+  expect(counted).toBe(`${'x'.repeat(63)}…, 1 more waiting`)
+  expect(counted).toHaveLength(80)
+  expect(waitingTitle([form('a'), form('b')], 80)).toBe('a, 1 more waiting')
+  expect(waitingTitle([form('a', { title: '🙂'.repeat(100) })], 80)).toBe(`${'🙂'.repeat(79)}…`)
+})
+
 test('markGate patches only that gate’s form', () => {
   const list = markGate(addForm(addForm([], form('a')), form('b')), 'g-b', { status: 'answered', note: 'Answered on the board' })
   expect(list.map(f => [f.id, f.status])).toEqual([

@@ -5,7 +5,7 @@
   "description": "mattstack.dev: the static front door (download, join, holding), deployed to Cloudflare Pages.",
   "scripts": {
     "build": "bash build.sh",
-    "test": "node --test join/join.test.js",
+    "test": "node --test join/join.test.js pages.test.js",
     "deploy": "bash build.sh && wrangler pages deploy dist --project-name mattstack-dev"
   },
   "devDependencies": {

@@ -93,7 +93,7 @@ export function isHomebrewHerdr(p: Probes, herdr: readonly string[], brews: read
   return false;
 }
 
-export function homebrewUninstallCommands(brews: readonly HomebrewHerdr[]): string[] {
+function homebrewUninstallCommands(brews: readonly HomebrewHerdr[]): string[] {
   return brews.map((b) => `${shellQuote(b.brew)} uninstall herdr`);
 }
 
@@ -196,7 +196,8 @@ export async function installHerdrBuild(p: Probes, arch: HostArch): Promise<Inst
   const brews = homebrewHerdrs(p);
   if (brews.length > 0 && (await runsCurrentBuild(p, list, brews))) {
     const removed = await uninstallHomebrewHerdr(p, brews);
-    return { via: "download", ok: removed.ok, detail: capitalize(removed.note), ...(removed.remedy ? { remedy: removed.remedy } : {}) };
+    const title = removed.ok ? "herdr was already current" : "Homebrew's herdr was not removed";
+    return { via: "download", ok: removed.ok, title, detail: capitalize(removed.note), ...(removed.remedy ? { remedy: removed.remedy } : {}) };
   }
   if (!list) return fail("rt could not read herdr's build list from m4ttstack/herdr");
   const build = newestBuild(list);
@@ -230,17 +231,31 @@ export async function installHerdrBuild(p: Probes, arch: HostArch): Promise<Inst
   if (refused > 0) notes.push("restart herdr when your agents are done");
   if (removed) notes.push(removed.note);
 
-  return { via: "download", ok: removed?.ok ?? true, detail: [`Installed herdr ${build.version}`, ...notes].join("; "), ...(removed?.remedy ? { remedy: removed.remedy } : {}) };
+  const title = removed?.ok === false ? { title: "herdr was installed, but Homebrew's copy was not removed" } : {};
+  return { via: "download", ok: removed?.ok ?? true, ...title, detail: [`Installed herdr ${build.version}`, ...notes].join("; "), ...(removed?.remedy ? { remedy: removed.remedy } : {}) };
 }
 
-/** `error` is set when ~/.local/bin/herdr does not run or cannot list its sessions, so nothing was checked or stopped. */
-export async function restartStaleHerdrServers(p: Probes): Promise<{ stopped: string[]; failed: string[]; error?: string }> {
+/** `error` is set when ~/.local/bin/herdr does not run or cannot list its sessions, so nothing was checked. */
+async function staleServersOfInstalled(p: Probes): Promise<{ herdr: string; stale: HerdrSession[]; error?: string }> {
   const herdr = vendorBinPath(p.home, "herdr");
   const reported = await p.exec([herdr, "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
-  if (reported.code !== 0) return { stopped: [], failed: [], error: `~/.local/bin/herdr does not run (exit ${reported.code}), so rt stopped nothing` };
+  if (reported.code !== 0) return { herdr, stale: [], error: `~/.local/bin/herdr does not run (exit ${reported.code})` };
   const { version } = parseHerdrVersion(reported.stdout);
   const stale = await staleHerdrSessions(p, [herdr], version, await fetchHerdrBuilds(p));
-  if (!stale) return { stopped: [], failed: [], error: "herdr could not list its sessions, so rt stopped nothing" };
+  return stale ? { herdr, stale } : { herdr, stale: [], error: "herdr could not list its sessions" };
+}
+
+/** The names of the servers `restartStaleHerdrServers` would stop. */
+export async function checkStaleHerdrServers(p: Probes): Promise<{ stale: string[]; error?: string }> {
+  const { stale, error } = await staleServersOfInstalled(p);
+  return { stale: stale.map((s) => s.name), ...(error ? { error } : {}) };
+}
+
+/** `only` names the servers a person agreed to stop: one that turned stale since keeps running, and one no longer stale is left alone. */
+export async function restartStaleHerdrServers(p: Probes, only?: readonly string[]): Promise<{ stopped: string[]; failed: string[]; error?: string }> {
+  const { herdr, stale: found, error } = await staleServersOfInstalled(p);
+  const stale = only ? found.filter((s) => only.includes(s.name)) : found;
+  if (error) return { stopped: [], failed: [], error: `${error}, so rt stopped nothing` };
   const results = await Promise.all(stale.map((s) => p.exec([herdr, "server", "stop"], { env: { HERDR_SOCKET_PATH: s.socket }, timeoutMs: PROBE_TIMEOUT_MS })));
   return {
     stopped: stale.filter((_, i) => results[i]!.code === 0).map((s) => s.name),

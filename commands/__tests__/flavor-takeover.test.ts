@@ -34,7 +34,8 @@ const UID = process.getuid?.() ?? 501;
 /** What standalone rt 2.5.x left at ~/.local/bin/rt: no marker line, no RT_LAUNCH_CWD. */
 const STANDALONE_25_WRAPPER = `#!/bin/zsh\nexec "/Users/someone/.bun/bin/bun" run "/Users/someone/repo-tools/cli.ts" "$@"\n`;
 const LEGACY_DEV_CONFIG = JSON.stringify({ sourcePath: "/Users/someone/repo-tools", bunPath: "/Users/someone/.bun/bin/bun" });
-const LEGACY_DEV_CONFIGS = [join(HOME, ".rt", "dev-mode.json"), join(HOME, ".mattstack", "rt", "dev-mode.json")];
+const LEGACY_STATE_DIR = join(HOME, ".rt");
+const LEGACY_DEV_CONFIGS = [join(LEGACY_STATE_DIR, "dev-mode.json"), join(HOME, ".mattstack", "rt", "dev-mode.json")];
 
 let originalAppSocket: string | undefined;
 beforeEach(() => {
@@ -173,7 +174,7 @@ afterEach(() => {
   if (originalPath) process.env.PATH = originalPath;
   if (originalShell === undefined) delete process.env.SHELL;
   else process.env.SHELL = originalShell;
-  for (const p of [fakeBinDir, sourceDir, FAKE_PROD_APP, dirname(HAND_DECK_PLIST), join(HOME, ".mattstack", "deck")]) {
+  for (const p of [fakeBinDir, sourceDir, FAKE_PROD_APP, dirname(HAND_DECK_PLIST), LEGACY_STATE_DIR, join(HOME, ".mattstack", "deck")]) {
     if (p) rmSync(p, { recursive: true, force: true });
   }
   for (const p of [WRAPPER_PATH, PRELOAD, TRAY_SOCK_PATH, ...LEGACY_DEV_CONFIGS]) rmSync(p, { force: true });
@@ -384,6 +385,10 @@ describe("rt flavor takeover", () => {
     for (const p of LEGACY_DEV_CONFIGS) expect(readFileSync(p, "utf8")).toBe(LEGACY_DEV_CONFIG);
     expect(hasKvValue("dev-mode", "config")).toBe(false);
   }, 15_000);
+
+  test("the legacy state dir a test planted is gone, so a later file in the process reads a clean HOME", () => {
+    expect(existsSync(LEGACY_STATE_DIR)).toBe(false);
+  });
 
   test("dev over a foreign ~/.local/bin/rt: replaced by the marked source wrapper", async () => {
     setUpFakes([]);

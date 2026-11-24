@@ -2,7 +2,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
 import { diffStoreKeys } from "../../packages/rt-client/src/settings/store-diff.ts";
-import type { RunResult } from "../subprocess.ts";
+import { childEnv, type RunResult } from "../subprocess.ts";
 import { isUnderZone, parsePorcelainZ } from "./home-snapshot-plan.ts";
 import { teamScope } from "./home-snapshot.ts";
 
@@ -10,7 +10,7 @@ export type PendingEntry =
   | { store: "org" | `team:${string}`; repo?: string; key: string; change: "added" | "changed" | "removed" }
   | { path: string; heldBack?: true };
 
-export type PendingExec = (argv: [string, ...string[]], opts?: { cwd?: string; timeoutMs?: number; stderr?: "ignore" | "pipe" }) => Promise<RunResult>;
+export type PendingExec = (argv: [string, ...string[]], opts?: { cwd?: string; timeoutMs?: number; stderr?: "ignore" | "pipe"; env?: Record<string, string> }) => Promise<RunResult>;
 
 const GIT_TIMEOUT_MS = 15_000;
 const TEAM_STORE_RE = /^mattstack\/teams\/([^/]+)\/settings\.team\.jsonc$/;
@@ -28,8 +28,10 @@ function storeOf(path: string): "org" | `team:${string}` | null {
  * have configured. Throws on a git failure.
  */
 export async function readPending(repoDir: string, exec: PendingExec, opts: { unowned: string[]; heldBack: string[]; packZones: string[] }): Promise<PendingEntry[]> {
+  // A status that refreshes the index holds index.lock, and fails a commit another process starts meanwhile.
+  const env = { ...childEnv(), GIT_OPTIONAL_LOCKS: "0" } as Record<string, string>;
   const git = async (args: string[], allowFail = false): Promise<RunResult> => {
-    const result = await exec(["git", ...args], { cwd: repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+    const result = await exec(["git", ...args], { cwd: repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe", env });
     if (result.exitCode !== 0 && !allowFail) throw new Error(`git ${args[0]} failed: ${result.stderr.trim()}`);
     return result;
   };

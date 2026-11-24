@@ -366,13 +366,13 @@ describe("toolRows — tool.herdr against the fork's build list", () => {
     expect(r.action).toEqual(UPGRADE);
   });
 
-  test("Homebrew's herdr left beside a current build offers the uninstall as steps", async () => {
+  test("Homebrew's herdr left beside a current build offers Upgrade, which removes it", async () => {
     const links = { "/opt/homebrew/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr", "/usr/local/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr" };
     const r = await herdrRowOf(herdrProbes({ version: "0.9.5-ms.2" }, { links }));
     expect(r.status).toBe("invalid");
     expect(r.required).toBe(true);
-    expect(r.detail).toBe("Homebrew's herdr is still installed beside the mattstack build. Remove it in a terminal");
-    expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: ["/opt/homebrew/bin/brew uninstall herdr", "/usr/local/bin/brew uninstall herdr"] });
+    expect(r.detail).toBe("Homebrew's herdr is still installed beside the mattstack build. Upgrade removes it");
+    expect(r.action).toEqual(UPGRADE);
   });
 
   test("stock herdr reads invalid with Upgrade to the list's newest", async () => {

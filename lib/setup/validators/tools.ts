@@ -38,7 +38,7 @@ import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PR
 import { fetchHerdrBuilds, HERDR_MIN_BUILD, herdrVerdict, parseHerdrVersion } from "../herdr-builds.ts";
 import { shellQuote } from "../../herdr-launch.ts";
 import { FLOCK_TOOL, flockBelowFloor, flockNeedsMacos, installedFlock } from "../flock-install.ts";
-import { homebrewHerdrs, homebrewUninstallCommands, isHomebrewHerdr, staleHerdrSessions } from "../herdr-install.ts";
+import { homebrewHerdrs, isHomebrewHerdr, staleHerdrSessions } from "../herdr-install.ts";
 import { VENDOR_INSTALLERS, vendorBinPath } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
 import { writingStyleRowFor } from "./writing-style.ts";
@@ -165,8 +165,8 @@ async function herdrRow(p: Probes, seams: ToolsSeams): Promise<Row> {
     return row({
       ...base,
       status: "invalid",
-      detail: "Homebrew's herdr is still installed beside the mattstack build. Remove it in a terminal",
-      action: { type: "steps", label: "Show steps…", steps: homebrewUninstallCommands(brews) },
+      detail: "Homebrew's herdr is still installed beside the mattstack build. Upgrade removes it",
+      action: upgrade,
     });
   }
   if (brews.length > 0) return row({ ...base, status: "invalid", detail: "Homebrew's herdr would run instead of the mattstack build. Upgrade removes it", action: upgrade });

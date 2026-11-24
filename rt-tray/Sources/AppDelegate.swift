@@ -78,6 +78,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// Made on first use, and only where `TestDrive.isAvailable` offers it.
     private var testDrive: TestDriveController?
     private var rtClient: RtClient?
+    private var herdrRestart: HerdrRestartModel?
     // `mattstackWindow` holds the controller strongly: `WindowModel.controller`
     // is weak, so an unretained controller deallocates and every show()/open()
     // silently no-ops.
@@ -319,6 +320,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         Task { @MainActor [weak self] in
             await self?.runSetupUpdateAfterLaunch()
             await self?.runHerdrStartAfterLaunch()
+            // The update run above may just have installed a newer herdr, so a check made before it is out of date.
+            await self?.checkHerdrServers(evenIfRecent: true)
         }
         if LaunchRecording.restartsServedApps(progress: progress, report: report,
                                               deckLabel: registrar.deckLabel(daemonLabel: lifecycle.label)) {
@@ -636,6 +639,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         rtClient = RtClientFactory.make()
         notificationManager.rt = rtClient
         if let rt = rtClient {
+            herdrRestart = HerdrRestartModel(rt: rt)
             Task { await NotificationManager.sounds.load(rt: rt) }
             let notifications = notificationManager
             coordinator = SetupCoordinator(rt: rt, permissions: permissionsService, permissionProbe: permissionProbe, needs: needBroker, updater: updater,
@@ -717,6 +721,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                          ["exit": Int(r.exitCode), "result": String(decoding: r.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)])
         } catch {
             TrayLog.warn("herdr start failed to start", ["err": (error as? RtClientError)?.copy ?? "rt herdr start failed to start."])
+        }
+    }
+
+    @MainActor
+    private func checkHerdrServers(evenIfRecent: Bool = false) async {
+        guard let model = herdrRestart, coordinator?.setupIsComplete == true else { return }
+        if evenIfRecent { await model.refresh() } else { await model.refreshIfDue() }
+    }
+
+    /// Checked again before asking: the servers may have moved since the menu was drawn, and the names must be today's.
+    @MainActor
+    private func askToRestartHerdr() {
+        guard let model = herdrRestart else { return }
+        Task { @MainActor in
+            switch await model.refresh() {
+            case .current:
+                HerdrRestartAlert.inform(HerdrRestartCopy.nothingTitle, HerdrRestartCopy.nothingBody)
+            case .failed(let why):
+                HerdrRestartAlert.inform(HerdrRestartCopy.checkFailedTitle, why)
+            case .stale(let names):
+                guard HerdrRestartAlert.confirm(names) else { return }
+                let error = await model.restart(names)
+                TrayLog.info("herdr restart", ["servers": names.joined(separator: ","), "err": error ?? ""])
+                if let error { HerdrRestartAlert.inform(HerdrRestartCopy.failedTitle, error) }
+            }
         }
     }
 
@@ -871,6 +900,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             } else {
                 self.mattstackWindow?.show()
             }
+            await self.checkHerdrServers()
         }
     }
     private var suppressReopenShowUntil: Date = .distantPast
@@ -1002,6 +1032,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 menu.addItem(Self.infoMenuItem(diagnostic, quiet: false))
             }
         }
+        addHerdrRestartItems(to: menu)
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Processes…", axid: AXID.trayProcesses) { [weak self] in
             MainActor.assumeIsolated { self?.detachProcessPanel() }
@@ -1055,6 +1086,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
 
     @MainActor
+    private func addHerdrRestartItems(to menu: NSMenu) {
+        guard let model = herdrRestart else { return }
+        let items = HerdrRestartMenu.items(model) { [weak self] in
+            MainActor.assumeIsolated { self?.askToRestartHerdr() }
+        }
+        items.forEach(menu.addItem)
+        Task { @MainActor [weak self] in
+            await self?.checkHerdrServers()
+            HerdrRestartMenu.apply(model, to: items)
+        }
+    }
+
+    @MainActor
     private func troubleshootMenuItem() -> NSMenuItem {
         let item = NSMenuItem(title: "Troubleshoot", action: nil, keyEquivalent: "")
         item.setAccessibilityIdentifier(AXID.trayTroubleshoot)
@@ -1081,7 +1125,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// Disabled so it never highlights or fires; AppKit draws an attributed
     /// title's explicit color as given, so the line is not dimmed.
     @MainActor
-    private static func infoMenuItem(_ title: String, quiet: Bool) -> NSMenuItem {
+    static func infoMenuItem(_ title: String, quiet: Bool) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.attributedTitle = NSAttributedString(string: title, attributes: [
             .font: NSFont.menuFont(ofSize: 0),

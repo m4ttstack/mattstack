@@ -377,23 +377,24 @@ function hotkeyChoices(els, spec) {
 }
 // mods/gate-form/src/gate/bell.ts
 var BODY_MAX = 140;
-function bellArgs(cwd, questions) {
+function bellArgs(cwd, questions, sound) {
   const who = cwd.replace(/\/+$/, "").split("/").at(-1) || "claude";
   let body = (questions[0]?.label ?? "").split(/\s+/).filter(Boolean).join(" ") || "needs an answer";
   if (body.length > BODY_MAX)
     body = `${body.slice(0, BODY_MAX - 3)}...`;
   if (questions.length > 1)
     body += `  (+${questions.length - 1} more)`;
-  return ["herdr", "notification", "show", `${who} needs you`, "--body", body, "--sound", "request"];
+  return ["notification", "show", `${who} needs you`, "--body", body, "--sound", sound];
 }
 
 // mods/gate-form/src/gate/blocker.ts
 var BLOCKER_SOURCE = "mattstack:gate";
+var BLOCKER_MESSAGE_MAX = 80;
 function raiseArgs(paneId, message) {
-  return ["herdr", "pane", "report-blocker", paneId, "--source", BLOCKER_SOURCE, "--message", message];
+  return ["pane", "report-blocker", paneId, "--source", BLOCKER_SOURCE, "--message", message];
 }
 function clearArgs(paneId) {
-  return ["herdr", "pane", "clear-blocker", paneId, "--source", BLOCKER_SOURCE];
+  return ["pane", "clear-blocker", paneId, "--source", BLOCKER_SOURCE];
 }
 
 // mods/gate-form/src/gate/board.ts
@@ -454,12 +455,15 @@ function currentForm(list) {
   return list.find((f) => f.status === "open") ?? list.at(-1);
 }
 var openCount = (list) => list.filter((f) => f.status === "open").length;
-function waitingTitle(list) {
+function waitingTitle(list, max = Infinity) {
   const form = currentForm(list);
   if (form?.status !== "open")
     return null;
   const more = openCount(list) - 1;
-  return more > 0 ? `${form.title}, ${more} more waiting` : form.title;
+  const rest = more > 0 ? `, ${more} more waiting` : "";
+  const title = [...form.title];
+  const room = max - rest.length;
+  return (title.length > room ? `${title.slice(0, room - 1).join("")}…` : form.title) + rest;
 }
 function addForm(list, form, supersededId) {
   const replaces = (f) => f.gateId === undefined ? form.gateId === undefined && f.source === form.source : f.gateId === form.gateId || f.gateId === supersededId;
@@ -490,6 +494,37 @@ function fromLegacy(old) {
   return [{ ...rest, source: "ask", questions: old.questions.map((q) => ({ ...q, other: true })) }];
 }
 var knownForms = (list) => list.filter((f) => f.source === "gate" || f.source === "ask" || f.source === "plugin");
+
+// mods/gate-form/src/gate/run.ts
+var START_FAILURE_MS = 2000;
+
+class Overran extends Error {
+}
+async function runFirst($, names, args, timeoutMs) {
+  let failure;
+  for (const name of names) {
+    const started = await $.clock.now();
+    try {
+      return await $.process.run([name, ...args], { timeoutMs });
+    } catch (error) {
+      if (await $.clock.now() - started >= START_FAILURE_MS)
+        throw new Overran(`${name} overran`);
+      failure = error;
+    }
+  }
+  throw failure;
+}
+
+// mods/gate-form/src/gate/herdr.ts
+var HERDR_TIMEOUT_MS = 5000;
+function herdrBins(from) {
+  const names = [from.bin, "herdr", from.home && `${from.home}/.local/bin/herdr`];
+  return [...new Set(names.filter((name) => !!name))];
+}
+async function runHerdr($, args) {
+  const names = herdrBins({ bin: await $.env.get("HERDR_BIN_PATH"), home: await $.env.get("HOME") });
+  return runFirst($, names, args, HERDR_TIMEOUT_MS);
+}
 
 // mods/gate-form/src/form/state.ts
 var WRITE_IN = "__other__";
@@ -947,23 +982,9 @@ function answerOutcome(stdout, session, by = "pane") {
 
 // mods/gate-form/src/gate/rt.ts
 var RT_TIMEOUT_MS = 15000;
-var START_FAILURE_MS = 2000;
-var RT_OVERRAN = "rt overran";
 async function runRt($, args, timeoutMs = RT_TIMEOUT_MS) {
   const home = await $.env.get("HOME");
-  const names = ["rt", `${home ?? ""}/.local/bin/rt`];
-  let failure;
-  for (const rt of names) {
-    const started = await $.clock.now();
-    try {
-      return await $.process.run([rt, ...args], { timeoutMs });
-    } catch (error) {
-      if (await $.clock.now() - started >= START_FAILURE_MS)
-        throw new Error(RT_OVERRAN);
-      failure = error;
-    }
-  }
-  throw failure;
+  return runFirst($, ["rt", `${home ?? ""}/.local/bin/rt`], args, timeoutMs);
 }
 function rtError(ran) {
   const said = (ran.stderr.trim() || ran.stdout.trim()).replace(/^rt gate: /, "");
@@ -1104,7 +1125,9 @@ var watching = new Set;
 var WAIT_RETRY_MS = [1000, 5000, 15000];
 var answering = new Set;
 var deck = {};
-var blocker = { chain: Promise.resolve() };
+var blocker = { isRaised: false, chain: Promise.resolve(), again: 0 };
+var SOCKET_CHECK_MS = 5000;
+var RAISES = 3;
 var END_MARGIN_MS = 250;
 var asked = new Map;
 var queued = [];
@@ -1116,13 +1139,14 @@ async function readForms($) {
   const forms = knownForms(await read($, formsAtom));
   return forms.length > 0 ? forms : fromLegacy(await read($, legacyAtom));
 }
+var blockerTitle = (list) => waitingTitle(list, BLOCKER_MESSAGE_MAX);
 async function writeForms($, change) {
   const legacy = fromLegacy(await read($, legacyAtom));
   let written = [];
   await update($, formsAtom, (stored) => {
     const list = knownForms(stored);
     written = change(list.length > 0 || legacy.length === 0 ? list : legacy);
-    blocker.target = waitingTitle(written);
+    blocker.target = blockerTitle(written);
     return written;
   });
   syncBlocker($);
@@ -1148,11 +1172,64 @@ async function tellHerdr($, target) {
   const pane = await herdrPane($);
   if (!pane)
     return;
-  const ran = await $.process.run(target === null ? clearArgs(pane) : raiseArgs(pane, target), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => {
+  if (target === null) {
+    stopWatch();
+    const ran = await runHerdr($, clearArgs(pane)).catch(() => {
+      return;
+    });
+    blocker.isRaised = false;
+    if (ran?.exitCode !== 0)
+      blocker.shown = undefined;
+    return;
+  }
+  await startWatch($);
+  await raise($, pane, target);
+}
+async function raise($, pane, message) {
+  const ran = await runHerdr($, raiseArgs(pane, message)).catch(() => {
     return;
   });
-  if (target === null && ran?.exitCode !== 0)
-    blocker.shown = undefined;
+  blocker.isRaised = ran?.exitCode === 0;
+}
+async function socketBoundAt($, socket) {
+  const stat = await $.fs.stat(socket).catch(() => {
+    return;
+  });
+  return stat?.mtimeMs;
+}
+async function startWatch($) {
+  if (blocker.watch)
+    return;
+  const socket = await $.env.get("HERDR_SOCKET_PATH");
+  if (!socket)
+    return;
+  blocker.boundAt = await socketBoundAt($, socket);
+  blocker.watch = $.clock.every(SOCKET_CHECK_MS, () => void checkSocket($, socket).catch(() => {
+    return;
+  }));
+}
+function stopWatch() {
+  blocker.watch?.cancel();
+  blocker.watch = undefined;
+  blocker.again = 0;
+}
+async function checkSocket($, socket) {
+  const boundAt = await socketBoundAt($, socket);
+  if (boundAt === undefined)
+    return;
+  if (boundAt !== blocker.boundAt)
+    blocker.again = RAISES;
+  blocker.boundAt = boundAt;
+  if (blocker.again === 0)
+    return;
+  blocker.again -= 1;
+  blocker.chain = blocker.chain.then(async () => {
+    const pane = await herdrPane($);
+    if (pane && blocker.watch && typeof blocker.shown === "string")
+      await raise($, pane, blocker.shown);
+  }).catch(() => {
+    return;
+  });
 }
 async function waitingForm($) {
   const forms = await readForms($);
@@ -1191,7 +1268,7 @@ async function readSetting($) {
     setting.isOn = false;
   }
 }
-var failureText = (failure) => failure instanceof Error && failure.message === RT_OVERRAN ? `rt took longer than ${RT_TIMEOUT_MS / 1000}s, so the answer may already be recorded. Submit again to check.` : `Not recorded: rt could not run (${failure instanceof Error ? failure.message : String(failure)}).`;
+var failureText = (failure) => failure instanceof Overran ? `rt took longer than ${RT_TIMEOUT_MS / 1000}s, so the answer may already be recorded. Submit again to check.` : `Not recorded: rt could not run (${failure instanceof Error ? failure.message : String(failure)}).`;
 async function answerGate($, form, answers) {
   const gateId = form.gateId ?? "";
   answering.add(form.id);
@@ -1338,17 +1415,25 @@ async function closeOrphans($) {
   $.ui.invalidate("ui.render");
 }
 async function openForm($, form, supersededId) {
-  await revealForm($, await writeForms($, (list) => addForm(list, form, supersededId)), form);
+  let wasOpen = false;
+  const forms = await writeForms($, (list) => {
+    wasOpen = openCount(list) > 0;
+    return addForm(list, form, supersededId);
+  });
+  await revealForm($, forms, form);
+  return wasOpen;
 }
 async function revealForm($, forms, form) {
   const title = currentForm(forms)?.title ?? form.title;
   if (!await showPane($, GATE_PANE, title))
     $.ui.toast(`${title} is waiting: press Show above the prompt`);
 }
-async function ringBell($, form) {
+async function ringBell($, form, wasOpen) {
   if (!await herdrPane($))
     return;
-  await $.process.run(bellArgs(await $.session.cwd(), form.questions), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => {
+  await blocker.chain;
+  const sound = wasOpen || !blocker.isRaised ? "request" : "none";
+  await runHerdr($, bellArgs(await $.session.cwd(), form.questions, sound)).catch(() => {
     return;
   });
 }
@@ -1408,10 +1493,10 @@ function watchGate($, gateId, retry = 0) {
     } catch {}
   })();
 }
-async function gateOpened($, form) {
+async function gateOpened($, form, wasOpen) {
   if (form.gateId)
     watchGate($, form.gateId);
-  ringBell($, form);
+  ringBell($, form, wasOpen);
 }
 async function readDeck($) {
   const home = await $.env.get("HOME");
@@ -1462,12 +1547,17 @@ async function restore($) {
       fresh.push(form);
   }
   const added = [];
-  const forms = await writeForms($, (list) => fresh.reduce((acc, form) => {
-    if (acc.some((f) => f.gateId === form.gateId))
-      return acc;
-    added.push(form);
-    return addForm(acc, form);
-  }, list));
+  let wasOpen = false;
+  const forms = await writeForms($, (list) => {
+    added.length = 0;
+    wasOpen = openCount(list) > 0;
+    return fresh.reduce((acc, form) => {
+      if (acc.some((f) => f.gateId === form.gateId))
+        return acc;
+      added.push(form);
+      return addForm(acc, form);
+    }, list);
+  });
   const onBoard = (await read($, boardAtom)).map((b) => b.gateId);
   const newlyOnBoard = undrawable.filter((u) => !onBoard.includes(u.gate.gateId) && !forms.some((f) => f.gateId === u.gate.gateId));
   if (newlyOnBoard.length > 0)
@@ -1494,8 +1584,8 @@ async function restore($) {
   }
   if ((await read($, boardAtom)).length > 0)
     await readDeck($);
-  for (const form of added)
-    ringBell($, form);
+  for (const [i, form] of added.entries())
+    ringBell($, form, wasOpen && i === 0);
   $.ui.invalidate("ui.render");
 }
 function canDraw(e) {
@@ -1559,8 +1649,7 @@ async function showKitGate($, form, gate, supersededId) {
     await sendToBoard($, gate, form, supersededId);
     return "board";
   }
-  await openForm($, form, supersededId);
-  await gateOpened($, form);
+  await gateOpened($, form, await openForm($, form, supersededId));
   return "form";
 }
 async function takeSpilled($, e, out, text, title, kindText) {
@@ -1656,12 +1745,24 @@ function register(on) {
     });
     readForms($).then((forms) => {
       if (blocker.target === undefined)
-        blocker.target = waitingTitle(forms);
+        blocker.target = blockerTitle(forms);
+      blocker.again = RAISES - 1;
       return syncBlocker($);
     }).catch(() => {
       return;
     });
     return next(e);
+  });
+  on("classic.SessionStart", async ($, e, next) => {
+    const started = await next(e);
+    if (e.source === "clear" || e.source === "resume") {
+      writeForms($, (list) => list).then(() => blocker.chain).then(() => {
+        blocker.again = RAISES - 1;
+      }).catch(() => {
+        return;
+      });
+    }
+    return started;
   });
   on("session.end", async ($, e, next) => {
     const cleared = syncBlocker($, () => null);

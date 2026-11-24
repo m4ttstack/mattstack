@@ -2,8 +2,8 @@
 
 mattstack is an agentic application stack for engineers, built for you and your
 team. It runs your agents in parallel, lets them talk to each other, and shows
-the work landing. It ships as **mattstack.app** for Macs with Apple silicon
-running macOS 14 or newer, and this repo is where most of it lives.
+the work landing. It ships as **mattstack.app** for Apple silicon and
+Intel Macs running macOS 14 or newer, and this repo is where most of it lives.
 
 ![The mattstack docs site, showing the rt picker guide](docs/assets/docs-site.png)
 
@@ -37,7 +37,7 @@ their own repos and keep their own settings.
 
 Requirements:
 
-- An Apple silicon Mac. rt ships an arm64 build only.
+- An Apple silicon or Intel Mac.
 - macOS 14 or newer.
 - Xcode Command Line Tools. The setup checklist offers to install them.
 

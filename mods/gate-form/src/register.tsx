@@ -4,12 +4,14 @@ import { addWheel, bandAbovePrompt, hotkeyChoices, isEngaged, isPlaced, paneMess
 
 import type { BoardGate, Form, GateFormAskResult, LegacyForm } from '../types'
 import { bellArgs } from './gate/bell'
-import { clearArgs, raiseArgs } from './gate/blocker'
+import { BLOCKER_MESSAGE_MAX, clearArgs, raiseArgs } from './gate/blocker'
 import { NO_ADDRESS, addBoardGate, boardAddress, boardText, boardUrl, kindTitle, readBoardOnly } from './gate/board'
 import { addForm, currentForm, fitForm, fromLegacy, knownForms, openCount, patchForm, waitingTitle } from './gate/forms'
+import { runHerdr } from './gate/herdr'
 import { PLUGIN_QUESTION, agentFields, answerOutcome, boardFields, formFromRow, gateForm, listedGates, pluginForm, readKitResult, savedResult, spillPaths, spilledGate, toForm, type GateCall } from './gate/parse'
 import { BOARD_INSTRUCTION, BOARD_TOAST, GATE_ANSWERED, GATE_ASIDE, GATE_INSTRUCTION, agentReply, type Outcome } from './gate/reply'
-import { RT_OVERRAN, RT_TIMEOUT_MS, rtError, runRt, settingIsOn } from './gate/rt'
+import { RT_TIMEOUT_MS, rtError, runRt, settingIsOn } from './gate/rt'
+import { Overran } from './gate/run'
 import { INPUT_SCHEMA, TOOL_DESCRIPTION } from './gate/schema'
 import { endNote, isSelf, rowEnd, waitFor, type GateEnd } from './gate/watch'
 
@@ -46,7 +48,14 @@ const answering = new Set<string>()
 const deck: { address?: string | null } = {}
 // What herdr was last told for this pane (the message, null once cleared, undefined while unknown) and what the
 // latest write wants it to show. Runs go through one chain, each sending the latest target when it runs.
-const blocker: { shown?: string | null; target?: string | null; chain: Promise<void> } = { chain: Promise.resolve() }
+// `isRaised` is whether herdr took the last raise. While a form shows, `watch` checks herdr's socket, last bound at
+// `boundAt`; `again` counts the checks left that raise once more.
+type Blocker = { shown?: string | null; target?: string | null; isRaised: boolean; chain: Promise<void>; watch?: Timer; boundAt?: number; again: number }
+const blocker: Blocker = { isRaised: false, chain: Promise.resolve(), again: 0 }
+const SOCKET_CHECK_MS = 5_000
+// herdr drops a raise on a pane whose agent it has not detected yet, so a new server or a new session gets the raise
+// a few times; a repeat of one it took changes nothing.
+const RAISES = 3
 // session.end's whole chain shares one short bound, so the clear leaves room for the hooks after it.
 const END_MARGIN_MS = 250
 
@@ -70,6 +79,8 @@ async function readForms($: EngineInterface): Promise<Form[]> {
   return forms.length > 0 ? forms : fromLegacy(await read($, legacyAtom))
 }
 
+const blockerTitle = (list: Form[]) => waitingTitle(list, BLOCKER_MESSAGE_MAX)
+
 async function writeForms($: EngineInterface, change: (list: Form[]) => Form[]): Promise<Form[]> {
   const legacy = fromLegacy(await read($, legacyAtom))
   let written: Form[] = []
@@ -77,7 +88,7 @@ async function writeForms($: EngineInterface, change: (list: Form[]) => Form[]):
     const list = knownForms(stored)
     written = change(list.length > 0 || legacy.length === 0 ? list : legacy)
     // Set as the list is written, so a later write's target is never overwritten by this one's.
-    blocker.target = waitingTitle(written)
+    blocker.target = blockerTitle(written)
     return written
   })
   void syncBlocker($)
@@ -102,8 +113,56 @@ async function tellHerdr($: EngineInterface, target: string | null | undefined):
   blocker.shown = target
   const pane = await herdrPane($)
   if (!pane) return
-  const ran = await $.process.run(target === null ? clearArgs(pane) : raiseArgs(pane, target), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => undefined)
-  if (target === null && ran?.exitCode !== 0) blocker.shown = undefined
+  if (target === null) {
+    stopWatch()
+    const ran = await runHerdr($, clearArgs(pane)).catch(() => undefined)
+    blocker.isRaised = false
+    if (ran?.exitCode !== 0) blocker.shown = undefined
+    return
+  }
+  await startWatch($)
+  await raise($, pane, target)
+}
+
+async function raise($: EngineInterface, pane: string, message: string): Promise<void> {
+  const ran = await runHerdr($, raiseArgs(pane, message)).catch(() => undefined)
+  blocker.isRaised = ran?.exitCode === 0
+}
+
+async function socketBoundAt($: EngineInterface, socket: string): Promise<number | undefined> {
+  const stat = await $.fs.stat(socket).catch(() => undefined)
+  return stat?.mtimeMs
+}
+
+// A live handoff or a server restart binds a new socket at the same path, and the server behind it holds no blocker.
+async function startWatch($: EngineInterface): Promise<void> {
+  if (blocker.watch) return
+  const socket = await $.env.get('HERDR_SOCKET_PATH')
+  if (!socket) return
+  blocker.boundAt = await socketBoundAt($, socket)
+  blocker.watch = $.clock.every(SOCKET_CHECK_MS, () => void checkSocket($, socket).catch(() => undefined))
+}
+
+function stopWatch(): void {
+  blocker.watch?.cancel()
+  blocker.watch = undefined
+  blocker.again = 0
+}
+
+async function checkSocket($: EngineInterface, socket: string): Promise<void> {
+  const boundAt = await socketBoundAt($, socket)
+  if (boundAt === undefined) return
+  if (boundAt !== blocker.boundAt) blocker.again = RAISES
+  blocker.boundAt = boundAt
+  if (blocker.again === 0) return
+  blocker.again -= 1
+  // A clear already on the chain stops the watch, and nothing is raised after it.
+  blocker.chain = blocker.chain
+    .then(async () => {
+      const pane = await herdrPane($)
+      if (pane && blocker.watch && typeof blocker.shown === 'string') await raise($, pane, blocker.shown)
+    })
+    .catch(() => undefined)
 }
 
 // A form closed before it was answered waits above the prompt, with a way back to it.
@@ -154,7 +213,7 @@ async function readSetting($: EngineInterface): Promise<void> {
 }
 
 const failureText = (failure: unknown) =>
-  failure instanceof Error && failure.message === RT_OVERRAN
+  failure instanceof Overran
     ? `rt took longer than ${RT_TIMEOUT_MS / 1000}s, so the answer may already be recorded. Submit again to check.`
     : `Not recorded: rt could not run (${failure instanceof Error ? failure.message : String(failure)}).`
 
@@ -304,8 +363,15 @@ async function closeOrphans($: EngineInterface): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
-async function openForm($: EngineInterface, form: Form, supersededId?: string | null): Promise<void> {
-  await revealForm($, await writeForms($, list => addForm(list, form, supersededId)), form)
+// Answers whether a form was open already.
+async function openForm($: EngineInterface, form: Form, supersededId?: string | null): Promise<boolean> {
+  let wasOpen = false
+  const forms = await writeForms($, list => {
+    wasOpen = openCount(list) > 0
+    return addForm(list, form, supersededId)
+  })
+  await revealForm($, forms, form)
+  return wasOpen
 }
 
 async function revealForm($: EngineInterface, forms: Form[], form: Form): Promise<void> {
@@ -314,10 +380,14 @@ async function revealForm($: EngineInterface, forms: Form[], form: Form): Promis
   if (!(await showPane($, GATE_PANE, title))) $.ui.toast(`${title} is waiting: press Show above the prompt`)
 }
 
-// The AskUserQuestion hook that rings herdr's bell never fires for a kit form, so opening one rings it. Outside herdr nothing rings.
-async function ringBell($: EngineInterface, form: Form): Promise<void> {
+// The AskUserQuestion hook that rings herdr's bell never fires for a kit form, so opening one shows its notification.
+// herdr chimes by itself when a pane turns blocked, so the notification makes a sound only when the pane does not:
+// it was blocked already, or this herdr can't show it. Outside herdr nothing rings.
+async function ringBell($: EngineInterface, form: Form, wasOpen: boolean): Promise<void> {
   if (!(await herdrPane($))) return
-  await $.process.run(bellArgs(await $.session.cwd(), form.questions), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => undefined)
+  await blocker.chain
+  const sound = wasOpen || !blocker.isRaised ? 'request' : 'none'
+  await runHerdr($, bellArgs(await $.session.cwd(), form.questions, sound)).catch(() => undefined)
 }
 
 // A gate ended on another surface: its form closes, or its band entry goes. That surface's doorbell wakes the agent;
@@ -380,9 +450,9 @@ function watchGate($: EngineInterface, gateId: string, retry = 0): void {
   })()
 }
 
-async function gateOpened($: EngineInterface, form: Form): Promise<void> {
+async function gateOpened($: EngineInterface, form: Form, wasOpen: boolean): Promise<void> {
   if (form.gateId) watchGate($, form.gateId)
-  void ringBell($, form)
+  void ringBell($, form, wasOpen)
 }
 
 async function readDeck($: EngineInterface): Promise<void> {
@@ -443,13 +513,16 @@ async function restore($: EngineInterface): Promise<void> {
     else fresh.push(form)
   }
   const added: Form[] = []
-  const forms = await writeForms($, list =>
-    fresh.reduce((acc, form) => {
+  let wasOpen = false
+  const forms = await writeForms($, list => {
+    added.length = 0
+    wasOpen = openCount(list) > 0
+    return fresh.reduce((acc, form) => {
       if (acc.some(f => f.gateId === form.gateId)) return acc
       added.push(form)
       return addForm(acc, form)
-    }, list),
-  )
+    }, list)
+  })
   const onBoard = (await read($, boardAtom)).map(b => b.gateId)
   const newlyOnBoard = undrawable.filter(u => !onBoard.includes(u.gate.gateId) && !forms.some(f => f.gateId === u.gate.gateId))
   if (newlyOnBoard.length > 0) await update($, boardAtom, list => newlyOnBoard.reduce((acc, u) => addBoardGate(acc, u.gate), list))
@@ -470,7 +543,7 @@ async function restore($: EngineInterface): Promise<void> {
   }
   // Read again on every start with a band: deck may have moved the board since the last read.
   if ((await read($, boardAtom)).length > 0) await readDeck($)
-  for (const form of added) void ringBell($, form)
+  for (const [i, form] of added.entries()) void ringBell($, form, wasOpen && i === 0)
   $.ui.invalidate('ui.render')
 }
 
@@ -535,8 +608,7 @@ async function showKitGate($: EngineInterface, form: Form | string, gate: BoardG
     await sendToBoard($, gate, form, supersededId)
     return 'board'
   }
-  await openForm($, form, supersededId)
-  await gateOpened($, form)
+  await gateOpened($, form, await openForm($, form, supersededId))
   return 'form'
 }
 
@@ -636,14 +708,32 @@ export function register(on: On): void {
     // A write landing while the forms are read is newer than them.
     void readForms($)
       .then(forms => {
-        if (blocker.target === undefined) blocker.target = waitingTitle(forms)
+        if (blocker.target === undefined) blocker.target = blockerTitle(forms)
+        blocker.again = RAISES - 1
         return syncBlocker($)
       })
       .catch(() => undefined)
     return next(e)
   })
 
-  // /clear ends the session with no start after it, and the process lives on: a clear that outlasts the bound still runs.
+  // /clear and a resume end the session, which clears the blocker, and go on in this process with no session.start:
+  // what is still open then shows again.
+  on('classic.SessionStart', async ($, e, next) => {
+    const started = await next(e)
+    if (e.source === 'clear' || e.source === 'resume') {
+      // A write that changes nothing shows what is stored, in order with any other write. The clear that ended the
+      // session stops the watch and its repeats, so they are granted once it has run.
+      void writeForms($, list => list)
+        .then(() => blocker.chain)
+        .then(() => {
+          blocker.again = RAISES - 1
+        })
+        .catch(() => undefined)
+    }
+    return started
+  })
+
+  // The process lives on past a /clear: a clear that outlasts the bound still runs.
   on('session.end', async ($, e, next) => {
     const cleared = syncBlocker($, () => null)
     const boundMs = Math.min(QUICK_TIMEOUT_MS, next.budget.remainingMs - END_MARGIN_MS)
