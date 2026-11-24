@@ -89,6 +89,16 @@ describe("applyExpectations", () => {
     }
   });
 
+  test("a herdr server waiting on Restart never holds Install or Finish, and keeps its note and Restart", () => {
+    const restart: Action = { type: "run", label: "Restart herdr", verb: ["tools", "restart", "herdr"] };
+    const note = "herdr keeps working; panes end only when you restart it.";
+    const out = one(rowOf("tool.herdr", "needs-you", { optionalNote: note, action: restart }));
+    expect(out).toMatchObject({ status: "needs-you", required: false, optionalNote: note, action: restart });
+    expect(out.finishGated).toBeUndefined();
+    expect(out.waivable).toBeUndefined();
+    expect(finishBlockers([{ id: "tools", title: "Tools", rows: [out] }])).toEqual([]);
+  });
+
   test("an id with no target keeps the validator's shape", () => {
     const input = rowOf("perm.fda", "needs-you", { required: true, optionalNote: null });
     expect(one(input)).toEqual(input);

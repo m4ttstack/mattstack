@@ -263,9 +263,17 @@ Quote each stale row as preflight printed it (pinned vs current). Recommend per 
   submit, `npm run publish-extension <store-zip>` in that repo (it refuses a zip whose manifest
   version differs from the pin; its keychain credentials come from `npm run cws-mint-token`).
   Store review is Google's delay, so surface the submit at this gate, never at the tag.
+- **herdr minimum build**: the fork build setup would install cannot be downloaded. Hold the
+  release and read the row's detail. "has not published": the minimum fork build rt needs
+  (`HERDR_MIN_BUILD`) is missing, so publish that build from m4ttstack/herdr (its release
+  workflow). "newest build ... has no download for" a processor: setup installs only the newest
+  build (the row's current), so Macs with that processor are stuck even with the minimum
+  published; publish a newer build there with every processor's download. Then rerun preflight.
+  Never lower the minimum to ship. A newer herdr upstream never stales this row.
 
-Never stale here: herdr and claude install through their own live installers
-(`VENDOR_INSTALLERS` in `lib/setup/tools-install.ts`), and mattstack.dev reads releases/latest
+Never stale here: claude installs through its own live installer (`VENDOR_INSTALLERS` in
+`lib/setup/tools-install.ts`), setup installs herdr's newest fork build from m4ttstack/herdr's
+build list at run time, and mattstack.dev reads releases/latest
 live. The apps ship at HEAD: board, boxscore, chat, console, deck and gitq are
 `source: "tree"` rows built at the tagged commit by release.yml's `build-apps` job, so there is
 nothing to bump for them. gitq's npm publish (`bun run release` in `apps/gitq`) runs on its own

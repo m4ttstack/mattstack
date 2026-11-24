@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { finalizePlan, row, type Action, type OrgRef, type Plan, type Row } from "../contract.ts";
+import { applyExpectations } from "../expectations.ts";
 import type { FancyUrls } from "../fancy-urls.ts";
 import {
   allAnswered,
@@ -409,6 +410,27 @@ describe("every row that blocks Install or Finish is on a screen", () => {
     const soloScreens = screens(solo, { path: "solo", ranOk: true, signIn: [], backup: { mode: "local" } });
     expect(soloScreens.connect.find((x) => x.id === "forge")).toMatchObject({ state: "todo", optional: true });
     expect(stageOf(soloScreens, solo, { finished: true, run: ENDED_OK, path: "solo" })).toBe("ready");
+  });
+});
+
+describe("a herdr server waiting on Restart", () => {
+  const restart: Action = { type: "run", label: "Restart herdr", verb: ["tools", "restart", "herdr"] };
+  const stale = r("tool.herdr", "needs-you", "Restart herdr when your agents are done", {
+    required: false,
+    optionalNote: "herdr keeps working; panes end only when you restart it.",
+    action: restart,
+  });
+  const staleRows = [...settledRows(), stale];
+
+  test("never holds Finish or the bar, so setup reads ready with Restart still offered", () => {
+    const p = finalizePlan(JOIN, applyExpectations([{ id: "tools", title: "Tools", rows: staleRows }]), NOW);
+    expect(p.finishBlockedBy).toEqual([]);
+    expect(p.requiredMissing).toEqual([]);
+    expect(needsRun(p)).toBe(false);
+    const herdr = p.groups.flatMap((g) => g.rows).find((x) => x.id === "tool.herdr");
+    expect(herdr?.action).toEqual(restart);
+    const s = screens(p, { ranOk: true, backup: { mode: "local" } });
+    expect(stageOf(s, p, { finished: true, run: ENDED_OK })).toBe("ready");
   });
 });
 

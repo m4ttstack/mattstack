@@ -2221,12 +2221,108 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
   // ─── herdr.integration ──────────────────────────────────────────────────
 
   describe("herdr.integration", () => {
-    test("herdr on PATH -> done", async () => {
-      const p = fakeProbes({ home, env: { PATH: "/usr/local/bin" }, files: { "/usr/local/bin/herdr": "bin" }, exec: async () => ok("") });
-      const { ctx } = makeCtx(p);
-      const outcome = await herdrIntegrationStep.run(ctx);
+    const FORK = "0.9.5-ms.2";
+    const forkAsset = (arch: string) => ({ url: `https://github.com/m4ttstack/herdr/releases/download/v${FORK}/herdr-macos-${arch}`, sha256: "a".repeat(64) });
+    const buildList = JSON.stringify({
+      schema: 1,
+      newest: FORK,
+      builds: [{ version: FORK, herdr: "0.9.5", revision: 2, changesServer: true, assets: { arm64: forkAsset("aarch64"), x86_64: forkAsset("x86_64") }, supersedes: [] }],
+    });
+    const dest = () => join(home, ".local", "bin", "herdr");
+    const integrationCalls = (p: { calls: { exec: string[][] } }) => p.calls.exec.filter((argv) => argv[1] === "integration");
+
+    /** A herdr on PATH reporting `version`, a reachable build list, and a download that verifies. */
+    function herdrOn(version: string, opts: { download?: boolean; extra?: Parameters<typeof fakeProbes>[0] } = {}) {
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin", TMPDIR: "/fake-tmp" },
+        files: { "/usr/local/bin/herdr": "bin" },
+        fetch: async () => ({ status: 200, body: buildList, headers: {} }),
+        exec: (argv) => {
+          if (argv[0] === "curl") return opts.download === false ? { code: 22, stdout: "", stderr: "404" } : ok();
+          if (argv[0] === "shasum") return ok(`${"a".repeat(64)}  ${argv[3]}\n`);
+          if (argv[0]!.endsWith(".new") && argv[1] === "--version") return ok(`herdr ${FORK}\n`);
+          if (argv[1] === "--version") return ok(`herdr ${version}\n`);
+          if (argv[1] === "session") return ok(JSON.stringify({ sessions: [] }));
+          return ok("");
+        },
+        ...opts.extra,
+      });
+      return p;
+    }
+
+    test("current build only installs the integration", async () => {
+      const p = herdrOn(FORK);
+      const outcome = await herdrIntegrationStep.run(makeCtx(p).ctx);
       expect(outcome).toEqual({ state: "done", detail: `${join(home, ".claude")}: ok` });
-      expect(p.calls.exec).toEqual([["/usr/local/bin/herdr", "integration", "install", "claude"]]);
+      expect(p.calls.exec).toEqual([
+        ["/usr/local/bin/herdr", "--version"],
+        ["/usr/local/bin/herdr", "integration", "install", "claude"],
+      ]);
+      expect(p.calls.renames).toEqual([]);
+    });
+
+    test("update run on stock herdr installs the fork build then the integration", async () => {
+      const p = herdrOn("0.9.5", { extra: { files: { "/usr/local/bin/herdr": "bin", [join(home, ".local", "bin", "herdr.pre-mouse-backup")]: "old" } } });
+      const outcome = await herdrIntegrationStep.run(makeCtx(p, { update: true }).ctx);
+      expect(outcome.state).toBe("done");
+      expect(detailOf(outcome)).toContain(`Installed herdr ${FORK}`);
+      expect(p.calls.renames.map(([, to]) => to)).toEqual([dest()]);
+      expect(p.calls.removed).toContain(join(home, ".local", "bin", "herdr.pre-mouse-backup"));
+      const argvs = p.calls.exec;
+      const downloaded = argvs.findIndex((argv) => argv[0] === "curl");
+      const integrated = argvs.findIndex((argv) => argv[1] === "integration");
+      expect(downloaded).toBeGreaterThan(-1);
+      expect(integrated).toBeGreaterThan(downloaded);
+    });
+
+    test("an outdated fork build is replaced too", async () => {
+      const p = herdrOn("0.9.5-ms.1");
+      expect((await herdrIntegrationStep.run(makeCtx(p).ctx)).state).toBe("done");
+      expect(p.calls.exec.some((argv) => argv[0] === "curl")).toBe(true);
+    });
+
+    test("Homebrew's herdr beside a current build is uninstalled, with no download", async () => {
+      const p = herdrOn(FORK, { extra: { files: { "/usr/local/bin/herdr": "bin" }, links: { "/opt/homebrew/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr" } } });
+      const outcome = await herdrIntegrationStep.run(makeCtx(p).ctx);
+      expect(outcome.state).toBe("done");
+      expect(p.calls.exec.some((argv) => argv[0] === "curl")).toBe(false);
+      expect(p.calls.exec).toContainEqual(["/opt/homebrew/bin/brew", "uninstall", "herdr"]);
+      expect(integrationCalls(p)).toHaveLength(1);
+    });
+
+    test("a Homebrew uninstall that fails names the command to run", async () => {
+      const p = herdrOn(FORK, { extra: { files: { "/usr/local/bin/herdr": "bin" }, links: { "/opt/homebrew/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr" } } });
+      const exec = p.exec;
+      p.exec = async (argv, o) => (argv[1] === "uninstall" ? { code: 1, stdout: "", stderr: "Error" } : exec(argv, o));
+      const outcome = await herdrIntegrationStep.run(makeCtx(p).ctx);
+      expect(outcome.state).toBe("failed");
+      expect(remedyOf(outcome)).toBe("Run /opt/homebrew/bin/brew uninstall herdr in a terminal");
+      expect(integrationCalls(p)).toEqual([]);
+    });
+
+    test("build list unreachable + current fork build: no download, the integration runs, step done", async () => {
+      const p = herdrOn(FORK, { extra: { fetch: async () => ({ status: 404, body: "Not Found", headers: {} }) } });
+      const outcome = await herdrIntegrationStep.run(makeCtx(p).ctx);
+      expect(outcome.state).toBe("done");
+      expect(p.calls.exec.some((argv) => argv[0] === "curl")).toBe(false);
+      expect(integrationCalls(p)).toEqual([["/usr/local/bin/herdr", "integration", "install", "claude"]]);
+    });
+
+    test("failed install skips the integration", async () => {
+      const p = herdrOn("0.9.5", { download: false });
+      const outcome = await herdrIntegrationStep.run(makeCtx(p).ctx);
+      expect(outcome.state).toBe("failed");
+      expect(detailOf(outcome)).toContain("Downloading herdr failed");
+      expect(remedyOf(outcome)).toBe("Open setup's herdr row and press Upgrade");
+      expect(integrationCalls(p)).toEqual([]);
+    });
+
+    test("backups are removed before the integration runs", async () => {
+      const backup = join(home, ".local", "bin", "herdr.pre-mouse-backup");
+      const p = herdrOn(FORK, { extra: { files: { "/usr/local/bin/herdr": "bin", [backup]: "old" } } });
+      await herdrIntegrationStep.run(makeCtx(p).ctx);
+      expect(p.calls.removed).toContain(backup);
     });
 
     test("skips rt's own wrapper in ~/.local/bin and runs the Homebrew copy the row resolved", async () => {
@@ -2235,21 +2331,19 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         home,
         env: { PATH: "/usr/bin:/bin" },
         files: { [wrapper]: "#!/bin/sh\n# mattstack-link: herdr\nexec x\n", "/opt/homebrew/bin/herdr": "bin" },
-        exec: async () => ok(""),
+        fetch: async () => ({ status: 200, body: buildList, headers: {} }),
+        exec: (argv) => (argv[1] === "--version" ? ok(`herdr ${FORK}\n`) : ok("")),
       });
       expect((await herdrIntegrationStep.run(makeCtx(p).ctx)).state).toBe("done");
-      expect(p.calls.exec).toEqual([["/opt/homebrew/bin/herdr", "integration", "install", "claude"]]);
+      expect(integrationCalls(p)).toEqual([["/opt/homebrew/bin/herdr", "integration", "install", "claude"]]);
     });
 
-    test("idempotent re-run: two independent installs each make their own real call — nothing memoized between runs", async () => {
-      const p = fakeProbes({ home, env: { PATH: "/usr/local/bin" }, files: { "/usr/local/bin/herdr": "bin" }, exec: async () => ok("") });
+    test("idempotent re-run: two independent installs each make their own real call, nothing memoized between runs", async () => {
+      const p = herdrOn(FORK);
       expect((await herdrIntegrationStep.run(makeCtx(p).ctx)).state).toBe("done");
-      expect(p.calls.exec).toEqual([["/usr/local/bin/herdr", "integration", "install", "claude"]]);
+      expect(integrationCalls(p)).toHaveLength(1);
       expect((await herdrIntegrationStep.run(makeCtx(p).ctx)).state).toBe("done");
-      expect(p.calls.exec).toEqual([
-        ["/usr/local/bin/herdr", "integration", "install", "claude"],
-        ["/usr/local/bin/herdr", "integration", "install", "claude"],
-      ]);
+      expect(integrationCalls(p)).toHaveLength(2);
     });
 
     test("herdr not installed -> skipped, points at the Tools row", async () => {
@@ -2270,6 +2364,10 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const outcome = await herdrIntegrationStep.run(ctx);
       expect(outcome.state).toBe("failed");
       expect(detailOf(outcome)).toContain("exit 1");
+    });
+
+    test("the step is titled Set up herdr", () => {
+      expect(herdrIntegrationStep.title).toBe("Set up herdr");
     });
   });
 

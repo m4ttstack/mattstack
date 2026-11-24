@@ -3,6 +3,7 @@
  *
  *   rt tools install <tool> [--json]
  *   rt tools setup <tool> [--config-dir <dir>]… [--json]
+ *   rt tools restart herdr [--json]
  *
  * Thin CLI shell over lib/setup/tools-install.ts: this module only parses
  * args, resolves the joined team's pack requirements (for team-declared
@@ -17,6 +18,7 @@ import * as out from "../lib/ui/out.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { warn } from "../lib/ui/warn.ts";
 import { readIntent, orgRefFromIntent } from "../lib/setup/intent.ts";
+import { restartStaleHerdrServers } from "../lib/setup/herdr-install.ts";
 import { recordToolInstall } from "../lib/setup/prepare.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { readPackRequirements, type PackRequirements } from "../lib/setup/requirements.ts";
@@ -36,9 +38,9 @@ function resolveTeamReqs(p: Probes): PackRequirements[] {
   return ref.slug ? readPackRequirements(p, ref.slug) : [];
 }
 
-/** What installTool can act on here, mirroring its branch order: apple-clt, rt's bundled tools that resolve in this environment, its hardcoded vendor installers, and the joined team's declared tools. */
+/** What installTool can act on here, mirroring its branch order: apple-clt, herdr's fork build, rt's bundled tools that resolve in this environment, its hardcoded vendor installers, and the joined team's declared tools. */
 function installableTools(p: Probes, reqs: PackRequirements[]): string[] {
-  const names = new Set<string>(["apple-clt", ...Object.keys(VENDOR_INSTALLERS)]);
+  const names = new Set<string>(["apple-clt", "herdr", ...Object.keys(VENDOR_INSTALLERS)]);
   for (const name of DEFAULT_EXPOSED) if (name !== "rt" && bundledToolExec(p, name)) names.add(name);
   for (const r of reqs) for (const t of r.tools) names.add(t.name);
   return [...names].sort();
@@ -144,4 +146,51 @@ export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: P
     process.exit(1);
   }
   out.print(out.line("done", `Set up ${t}`, result.detail));
+}
+
+const RESTART_TOOLS = ["herdr"];
+
+/** Ends the herdr servers still on an older herdr, which ends their panes. */
+export async function toolsRestart(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
+  const json = args.includes("--json");
+  let t = tool(args);
+  if (!t) {
+    if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
+      t = (await pickTool("Restart which tool?", RESTART_TOOLS)) ?? undefined;
+      if (!t) process.exit(0);
+    } else if (json) {
+      exitUserError(new UserActionableError("usage", "usage: rt tools restart herdr [--json]"), json);
+    } else {
+      out.fail(usageFailure("Which tool?", "rt tools restart herdr"));
+      process.exit(2);
+    }
+  }
+  if (t !== "herdr") {
+    if (json) exitUserError(new UserActionableError("usage", "usage: rt tools restart herdr [--json]"), json);
+    out.fail(usageFailure("rt can only restart herdr", "rt tools restart herdr"));
+    process.exit(2);
+  }
+
+  const result = await restartStaleHerdrServers(p);
+  const failed = result.error !== undefined || result.failed.length > 0;
+  if (json) {
+    const message = result.error ?? `herdr did not stop: ${result.failed.join(", ")}`;
+    out.json(envelope({ stopped: result.stopped, failed: result.failed, ...(failed ? { error: { code: "herdr-restart-failed", message } } : {}) }));
+    // The app reads an envelope's error only on exit 2.
+    if (failed) process.exit(2);
+    return;
+  }
+  if (result.error !== undefined) {
+    out.fail({ title: "rt stopped no herdr server", why: result.error });
+    process.exit(1);
+  }
+  if (result.failed.length > 0) {
+    out.fail({ title: "herdr did not stop every server", why: `Did not stop: ${result.failed.join(", ")}` });
+    process.exit(1);
+  }
+  if (result.stopped.length === 0) {
+    out.print(out.line("done", "No herdr server needed a restart"));
+    return;
+  }
+  out.print(out.line("done", "Stopped herdr's older servers", result.stopped.join(", ")));
 }

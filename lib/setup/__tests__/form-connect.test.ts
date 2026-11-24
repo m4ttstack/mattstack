@@ -532,6 +532,8 @@ describe("extraRows", () => {
     expect(runFixes(r("tool.editor", "missing", "", { waitsForInstall: true }))).toBe(true);
     expect(runFixes(r("tool.herdr", "needs-you", ""))).toBe(true);
     expect(runFixes(r("tool.herdr", "missing", ""))).toBe(false);
+    expect(runFixes(r("tool.herdr", "needs-you", "", { required: false, action: { type: "run", label: "Restart herdr", verb: ["tools", "restart", "herdr"] } }))).toBe(false);
+    expect(runFixes(r("tool.herdr", "invalid", "", { action: { type: "steps", label: "Show steps…", steps: ["rm /x/herdr"] } }))).toBe(false);
     expect(runFixes(r("account.sdm", "missing", ""))).toBe(false);
   });
 });

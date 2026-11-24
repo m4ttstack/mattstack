@@ -13,6 +13,7 @@ import { warn } from "../ui/warn.ts";
 import { applyEventsPath } from "./apply-run.ts";
 import { readLogin, FINISH_IN_BROWSER, type LoginSession, type LoginTool } from "./cli-login.ts";
 import { applyStepAction, REPO_PLACE_ROW_PREFIX, type Action, type Plan, type Row } from "./contract.ts";
+import { endsPanes } from "./expectations.ts";
 import { fancyUrlsState, type FancyUrls } from "./fancy-urls.ts";
 import { createCapableGitHubToken, GITHUB_OAUTH_CLIENT_ID, readGitHubSignIn, readStoredGitHubToken, type GitHubSignIn } from "./github-signin.ts";
 import { homeOrigin, isRestorableOrigin } from "./home-remote.ts";
@@ -459,9 +460,9 @@ export const RUN_FIXES: ReadonlySet<string> = new Set([
   "skills.writing-style",
 ]);
 
-/** herdr reading needs-you is installed with only its Claude integration missing, which the run's herdr.integration step adds. */
+/** herdr reading needs-you is a newer build or its Claude integration away, which the run's herdr.integration step installs; a server waiting on Restart is the person's. */
 export function runFixes(r: Row): boolean {
-  return RUN_FIXES.has(r.id) || r.id.startsWith("pack.") || r.waitsForInstall === true || (r.id === "tool.herdr" && r.status === "needs-you");
+  return RUN_FIXES.has(r.id) || r.id.startsWith("pack.") || r.waitsForInstall === true || (r.id === "tool.herdr" && r.status === "needs-you" && !endsPanes(r));
 }
 
 function planRows(plan: Plan): Row[] {
