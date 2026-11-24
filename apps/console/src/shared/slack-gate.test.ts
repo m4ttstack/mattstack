@@ -156,6 +156,32 @@ describe('slackGateView', () => {
     ).toBeNull();
   });
 
+  it("shows a support request by the teammate's words, and when it expires", () => {
+    const view = slackGateView(
+      gate({
+        subject: 'support:ada:r1',
+        context:
+          'Person: Ada Example\n\nMessage:\nthe board will not load\n\nVersions: rt 1.2.3',
+        meta: {
+          action: 'support',
+          requestId: 'r1',
+          peer: 'ada',
+          person: 'U2',
+          personName: 'Ada Example',
+          why: 'cap',
+          expiresAt: 7 * 24 * 60 * MIN,
+        },
+      })
+    );
+    expect(view).toMatchObject({
+      name: 'Ada Example',
+      kind: 'new',
+      brief: 'the board will not load\n\nVersions: rt 1.2.3',
+      origin: { from: 'app' },
+      expiresAt: 7 * 24 * 60 * MIN,
+    });
+  });
+
   it('names the person from the subject when meta has no name', () => {
     expect(slackGateView(gate({ subject: 'slack:U9' })).name).toBe('U9');
   });
@@ -171,6 +197,15 @@ describe('ages', () => {
   it('counts whole minutes old', () => {
     expect(agedLabel(0, 4 * MIN + 30_000)).toBe('4m old');
     expect(agedLabel(0, 0)).toBe('0m old');
+  });
+
+  it('counts hours and days once there are that many', () => {
+    expect(leftLabel(7 * 24 * 60 * MIN, 0).text).toBe('7d left');
+    expect(leftLabel(47 * 60 * MIN, 0).text).toBe('1d left');
+    expect(leftLabel(23 * 60 * MIN, 0).text).toBe('23h left');
+    expect(leftLabel(60 * MIN, 0).text).toBe('1h left');
+    expect(leftLabel(59 * MIN, 0)).toEqual({ text: '59m left', urgent: false });
+    expect(agedLabel(0, 3 * 24 * 60 * MIN)).toBe('3d old');
   });
 
   it('counts minutes left, never below zero, and warns under five', () => {

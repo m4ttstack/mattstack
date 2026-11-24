@@ -569,6 +569,12 @@ describe('slack-open gates stay off the board', () => {
         kind: 'slack-open',
         owner: 'human',
       }),
+      row({
+        id: 'g-support',
+        subject: 'support:ada:r1',
+        kind: 'slack-open',
+        owner: 'human',
+      }),
     ]);
     expect(extras).toEqual([]);
   });

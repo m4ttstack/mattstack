@@ -6,7 +6,7 @@
 import { SUPPORT_TTL_MS } from "../../packages/rt-client/src/support.ts";
 import type { GateQuestion, GateRow } from "../../packages/rt-client/src/commands.ts";
 import { sendMilestone } from "../slack/milestones.ts";
-import { approveSlackOpen, SLACK_OPEN_KIND, slackOpenMarker, type SlackOpenDeps } from "../slack/request.ts";
+import { approveSlackOpen, SLACK_OPEN_KIND, slackOpenApproved, slackOpenMarker, slackSupportMeta, type SlackOpenDeps } from "../slack/request.ts";
 import { agentHasPosted, conversationById, conversationForSlackUser, listOpenConversations } from "../state/slack-conversation-store.ts";
 import { getRequest, listRequests, moveRequest, queueStatus, stoppedSince, type SupportRequest, type SupportState } from "../state/support-store.ts";
 import type { Chain } from "./chain.ts";
@@ -92,8 +92,17 @@ async function settleAlreadyOpen(deps: HostDeps, r: SupportRequest, from: Suppor
   settle(deps, r, from, "already-open", { dmLink: await dmLink(deps), gateId: null });
 }
 
-/** Leaves the request where it was when the gate cannot open, for the next tick to take again. */
-async function raiseGate(deps: HostDeps, r: SupportRequest, personName: string, why: SlackSupportMeta["why"]): Promise<void> {
+async function closeGate(deps: HostDeps, gateId: string | null): Promise<void> {
+  if (gateId === null) return;
+  try {
+    await deps.gates.close(gateId);
+  } catch (err) {
+    deps.log.warn({ err, gateId }, "support: a request's gate could not be closed");
+  }
+}
+
+/** The gate's id, or null when it cannot open now. */
+async function openGate(deps: HostDeps, r: SupportRequest, personName: string, why: SlackSupportMeta["why"]): Promise<string | null> {
   const gateId = crypto.randomUUID();
   const question: GateQuestion = { id: "decision", label: `Open a Slack support chat with ${personName}? ${slackOpenMarker(gateId)}`, multi: false, options: ["approve", "decline"] };
   const meta: SlackSupportMeta = { action: "support", requestId: r.id, peer: r.peer, person: r.slackUserId, personName, why, expiresAt: r.receivedAt + SUPPORT_TTL_MS };
@@ -107,10 +116,16 @@ async function raiseGate(deps: HostDeps, r: SupportRequest, personName: string, 
   });
   if (!opened.ok) {
     deps.log.warn({ error: opened.error, id: r.id }, "support: a request that needs the host's OK could not be put to them");
-    moveRequest(r, ["opening"], { state: "received" }, deps.now(), deps.db);
-    return;
+    return null;
   }
-  if (!settle(deps, r, ["received", "opening"], "waiting", { gateId: opened.id })) await deps.gates.close(opened.id);
+  return opened.id;
+}
+
+/** Leaves the request to be taken again on the next tick when its gate cannot open. */
+async function raiseGate(deps: HostDeps, r: SupportRequest, personName: string, why: SlackSupportMeta["why"]): Promise<void> {
+  const gateId = await openGate(deps, r, personName, why);
+  if (gateId === null) moveRequest(r, ["opening"], { state: "received" }, deps.now(), deps.db);
+  else if (!settle(deps, r, ["received", "opening"], "waiting", { gateId })) await closeGate(deps, gateId);
 }
 
 /** Opens the chat for a request in `from`; a lost race for the last place puts it to the host instead. */
@@ -214,6 +229,41 @@ async function followOpening(deps: HostDeps, r: SupportRequest): Promise<void> {
   else if (!conversation || conversation.closedAt !== null) settle(deps, r, ["opening"], "failed", { reason: NEVER_REACHED });
 }
 
+/** What a waiting request's gate, its time and the org's settings say now. */
+async function followWaiting(deps: HostDeps, stale: SupportRequest): Promise<void> {
+  const { db } = deps;
+  const r = getRequest("in", stale.peer, stale.id, db);
+  if (r?.state !== "waiting") return;
+  const from: SupportState[] = ["waiting"];
+  const end = async (state: SupportState, extra: { dmLink?: string | null } = {}) => {
+    if (settle(deps, r, from, state, { ...extra, gateId: null })) await closeGate(deps, r.gateId);
+  };
+  if (!deps.config()?.acceptHere) return end("not-accepting");
+  if (deps.now() - r.receivedAt >= SUPPORT_TTL_MS) return end("expired");
+  if (conversationForSlackUser(r.slackUserId, db)) return end("already-open", { dmLink: await dmLink(deps) });
+
+  const gate = r.gateId === null ? null : deps.gate(r.gateId);
+  const meta = gate ? slackSupportMeta(gate) : null;
+  if (gate?.status === "open" || gate?.status === "parked") return;
+  if (gate?.answer && meta) {
+    if (slackOpenApproved(gate)) await openChat(deps, r, meta.personName, "waiting", null);
+    else settle(deps, r, from, "declined", { gateId: null });
+    return;
+  }
+  const gateId = await openGate(deps, r, meta?.personName ?? r.peer, meta?.why ?? "cap");
+  if (gateId !== null) moveRequest(r, from, { gateId }, deps.now(), db);
+}
+
+/** The host answered a waiting request in the console. */
+export function answerSupportGate(deps: HostDeps, row: GateRow): Promise<void> {
+  const meta = slackSupportMeta(row);
+  return deps.chain.run(async () => {
+    if (!meta) return;
+    const r = getRequest("in", meta.peer, meta.requestId, deps.db);
+    if (r?.gateId === row.id) await followWaiting(deps, r);
+  });
+}
+
 async function each(deps: HostDeps, states: SupportState[], f: (r: SupportRequest) => Promise<void>): Promise<void> {
   for (const r of listRequests("in", states, deps.db)) {
     try {
@@ -232,6 +282,7 @@ export function takeRequest(deps: HostDeps, r: SupportRequest): Promise<void> {
 export function tickRequests(deps: HostDeps): Promise<void> {
   return deps.chain.run(async () => {
     await each(deps, ["opening"], (r) => followOpening(deps, r));
+    await each(deps, ["waiting"], (r) => followWaiting(deps, r));
     await each(deps, ["received"], (r) => takeNow(deps, r));
   });
 }

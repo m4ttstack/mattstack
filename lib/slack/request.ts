@@ -389,18 +389,28 @@ async function declineSlackResume(deps: SlackOpenDeps, meta: SlackResumeMeta, ga
   await deps.closePane(conversation.assignedPane);
 }
 
+export function slackOpenApproved(row: GateRow): boolean {
+  return String(unwrapGateAnswerValue(row.answer?.answers?.[DECISION_ID])).toLowerCase() === APPROVE;
+}
+
+export function slackSupportMeta(row: GateRow): SlackSupportMeta | null {
+  const meta = row.meta as Partial<SlackSupportMeta> | null;
+  return meta?.action === "support" ? (meta as SlackSupportMeta) : null;
+}
+
 /** Routes an answered `slack-open` gate by its `meta.action`; an action this build does not know is left as it is. */
-export async function answerSlackOpen(deps: SlackOpenDeps, row: GateRow): Promise<void> {
-  const decision = String(unwrapGateAnswerValue(row.answer?.answers?.[DECISION_ID])).toLowerCase();
+export async function answerSlackOpen(deps: SlackOpenDeps, row: GateRow, support?: (row: GateRow) => Promise<void>): Promise<void> {
+  if (slackSupportMeta(row)) return support?.(row);
+  const approved = slackOpenApproved(row);
   const resume = slackResumeMeta(row);
   if (resume) {
-    if (decision === APPROVE) await approveSlackResume(deps, { conversation: resume.conversation, triggerTs: resume.triggerTs, exceptGateId: row.id, requesterSession: resume.requesterSession, requesterHandle: resume.requesterHandle });
+    if (approved) await approveSlackResume(deps, { conversation: resume.conversation, triggerTs: resume.triggerTs, exceptGateId: row.id, requesterSession: resume.requesterSession, requesterHandle: resume.requesterHandle });
     else await declineSlackResume(deps, resume, row.id);
     return;
   }
   const meta = slackOpenMeta(row);
   if (!meta) return;
-  if (decision === APPROVE) {
+  if (approved) {
     await approveSlackOpen(deps, meta);
     return;
   }
