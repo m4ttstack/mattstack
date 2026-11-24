@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { UserActionableError } from "../../errors.ts";
 import { PREPARE_BUDGET_MS, preparePath, readPrepare, recordToolInstall, runPrepare, type PrepareRecord } from "../prepare.ts";
+import { updateSetupState } from "../state.ts";
 import type { PackRequirements } from "../requirements.ts";
 import type { InstallResult, installTool } from "../tools-install.ts";
 import { fakeProbes, missing, ok, type ExecScript } from "./fakes.ts";
@@ -96,6 +97,14 @@ describe("runPrepare", () => {
     const present = fakeProbes({ home: HOME, exec, files: { "/Applications/Flock.app/Contents/Info.plist": "plist" } });
     const seen: string[] = [];
     await runPrepare(present, "accounts", { reqs: [], install: fakeInstall(seen), alive, pid: OWN_PID });
+    expect(seen).not.toContain("flock");
+  });
+
+  test("prepare leaves out a Flock the member removed", async () => {
+    const p = fakeProbes({ home: HOME, exec: machine() });
+    updateSetupState(p, (s) => ({ ...s, flockInstalledAt: "2026-11-01T00:00:00.000Z" }));
+    const seen: string[] = [];
+    await runPrepare(p, "accounts", { reqs: [], install: fakeInstall(seen), alive, pid: OWN_PID });
     expect(seen).not.toContain("flock");
   });
 
