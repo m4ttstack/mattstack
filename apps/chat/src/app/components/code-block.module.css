@@ -1,6 +1,4 @@
 .block {
-  --code-line: 20px;
-
   position: relative;
 }
 
@@ -11,7 +9,7 @@
   border-radius: inherit;
   font-family: var(--mantine-font-family-monospace);
   font-size: var(--mantine-font-size-sm);
-  line-height: var(--code-line);
+  line-height: 20px;
   white-space: pre;
 }
 
@@ -40,12 +38,32 @@
   font: inherit;
 }
 
-/* 20px tall, so half of it fits the 8px gap above the block and half the
-   slack above the first line's letters: it never touches text either side. */
-.controls {
+/* Slack's message toolbar: floats over the block's top edge, its lower edge
+   stopping short of the first line so it never covers code. */
+.toolbar {
   position: absolute;
-  top: 0;
-  right: 10px;
+  right: 8px;
+  bottom: calc(100% - 8px);
+  z-index: 1;
   display: flex;
-  transform: translateY(-50%);
+  gap: 2px;
+  padding: 3px;
+}
+
+/* Hidden by opacity, so Tab can still reach the buttons and reveal it. */
+@media (hover: hover) {
+  .toolbar {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .block:hover .toolbar {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.block:has(:focus-visible) .toolbar {
+  opacity: 1;
+  pointer-events: auto;
 }

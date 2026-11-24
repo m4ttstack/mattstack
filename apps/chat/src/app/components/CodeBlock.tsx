@@ -24,7 +24,7 @@ function hasLongLine(pre: HTMLElement, code: string, wrap: boolean): boolean {
 }
 
 /** A fence in a message. Long lines wrap until the reader turns that off for
-    the block. The controls ride the top border, clear of the code. */
+    the block. */
 export function CodeBlock({ code }: CodeBlockProps) {
   const [wrap, setWrap] = useState(true);
   const [longLine, setLongLine] = useState(false);
@@ -45,6 +45,7 @@ export function CodeBlock({ code }: CodeBlockProps) {
     <Paper
       withBorder
       bg="var(--tk-panel)"
+      radius="sm"
       className={classes.block}
       data-testid="code-block"
     >
@@ -56,18 +57,25 @@ export function CodeBlock({ code }: CodeBlockProps) {
       >
         <code>{code}</code>
       </pre>
-      <Paper withBorder bg="var(--tk-card)" className={classes.controls}>
+      <Paper
+        withBorder
+        bg="var(--tk-card)"
+        shadow="sm"
+        radius="lg"
+        className={classes.toolbar}
+      >
         {longLine && (
           <Tooltip label={wrapTip} position="top" withArrow>
             <ActionIcon
               variant="subtle"
               color="gray"
-              size="xs"
+              size={30}
+              radius="md"
               aria-label="Wrap lines"
               aria-pressed={wrap}
               onClick={() => setWrap(!wrap)}
             >
-              <Icon name="wrapText" size={12} />
+              <Icon name="wrapText" size={18} />
             </ActionIcon>
           </Tooltip>
         )}
@@ -75,8 +83,9 @@ export function CodeBlock({ code }: CodeBlockProps) {
           value={code}
           label="Copy code"
           tooltipPosition="top"
-          size="xs"
-          iconSize={12}
+          size={30}
+          iconSize={18}
+          radius="md"
         />
       </Paper>
     </Paper>
