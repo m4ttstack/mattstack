@@ -3,14 +3,9 @@ import type { Element } from 'hast';
 import Markdown, { type Components, type Options } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-import { CODE_LINE_HEIGHT, CodeBlock } from './components/CodeBlock';
+import { CodeBlock } from './components/CodeBlock';
 import { remarkMentions } from './remark-mentions';
 import classes from './transcript-prose.module.css';
-
-/** The fence's own 14px (`md`, set in `CodeBlock`) at its line height,
-    plus its 4.8px paddings. */
-const CODE_LINE_PX = 14 * CODE_LINE_HEIGHT;
-const CODE_PAD_PX = 9.6;
 
 /** react-markdown passes its own `node` prop to every component override;
     intrinsic elements don't take one, so drop it before spreading the rest. */
@@ -20,26 +15,15 @@ function withoutNode<T extends { node?: unknown }>(props: T): Omit<T, 'node'> {
   return rest as Omit<T, 'node'>;
 }
 
-function fenceOf(node: Element | undefined): {
-  code: string;
-  language: string;
-} {
+function fenceText(node: Element | undefined): string {
   const codeEl = node?.children.find(
     (child): child is Element =>
       child.type === 'element' && child.tagName === 'code'
   );
-  const raw = codeEl?.properties?.className;
-  const names = (Array.isArray(raw) ? raw : raw === undefined ? [] : [raw]).map(
-    String
-  );
-  const language =
-    names.find(n => n.startsWith('language-'))?.slice('language-'.length) ??
-    'text';
-  const code = (codeEl?.children ?? [])
+  return (codeEl?.children ?? [])
     .map(child => (child.type === 'text' ? child.value : ''))
     .join('')
     .replace(/\n$/, '');
-  return { code, language };
 }
 
 const components: Components = {
@@ -55,20 +39,7 @@ const components: Components = {
       {alt || 'image'}
     </a>
   ),
-  pre: ({ node }) => {
-    const { code, language } = fenceOf(node);
-    const lines = code.split('\n').length;
-    return (
-      <CodeBlock
-        code={code}
-        language={language}
-        minHeight={Math.min(
-          400,
-          Math.round(lines * CODE_LINE_PX + CODE_PAD_PX)
-        )}
-      />
-    );
-  },
+  pre: ({ node }) => <CodeBlock code={fenceText(node)} />,
   table: props => (
     <div className={classes.tbl}>
       <table {...withoutNode(props)} />

@@ -1,52 +1,32 @@
-import { Box, Paper } from '@mattstack/app-kit/core';
-import { CodeHighlight } from '@mattstack/app-kit/lazy';
+import { CopyActionIcon, Paper } from '@mattstack/app-kit/core';
 
-/** A fence's line box, as a ratio of its own font size. `MessageMarkdown`
-    reserves height for a folded fence from this and the `md` step. */
-export const CODE_LINE_HEIGHT = 1.55;
+import classes from './code-block.module.css';
 
 export interface CodeBlockProps {
   code: string;
-  language: string;
-  /** Reserved height for the lazily-loaded highlighter, so the page doesn't shift when its chunk resolves. */
-  minHeight: number;
-  /** Show the built-in copy button. @default true */
-  withCopyButton?: boolean;
 }
 
-/**
- * A `CodeHighlight` inside a bordered, fixed-min-height frame. The
- * highlighter is lazily loaded (`@mattstack/app-kit/lazy`), so the wrapper reserves the
- * block's approximate final height up front -- no layout shift when the
- * chunk resolves.
- */
-export function CodeBlock({
-  code,
-  language,
-  minHeight,
-  withCopyButton = true,
-}: CodeBlockProps) {
+/** A fence in a message: long lines wrap, so nothing scrolls sideways, and
+    the copy control sits in its own column, so it never covers code. */
+export function CodeBlock({ code }: CodeBlockProps) {
   return (
     <Paper
       withBorder
       bg="var(--tk-panel)"
+      className={classes.block}
       data-testid="code-block"
-      style={{ overflow: 'hidden', position: 'relative' }}
     >
-      <Box style={{ minHeight }}>
-        <CodeHighlight
-          code={code}
-          language={language}
-          withCopyButton={withCopyButton}
-          styles={{
-            pre: {
-              overflowX: 'auto',
-              fontSize: 'var(--mantine-font-size-xs)',
-              lineHeight: CODE_LINE_HEIGHT,
-            },
-          }}
-        />
-      </Box>
+      <pre className={classes.pre}>
+        <code>{code}</code>
+      </pre>
+      <CopyActionIcon
+        className={classes.copy}
+        value={code}
+        label="Copy code"
+        tooltipPosition="top"
+        size="sm"
+        iconSize={14}
+      />
     </Paper>
   );
 }

@@ -1,5 +1,5 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
-import { screen, waitFor } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { expect, test } from 'vitest';
 
 import { MessageMarkdown } from './MessageMarkdown';
@@ -94,14 +94,10 @@ test('raw HTML never renders, an unsafe link loses its href, an image is its alt
   ).toHaveAttribute('href', 'https://x.test/shot.png');
 });
 
-test('a fenced block renders through CodeBlock with its language and text', async () => {
+test('a fenced block renders through CodeBlock with its text', async () => {
   render('run:\n\n```sh\necho one\necho two\n```\n\ndone');
-  // `code-block` is the CodeBlock's outer Paper, which sits outside
-  // CodeHighlight's own lazy-load Suspense boundary: it mounts (with the
-  // loader fallback inside) before the highlighted text does, so
-  // `findByTestId` alone resolves too early. The content needs its own wait.
-  const block = await screen.findByTestId('code-block');
-  await waitFor(() => expect(block).toHaveTextContent('echo one'));
+  const block = screen.getByTestId('code-block');
+  expect(block).toHaveTextContent('echo one');
   expect(block).toHaveTextContent('echo two');
   expect(screen.getByTestId('body').querySelectorAll('pre')).toHaveLength(1);
 });

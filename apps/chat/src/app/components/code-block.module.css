@@ -1,0 +1,29 @@
+.block {
+  display: flex;
+  align-items: flex-start;
+}
+
+.pre {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 7px 4px 7px 12px;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: var(--mantine-font-size-sm);
+  line-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pre code {
+  font: inherit;
+}
+
+/* Centred on a 34px one-line block, and on the first line of a taller one;
+   it stays in view while a block taller than the screen scrolls past. */
+.copy {
+  position: sticky;
+  top: 6px;
+  flex: none;
+  margin: 6px;
+}
