@@ -124,8 +124,9 @@ export async function installedFlock(p: Probes): Promise<InstalledFlock | null> 
     const path = join(dir, "Flock.app");
     const plist = join(path, "Contents", "Info.plist");
     if (!p.exists(plist)) continue;
-    if ((await plistValue(p, plist, "CFBundleIdentifier")) !== FLOCK_BUNDLE_ID) continue;
-    return { path, version: (await plistValue(p, plist, "CFBundleShortVersionString")) || null };
+    const [id, version] = await Promise.all([plistValue(p, plist, "CFBundleIdentifier"), plistValue(p, plist, "CFBundleShortVersionString")]);
+    if (id !== FLOCK_BUNDLE_ID) continue;
+    return { path, version: version || null };
   }
   return null;
 }
@@ -194,7 +195,7 @@ export async function installFlock(p: Probes): Promise<InstallResult> {
     const appeared = await installedFlock(p);
     if (appeared) return already(appeared);
     const dest = join(target, "Flock.app");
-    if (p.exists(dest)) return fail(`Something else is at ${targetShown}/Flock.app, so nothing was installed`);
+    if (p.exists(dest)) return fail(`Something else is at ${targetShown}/Flock.app, so nothing was installed. Move it away, then press Install.`);
 
     // A copy killed midway must never leave a half-written Flock.app that reads ready, so it lands under a staged name and is renamed whole.
     staged = join(target, `.Flock-${process.pid}.new`);

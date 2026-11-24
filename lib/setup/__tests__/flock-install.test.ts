@@ -304,7 +304,7 @@ describe("installFlock", () => {
   test("does not copy over something else named Flock.app", async () => {
     const p = setup({ ids: { [SYSTEM]: "com.example.NotFlock" } }, { dirs: { [APP]: [], [SYSTEM]: [] }, files: { [plistOf(APP)]: "plist", [plistOf(SYSTEM)]: "plist" } });
     const result = await installFlock(p);
-    expect(result).toEqual({ via: "download", ok: false, detail: "Something else is at /Applications/Flock.app, so nothing was installed" });
+    expect(result).toEqual({ via: "download", ok: false, detail: "Something else is at /Applications/Flock.app, so nothing was installed. Move it away, then press Install." });
     expect(copies(p)).toEqual([]);
     expect(p.calls.removed).not.toContain(SYSTEM);
   });
