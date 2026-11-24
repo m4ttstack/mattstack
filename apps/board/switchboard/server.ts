@@ -1,12 +1,15 @@
-/** The switchboard: a dumb store-and-forward relay for peer mr-boards.
-    It understands envelopes, never payloads — no GitLab/Slack credentials,
-    no MR titles. Deployed standalone (Railway); boards only call outbound. */
+/** The switchboard: a dumb store-and-forward relay for peer mr-boards and
+    support requests. It understands envelopes, never payloads: no GitLab or
+    Slack credentials, no MR titles. Deployed standalone (Railway); boards and
+    daemons only call outbound. */
 import { timingSafeEqual } from 'node:crypto';
 import { join } from 'path';
 import { Database } from 'bun:sqlite';
 
 import { parseDraftEnvelope } from '../src/peer/envelope.ts';
+import { readCappedText } from './capped-body.ts';
 import { ENVELOPE_TTL_MS, SwitchboardStore } from './store.ts';
+import { makeSupportHandler } from './support.ts';
 import {
   makeTeamInviteHandler,
   RateLimiter,
@@ -38,27 +41,6 @@ function sameSecret(got: string, want: string): boolean {
   return timingSafeEqual(digest(got), digest(want));
 }
 
-/** Reads at most MAX_PING_BYTES, so an oversized body is never buffered. */
-async function readCappedText(req: Request): Promise<string | null> {
-  const declared = req.headers.get('content-length');
-  if (declared !== null && Number(declared) > MAX_PING_BYTES) return null;
-  if (!req.body) return '';
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  const reader = req.body.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_PING_BYTES) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString('utf8');
-}
-
 export function makeFetchHandler(
   store: SwitchboardStore,
   adminToken: string,
@@ -66,9 +48,11 @@ export function makeFetchHandler(
   teamInvites: TeamInviteStore,
   telemetry: TelemetryStore,
   viewToken: string | null,
-  waiters: InboxWaiters = new InboxWaiters()
+  waiters: InboxWaiters = new InboxWaiters(),
+  supportWaiters: InboxWaiters = new InboxWaiters()
 ) {
   const teamInviteRoutes = makeTeamInviteHandler(teamInvites, now);
+  const supportRoutes = makeSupportHandler(store.support, supportWaiters, now);
   const pingLimiter = new RateLimiter(TELEMETRY_PINGS_PER_HOUR, 60 * 60_000);
   // Strictly increasing so a waker's cursor (`received_at > since`) can never
   // skip a second envelope stamped in the same millisecond.
@@ -194,7 +178,7 @@ export function makeFetchHandler(
         return new Response('method not allowed', { status: 405 });
       if (pingLimiter.exceeded(sourceIp(req), now()))
         return new Response('too many requests', { status: 429 });
-      const text = await readCappedText(req);
+      const text = await readCappedText(req, MAX_PING_BYTES);
       let ping = null;
       if (text !== null) {
         try {
@@ -252,6 +236,9 @@ export function makeFetchHandler(
     const token = bearer(req);
     const username = token ? store.authBoard(token) : null;
     if (!username) return new Response('unauthorized', { status: 401 });
+
+    const support = await supportRoutes(req, pathname, username);
+    if (support) return support;
 
     if (pathname === '/peers') {
       // Who is enrolled, for any peered board's ask pickers. Usernames only:
@@ -376,6 +363,7 @@ if (import.meta.main) {
   const port = process.env.PORT !== undefined ? Number(process.env.PORT) : 7940;
   setInterval(() => {
     store.prune(Date.now(), ENVELOPE_TTL_MS);
+    store.support.prune(Date.now());
     teamInvites.prune(Date.now());
     telemetry.prune(Date.now());
   }, 60 * 60_000);
