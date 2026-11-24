@@ -51,7 +51,7 @@
   - `installedFlock(p: Probes): Promise<InstalledFlock | null>` (first of `flockAppDirs` whose `Flock.app` has `FLOCK_BUNDLE_ID`)
   - `installFlock(p: Probes): Promise<InstallResult>`
 
-`installFlock` order (each failure returns `ok: false` with this detail and leaves no `Flock.app` rt created; the work folder `$TMPDIR/rt-flock-install` is removed in a `finally`):
+`installFlock` order (each failure returns `ok: false` with this detail and leaves no `Flock.app` rt created; the work folder `$TMPDIR/rt-flock-install-${process.pid}` (per pid, matching herdr-install) is removed in a `finally`):
 1. `installedFlock` non-null → `ok: true`, `Flock <v> is already installed`.
 2. `fetchFlockRelease` null → `rt could not read Flock's release feed from m4ttstack/flock`.
 3. `curl -fsSL <url> -o <work>/Flock.zip` (5 min); exit 124 → `Downloading Flock did not finish in time`; other non-zero → `Downloading Flock failed (exit <n>): <first line>`.
