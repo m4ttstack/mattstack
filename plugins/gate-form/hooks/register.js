@@ -387,6 +387,15 @@ function bellArgs(cwd, questions) {
   return ["herdr", "notification", "show", `${who} needs you`, "--body", body, "--sound", "request"];
 }
 
+// mods/gate-form/src/gate/blocker.ts
+var BLOCKER_SOURCE = "mattstack:gate";
+function raiseArgs(paneId, message) {
+  return ["herdr", "pane", "report-blocker", paneId, "--source", BLOCKER_SOURCE, "--message", message];
+}
+function clearArgs(paneId) {
+  return ["herdr", "pane", "clear-blocker", paneId, "--source", BLOCKER_SOURCE];
+}
+
 // mods/gate-form/src/gate/board.ts
 var NO_ADDRESS = "Board address not found";
 var KIND_TITLES = {
@@ -445,6 +454,13 @@ function currentForm(list) {
   return list.find((f) => f.status === "open") ?? list.at(-1);
 }
 var openCount = (list) => list.filter((f) => f.status === "open").length;
+function waitingTitle(list) {
+  const form = currentForm(list);
+  if (form?.status !== "open")
+    return null;
+  const more = openCount(list) - 1;
+  return more > 0 ? `${form.title}, ${more} more waiting` : form.title;
+}
 function addForm(list, form, supersededId) {
   const replaces = (f) => f.gateId === undefined ? form.gateId === undefined && f.source === form.source : f.gateId === form.gateId || f.gateId === supersededId;
   const at = list.findIndex(replaces);
@@ -1088,6 +1104,8 @@ var watching = new Set;
 var WAIT_RETRY_MS = [1000, 5000, 15000];
 var answering = new Set;
 var deck = {};
+var blocker = { chain: Promise.resolve() };
+var END_MARGIN_MS = 250;
 var asked = new Map;
 var queued = [];
 var WAIT_MS = 5000;
@@ -1103,19 +1121,43 @@ async function writeForms($, change) {
   let written = [];
   await update($, formsAtom, (stored) => {
     const list = knownForms(stored);
-    return written = change(list.length > 0 || legacy.length === 0 ? list : legacy);
+    written = change(list.length > 0 || legacy.length === 0 ? list : legacy);
+    blocker.target = waitingTitle(written);
+    return written;
   });
+  syncBlocker($);
   if (legacy.length > 0)
     await update($, legacyAtom, () => null);
   return written;
 }
+async function herdrPane($) {
+  if (await $.env.get("HERDR_ENV") !== "1")
+    return;
+  return await $.env.get("HERDR_PANE_ID") || undefined;
+}
+function syncBlocker($, target = () => blocker.target) {
+  blocker.chain = blocker.chain.then(() => tellHerdr($, target())).catch(() => {
+    return;
+  });
+  return blocker.chain;
+}
+async function tellHerdr($, target) {
+  if (target === undefined || target === blocker.shown)
+    return;
+  blocker.shown = target;
+  const pane = await herdrPane($);
+  if (!pane)
+    return;
+  const ran = await $.process.run(target === null ? clearArgs(pane) : raiseArgs(pane, target), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => {
+    return;
+  });
+  if (target === null && ran?.exitCode !== 0)
+    blocker.shown = undefined;
+}
 async function waitingForm($) {
   const forms = await readForms($);
-  const form = currentForm(forms);
-  if (!form || form.status !== "open")
-    return;
-  const more = openCount(forms) - 1;
-  return { formId: form.id, title: more > 0 ? `${form.title}, ${more} more waiting` : form.title };
+  const title = waitingTitle(forms);
+  return title === null ? undefined : { formId: currentForm(forms).id, title };
 }
 async function setKeysInForm($, value) {
   if (await read($, keysAtom) !== value)
@@ -1263,10 +1305,15 @@ async function endAsk($, id, outcome, note) {
     return;
   }
   const status = "value" in outcome ? "answered" : "cancelled";
-  const forms = await writeForms($, (list) => patchForm(list, id, { status, ...note && { note } }));
   const next = queued.shift();
+  const forms = await writeForms($, (list) => {
+    const ended = patchForm(list, id, { status, ...note && { note } });
+    return next ? addForm(ended, next) : ended;
+  });
   if (next)
-    await openAsk($, next);
+    await revealForm($, forms, next).catch(() => {
+      return;
+    });
   else
     await showCurrent($, forms);
 }
@@ -1291,14 +1338,15 @@ async function closeOrphans($) {
   $.ui.invalidate("ui.render");
 }
 async function openForm($, form, supersededId) {
-  await writeForms($, (list) => addForm(list, form, supersededId));
-  const shown = currentForm(await readForms($));
-  const title = shown?.title ?? form.title;
+  await revealForm($, await writeForms($, (list) => addForm(list, form, supersededId)), form);
+}
+async function revealForm($, forms, form) {
+  const title = currentForm(forms)?.title ?? form.title;
   if (!await showPane($, GATE_PANE, title))
     $.ui.toast(`${title} is waiting: press Show above the prompt`);
 }
 async function ringBell($, form) {
-  if (await $.env.get("HERDR_ENV") !== "1" || !await $.env.get("HERDR_PANE_ID"))
+  if (!await herdrPane($))
     return;
   await $.process.run(bellArgs(await $.session.cwd(), form.questions), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => {
     return;
@@ -1606,6 +1654,25 @@ function register(on) {
     await closeOrphans($).catch(() => {
       return;
     });
+    readForms($).then((forms) => {
+      if (blocker.target === undefined)
+        blocker.target = waitingTitle(forms);
+      return syncBlocker($);
+    }).catch(() => {
+      return;
+    });
+    return next(e);
+  });
+  on("session.end", async ($, e, next) => {
+    const cleared = syncBlocker($, () => null);
+    const boundMs = Math.min(QUICK_TIMEOUT_MS, next.budget.remainingMs - END_MARGIN_MS);
+    if (boundMs > 0) {
+      const stop = new AbortController;
+      await Promise.race([cleared, $.clock.sleep(boundMs, { signal: stop.signal }).catch(() => {
+        return;
+      })]);
+      stop.abort();
+    }
     return next(e);
   });
   on("tool.call", { tool: "mcp__gate-form__ask" }, async ($, e) => {

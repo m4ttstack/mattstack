@@ -7,6 +7,14 @@ export function currentForm(list: Form[]): Form | undefined {
 
 export const openCount = (list: Form[]) => list.filter(f => f.status === 'open').length
 
+// What the band and herdr's blocker say while a form waits; null with none open.
+export function waitingTitle(list: Form[]): string | null {
+  const form = currentForm(list)
+  if (form?.status !== 'open') return null
+  const more = openCount(list) - 1
+  return more > 0 ? `${form.title}, ${more} more waiting` : form.title
+}
+
 // One form per gate: a form for a gate already listed, or for the gate it supersedes, takes that form's place,
 // as an ask form takes the place of the last ask form. Closed forms go.
 export function addForm(list: Form[], form: Form, supersededId?: string | null): Form[] {

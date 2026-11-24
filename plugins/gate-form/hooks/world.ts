@@ -100,6 +100,8 @@ export type WorldOptions = {
   holdWaits?: boolean
   // Files `$.fs.read` finds, by absolute path; any other read rejects as missing.
   files?: Record<string, string>
+  // How herdr answers `herdr pane ...`; a herdr that has the blocker verbs succeeds.
+  herdr?: Answer
 }
 
 // What sits beneath the plugin: the pane list, the mattstack tool, `rt`, `deck`, `open`, herdr, the prompt and the session.
@@ -111,6 +113,7 @@ export function world(on: On, opts: WorldOptions = {}) {
   const sent: string[] = []
   const opened: string[] = []
   const bells: string[][] = []
+  const blockers: string[][] = []
   const deckRuns: string[][] = []
   const waits: Wait[] = []
   const toasts: string[] = []
@@ -146,6 +149,7 @@ export function world(on: On, opts: WorldOptions = {}) {
     return { value: undefined }
   })
   on('ui.panes', () => ({ value: [...panes].map(([id, title]) => ({ id, title, isShown: true, isFocused: false, isPlaced: true })) }))
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
   on('session.id', () => {
     if (state.sessionIdFails) throw new Error('no session bound')
     return { value: SESSION }
@@ -179,6 +183,12 @@ export function world(on: On, opts: WorldOptions = {}) {
       opened.push(e.argv[1] ?? '')
       return ok('')
     }
+    // Kept in the order herdr finishes them, so a run that overtook an earlier one shows out of order.
+    if (e.argv[0] === 'herdr' && e.argv[1] === 'pane') {
+      const answer = (await opts.herdr?.(e.argv)) ?? ok('')
+      blockers.push([...e.argv])
+      return answer
+    }
     if (e.argv[0] === 'herdr') {
       bells.push([...e.argv])
       return ok('')
@@ -199,7 +209,7 @@ export function world(on: On, opts: WorldOptions = {}) {
     if (stdout) yield { stream: 'stdout' as const, text: stdout }
     return { value: { code, signal: null } }
   })
-  return { panes, calls, ran, sent, opened, bells, deckRuns, waits, toasts, registered, state, clock }
+  return { panes, calls, ran, sent, opened, bells, blockers, deckRuns, waits, toasts, registered, state, clock }
 }
 
 export const startSession = ($: Engine) => $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true } as never)
