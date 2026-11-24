@@ -12,15 +12,19 @@ export interface Carry {
 
 /** The skill a `then` names as /name, with what follows it; undefined for plain text, a path included. */
 export function skillIn(then: string): { name: string; args: string } | undefined {
-  const slash = /^\/([\w:-]+)(?:\s+([\s\S]*))?$/.exec(then)
+  const slash = /^\/([\w:-]+)(?:\s+([\s\S]*))?$/.exec(then.trim())
   return slash?.[1] ? { name: slash[1], args: (slash[2] ?? '').trim() } : undefined
+}
+
+export function nextStep(then: string): string {
+  return `Next step from before the reset: ${then.trim()}`
 }
 
 /** A named skill goes in as a request to use it, never as a command, so the skill's own limits on who may start it hold. */
 export function thenPrompt(then: string): string {
   const skill = skillIn(then)
   if (skill) return `Use the ${skill.name} skill${skill.args ? ` with: ${skill.args}` : ''}`
-  return then.startsWith('/') ? `Next step from before the reset: ${then}` : then
+  return then.trimStart().startsWith('/') ? nextStep(then) : then
 }
 
 export function ledgerMessage(ledger: string): string {

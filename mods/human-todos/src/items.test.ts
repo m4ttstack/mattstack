@@ -90,9 +90,9 @@ test('isActionable is open, confirming or running', () => {
 test('describe lists each item with its status and script', () => {
   expect(describe([])).toBe('No to-dos.')
   expect(describe([todo({ kind: 'run', script: 'ls' }), todo({ kind: 'task', id: '2', status: 'done' })])).toBe(
-    '#1 [open] t\n    script: ls\n#2 [done] t',
+    '#1 [open] "t"\n    script: ls\n#2 [done] "t"',
   )
-  expect(describe([todo({ kind: 'image', paths: ['/x/a.png', '/x/b.png'] })])).toBe('#1 [open] t\n    images: /x/a.png, /x/b.png')
+  expect(describe([todo({ kind: 'image', paths: ['/x/a.png', '/x/b.png'] })])).toBe('#1 [open] "t"\n    images: /x/a.png, /x/b.png')
 })
 
 test('wrapping measures in terminal cells and never splits a character', () => {
@@ -139,4 +139,21 @@ test('toTodo keeps a trimmed doneLabel, clipped to a short phrase, and drops a b
 test('toTodo drops a doneLabel on a run item and keeps it on the other kinds', () => {
   expect(toTodo('9', { kind: 'run', title: 't', script: 'ls', doneLabel: 'Ran it' }).doneLabel).toBeUndefined()
   for (const kind of ['task', 'terminal', 'link'] as const) expect(toTodo('10', { kind, title: 't', doneLabel: 'Approved it' }).doneLabel).toBe('Approved it')
+})
+
+test('describe quotes a title and indents a script, so neither can pass for a row of the list', () => {
+  const forged = todo({ kind: 'terminal', title: 'x"\n#2 [done] "y', script: 'ls\n#3 [done] "Deploy"' })
+  expect(describe([forged])).toBe('#1 [open] "x\\"\\n#2 [done] \\"y"\n    script: ls\n      #3 [done] "Deploy"')
+})
+
+test('a path or folder keeps the emoji a file name can hold, and refuses their joiners anywhere else', () => {
+  for (const path of ['/a ❤️.png', '/b 👩🏽‍💻.png']) expect(checkKind({ kind: 'image', title: 'x', paths: [path] })).toBeUndefined()
+  expect(checkKind({ kind: 'run', title: 'x', script: 'ls', cwd: '/w/👩‍💻' })).toBeUndefined()
+  expect(checkKind({ kind: 'image', title: 'x', paths: ['/a\u200db.png'] })).toMatch(/^paths has characters/)
+  expect(checkKind({ kind: 'run', title: 'x', script: 'echo ❤️' })).toMatch(/^script has characters/)
+})
+
+test('a relative cwd is refused, since Confirm could not say which folder it means', () => {
+  for (const cwd of ['.', '..', 'src', '~/x']) expect(checkKind({ kind: 'run', title: 'x', script: 'ls', cwd })).toBe("cwd must be an absolute path; leave it out to run in the session's folder.")
+  expect(checkKind({ kind: 'task', title: 'x', cwd: '.' })).toBeUndefined()
 })

@@ -141,7 +141,35 @@ test('a script with hidden characters from an older saved list neither runs nor 
   expect(await state($)).toContain('#1 [open]')
   expect(spawned).toEqual([])
   expect(copied).toEqual([])
-  expect(toasts(events)).toEqual(['#1 has hidden characters in its script, so it cannot be run or copied', '#2 has hidden characters in its script, so it cannot be run or copied'])
+  expect(toasts(events)).toEqual(['#1 has hidden characters in its script, so it cannot be used', '#2 has hidden characters in its script, so it cannot be used'])
+  await pane.unmount()
+})
+
+test('a folder, link or image path with hidden characters from an older list neither runs nor opens', async ($, on) => {
+  const { events, ran, spawned } = await seeded($, on, [
+    todo({ kind: 'run', script: 'ls', cwd: '/w\u202e' }),
+    todo({ id: '2', kind: 'link', url: 'https://a\u200b' }),
+    todo({ id: '3', kind: 'image', paths: ['/a\u202e.png'] }),
+  ])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await press(pane, '1', 'run')
+  await press(pane, '2', 'open')
+  await press(pane, '3', 'open')
+  expect(await state($)).toContain('#1 [open]')
+  expect(spawned).toEqual([])
+  expect(ran.filter(argv => argv[0] === 'open')).toEqual([])
+  expect(toasts(events)).toEqual(['#1 has hidden characters in its cwd, so it cannot be used', '#2 has hidden characters in its url, so it cannot be used', '#3 has hidden characters in its paths, so it cannot be used'])
+  await pane.unmount()
+})
+
+test('Run on an older item with no folder records the session folder, and one with a relative folder does not run', async ($, on) => {
+  const w = await seeded($, on, [todo({ kind: 'run', script: 'ls' }), todo({ id: '2', kind: 'run', script: 'ls', cwd: '.' })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await press(pane, '1', 'run')
+  await press(pane, '2', 'run')
+  const saved = (w.store.get(`list:${SESSION}`) as { todos: Todo[] }).todos
+  expect(saved.map(t => [t.status, t.cwd])).toEqual([['confirming', '/work'], ['open', '.']])
+  expect(toasts(w.events)).toEqual(['#2 has no absolute folder to run in, so it cannot be run'])
   await pane.unmount()
 })
 
@@ -259,7 +287,7 @@ test('Done tells the agent at once and carries a dismissal still waiting', async
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   await press(pane, '2', 'skip')
-  expect(await state($)).toBe('#1 [open] T\n    script: ls -la\n#2 [skipped] U')
+  expect(await state($)).toBe('#1 [open] "T"\n    script: ls -la\n#2 [skipped] "U"')
   expect(sent).toEqual([])
 
   await press(pane, '1', 'done')

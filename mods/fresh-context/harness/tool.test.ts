@@ -100,10 +100,35 @@ test('a then naming a plugin skill asks the fresh context to use it, and runs no
   expect(w.submitted).toEqual(['Use the mattstack:pr-usher skill with: tick'])
 })
 
+test('space before a named command does not get it past the check', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  for (const space of [' ', '\n', '\u00a0']) {
+    const refused = await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x', then: `${space}/clear` })
+    expect(refused).toMatchObject({ deny: 'then cannot start /clear: only a plugin skill can be named there.' })
+  }
+  await stop($)
+  await w.clock.settle()
+  expect(w.commands).toEqual([])
+})
+
+test('a then whose prompt is refused still reaches the fresh context, as a note', async ($, on) => {
+  const w = world(on, { signedIn: false })
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'Goal: x', then: 'carry on' })
+  await stop($)
+  await w.clock.settle()
+  w.state.submitFails = true
+  w.state.sessionId = NEW
+  await $.classic.SessionStart({ source: 'clear', session_id: NEW })
+  await w.clock.settle()
+  expect(w.appended()).toEqual(['Ledger carried from before the reset:\n\nGoal: x', 'Next step from before the reset: carry on'])
+})
+
 test('a then naming any other command is refused and queues nothing', async ($, on) => {
   const w = world(on)
   await startSession($)
-  for (const name of ['permissions', 'mine', 'server:prompt', 'nowhere']) {
+  for (const name of ['permissions', 'mine', 'server:prompt', 'nowhere', 'fresh']) {
     const refused = await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x', then: `/${name} now` })
     expect(refused).toMatchObject({ deny: `then cannot start /${name}: only a plugin skill can be named there.` })
   }

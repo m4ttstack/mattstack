@@ -731,17 +731,16 @@ var LINE_MAX = 300;
 var TAIL_MAX = 8 * 1024;
 var UNSEEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
 var UNSEEN_IN_PROSE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/u;
-function hasUnseen(script) {
-  return UNSEEN.test(script.replace(/[\n\t]/g, ""));
-}
+var EMOJI2 = /\p{Extended_Pictographic}[️\p{Emoji_Modifier}]?(?:‍\p{Extended_Pictographic}[️\p{Emoji_Modifier}]?)*/gu;
+var isUnseenPath = (path) => UNSEEN.test(path.replace(EMOJI2, ""));
 function unseenField(input) {
-  if (hasUnseen(input.script ?? ""))
+  if (UNSEEN.test((input.script ?? "").replace(/[\n\t]/g, "")))
     return "script";
-  if (UNSEEN.test(input.cwd ?? ""))
+  if (isUnseenPath(input.cwd ?? ""))
     return "cwd";
   if (UNSEEN.test(input.url ?? ""))
     return "url";
-  if (Array.isArray(input.paths) && input.paths.some((p) => UNSEEN.test(String(p))))
+  if (Array.isArray(input.paths) && input.paths.some((p) => isUnseenPath(String(p))))
     return "paths";
   if (UNSEEN_IN_PROSE.test(input.title))
     return "title";
@@ -759,6 +758,8 @@ function checkKind(input) {
   const unseen = unseenField(input);
   if (unseen)
     return `${unseen} has characters the user cannot see (control, direction or zero-width); leave them out.`;
+  if (input.kind === "run" && input.cwd?.trim() && !input.cwd.startsWith("/"))
+    return "cwd must be an absolute path; leave it out to run in the session's folder.";
   if (input.kind === "link" && !/^https?:\/\//.test(input.url ?? ""))
     return "kind link needs an http(s) url.";
   if (input.kind === "image") {
@@ -869,10 +870,12 @@ function describe(list) {
     return "No to-dos.";
   return list.map((t) => {
     const script = t.script ? `
-    script: ${t.script}` : "";
+    script: ${t.script.replaceAll(`
+`, `
+      `)}` : "";
     const images = t.paths?.length ? `
     images: ${t.paths.join(", ")}` : "";
-    return `#${t.id} [${t.status}] ${t.title}${script}${images}`;
+    return `#${t.id} [${t.status}] ${JSON.stringify(t.title)}${script}${images}`;
   }).join(`
 `);
 }

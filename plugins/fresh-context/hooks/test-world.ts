@@ -20,7 +20,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   const agents: Agent[] = []
   const commandsRegistered: { name: string; description: string }[] = []
   const argv0: string[] = []
-  const state = { sessionId: OLD, compact: { skip: undefined as string | undefined }, stopBlocks: false, rtOverruns: false, overrunMs: 10_000, onBegin: undefined as undefined | (() => Promise<unknown>), appendRefused: false }
+  const state = { sessionId: OLD, compact: { skip: undefined as string | undefined }, stopBlocks: false, rtOverruns: false, overrunMs: 10_000, onBegin: undefined as undefined | (() => Promise<unknown>), appendRefused: false, submitFails: false }
 
   on('session.id', () => ({ value: state.sessionId }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -57,6 +57,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
   on('command.list', () => ({
     value: [
       { name: 'mattstack:pr-usher', description: '', source: 'plugin' as const, plugin: 'mattstack' },
+      { name: 'fresh', description: '', source: 'plugin' as const, plugin: 'fresh-context' },
       { name: 'review', description: '', source: 'builtin' as const },
       { name: 'permissions', description: '', source: 'builtin' as const },
       { name: 'mine', description: '', source: 'user' as const },
@@ -73,6 +74,7 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
     return state.compact.skip ? { skip: state.compact.skip } : { messages: [{ role: 'user' as const, text: 'summary', toolUses: [] }] }
   })
   on('prompt.submit', (_, e) => {
+    if (state.submitFails) throw new Error('refused')
     submitted.push(e.text)
     return { text: e.text }
   })

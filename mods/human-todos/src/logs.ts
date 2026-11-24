@@ -42,18 +42,24 @@ export async function writeRunLog($: EngineInterface, todoId: string, output: st
   if (typeof spill !== 'string' || !(await joinSpill($, spill, text, path))) {
     await $.fs.write(path, spill === undefined ? text : `${DROPPED}${text}`)
   }
+  await pruneLogs($)
+  return path
+}
+
+// Runs at session start too, so old logs go even when nothing runs again.
+export async function pruneLogs($: EngineInterface): Promise<void> {
   try {
-    const logs = (await $.fs.list(folder)).filter(entry => entry.kind === 'file' && entry.name.endsWith('.log'))
+    const root = await logFolder($)
+    const folder = `${root}/runs`
+    const logs = (await $.fs.list(folder).catch(() => [])).filter(entry => entry.kind === 'file' && entry.name.endsWith('.log'))
     const now = await $.clock.now()
     const newest = [...logs].sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name))
     const old = newest.filter((entry, n) => n >= KEPT_RUN_LOGS || now - entry.mtimeMs > STALE_LOG_MS)
-    const root = await logFolder($)
     const maxAge = (name: string) => (name.endsWith('.spill') ? STALE_SPILL_MS : name.endsWith('.log') ? STALE_LOG_MS : Number.POSITIVE_INFINITY)
     const stale = (await $.fs.list(root)).filter(entry => entry.kind === 'file' && now - entry.mtimeMs > maxAge(entry.name))
     const gone = [...old.map(entry => `${folder}/${entry.name}`), ...stale.map(entry => `${root}/${entry.name}`)]
     if (gone.length > 0) await $.process.run(['rm', '-f', '--', ...gone])
   } catch {
-    // A prune that fails leaves extra files; the next report tries again.
+    // A prune that fails leaves extra files; the next session start or report tries again.
   }
-  return path
 }

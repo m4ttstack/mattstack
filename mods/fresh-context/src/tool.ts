@@ -29,8 +29,9 @@ export async function registerToolDef($: EngineInterface): Promise<void> {
     })
 }
 
+// A command a mod registers is a plugin's too, but only a skill's name holds a colon.
 async function isPluginSkill($: EngineInterface, name: string): Promise<boolean> {
-  return (await $.command.list()).some(c => c.name === name && c.source === 'plugin')
+  return name.includes(':') && (await $.command.list()).some(c => c.name === name && c.source === 'plugin')
 }
 
 export function registerTool(on: On): void {
@@ -45,10 +46,11 @@ export function registerTool(on: On): void {
 
   on('tool.call', { tool: TOOL }, async ($, e) => {
     if (e.agentId) return { deny: 'Only the main session can reset itself; a subagent cannot.' }
-    const { mode, ledger, then } = e as unknown as { mode?: unknown; ledger?: unknown; then?: unknown }
+    const { mode, ledger, then: asked } = e as unknown as { mode?: unknown; ledger?: unknown; then?: unknown }
     if (mode !== 'clear' && mode !== 'compact') return { deny: 'mode must be "clear" or "compact".' }
     if (typeof ledger !== 'string' || ledger.trim() === '') return { deny: 'Write a ledger first: the reset carries nothing else.' }
-    if (then !== undefined && typeof then !== 'string') return { deny: 'then must be text.' }
+    if (asked !== undefined && typeof asked !== 'string') return { deny: 'then must be text.' }
+    const then = asked?.trim()
     const skill = then ? skillIn(then) : undefined
     if (skill && !(await isPluginSkill($, skill.name))) return { deny: `then cannot start /${skill.name}: only a plugin skill can be named there.` }
     // Claimed before the queue's first await, so a second call in the same message is refused.

@@ -2,6 +2,7 @@ import type { On } from 'claude-code'
 
 import type { AddInput } from '../types'
 import { resumeWatching } from './herdr'
+import { pruneLogs } from './logs'
 import { KINDS, TITLE, checkKind, describe } from './items'
 import { addTodo, leaveList, listTodos, removeTodos, resetList, restoreList } from './store'
 import { clampScroll, cleanup, openPane, release, syncSpinner } from './wiring'
@@ -53,7 +54,7 @@ export function registerContract(on: On): void {
             items: { type: 'string' },
             description: 'For kind image: one absolute path per image file (png, jpg, gif, webp, heic, tiff, bmp); Open opens them all in the default image app',
           },
-          cwd: { type: 'string', description: 'For kind run: directory to run in; defaults to the session cwd' },
+          cwd: { type: 'string', description: 'For kind run: absolute path of the directory to run in; defaults to the session cwd' },
           doneLabel: {
             type: 'string',
             description: 'Optional words for the Done button, saying what finishing this step means, e.g. "I\'ve signed in" or "Approved it". Two to four words; plain Done when left out. Ignored for kind run, whose Done always reads "Done without running".',
@@ -87,6 +88,7 @@ export function registerContract(on: On): void {
 
     const started = await next(e)
     await restoreList($)
+    await pruneLogs($)
     await resumeWatching($)
     await syncSpinner($)
     return started
@@ -128,10 +130,11 @@ export function registerContract(on: On): void {
   })
 
   on('tool.call', { tool: 'mcp__human-todos__add' }, async ($, e) => {
-    const input = e as unknown as AddInput
+    const asked = e as unknown as AddInput
+    const input = asked.kind === 'run' && !asked.cwd?.trim() ? { ...asked, cwd: await $.session.cwd() } : asked
     const missing = checkKind(input)
     if (missing) return { deny: missing }
-    const todo = await addTodo($, input.kind === 'run' && input.cwd === undefined ? { ...input, cwd: await $.session.cwd() } : input)
+    const todo = await addTodo($, input)
     await openPane($)
     return {
       result: `Added #${todo.id} to the user's ${TITLE} pane. You will get a message when they act on it; carry on with other work meanwhile.`,

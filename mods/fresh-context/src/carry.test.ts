@@ -14,6 +14,10 @@ test('thenPrompt never starts with a slash, so it cannot run a command', () => {
   expect(thenPrompt('/mattstack:pr-usher')).toBe('Use the mattstack:pr-usher skill')
   expect(thenPrompt('/tmp/notes.md has the plan')).toBe('Next step from before the reset: /tmp/notes.md has the plan')
   expect(thenPrompt('carry on')).toBe('carry on')
+  for (const space of [' ', '\n', '\u00a0']) {
+    expect(thenPrompt(`${space}/clear`)).toBe('Use the clear skill')
+    expect(skillIn(`${space}/clear`)).toEqual({ name: 'clear', args: '' })
+  }
 })
 
 test('ledgerMessage says where the text came from', () => {

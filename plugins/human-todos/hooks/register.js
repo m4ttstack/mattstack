@@ -843,17 +843,16 @@ var LINE_MAX = 300;
 var TAIL_MAX = 8 * 1024;
 var UNSEEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
 var UNSEEN_IN_PROSE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/u;
-function hasUnseen(script) {
-  return UNSEEN.test(script.replace(/[\n\t]/g, ""));
-}
+var EMOJI2 = /\p{Extended_Pictographic}[️\p{Emoji_Modifier}]?(?:‍\p{Extended_Pictographic}[️\p{Emoji_Modifier}]?)*/gu;
+var isUnseenPath = (path) => UNSEEN.test(path.replace(EMOJI2, ""));
 function unseenField(input) {
-  if (hasUnseen(input.script ?? ""))
+  if (UNSEEN.test((input.script ?? "").replace(/[\n\t]/g, "")))
     return "script";
-  if (UNSEEN.test(input.cwd ?? ""))
+  if (isUnseenPath(input.cwd ?? ""))
     return "cwd";
   if (UNSEEN.test(input.url ?? ""))
     return "url";
-  if (Array.isArray(input.paths) && input.paths.some((p) => UNSEEN.test(String(p))))
+  if (Array.isArray(input.paths) && input.paths.some((p) => isUnseenPath(String(p))))
     return "paths";
   if (UNSEEN_IN_PROSE.test(input.title))
     return "title";
@@ -871,6 +870,8 @@ function checkKind(input) {
   const unseen = unseenField(input);
   if (unseen)
     return `${unseen} has characters the user cannot see (control, direction or zero-width); leave them out.`;
+  if (input.kind === "run" && input.cwd?.trim() && !input.cwd.startsWith("/"))
+    return "cwd must be an absolute path; leave it out to run in the session's folder.";
   if (input.kind === "link" && !/^https?:\/\//.test(input.url ?? ""))
     return "kind link needs an http(s) url.";
   if (input.kind === "image") {
@@ -981,10 +982,12 @@ function describe(list) {
     return "No to-dos.";
   return list.map((t) => {
     const script = t.script ? `
-    script: ${t.script}` : "";
+    script: ${t.script.replaceAll(`
+`, `
+      `)}` : "";
     const images = t.paths?.length ? `
     images: ${t.paths.join(", ")}` : "";
-    return `#${t.id} [${t.status}] ${t.title}${script}${images}`;
+    return `#${t.id} [${t.status}] ${JSON.stringify(t.title)}${script}${images}`;
   }).join(`
 `);
 }
@@ -1036,19 +1039,23 @@ async function writeRunLog($, todoId, output, spill) {
   if (typeof spill !== "string" || !await joinSpill($, spill, text, path)) {
     await $.fs.write(path, spill === undefined ? text : `${DROPPED}${text}`);
   }
+  await pruneLogs($);
+  return path;
+}
+async function pruneLogs($) {
   try {
-    const logs = (await $.fs.list(folder)).filter((entry) => entry.kind === "file" && entry.name.endsWith(".log"));
+    const root = await logFolder($);
+    const folder = `${root}/runs`;
+    const logs = (await $.fs.list(folder).catch(() => [])).filter((entry) => entry.kind === "file" && entry.name.endsWith(".log"));
     const now = await $.clock.now();
     const newest = [...logs].sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name));
     const old = newest.filter((entry, n) => n >= KEPT_RUN_LOGS || now - entry.mtimeMs > STALE_LOG_MS);
-    const root = await logFolder($);
     const maxAge = (name) => name.endsWith(".spill") ? STALE_SPILL_MS : name.endsWith(".log") ? STALE_LOG_MS : Number.POSITIVE_INFINITY;
     const stale = (await $.fs.list(root)).filter((entry) => entry.kind === "file" && now - entry.mtimeMs > maxAge(entry.name));
     const gone = [...old.map((entry) => `${folder}/${entry.name}`), ...stale.map((entry) => `${root}/${entry.name}`)];
     if (gone.length > 0)
       await $.process.run(["rm", "-f", "--", ...gone]);
   } catch {}
-  return path;
 }
 
 // mods/human-todos/src/store.ts
@@ -2040,19 +2047,24 @@ async function openImages($, todo) {
   if (opened.exitCode !== 0)
     $.ui.toast(`Could not open the images for #${todo.id}`);
 }
+var USES = new Set(["run", "confirm", "copy", "open"]);
+async function askFirst($, todo) {
+  const cwd = todo.cwd?.trim() ? todo.cwd : await $.session.cwd();
+  if (!cwd.startsWith("/"))
+    return $.ui.toast(`#${todo.id} has no absolute folder to run in, so it cannot be run`);
+  await patchTodo($, todo.id, { status: "confirming", cwd });
+}
 async function press($, todo, button, surface) {
   const current = (await listTodos($)).find((t) => t.id === todo.id);
   if (!current)
     return;
-  if ((button === "run" || button === "confirm" || button === "copy") && hasUnseen(current.script ?? "")) {
-    if (current.status === "confirming")
-      await patchTodo($, current.id, { status: "open" });
-    return $.ui.toast(`#${current.id} has hidden characters in its script, so it cannot be run or copied`);
-  }
+  const unseen = USES.has(button) ? unseenField(current) : undefined;
+  if (unseen)
+    return $.ui.toast(`#${current.id} has hidden characters in its ${unseen}, so it cannot be used`);
   switch (button) {
     case "run":
       if (current.status === "open")
-        await patchTodo($, current.id, { status: "confirming" });
+        await askFirst($, current);
       return;
     case "cancel":
       if (current.status === "confirming")
@@ -2847,7 +2859,7 @@ function registerContract(on) {
             items: { type: "string" },
             description: "For kind image: one absolute path per image file (png, jpg, gif, webp, heic, tiff, bmp); Open opens them all in the default image app"
           },
-          cwd: { type: "string", description: "For kind run: directory to run in; defaults to the session cwd" },
+          cwd: { type: "string", description: "For kind run: absolute path of the directory to run in; defaults to the session cwd" },
           doneLabel: {
             type: "string",
             description: `Optional words for the Done button, saying what finishing this step means, e.g. "I've signed in" or "Approved it". Two to four words; plain Done when left out. Ignored for kind run, whose Done always reads "Done without running".`
@@ -2880,6 +2892,7 @@ function registerContract(on) {
     });
     const started = await next(e);
     await restoreList($);
+    await pruneLogs($);
     await resumeWatching($);
     await syncSpinner($);
     return started;
@@ -2915,11 +2928,12 @@ function registerContract(on) {
     return next({ ...e, props: { ...e.props, input: { kind, title } } });
   });
   on("tool.call", { tool: "mcp__human-todos__add" }, async ($, e) => {
-    const input = e;
+    const asked = e;
+    const input = asked.kind === "run" && !asked.cwd?.trim() ? { ...asked, cwd: await $.session.cwd() } : asked;
     const missing = checkKind(input);
     if (missing)
       return { deny: missing };
-    const todo = await addTodo($, input.kind === "run" && input.cwd === undefined ? { ...input, cwd: await $.session.cwd() } : input);
+    const todo = await addTodo($, input);
     await openPane($);
     return {
       result: `Added #${todo.id} to the user's ${TITLE} pane. You will get a message when they act on it; carry on with other work meanwhile.`

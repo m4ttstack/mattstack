@@ -2,7 +2,7 @@ import type { EngineInterface, On } from 'claude-code'
 
 import { busyTasks, type TaskLike } from './busy'
 import { beginChat, cancelChat, completeChat } from './chat'
-import { ledgerMessage, thenPrompt, type Carry } from './carry'
+import { ledgerMessage, nextStep, thenPrompt, type Carry } from './carry'
 
 const CARRY = { plugin: 'fresh-context', key: 'carry' } as const
 
@@ -66,6 +66,12 @@ async function hold($: EngineInterface, text: string): Promise<void> {
   if (!appended || appended.deny !== undefined) await $.prompt.submit({ text })
 }
 
+// A refused prompt leaves the next step in the fresh context as a note, so it is never lost without a word.
+async function startOn($: EngineInterface, then: string): Promise<void> {
+  const sent = await $.prompt.submit({ text: thenPrompt(then) }).catch(() => undefined)
+  if (sent === undefined || sent.drop !== undefined) await hold($, nextStep(then)).catch(() => undefined)
+}
+
 async function handOver($: EngineInterface, carry: Carry, sessionId: string): Promise<void> {
   // One hand-over per carry, whichever cue arrives first.
   if (pending !== carry) return
@@ -77,7 +83,7 @@ async function handOver($: EngineInterface, carry: Carry, sessionId: string): Pr
     if (welcome === null) await cancelChat($, carry.oldSessionId, sessionId)
     else if (welcome) await hold($, welcome)
   }
-  if (carry.then) await $.prompt.submit({ text: thenPrompt(carry.then) })
+  if (carry.then) await startOn($, carry.then)
 }
 
 async function runReset($: EngineInterface, queued: Carry): Promise<void> {
