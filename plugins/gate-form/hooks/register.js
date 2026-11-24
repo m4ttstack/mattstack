@@ -1125,7 +1125,8 @@ async function writeForms($, change) {
   });
   if (legacy.length > 0)
     await update($, legacyAtom, () => null);
-  syncBlocker($, written);
+  blocker.target = waitingTitle(written);
+  syncBlocker($);
   return written;
 }
 async function herdrPane($) {
@@ -1133,21 +1134,24 @@ async function herdrPane($) {
     return;
   return await $.env.get("HERDR_PANE_ID") || undefined;
 }
-function syncBlocker($, forms) {
-  const target = waitingTitle(forms);
-  blocker.chain = blocker.chain.then(async () => {
-    if (target === blocker.shown)
-      return;
-    blocker.shown = target;
-    const pane = await herdrPane($);
-    if (pane)
-      await $.process.run(target === null ? clearArgs(pane) : raiseArgs(pane, target), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => {
-        return;
-      });
-  }).catch(() => {
+function syncBlocker($, target = () => blocker.target) {
+  blocker.chain = blocker.chain.then(() => tellHerdr($, target())).catch(() => {
     return;
   });
   return blocker.chain;
+}
+async function tellHerdr($, target) {
+  if (target === undefined || target === blocker.shown)
+    return;
+  blocker.shown = target;
+  const pane = await herdrPane($);
+  if (!pane)
+    return;
+  const ran = await $.process.run(target === null ? clearArgs(pane) : raiseArgs(pane, target), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => {
+    return;
+  });
+  if (target === null && ran?.exitCode !== 0)
+    blocker.shown = undefined;
 }
 async function waitingForm($) {
   const forms = await readForms($);
@@ -1300,10 +1304,15 @@ async function endAsk($, id, outcome, note) {
     return;
   }
   const status = "value" in outcome ? "answered" : "cancelled";
-  const forms = await writeForms($, (list) => patchForm(list, id, { status, ...note && { note } }));
   const next = queued.shift();
+  const forms = await writeForms($, (list) => {
+    const ended = patchForm(list, id, { status, ...note && { note } });
+    return next ? addForm(ended, next) : ended;
+  });
   if (next)
-    await openAsk($, next);
+    await revealForm($, forms, next).catch(() => {
+      return;
+    });
   else
     await showCurrent($, forms);
 }
@@ -1328,9 +1337,10 @@ async function closeOrphans($) {
   $.ui.invalidate("ui.render");
 }
 async function openForm($, form, supersededId) {
-  await writeForms($, (list) => addForm(list, form, supersededId));
-  const shown = currentForm(await readForms($));
-  const title = shown?.title ?? form.title;
+  await revealForm($, await writeForms($, (list) => addForm(list, form, supersededId)), form);
+}
+async function revealForm($, forms, form) {
+  const title = currentForm(forms)?.title ?? form.title;
   if (!await showPane($, GATE_PANE, title))
     $.ui.toast(`${title} is waiting: press Show above the prompt`);
 }
@@ -1643,22 +1653,24 @@ function register(on) {
     await closeOrphans($).catch(() => {
       return;
     });
-    readForms($).then((forms) => syncBlocker($, forms)).catch(() => {
+    readForms($).then((forms) => {
+      if (blocker.target === undefined)
+        blocker.target = waitingTitle(forms);
+      return syncBlocker($);
+    }).catch(() => {
       return;
     });
     return next(e);
   });
   on("session.end", async ($, e, next) => {
-    const timeoutMs = Math.min(QUICK_TIMEOUT_MS, next.budget.remainingMs - END_MARGIN_MS);
-    if (blocker.shown !== null && timeoutMs > 0) {
-      const pane = await herdrPane($).catch(() => {
+    const cleared = syncBlocker($, () => null);
+    const boundMs = Math.min(QUICK_TIMEOUT_MS, next.budget.remainingMs - END_MARGIN_MS);
+    if (boundMs > 0) {
+      const stop = new AbortController;
+      await Promise.race([cleared, $.clock.sleep(boundMs, { signal: stop.signal }).catch(() => {
         return;
-      });
-      if (pane)
-        await $.process.run(clearArgs(pane), { timeoutMs }).catch(() => {
-          return;
-        });
-      blocker.shown = null;
+      })]);
+      stop.abort();
     }
     return next(e);
   });

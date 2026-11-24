@@ -44,9 +44,9 @@ const WAIT_RETRY_MS = [1_000, 5_000, 15_000]
 const answering = new Set<string>()
 // The board's local address as deck last gave it; null when deck has none.
 const deck: { address?: string | null } = {}
-// What herdr was last told for this pane: the message, null once cleared, undefined until this load has told it.
-// Runs go through one chain so herdr gets them in write order.
-const blocker: { shown?: string | null; chain: Promise<void> } = { chain: Promise.resolve() }
+// What herdr was last told for this pane (the message, null once cleared, undefined while unknown) and what the
+// latest write wants it to show. Runs go through one chain, each sending the latest target when it runs.
+const blocker: { shown?: string | null; target?: string | null; chain: Promise<void> } = { chain: Promise.resolve() }
 // session.end's whole chain shares one short bound, so the clear leaves room for the hooks after it.
 const END_MARGIN_MS = 250
 
@@ -78,7 +78,8 @@ async function writeForms($: EngineInterface, change: (list: Form[]) => Form[]):
     return (written = change(list.length > 0 || legacy.length === 0 ? list : legacy))
   })
   if (legacy.length > 0) await update($, legacyAtom, () => null)
-  void syncBlocker($, written)
+  blocker.target = waitingTitle(written)
+  void syncBlocker($)
   return written
 }
 
@@ -88,18 +89,19 @@ async function herdrPane($: EngineInterface): Promise<string | undefined> {
 }
 
 // herdr shows the pane as blocked while a form waits. A herdr without the verb fails the run, which changes nothing.
-function syncBlocker($: EngineInterface, forms: Form[]): Promise<void> {
-  const target = waitingTitle(forms)
-  blocker.chain = blocker.chain
-    .then(async () => {
-      if (target === blocker.shown) return
-      // Set before the run, so a session end while it is under way still clears it; a failed run is not tried again.
-      blocker.shown = target
-      const pane = await herdrPane($)
-      if (pane) await $.process.run(target === null ? clearArgs(pane) : raiseArgs(pane, target), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => undefined)
-    })
-    .catch(() => undefined)
+function syncBlocker($: EngineInterface, target: () => string | null | undefined = () => blocker.target): Promise<void> {
+  blocker.chain = blocker.chain.then(() => tellHerdr($, target())).catch(() => undefined)
   return blocker.chain
+}
+
+// A failed clear is tried again by the next run; a failed raise is not, so an old herdr is not called on every write.
+async function tellHerdr($: EngineInterface, target: string | null | undefined): Promise<void> {
+  if (target === undefined || target === blocker.shown) return
+  blocker.shown = target
+  const pane = await herdrPane($)
+  if (!pane) return
+  const ran = await $.process.run(target === null ? clearArgs(pane) : raiseArgs(pane, target), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => undefined)
+  if (target === null && ran?.exitCode !== 0) blocker.shown = undefined
 }
 
 // A form closed before it was answered waits above the prompt, with a way back to it.
@@ -268,9 +270,13 @@ async function endAsk($: EngineInterface, id: string, outcome: GateFormAskResult
     return
   }
   const status: Form['status'] = 'value' in outcome ? 'answered' : 'cancelled'
-  const forms = await writeForms($, list => patchForm(list, id, { status, ...(note && { note }) }))
+  // One write ends this form and opens the next, so herdr's blocker never drops between them.
   const next = queued.shift()
-  if (next) await openAsk($, next)
+  const forms = await writeForms($, list => {
+    const ended = patchForm(list, id, { status, ...(note && { note }) })
+    return next ? addForm(ended, next) : ended
+  })
+  if (next) await revealForm($, forms, next).catch(() => undefined)
   else await showCurrent($, forms)
 }
 
@@ -297,9 +303,11 @@ async function closeOrphans($: EngineInterface): Promise<void> {
 }
 
 async function openForm($: EngineInterface, form: Form, supersededId?: string | null): Promise<void> {
-  await writeForms($, list => addForm(list, form, supersededId))
-  const shown = currentForm(await readForms($))
-  const title = shown?.title ?? form.title
+  await revealForm($, await writeForms($, list => addForm(list, form, supersededId)), form)
+}
+
+async function revealForm($: EngineInterface, forms: Form[], form: Form): Promise<void> {
+  const title = currentForm(forms)?.title ?? form.title
   // Opened from a tool, not by the person: on a narrow terminal it waits for the band's Show.
   if (!(await showPane($, GATE_PANE, title))) $.ui.toast(`${title} is waiting: press Show above the prompt`)
 }
@@ -623,18 +631,24 @@ export function register(on: On): void {
     void setting.reading.then(() => (setting.isOn ? turnOn($) : undefined)).catch(() => undefined)
     await closeOrphans($).catch(() => undefined)
     // A load starts not knowing what herdr shows, so with nothing open this clears a blocker an earlier load left.
+    // A write landing while the forms are read is newer than them.
     void readForms($)
-      .then(forms => syncBlocker($, forms))
+      .then(forms => {
+        if (blocker.target === undefined) blocker.target = waitingTitle(forms)
+        return syncBlocker($)
+      })
       .catch(() => undefined)
     return next(e)
   })
 
+  // /clear ends the session with no start after it, and the process lives on: a clear that outlasts the bound still runs.
   on('session.end', async ($, e, next) => {
-    const timeoutMs = Math.min(QUICK_TIMEOUT_MS, next.budget.remainingMs - END_MARGIN_MS)
-    if (blocker.shown !== null && timeoutMs > 0) {
-      const pane = await herdrPane($).catch(() => undefined)
-      if (pane) await $.process.run(clearArgs(pane), { timeoutMs }).catch(() => undefined)
-      blocker.shown = null
+    const cleared = syncBlocker($, () => null)
+    const boundMs = Math.min(QUICK_TIMEOUT_MS, next.budget.remainingMs - END_MARGIN_MS)
+    if (boundMs > 0) {
+      const stop = new AbortController()
+      await Promise.race([cleared, $.clock.sleep(boundMs, { signal: stop.signal }).catch(() => undefined)])
+      stop.abort()
     }
     return next(e)
   })
