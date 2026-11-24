@@ -23,6 +23,7 @@ const SLACK_ID = /^[UW][A-Z0-9]*[0-9][A-Z0-9]*$/;
 
 const NO_ACCOUNT = "the host's Slack workspace has no active account for you";
 const NEVER_REACHED = "the support agent never reached the chat";
+const STOPPED = "the host closed the chat";
 
 export interface HostDeps extends SlackOpenDeps {
   config(): SupportConfig | null;
@@ -63,14 +64,16 @@ function settle(
   report: SupportState = state,
 ): boolean {
   const reason = extra.reason?.slice(0, REASON_MAX);
-  return deps.db.transaction(() => {
+  const run = deps.db.transaction(() => {
     const at = Math.max(deps.now(), (getRequest(r.direction, r.peer, r.id, deps.db)?.statusAt ?? 0) + 1);
     const patch = { ...extra, state, statusAt: at, ...(reason !== undefined ? { reason } : {}) };
     if (!moveRequest(r, from, patch, deps.now(), deps.db)) return false;
     const body: StatusBody = { requestId: r.id, state: report, at, ...(reason !== undefined ? { reason } : {}), ...(extra.dmLink ? { dmLink: extra.dmLink } : {}) };
     queueStatus({ id: `${r.id}:${report}`, to: r.peer, body: JSON.stringify(body) }, deps.now(), deps.db);
     return true;
-  })();
+  });
+  // A read that becomes a write skips the busy timeout, so the write lock is taken up front.
+  return run.immediate();
 }
 
 async function tellHost(deps: HostDeps, person: string, reason: string): Promise<void> {
@@ -223,7 +226,7 @@ async function followOpening(deps: HostDeps, r: SupportRequest): Promise<void> {
   }
   const conversation = conversationById(r.conversationId, db);
   if (conversation && agentHasPosted(conversation, db)) settle(deps, r, ["opening"], "opened", { dmLink: await dmLink(deps) });
-  else if (!conversation || conversation.closedAt !== null) settle(deps, r, ["opening"], "failed", { reason: NEVER_REACHED });
+  else if (!conversation || conversation.closedAt !== null) settle(deps, r, ["opening"], "failed", { reason: conversation?.closeReason === "operator" ? STOPPED : NEVER_REACHED });
 }
 
 /** What a waiting request's gate, its time and the org's settings say now. */

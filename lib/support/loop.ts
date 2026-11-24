@@ -91,8 +91,12 @@ export function startSupportLoop(deps: SupportLoopDeps): SupportLoopHandle {
     }
   })();
 
-  return { stop: () => stopping.abort(), poke: () => {
+  return {
+    stop: () => stopping.abort(),
+    poke() {
       poked = true;
       wake();
-    }, done };
+    },
+    done,
+  };
 }

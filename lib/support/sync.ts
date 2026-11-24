@@ -65,13 +65,15 @@ export interface SupportSync {
   flush(): Promise<void>;
 }
 
-/** How long, from first seeing it, a message this Mac cannot prove is left on the relay: its copy of the org may not have pulled a new key or a new member yet. */
+/** How long this Mac must be awake and seeing a message it cannot prove before dropping it: its copy of the org may not have pulled a new key or a new member yet. */
 export const PROOF_SETTLE_MS = 60 * 60_000;
 const PAGE = 100;
 const MAX_PAGES = 20;
 const REASON_MAX = 500;
 const UNREADABLE = "the host's mattstack could not read your request";
-const FIRST_SEEN_MAX = 1000;
+const UNPROVED_MAX = 1000;
+/** The most one sighting counts for: a longer gap since the last one is time asleep. */
+const SIGHTING_MS = 60_000;
 
 const PART_KEYS: readonly string[] = ["versions", "setup", "mr"] satisfies SupportPart["key"][];
 /** The states a host may report; `sent` and `opening` never leave the Mac they are kept on. */
@@ -139,8 +141,9 @@ function parseStatusBody(text: string): StatusBody | null {
 
 export function createSupportSync(deps: SyncDeps): SupportSync {
   const { db, log } = deps;
-  const firstSeen = new Map<string, number>();
+  const unproved = new Map<string, { lastSeen: number; waited: number }>();
   const flushing = createChain();
+  let nextFlush: Promise<void> | null = null;
 
   /** Whether the message may be believed: `wait` leaves it on the relay for now. */
   function judge(m: SupportMessage, cfg: SupportConfig, keys: string[]): "proved" | "wait" | "drop" {
@@ -148,20 +151,20 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
     const signed = verifySupportMac(keys, { ...m, to: cfg.me ?? "", org: cfg.orgRemote }, m.mac);
     const key = `${m.from} ${m.id}`;
     if (named && signed) {
-      firstSeen.delete(key);
+      unproved.delete(key);
       return "proved";
     }
-    const seen = firstSeen.get(key);
+    const now = deps.now();
+    const seen = unproved.get(key);
+    const waited = seen ? seen.waited + Math.max(0, Math.min(now - seen.lastSeen, SIGHTING_MS)) : 0;
     const about = { from: m.from, id: m.id, kind: m.kind, named, signed };
-    if ((named || signed) && (seen === undefined || deps.now() - seen < PROOF_SETTLE_MS)) {
-      if (seen === undefined) {
-        if (firstSeen.size >= FIRST_SEEN_MAX) firstSeen.clear();
-        firstSeen.set(key, deps.now());
-        log.warn(about, "support: a message is not proved to come from the org yet");
-      }
+    if ((named || signed) && waited < PROOF_SETTLE_MS) {
+      if (!seen) log.warn(about, "support: a message is not proved to come from the org yet");
+      if (!seen && unproved.size >= UNPROVED_MAX) unproved.clear();
+      unproved.set(key, { lastSeen: now, waited });
       return "wait";
     }
-    firstSeen.delete(key);
+    unproved.delete(key);
     log.warn(about, "support: a message that is not proved to come from the org was dropped");
     return "drop";
   }
@@ -257,30 +260,38 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
       return false;
     },
 
-    flush: () => flushing.run(async () => {
-      if (pendingStatuses(db).length === 0) return;
-      const cfg = deps.config();
-      if (!cfg || cfg.me === null) return;
-      const keys = await deps.keys();
-      if (!keys) return;
-      const relay = await deps.relay();
-      if (!relay) return;
-      const full = new Set<string>();
-      for (const s of pendingStatuses(db)) {
-        if (full.has(s.to)) continue;
-        if (deps.now() - s.createdAt >= SUPPORT_TTL_MS) {
-          dropStatus(s.id, s.to, db);
-          continue;
-        }
-        const result = await relay.send(signDraft(cfg, keys, { id: s.id, to: s.to, kind: "status", body: s.body }, deps.now()));
-        if (result === "unreachable" || result === "unauthorized") return;
-        if (result === "full") {
-          full.add(s.to);
-          continue;
-        }
-        if (result !== "ok") log.warn({ to: s.to, id: s.id, result }, "support: a status was not taken");
-        dropStatus(s.id, s.to, db);
-      }
-    }),
+    flush() {
+      nextFlush ??= flushing.run(async () => {
+        nextFlush = null;
+        await flushNow();
+      });
+      return nextFlush;
+    },
   };
+
+  async function flushNow(): Promise<void> {
+    if (pendingStatuses(db).length === 0) return;
+    const cfg = deps.config();
+    if (!cfg || cfg.me === null) return;
+    const keys = await deps.keys();
+    if (!keys) return;
+    const relay = await deps.relay();
+    if (!relay) return;
+    const full = new Set<string>();
+    for (const s of pendingStatuses(db)) {
+      if (full.has(s.to)) continue;
+      if (deps.now() - s.createdAt >= SUPPORT_TTL_MS) {
+        dropStatus(s.id, s.to, db);
+        continue;
+      }
+      const result = await relay.send(signDraft(cfg, keys, { id: s.id, to: s.to, kind: "status", body: s.body }, deps.now()));
+      if (result === "unreachable" || result === "unauthorized") return;
+      if (result === "full") {
+        full.add(s.to);
+        continue;
+      }
+      if (result !== "ok") log.warn({ to: s.to, id: s.id, result }, "support: a status was not taken");
+      dropStatus(s.id, s.to, db);
+    }
+  }
 }

@@ -113,6 +113,15 @@ describe("a request that does not open", () => {
     expect(row(h, r)).toMatchObject({ state: "failed", reason: "the support agent never reached the chat" });
   });
 
+  test("a chat the host stopped before the agent posted says so", async () => {
+    const h = supportHost();
+    const r = h.request();
+    await takeRequest(h.deps, r);
+    closeConversation(row(h, r).conversationId!, "operator", h.state.now, h.db);
+    await tickRequests(h.deps);
+    expect(row(h, r)).toMatchObject({ state: "failed", reason: "the host closed the chat" });
+  });
+
   test("a chat that closed after its first post is opened, not failed", async () => {
     const h = supportHost();
     const r = h.request();
@@ -321,6 +330,24 @@ describe("the cap and the stop hold", () => {
     h.state.gateError = null;
     await tickRequests(h.deps);
     expect(row(h, r).state).toBe("waiting");
+  });
+});
+
+describe("a state db another process is writing", () => {
+  test("a request waits for the lock instead of failing at once", async () => {
+    const h = supportHost();
+    h.state.config = null;
+    const r = h.request();
+    h.db.exec("PRAGMA busy_timeout = 2000;");
+    const file = (h.db.query("PRAGMA database_list").get() as { file: string }).file;
+    const holder = Bun.spawn(
+      [process.execPath, "-e", `const { Database } = require("bun:sqlite"); const d = new Database(${JSON.stringify(file)}); d.exec("BEGIN IMMEDIATE"); console.log("held"); setTimeout(() => { d.exec("COMMIT"); }, 150);`],
+      { stdout: "pipe", env: { ...process.env } },
+    );
+    await holder.stdout.getReader().read();
+    await takeRequest(h.deps, r);
+    await holder.exited;
+    expect(row(h, r).state).toBe("not-accepting");
   });
 });
 

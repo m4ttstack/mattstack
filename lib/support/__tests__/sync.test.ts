@@ -103,6 +103,14 @@ function arrive(over: { id?: string; from?: string; to?: string; kind?: SupportK
   inbox.push({ id, to, from, kind, sentAt: receivedAt, body: text, mac, receivedAt });
 }
 
+/** Pulls every 25 seconds, as the loop does on a Mac that is awake. */
+async function awake(s: ReturnType<typeof createSupportSync>, ms: number, kind: SupportKind = "request") {
+  for (const end = clock + ms; clock < end; ) {
+    clock += 25_000;
+    await s.pull(kind);
+  }
+}
+
 describe("pulling requests", () => {
   test("a request is stored before it is acked", async () => {
     arrive();
@@ -146,8 +154,7 @@ describe("pulling requests", () => {
     const s = sync();
     await s.pull("request");
     expect(acked).toEqual(["zed stranger"]);
-    clock += PROOF_SETTLE_MS;
-    await s.pull("request");
+    await awake(s, PROOF_SETTLE_MS);
     expect(acked.sort()).toEqual(["ada forged", "ada other-org", "zed off-roster", "zed stranger"]);
     expect(listRequests("in", undefined, db)).toEqual([]);
     expect(pendingStatuses(db)).toEqual([]);
@@ -164,6 +171,18 @@ describe("pulling requests", () => {
     config = { ...host, roster: [...host.roster, { username: "zed" }] };
     await s.pull("request");
     expect(listRequests("in", undefined, db)).toHaveLength(2);
+  });
+
+  test("time asleep does not count toward proving a message", async () => {
+    arrive({ id: "new-key", key: FOREIGN });
+    const s = sync();
+    await s.pull("request");
+    clock += 5 * PROOF_SETTLE_MS;
+    await s.pull("request");
+    expect(acked).toEqual([]);
+    keys = { current: FOREIGN, retired: [] };
+    await s.pull("request");
+    expect(acked).toEqual(["ada new-key"]);
   });
 
   test("a roster that reads empty takes and drops nothing", async () => {
@@ -195,8 +214,7 @@ describe("pulling requests", () => {
     const s = sync();
     for (let i = 0; i < 3; i++) await s.pull("request");
     expect(events.filter((e) => e === "warn")).toHaveLength(1);
-    clock += PROOF_SETTLE_MS;
-    await s.pull("request");
+    await awake(s, PROOF_SETTLE_MS);
     expect(events.filter((e) => e === "warn")).toHaveLength(2);
   });
 
@@ -425,8 +443,7 @@ describe("pulling statuses", () => {
     status({ state: "failed" }, { key: FOREIGN });
     const s = sync();
     await s.pull("status");
-    clock += PROOF_SETTLE_MS;
-    await s.pull("status");
+    await awake(s, PROOF_SETTLE_MS, "status");
     expect(state().state).toBe("sent");
     expect(acked).toEqual(["alex r1:failed"]);
   });
@@ -496,6 +513,26 @@ describe("flushing statuses", () => {
     const s = sync();
     await Promise.all([s.flush(), s.flush()]);
     expect(sent.map((d) => d.id)).toEqual(["r1:received", "r1:opened"]);
+  });
+
+  test("flushes asked for while one is running become one more", async () => {
+    queueStatus({ id: "r1:received", to: "ada", body: "{}" }, clock, db);
+    let asked = 0;
+    let release = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    const s = sync({
+      relay: async () => {
+        asked++;
+        await held;
+        return { ...relay, send: async () => "unreachable" as const };
+      },
+    });
+    const all = [s.flush()];
+    await Bun.sleep(1);
+    for (let i = 0; i < 3; i++) all.push(s.flush());
+    release();
+    await Promise.all(all);
+    expect(asked).toBe(2);
   });
 
   test("a status the relay will never take is dropped", async () => {
