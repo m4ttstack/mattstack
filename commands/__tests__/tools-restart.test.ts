@@ -64,7 +64,7 @@ describe("rt tools restart", () => {
     await toolsRestart(["herdr"], {}, p);
     const stops = p.calls.exec.filter((argv) => argv[1] === "server" && argv[2] === "stop");
     expect(stops).toHaveLength(2);
-    expect(io.stdout()).toStartWith("[ok] Restarted herdr  ");
+    expect(io.stdout()).toStartWith("[ok] Stopped herdr's older servers  ");
     expect(io.stdout()).toContain("work");
     expect(io.stdout()).toContain("review");
     expect(io.stdout()).not.toContain("fresh");
@@ -83,23 +83,23 @@ describe("rt tools restart", () => {
     const p = herdrProbes({ stuck: ["review"] });
     await expect(toolsRestart(["herdr"], {}, p)).rejects.toThrow("exit 1");
     expect(io.stderr()).toStartWith("herdr did not stop every server\n");
-    expect(io.stderr()).toContain("review");
-    expect(io.stdout()).not.toContain("Restarted herdr");
+    expect(io.stderr()).toContain("Did not stop: review");
+    expect(io.stdout()).not.toContain("Stopped herdr");
   });
 
-  test("a herdr that does not run is a failure, never Restarted herdr", async () => {
+  test("a herdr that does not run is a failure, never Stopped", async () => {
     const p = herdrProbes({ broken: true });
     await expect(toolsRestart(["herdr"], {}, p)).rejects.toThrow("exit 1");
+    expect(io.stderr()).toStartWith("rt stopped no herdr server\n");
     expect(io.stderr()).toContain("does not run");
-    expect(io.stdout()).not.toContain("Restarted herdr");
+    expect(io.stdout()).not.toContain("Stopped herdr");
     expect(p.calls.exec.some((argv) => argv[2] === "stop")).toBe(false);
   });
 
   test("no stale server says so instead of claiming a restart", async () => {
     const p = fakeProbes({ home, exec: (argv) => (argv[1] === "--version" ? ok("herdr 0.9.5-ms.2\n") : ok(JSON.stringify({ sessions: [] }))) });
     await toolsRestart(["herdr"], {}, p);
-    expect(io.stdout()).not.toContain("Restarted herdr");
-    expect(io.stdout()).toContain("already");
+    expect(io.stdout()).toBe("[ok] No herdr server needed a restart\n");
   });
 
   test("restart rejects another tool", async () => {

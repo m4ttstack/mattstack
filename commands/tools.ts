@@ -182,16 +182,16 @@ export async function toolsRestart(args: string[], _ctx: CommandContext = {}, p:
     return;
   }
   if (result.error !== undefined) {
-    out.fail({ title: "herdr was not restarted", why: result.error });
+    out.fail({ title: "rt stopped no herdr server", why: result.error });
     process.exit(1);
   }
   if (result.failed.length > 0) {
-    out.fail({ title: "herdr did not stop every server", why: `Still running: ${result.failed.join(", ")}` });
+    out.fail({ title: "herdr did not stop every server", why: `Did not stop: ${result.failed.join(", ")}` });
     process.exit(1);
   }
   if (result.stopped.length === 0) {
-    out.print(out.line("done", "Every herdr server already runs the installed herdr"));
+    out.print(out.line("done", "No herdr server needed a restart"));
     return;
   }
-  out.print(out.line("done", "Restarted herdr", `Stopped ${result.stopped.join(", ")}`));
+  out.print(out.line("done", "Stopped herdr's older servers", result.stopped.join(", ")));
 }

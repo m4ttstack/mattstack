@@ -140,9 +140,9 @@ async function herdrRow(p: Probes, seams: ToolsSeams): Promise<Row> {
   const versionRes = await exec(p, [...herdr, "--version"]);
   if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "herdr is not installed", action: provisionedInstallAction("herdr") });
   if (versionRes.code === 124) return row({ ...base, status: "error", detail: "herdr did not answer in time" });
-  if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run herdr (exit ${versionRes.code})` });
-
   const upgrade = provisionedInstallAction("herdr", "Upgrade");
+  if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run herdr (exit ${versionRes.code})`, action: upgrade });
+
   const list = await fetchHerdrBuilds(p);
   const verdict = herdrVerdict(parseHerdrVersion(versionRes.stdout), list);
   const version = verdict.version;

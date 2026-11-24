@@ -230,6 +230,14 @@ describe("toolRows — tool.herdr", () => {
     expect(r.status).toBe("error");
   });
 
+  test("a herdr whose --version fails offers Upgrade", async () => {
+    const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? { code: 1, stdout: "", stderr: "dyld: Library not loaded" } : ok());
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    expect(r.status).toBe("error");
+    expect(r.required).toBe(true);
+    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "herdr", via: "download" });
+  });
+
   test("stock herdr -> invalid, Upgrade installs the minimum when the list is unreachable", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? ok("herdr 0.9.9\n") : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
@@ -272,7 +280,7 @@ describe("toolRows — tool.herdr against the fork's build list", () => {
       }
       if (argv[1] === "status" && argv[2] === "server") {
         const s = script.sessions?.find((x) => x.socket === opts?.env?.HERDR_SOCKET_PATH);
-        return s ? ok(JSON.stringify({ running: true, version: s.version })) : { code: 1, stdout: "", stderr: "" };
+        return s?.version ? ok(JSON.stringify({ running: true, version: s.version })) : { code: 1, stdout: "", stderr: "" };
       }
       return ok();
     };
@@ -410,6 +418,19 @@ describe("toolRows — tool.herdr against the fork's build list", () => {
     const r = await herdrRowOf(p);
     expect(r.detail).toBe(`${shadow} would run instead of the mattstack build. rt did not make it, so rt left it alone`);
     expect(r.required).toBe(true);
+  });
+
+  test("a server whose version cannot be read reads needs-you with Restart", async () => {
+    const r = await herdrRowOf(herdrProbes({ version: "0.9.5-ms.2", sessions: [{ name: "work", socket: "/s/work.sock", version: "" }] }));
+    expect(r.action).toEqual({ type: "run", label: "Restart herdr", verb: ["tools", "restart", "herdr"] });
+  });
+
+  test("with the build list unreachable, only a stock server waits on Restart", async () => {
+    const offline = { fetch: async () => ({ status: 404, body: "Not Found", headers: {} }) };
+    const fork = await herdrRowOf(herdrProbes({ version: "0.9.5-ms.2", sessions: [{ name: "work", socket: "/s/work.sock", version: "0.9.5-ms.1" }] }, offline));
+    expect(fork.status).toBe("ready");
+    const stock = await herdrRowOf(herdrProbes({ version: "0.9.5-ms.2", sessions: [{ name: "work", socket: "/s/work.sock", version: "0.9.5" }] }, offline));
+    expect(stock.action).toEqual({ type: "run", label: "Restart herdr", verb: ["tools", "restart", "herdr"] });
   });
 
   test("a server already on the installed build reads ready", async () => {

@@ -142,8 +142,9 @@ describe("serverNeedsMove", () => {
     expect(serverNeedsMove("0.9.5-ms.7", "0.9.5-ms.7", keep)).toBe(false);
   });
 
-  test("without the list, any other version moves", () => {
-    expect(serverNeedsMove("0.9.5-ms.1", "0.9.5-ms.2", null)).toBe(true);
+  test("without the list, only a stock server moves", () => {
+    expect(serverNeedsMove("0.9.5-ms.1", "0.9.5-ms.2", null)).toBe(false);
+    expect(serverNeedsMove("0.9.5", "0.9.5-ms.2", null)).toBe(true);
   });
 });
 

@@ -118,4 +118,4 @@ a tab of your own.
 ## requirements
 
 an rt build whose CLI has `rt herd` -- that is `@mattstack/rt-client` <!-- mcp-lint: allow -->
-0.17.0 or newer -- and herdr 0.7.5 or newer.
+0.17.0 or newer -- and the mattstack herdr build, 0.9.5-ms.1 or newer.
