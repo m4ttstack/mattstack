@@ -220,6 +220,9 @@ describe('support messages', () => {
       { ...draft('r1'), sentAt: 'now' },
       { ...draft('r1'), body: {} },
       { ...draft('r1'), mac: '' },
+      draft('\ud800'),
+      draft('a b'),
+      { ...draft('r1'), mac: 'é' },
       null,
     ];
     for (const body of bad)
@@ -244,6 +247,17 @@ describe('support messages', () => {
     expect((await post(ada, draft('r1', 'nobody'))).status).toBe(422);
     expect((await post('nope', draft('r1'))).status).toBe(401);
     expect((await call('/support/host/alex')).status).toBe(401);
+  });
+
+  test('everything listed can be acked, whatever ids a sender picked', async () => {
+    const { post, list, call, ada, alex } = setup();
+    const id = '0f8c-4a1e:already-waiting_x.y';
+    for (const i of [id, 'x'.repeat(200), '\ud800\ud800'])
+      await post(ada, draft(i));
+    const keys = (await list(alex)).map(m => ({ from: m.from, id: m.id }));
+    expect(keys.map(k => k.id).sort()).toEqual([id, 'x'.repeat(200)]);
+    await call('/support/ack', { token: alex, body: { keys } });
+    expect(await list(alex)).toEqual([]);
   });
 
   test('an unknown support route is 404', async () => {
@@ -474,7 +488,10 @@ describe('the wire the relay and the client both declare', () => {
       draft('r1', ' Alex '),
       draft('s1', 'alex', { kind: 'status' }),
       draft(''),
+      draft('x'.repeat(200)),
       draft('x'.repeat(201)),
+      draft('\ud800'),
+      { ...draft('r1'), mac: 'x'.repeat(256) },
       draft('r1', '*'),
       { ...draft('r1'), kind: 'other' },
       { ...draft('r1'), sentAt: Number.NaN },

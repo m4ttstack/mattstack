@@ -35,8 +35,10 @@ export const SUPPORT_TTL_MS = 7 * 24 * 60 * 60_000;
 export const SUPPORT_MACHINE_HOLD_MS = 10 * 60_000;
 export const MAX_PENDING_PER_SENDER = 20;
 
-const ID_MAX = 200;
-const MAC_MAX = 256;
+/** SQLite turns a lone surrogate into other characters, so an id holding one
+    could be stored and never acked. */
+const ID = /^[A-Za-z0-9._:-]{1,200}$/;
+const MAC = /^[A-Za-z0-9._:-]{1,256}$/;
 const MACHINE_MAX = 200;
 
 function parseKind(v: unknown): SupportKind | null {
@@ -60,12 +62,12 @@ export function parseSupportDraft(v: unknown): SupportDraft | null {
     mac,
   } = v as Record<string, unknown>;
   const kind = parseKind(rawKind);
-  if (typeof id !== 'string' || !id || id.length > ID_MAX) return null;
+  if (typeof id !== 'string' || !ID.test(id)) return null;
   if (typeof to !== 'string' || !to.trim() || to.trim() === '*') return null;
   if (!kind) return null;
   if (typeof sentAt !== 'number' || !Number.isFinite(sentAt)) return null;
   if (typeof body !== 'string') return null;
-  if (typeof mac !== 'string' || !mac || mac.length > MAC_MAX) return null;
+  if (typeof mac !== 'string' || !MAC.test(mac)) return null;
   return { id, to: canonicalUsername(to), kind, sentAt, body, mac };
 }
 
