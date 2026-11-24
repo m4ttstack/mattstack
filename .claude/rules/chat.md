@@ -63,7 +63,13 @@ and `meta.action` `support`, which lives 7 days and is reconciled on every
 `support:stop` are a person's alone: no CLI verb, MCP tool or `rt_verb` route
 may call them, and the mod denies the plain shell spellings. That stops
 accidents and misled panes, not a determined one: the daemon takes any caller
-on its socket. Stop
+on its socket. `lib/support/enable.ts` is the org's own switch, run by
+`rt team support on|off` and by `support:enable`, which the console calls when
+an admin turns `support.enabled` on: a plain settings write makes no support
+key, and the `org.support-key` setup row is what catches one. A settings read
+that says this Mac no longer answers counts only after a minute of it
+(`settling` in `lib/support/service.ts`), so a store caught mid-write ends no
+request. Stop
 (`lib/support/stop.ts`) closes the row before the pane and leaves no grace
 window. A second request from someone with a chat or a request open is
 answered `already-open` or `already-waiting`, never a gate.
