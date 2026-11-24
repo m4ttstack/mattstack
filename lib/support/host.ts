@@ -53,20 +53,22 @@ export function renderRequest(r: Pick<SupportRequest, "text" | "parts">): string
   return parts ? `${r.text}\n\n${parts}` : r.text;
 }
 
-/** Moves the request and queues the status its sender reads, as one write. False when the request had already moved on. */
+/** Moves the request and queues the status its sender reads (`report`, when it differs from the new state), as one write. False when the request had already moved on. */
 function settle(
   deps: HostDeps,
   r: SupportRequest,
   from: SupportState[],
   state: SupportState,
   extra: { reason?: string; dmLink?: string | null; conversationId?: number | null; gateId?: string | null } = {},
+  report: SupportState = state,
 ): boolean {
   const reason = extra.reason?.slice(0, REASON_MAX);
   return deps.db.transaction(() => {
-    const patch = { ...extra, state, ...(reason !== undefined ? { reason } : {}) };
+    const at = Math.max(deps.now(), (getRequest(r.direction, r.peer, r.id, deps.db)?.statusAt ?? 0) + 1);
+    const patch = { ...extra, state, statusAt: at, ...(reason !== undefined ? { reason } : {}) };
     if (!moveRequest(r, from, patch, deps.now(), deps.db)) return false;
-    const body: StatusBody = { requestId: r.id, state, ...(reason !== undefined ? { reason } : {}), ...(extra.dmLink ? { dmLink: extra.dmLink } : {}) };
-    queueStatus({ id: `${r.id}:${state}`, to: r.peer, body: JSON.stringify(body) }, deps.now(), deps.db);
+    const body: StatusBody = { requestId: r.id, state: report, at, ...(reason !== undefined ? { reason } : {}), ...(extra.dmLink ? { dmLink: extra.dmLink } : {}) };
+    queueStatus({ id: `${r.id}:${report}`, to: r.peer, body: JSON.stringify(body) }, deps.now(), deps.db);
     return true;
   })();
 }
@@ -143,12 +145,7 @@ async function openChat(deps: HostDeps, r: SupportRequest, personName: string, f
     if (settle(deps, r, [from], "failed", { reason: "the host's Mac is not set up for support yet" })) await tellHost(deps, personName, reason);
     return;
   }
-  const claimed = db.transaction(() => {
-    if (!moveRequest(r, [from], { state: "opening", gateId: null }, deps.now(), db)) return false;
-    queueStatus({ id: `${r.id}:received`, to: r.peer, body: JSON.stringify({ requestId: r.id, state: "received" } satisfies StatusBody) }, deps.now(), db);
-    return true;
-  })();
-  if (!claimed) return;
+  if (!settle(deps, r, [from], "opening", { gateId: null }, "received")) return;
 
   const old = deps.now() - r.receivedAt > OLD_REQUEST_MS ? " It was sent over a day ago, so ask whether they still need help." : "";
   let room = "";

@@ -42,6 +42,7 @@ const request = (over: Partial<SupportRequest> = {}): Omit<SupportRequest, "upda
   dmLink: null,
   conversationId: null,
   gateId: null,
+  statusAt: 0,
   sentAt: 900,
   receivedAt: 1000,
   ...over,
@@ -59,6 +60,11 @@ test("a repeat insert is false and changes nothing", () => {
   insertRequest(request(), db);
   expect(insertRequest(request({ text: "other", state: "failed", receivedAt: 5000 }), db)).toBe(false);
   expect(getRequest("in", "ada", "r1", db)).toMatchObject({ text: "the board will not load", state: "received", receivedAt: 1000 });
+});
+
+test("a row that is not a repeat but cannot be stored throws, rather than reading as a repeat", () => {
+  const db = fresh();
+  expect(() => insertRequest(request({ text: null as unknown as string }), db)).toThrow();
 });
 
 test("two peers may use the same id", () => {
@@ -95,8 +101,8 @@ test("moveRequest changes only the fields it is given", () => {
   const db = fresh();
   insertRequest(request({ gateId: "g1" }), db);
   const key = { direction: "in", peer: "ada", id: "r1" } as const;
-  moveRequest(key, ["received"], { conversationId: 7 }, 2000, db);
-  expect(getRequest("in", "ada", "r1", db)).toMatchObject({ state: "received", conversationId: 7, gateId: "g1" });
+  moveRequest(key, ["received"], { conversationId: 7, statusAt: 55 }, 2000, db);
+  expect(getRequest("in", "ada", "r1", db)).toMatchObject({ state: "received", conversationId: 7, gateId: "g1", statusAt: 55 });
   moveRequest(key, ["received"], { state: "failed", reason: "no folder", gateId: null }, 2000, db);
   expect(getRequest("in", "ada", "r1", db)).toMatchObject({ state: "failed", reason: "no folder", gateId: null, conversationId: 7 });
 });
@@ -158,11 +164,14 @@ test("prune keeps open and waiting rows", () => {
     insertRequest(request({ id: state, state, receivedAt: 1000 }), db);
   insertRequest(request({ id: "recent", state: "opened", receivedAt: now - CHAT_RETENTION_MS + 1 }), db);
   recordStop("U0OLD", 1000, db);
+  queueStatus({ id: "old", to: "ada", body: "{}" }, 1000, db);
+  queueStatus({ id: "new", to: "ada", body: "{}" }, now - 1, db);
   recordStop("U0NEW", now - 1, db);
   pruneSupport(now, db);
   expect(listRequests("in", undefined, db).map((r) => r.id).sort()).toEqual(["opening", "received", "recent", "sent", "waiting"]);
   expect(stoppedSince("U0OLD", 0, db)).toBe(false);
   expect(stoppedSince("U0NEW", 0, db)).toBe(true);
+  expect(pendingStatuses(db).map((s) => s.id)).toEqual(["new"]);
 });
 
 test("a v18 db gains the tables and keeps its rows", () => {

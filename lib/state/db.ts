@@ -412,6 +412,7 @@ CREATE TABLE IF NOT EXISTS support_requests (
   dm_link         TEXT,
   conversation_id INTEGER,
   gate_id         TEXT,
+  status_at       INTEGER NOT NULL DEFAULT 0, -- the host's clock, on the last status sent or believed
   sent_at         INTEGER NOT NULL, -- the sender's clock
   received_at     INTEGER NOT NULL, -- in: the relay's clock
   updated_at      INTEGER NOT NULL,

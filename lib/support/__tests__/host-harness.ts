@@ -125,14 +125,21 @@ export function supportHost() {
     const i = ids++;
     const row = {
       id: `r${i}`, direction: "in" as const, org: "acme", text: "the board will not load", parts: [], state: "received" as const,
-      reason: null, dmLink: null, conversationId: null, gateId: null, sentAt: state.now, receivedAt: state.now + i, ...ADA, ...over,
+      reason: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: state.now, receivedAt: state.now + i, ...ADA, ...over,
     };
     insertRequest(row, db);
     return { ...row, updatedAt: row.receivedAt };
   }
 
-  function statuses(): (StatusBody & { to: string })[] {
-    return pendingStatuses(db).map((s) => ({ ...(JSON.parse(s.body) as StatusBody), to: s.to }));
+  function statuses(): (Omit<StatusBody, "at"> & { to: string })[] {
+    return pendingStatuses(db).map((s) => {
+      const { at: _, ...body } = JSON.parse(s.body) as StatusBody;
+      return { ...body, to: s.to };
+    });
+  }
+
+  function statusTimes(): number[] {
+    return pendingStatuses(db).map((s) => (JSON.parse(s.body) as StatusBody).at);
   }
 
   function agentPosts(conv: SlackConversation): void {
@@ -156,5 +163,5 @@ export function supportHost() {
     return g;
   }
 
-  return { db, deps, state, started, stopped, desk, notified, posted, gates, opens, request, statuses, agentPosts, operatorChat, answer };
+  return { db, deps, state, started, stopped, desk, notified, posted, gates, opens, request, statuses, agentPosts, operatorChat, answer, statusTimes };
 }

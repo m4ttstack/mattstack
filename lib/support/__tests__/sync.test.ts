@@ -139,17 +139,42 @@ describe("pulling requests", () => {
   });
 
   test("a bad MAC, another org's key, or a sender off the roster is acked, logged and never stored or answered", async () => {
-    const past = PROOF_SETTLE_MS;
-    arrive({ id: "forged", key: FOREIGN, age: past });
-    arrive({ id: "other-org", org: "git.example.com/other/mattstack", age: past });
-    arrive({ id: "off-roster", from: "zed", age: past });
+    arrive({ id: "forged", key: FOREIGN });
+    arrive({ id: "other-org", org: "git.example.com/other/mattstack" });
+    arrive({ id: "off-roster", from: "zed" });
     arrive({ id: "stranger", from: "zed", key: FOREIGN });
-    await sync().pull("request");
+    const s = sync();
+    await s.pull("request");
+    expect(acked).toEqual(["zed stranger"]);
+    clock += PROOF_SETTLE_MS;
+    await s.pull("request");
     expect(acked.sort()).toEqual(["ada forged", "ada other-org", "zed off-roster", "zed stranger"]);
-    expect(events.filter((e) => e === "warn")).toHaveLength(4);
     expect(listRequests("in", undefined, db)).toEqual([]);
     expect(pendingStatuses(db)).toEqual([]);
     expect(sent).toEqual([]);
+  });
+
+  test("the wait to prove a message starts when this Mac first sees it, not when the relay got it", async () => {
+    arrive({ id: "new-key", key: FOREIGN, age: 2 * PROOF_SETTLE_MS });
+    arrive({ id: "new-member", from: "zed", age: 2 * PROOF_SETTLE_MS });
+    const s = sync();
+    await s.pull("request");
+    expect(acked).toEqual([]);
+    keys = { current: FOREIGN, retired: [{ key: KEY, retiredAt: clock }] };
+    config = { ...host, roster: [...host.roster, { username: "zed" }] };
+    await s.pull("request");
+    expect(listRequests("in", undefined, db)).toHaveLength(2);
+  });
+
+  test("a roster that reads empty takes and drops nothing", async () => {
+    arrive();
+    arrive({ id: "stranger", from: "zed", key: FOREIGN });
+    config = { ...host, roster: [] };
+    const s = sync();
+    await s.pull("request");
+    clock += 2 * PROOF_SETTLE_MS;
+    await s.pull("request");
+    expect(acked).toEqual([]);
   });
 
   test("a proof this Mac cannot check yet waits for its org to sync, and is taken once it has", async () => {
@@ -165,11 +190,14 @@ describe("pulling requests", () => {
     expect(listRequests("in", undefined, db)).toHaveLength(2);
   });
 
-  test("a waiting message is logged once, however many pulls see it", async () => {
+  test("a message left to be proved is logged once, and once more when it is dropped", async () => {
     arrive({ key: FOREIGN });
     const s = sync();
     for (let i = 0; i < 3; i++) await s.pull("request");
     expect(events.filter((e) => e === "warn")).toHaveLength(1);
+    clock += PROOF_SETTLE_MS;
+    await s.pull("request");
+    expect(events.filter((e) => e === "warn")).toHaveLength(2);
   });
 
   test("unreadable keys ack nothing", async () => {
@@ -189,7 +217,7 @@ describe("pulling requests", () => {
     await sync().pull("request");
     expect(getRequest("in", "ada", "r1", db)).not.toBeNull();
     clock += SUPPORT_TTL_MS;
-    arrive({ id: "r2", key: OLD, age: PROOF_SETTLE_MS });
+    arrive({ id: "r2", key: OLD });
     await sync().pull("request");
     expect(getRequest("in", "ada", "r2", db)).toBeNull();
   });
@@ -239,7 +267,7 @@ describe("pulling requests", () => {
     expect(events).toContain("request ada r1");
   });
 
-  test("a proved request with a body this rt cannot read is acked and not stored", async () => {
+  test("a proved request this rt cannot read is answered failed before it is acked", async () => {
     const bad = [
       "not json",
       "{}",
@@ -254,6 +282,17 @@ describe("pulling requests", () => {
     await sync().pull("request");
     expect(acked).toHaveLength(bad.length);
     expect(listRequests("in", undefined, db)).toEqual([]);
+    expect(pendingStatuses(db)).toHaveLength(bad.length);
+    const told = pendingStatuses(db)[0]!;
+    expect(told).toMatchObject({ id: "r0:failed", to: "ada" });
+    expect(JSON.parse(told.body)).toEqual({ requestId: "r0", state: "failed", at: clock, reason: "the host's mattstack could not read your request" });
+  });
+
+  test("an unreadable request whose answer cannot be stored is not acked", async () => {
+    db.exec("CREATE TRIGGER boom BEFORE INSERT ON support_outbox BEGIN SELECT RAISE(ABORT, 'disk full'); END;");
+    arrive({ body: "not json" });
+    await sync().pull("request");
+    expect(acked).toEqual([]);
   });
 
   test("a part a newer sender adds is left out, and the rest is kept", async () => {
@@ -263,7 +302,7 @@ describe("pulling requests", () => {
   });
 
   test("a message addressed to someone else is not this Mac's", async () => {
-    arrive({ to: "bo", age: PROOF_SETTLE_MS });
+    arrive({ to: "bo" });
     await sync().pull("request");
     expect(listRequests("in", undefined, db)).toEqual([]);
   });
@@ -289,9 +328,22 @@ describe("pulling requests", () => {
     expect(lists).toBe(1);
   });
 
+  test("a pull says whether it read the queue empty", async () => {
+    expect(await sync().pull("request")).toBe(true);
+    arrive();
+    expect(await sync().pull("request")).toBe(true);
+    arrive({ id: "r2", key: FOREIGN });
+    expect(await sync().pull("request")).toBe(false);
+    inbox = [];
+    arrive({ id: "r3" });
+    expect(await sync({ relay: async () => ({ ...relay, ack: async () => false }) }).pull("request")).toBe(false);
+    keys = null;
+    expect(await sync().pull("request")).toBe(false);
+  });
+
   test("a relay that does not answer is not an error", async () => {
-    await sync({ relay: async () => null }).pull("request");
-    await sync({ relay: async () => ({ ...relay, list: async () => null }) }).pull("request");
+    expect(await sync({ relay: async () => null }).pull("request")).toBe(false);
+    expect(await sync({ relay: async () => ({ ...relay, list: async () => null }) }).pull("request")).toBe(false);
     expect(events).toEqual([]);
   });
 });
@@ -300,12 +352,13 @@ describe("pulling statuses", () => {
   beforeEach(() => {
     config = sender;
     insertRequest(
-      { id: "r1", direction: "out", peer: "alex", org: "acme", text: "help", parts: [], slackUserId: "U0ADA", state: "sent", reason: null, dmLink: null, conversationId: null, gateId: null, sentAt: clock, receivedAt: clock },
+      { id: "r1", direction: "out", peer: "alex", org: "acme", text: "help", parts: [], slackUserId: "U0ADA", state: "sent", reason: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: clock, receivedAt: clock },
       db,
     );
   });
+  let at = 0;
   const status = (b: Partial<StatusBody> & { state: StatusBody["state"] }, over: Parameters<typeof arrive>[0] = {}) =>
-    arrive({ kind: "status", from: "alex", to: "ada", id: `${b.requestId ?? "r1"}:${b.state}`, body: JSON.stringify({ requestId: "r1", ...b }), ...over });
+    arrive({ kind: "status", from: "alex", to: "ada", id: `${b.requestId ?? "r1"}:${b.state}`, body: JSON.stringify({ requestId: "r1", at: ++at, ...b }), ...over });
   const state = () => getRequest("out", "alex", "r1", db)!;
 
   test("a status moves the request, with its reason and link", async () => {
@@ -338,9 +391,42 @@ describe("pulling statuses", () => {
     expect(acked).toHaveLength(2);
   });
 
-  test("a forged status is never believed", async () => {
-    status({ state: "failed" }, { key: FOREIGN, age: PROOF_SETTLE_MS });
+  test("redelivered statuses move and notify once, and never put an older one back", async () => {
+    status({ state: "received" });
+    status({ state: "waiting" });
+    const s = sync({ relay: async () => ({ ...relay, ack: async () => false }) });
+    for (let i = 0; i < 3; i++) await s.pull("status");
+    expect(state().state).toBe("waiting");
+    expect(events.filter((e) => e.startsWith("status"))).toEqual(["status r1 received", "status r1 waiting"]);
+  });
+
+  test("a status that overtook an earlier one stands", async () => {
+    status({ state: "waiting", at: 100 });
+    status({ state: "received", at: 50 });
     await sync().pull("status");
+    expect(state().state).toBe("waiting");
+  });
+
+  test("a request the host OKed moves from waiting to received", async () => {
+    status({ state: "waiting", at: 50 });
+    status({ state: "received", at: 100 });
+    await sync().pull("status");
+    expect(state().state).toBe("received");
+  });
+
+  test("a status with no time on it is not believed", async () => {
+    status({ state: "received", at: undefined as unknown as number });
+    await sync().pull("status");
+    expect(state().state).toBe("sent");
+    expect(acked).toHaveLength(1);
+  });
+
+  test("a forged status is never believed", async () => {
+    status({ state: "failed" }, { key: FOREIGN });
+    const s = sync();
+    await s.pull("status");
+    clock += PROOF_SETTLE_MS;
+    await s.pull("status");
     expect(state().state).toBe("sent");
     expect(acked).toEqual(["alex r1:failed"]);
   });
@@ -393,6 +479,23 @@ describe("flushing statuses", () => {
     await sync().flush();
     expect(sent).toHaveLength(3);
     expect(pendingStatuses(db)).toHaveLength(2);
+  });
+
+  test("after a full queue, that person's later statuses wait their turn", async () => {
+    queueStatus({ id: "r1:received", to: "ada", body: "{}" }, clock, db);
+    queueStatus({ id: "r1:waiting", to: "ada", body: "{}" }, clock, db);
+    queueStatus({ id: "r2:received", to: "bo", body: "{}" }, clock, db);
+    sendResult = "full";
+    await sync().flush();
+    expect(sent.map((d) => d.id)).toEqual(["r1:received", "r2:received"]);
+  });
+
+  test("two flushes at once send each status once", async () => {
+    queueStatus({ id: "r1:received", to: "ada", body: "{}" }, clock, db);
+    queueStatus({ id: "r1:opened", to: "ada", body: "{}" }, clock, db);
+    const s = sync();
+    await Promise.all([s.flush(), s.flush()]);
+    expect(sent.map((d) => d.id)).toEqual(["r1:received", "r1:opened"]);
   });
 
   test("a status the relay will never take is dropped", async () => {

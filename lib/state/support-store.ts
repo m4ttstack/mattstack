@@ -51,6 +51,8 @@ export interface SupportRequest {
   dmLink: string | null;
   conversationId: number | null;
   gateId: string | null;
+  /** The time on the last status sent about it (in) or believed (out), so an older one never overwrites a newer. */
+  statusAt: number;
   sentAt: number;
   receivedAt: number;
   updatedAt: number;
@@ -69,6 +71,7 @@ interface RequestRow {
   dm_link: string | null;
   conversation_id: number | null;
   gate_id: string | null;
+  status_at: number;
   sent_at: number;
   received_at: number;
   updated_at: number;
@@ -88,6 +91,7 @@ function toRequest(r: RequestRow): SupportRequest {
     dmLink: r.dm_link,
     conversationId: r.conversation_id,
     gateId: r.gate_id,
+    statusAt: r.status_at,
     sentAt: r.sent_at,
     receivedAt: r.received_at,
     updatedAt: r.updated_at,
@@ -98,9 +102,10 @@ function toRequest(r: RequestRow): SupportRequest {
 export function insertRequest(r: Omit<SupportRequest, "updatedAt">, db: Database = getStateDb()): boolean {
   const { changes } = db
     .query(
-      `INSERT OR IGNORE INTO support_requests
-         (direction, peer, id, org, text, parts, slack_user_id, state, reason, dm_link, conversation_id, gate_id, sent_at, received_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      `INSERT INTO support_requests
+         (direction, peer, id, org, text, parts, slack_user_id, state, reason, dm_link, conversation_id, gate_id, status_at, sent_at, received_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(direction, peer, id) DO NOTHING;`,
     )
     .run(
       r.direction,
@@ -115,6 +120,7 @@ export function insertRequest(r: Omit<SupportRequest, "updatedAt">, db: Database
       r.dmLink,
       r.conversationId,
       r.gateId,
+      r.statusAt,
       r.sentAt,
       r.receivedAt,
       r.receivedAt,
@@ -139,9 +145,9 @@ export function listRequests(direction: SupportDirection, states?: readonly Supp
 }
 
 type RequestKey = Pick<SupportRequest, "direction" | "peer" | "id">;
-type RequestPatch = Partial<Pick<SupportRequest, "state" | "reason" | "dmLink" | "conversationId" | "gateId">>;
+type RequestPatch = Partial<Pick<SupportRequest, "state" | "reason" | "dmLink" | "conversationId" | "gateId" | "statusAt">>;
 
-const PATCH_COLUMNS = { state: "state", reason: "reason", dmLink: "dm_link", conversationId: "conversation_id", gateId: "gate_id" } as const;
+const PATCH_COLUMNS = { state: "state", reason: "reason", dmLink: "dm_link", conversationId: "conversation_id", gateId: "gate_id", statusAt: "status_at" } as const;
 
 /** True only for the caller that found the row in one of `from`. */
 export function moveRequest(r: RequestKey, from: readonly SupportState[], patch: RequestPatch, now: number, db: Database = getStateDb()): boolean {
@@ -196,9 +202,10 @@ export function stoppedSince(slackUserId: string, since: number, db: Database = 
   return db.query(`SELECT 1 FROM support_stops WHERE slack_user_id = ? AND stopped_at >= ? LIMIT 1;`).get(slackUserId, since) !== null;
 }
 
-/** Drops finished requests and stops past the chat history's own retention. */
+/** Drops finished requests, stops and unsent statuses past the chat history's own retention. */
 export function pruneSupport(now: number, db: Database = getStateDb()): void {
   const cutoff = now - CHAT_RETENTION_MS;
   db.query(`DELETE FROM support_requests WHERE received_at < ? AND state IN (${SUPPORT_TERMINAL_STATES.map(() => "?").join(", ")});`).run(cutoff, ...SUPPORT_TERMINAL_STATES);
   db.query(`DELETE FROM support_stops WHERE stopped_at < ?;`).run(cutoff);
+  db.query(`DELETE FROM support_outbox WHERE created_at < ?;`).run(cutoff);
 }

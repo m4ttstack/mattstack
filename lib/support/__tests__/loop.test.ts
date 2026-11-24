@@ -91,6 +91,29 @@ describe("the support loop", () => {
     expect(h.events.filter((e) => e.startsWith("wait"))).toEqual(["wait 0", "wait 1", "wait 2"]);
   });
 
+  test("a poke while the loop is reading its settings is not lost", async () => {
+    let poked = false;
+    const started = Date.now();
+    const handle = startSupportLoop({
+      kind: "status",
+      active: () => true,
+      relay: async () => {
+        if (poked) {
+          handle.stop();
+          return null;
+        }
+        await Bun.sleep(1);
+        poked = true;
+        handle.poke();
+        return null;
+      },
+      pull: async () => {},
+      log: { warn() {}, info() {} } as unknown as SupportLoopDeps["log"],
+    });
+    await handle.done;
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
   test("a poke ends an idle sleep at once", async () => {
     let active = false;
     const events: string[] = [];

@@ -12,7 +12,7 @@ export interface SupportLoopDeps {
   /** While false the loop makes no relay call. */
   active(): boolean;
   relay(): Promise<SupportRelay | null>;
-  pull(): Promise<void>;
+  pull(): Promise<unknown>;
   log: Pick<Logger, "warn" | "info">;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -27,8 +27,10 @@ export interface SupportLoopHandle {
 export function startSupportLoop(deps: SupportLoopDeps): SupportLoopHandle {
   const stopping = new AbortController();
   let wake: () => void = () => {};
+  let poked = false;
   const pokeable = (ms: number) =>
     new Promise<void>((resolve) => {
+      if (poked) return resolve();
       const end = () => {
         clearTimeout(timer);
         stopping.signal.removeEventListener("abort", end);
@@ -64,6 +66,7 @@ export function startSupportLoop(deps: SupportLoopDeps): SupportLoopHandle {
     let failures = 0;
     let fresh = true;
     while (!stopping.signal.aborted) {
+      poked = false;
       const relay = await relayOrPause();
       if (typeof relay === "number") {
         fresh = true;
@@ -88,5 +91,8 @@ export function startSupportLoop(deps: SupportLoopDeps): SupportLoopHandle {
     }
   })();
 
-  return { stop: () => stopping.abort(), poke: () => wake(), done };
+  return { stop: () => stopping.abort(), poke: () => {
+      poked = true;
+      wake();
+    }, done };
 }

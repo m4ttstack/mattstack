@@ -58,6 +58,18 @@ describe("answering the gate", () => {
     expect(h.notified).toHaveLength(1);
   });
 
+  test("each status carries a later time than the one before, even within one millisecond or with the clock set back", async () => {
+    const { h, gateId } = await waiting();
+    h.state.now -= 60_000;
+    await answerSupportGate(h.deps, h.answer(gateId, "approve"));
+    h.agentPosts(conversationForSlackUser(ADA.slackUserId, h.db)!);
+    await tickRequests(h.deps);
+    const times = h.statusTimes();
+    expect(states(h)).toEqual(["waiting", "received", "opened"]);
+    expect([...times].sort((a, b) => a - b)).toEqual(times);
+    expect(new Set(times).size).toBe(times.length);
+  });
+
   test("decline sends declined", async () => {
     const { h, r, gateId } = await waiting();
     await answerSupportGate(h.deps, h.answer(gateId, "decline"));
