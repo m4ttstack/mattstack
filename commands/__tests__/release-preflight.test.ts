@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
 import type { PreflightSeams } from "../../lib/release/preflight.ts";
+import { HERDR_ASSET_PREFIX, HERDR_BUILDS_URL, HERDR_MIN_BUILD } from "../../lib/setup/herdr-builds.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { releasePreflight } from "../release.ts";
@@ -10,6 +11,20 @@ const ok = (stdout: string) => Promise.resolve({ stdout, stderr: "", exitCode: 0
 
 const LOCK_REL = "packages/rt-client/src/settings/schema.lock.json";
 const COMMITTED_LOCK = readFileSync(join(import.meta.dir, "..", "..", LOCK_REL), "utf8");
+
+const HERDR_LIST = {
+  schema: 1,
+  newest: HERDR_MIN_BUILD,
+  builds: [{
+    version: HERDR_MIN_BUILD,
+    herdr: HERDR_MIN_BUILD.split("-ms.")[0],
+    revision: Number(HERDR_MIN_BUILD.split("-ms.")[1]),
+    changesServer: true,
+    assets: { arm64: { url: `${HERDR_ASSET_PREFIX}v${HERDR_MIN_BUILD}/herdr-macos-aarch64`, sha256: "a".repeat(64) } },
+    supersedes: [],
+  }],
+  flockPatchSha256: [],
+};
 
 /**
  * A clean seam set; `prevLock` is what `git show <tag>:<lock>` answers (null
@@ -45,7 +60,7 @@ function fakeSeams(
       if (cmd.includes("m4ttheweric/playwright")) return ok(JSON.stringify([{ tag_name: "fast-browser-v0.1.1" }]));
       return Promise.resolve({ stdout: "", stderr: "nope", exitCode: 1 });
     },
-    fetchJson: () => Promise.reject(new Error("offline")),
+    fetchJson: (url) => (url === HERDR_BUILDS_URL ? Promise.resolve(HERDR_LIST) : Promise.reject(new Error("offline"))),
     readFile: (p) => {
       if (p.endsWith("deps.lock")) return JSON.stringify({ schema: 1, arch: "arm64", tools: [] });
       if (p.endsWith("marketplace.json")) return JSON.stringify({ name: "m", plugins: [] });
