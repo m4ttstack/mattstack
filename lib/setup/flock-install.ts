@@ -156,6 +156,7 @@ export async function installFlock(p: Probes): Promise<InstallResult> {
 
   const work = join(p.env.TMPDIR || "/tmp", `rt-flock-install-${process.pid}`);
   let staged: string | null = null;
+  let madeWork = false;
   try {
     const present = await installedFlock(p);
     if (present) return already(present);
@@ -169,7 +170,8 @@ export async function installFlock(p: Probes): Promise<InstallResult> {
     if (!release) return fail("rt could not read Flock's release feed from m4ttstack/flock");
 
     await p.exec(["rm", "-rf", work], { timeoutMs: PROBE_TIMEOUT_MS });
-    p.mkdirp(work);
+    madeWork = p.mkdirExclusive(work);
+    if (!madeWork) return fail(`Installing Flock failed: ${work} already exists`);
     const zip = join(work, "Flock.zip");
     const fetched = await p.exec(["curl", "-fsSL", release.url, "-o", zip], { timeoutMs: DOWNLOAD_TIMEOUT_MS });
     if (fetched.code === 124) return fail("Downloading Flock did not finish in time");
@@ -214,6 +216,6 @@ export async function installFlock(p: Probes): Promise<InstallResult> {
     if (staged) p.removeDir(staged);
     return fail(`Installing Flock failed: ${(e as Error).message}`);
   } finally {
-    p.removeDir(work);
+    if (madeWork) p.removeDir(work);
   }
 }

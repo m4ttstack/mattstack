@@ -372,6 +372,14 @@ describe("installFlock", () => {
     expect(p.calls.removed).toContain(WORK);
   });
 
+  test("a work folder that is still there after the clean-up fails and is left alone", async () => {
+    const p = setup({}, { dirs: { [APP]: [], [WORK]: [] } });
+    const result = await installFlock(p);
+    expect(result).toEqual({ via: "download", ok: false, detail: `Installing Flock failed: ${WORK} already exists` });
+    expect(p.calls.removed).not.toContain(WORK);
+    expect(p.calls.exec.some((a) => a[0] === "curl")).toBe(false);
+  });
+
   test("a stale staged copy for this pid is removed before the copy", async () => {
     const stale = stagedIn("/Applications");
     const p = setup({}, { dirs: { [APP]: [], [stale]: [] } });
