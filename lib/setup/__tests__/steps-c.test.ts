@@ -2893,6 +2893,15 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(outcomeFromChecks([fail("tool.claude")], broken).state).toBe("failed");
       });
 
+      test("a Flock left missing, as an update run leaves a removed one, reads as needs-you, not a failed check", () => {
+        const install: Action = { type: "install", label: "Install", tool: "flock", via: "download" };
+        const rows = [{ ...rowOf("tool.flock", "tool", "Flock", "missing"), action: install }];
+        expect(outcomeFromChecks([fail("tool.flock")], rows)).toEqual({ state: "needs-you", detail: "To install: Flock" });
+
+        const noAction = [rowOf("tool.flock", "tool", "Flock", "missing")];
+        expect(outcomeFromChecks([fail("tool.flock")], noAction).state).toBe("failed");
+      });
+
       test("settleChecks keeps waiting on tool.daemon while an unconnected account also fails", async () => {
         const slack = fail("account.slack");
         const daemonDown = { ...fail("tool.daemon"), detail: "daemon unreachable" };

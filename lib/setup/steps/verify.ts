@@ -34,13 +34,14 @@ const SKILLS_OVERRIDES_NOTE = "Old keys in your skill overrides file: open Setup
  * but broken (`invalid`, `error`) still is. A `tool.team.*` row is only
  * `missing` when its CLI is not installed, hence "install", not "connect".
  * Install never installs Claude Code either: its Install button is the
- * member's, on the connect screen.
+ * member's, on the connect screen. A missing Flock with an Install button
+ * is theirs too: an update run leaves a Flock the member removed alone.
  */
 function memberTask(row: Row | undefined): MemberTask | null {
   if (!row || (row.status !== "missing" && row.status !== "needs-you")) return null;
   if (row.kind === "account") return { verb: "connect", label: row.title };
   if (row.id.startsWith("tool.team.")) return { verb: "install", label: row.title };
-  if (row.id === "tool.claude" && row.action?.type === "install") return { verb: "install", label: row.title };
+  if ((row.id === "tool.claude" || row.id === "tool.flock") && row.action?.type === "install") return { verb: "install", label: row.title };
   return null;
 }
 
