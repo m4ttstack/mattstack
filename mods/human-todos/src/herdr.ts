@@ -252,7 +252,8 @@ export async function startHerdr($: EngineInterface, todo: Todo): Promise<void> 
   const run: Run = { id: todo.id, isGone: false, isBusy: false, idlePolls: 0, unreadPolls: 0, output: [] }
   runs.set(token, run)
   try {
-    const placed = await placeTab($, session, todo, todo.cwd ?? (await $.session.cwd()))
+    const cwd = todo.cwd ?? (await $.session.cwd())
+    const placed = await placeTab($, session, todo, cwd)
     if (!placed) throw new Error('herdr made no tab')
     const still = run.isGone ? undefined : (await listTodos($)).find(t => t.id === todo.id)
     if (run.isGone || still?.status !== 'running') {
@@ -261,8 +262,9 @@ export async function startHerdr($: EngineInterface, todo: Todo): Promise<void> 
       return end(token)
     }
     await patchTodo($, todo.id, { token, paneId: placed.paneId, tabId: placed.tabId, herdrSession: session, liveTail: [], isStopping: false })
-    const wrapper = `trap : INT; zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`
-    const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(`zsh -c ${quote(wrapper)} todo ${quote(todo.script ?? '')}`)}`)
+    // A reused tab's shell can be in any folder, so the script goes to the one Confirm showed, or does not run.
+    const wrapper = `trap : INT; cd -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`
+    const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(`zsh -c ${quote(wrapper)} todo ${quote(todo.script ?? '')} ${quote(cwd)}`)}`)
     if (typed.exitCode !== 0) throw new Error('herdr would not run the script')
   } catch (err) {
     end(token)
