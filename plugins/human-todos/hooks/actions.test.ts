@@ -133,6 +133,18 @@ test('Run asks first: the item is confirming, nothing starts and the agent hears
   await pane.unmount()
 })
 
+test('a script with hidden characters from an older saved list neither runs nor copies', async ($, on) => {
+  const { events, copied, spawned } = await seeded($, on, [todo({ kind: 'run', script: 'ls\x1b[2K' }), todo({ id: '2', kind: 'terminal', script: 'ls‮' })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await press(pane, '1', 'run')
+  await press(pane, '2', 'copy')
+  expect(await state($)).toContain('#1 [open]')
+  expect(spawned).toEqual([])
+  expect(copied).toEqual([])
+  expect(toasts(events)).toEqual(['#1 has hidden characters in its script, so it cannot be run or copied', '#2 has hidden characters in its script, so it cannot be run or copied'])
+  await pane.unmount()
+})
+
 test('a confirming item draws Confirm (primary) and Cancel, and the band counts it', async ($, on) => {
   await seeded($, on, [todo({ id: '1' }), todo({ id: '2' })])
   const first = await $.ui.mount({ ...PANE, surface: 'terminal' })

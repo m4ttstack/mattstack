@@ -2,7 +2,7 @@ import type { EngineInterface, On, RenderSurface } from 'claude-code'
 
 import type { Todo } from '../types'
 import type { ButtonId } from './items'
-import { fileName, isImageName } from './items'
+import { fileName, hasUnseen, isImageName } from './items'
 import { report } from './report'
 import { cleanupHerdr, herdrSession, releaseHerdr } from './herdr'
 import { releaseLocal } from './local'
@@ -106,6 +106,12 @@ async function openImages($: EngineInterface, todo: Todo): Promise<void> {
 export async function press($: EngineInterface, todo: Todo, button: ButtonId, surface: RenderSurface): Promise<void> {
   const current = (await listTodos($)).find(t => t.id === todo.id)
   if (!current) return
+
+  // A list saved by an older version can hold what add now refuses.
+  if ((button === 'run' || button === 'confirm' || button === 'copy') && hasUnseen(current.script ?? '')) {
+    if (current.status === 'confirming') await patchTodo($, current.id, { status: 'open' })
+    return $.ui.toast(`#${current.id} has hidden characters in its script, so it cannot be run or copied`)
+  }
 
   switch (button) {
     case 'run':

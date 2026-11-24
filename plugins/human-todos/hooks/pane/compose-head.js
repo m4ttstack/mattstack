@@ -729,11 +729,36 @@ var LIVE_LINES_LOCAL = 15;
 var LIVE_LINES_HERDR = 3;
 var LINE_MAX = 300;
 var TAIL_MAX = 8 * 1024;
+var UNSEEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
+var UNSEEN_IN_PROSE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/u;
+function hasUnseen(script) {
+  return UNSEEN.test(script.replace(/[\n\t]/g, ""));
+}
+function unseenField(input) {
+  if (hasUnseen(input.script ?? ""))
+    return "script";
+  if (UNSEEN.test(input.cwd ?? ""))
+    return "cwd";
+  if (UNSEEN.test(input.url ?? ""))
+    return "url";
+  if (Array.isArray(input.paths) && input.paths.some((p) => UNSEEN.test(String(p))))
+    return "paths";
+  if (UNSEEN_IN_PROSE.test(input.title))
+    return "title";
+  if (UNSEEN_IN_PROSE.test((input.detail ?? "").replace(/[\n\t]/g, "")))
+    return "detail";
+  if (UNSEEN_IN_PROSE.test(input.doneLabel ?? ""))
+    return "doneLabel";
+  return;
+}
 function checkKind(input) {
   if (!KINDS.includes(input.kind))
     return `kind ${String(input.kind)} is not one of ${KINDS.join(", ")}.`;
   if ((input.kind === "run" || input.kind === "terminal") && !input.script?.trim())
     return `kind ${input.kind} needs a script.`;
+  const unseen = unseenField(input);
+  if (unseen)
+    return `${unseen} has characters the user cannot see (control, direction or zero-width); leave them out.`;
   if (input.kind === "link" && !/^https?:\/\//.test(input.url ?? ""))
     return "kind link needs an http(s) url.";
   if (input.kind === "image") {
@@ -851,7 +876,7 @@ function describe(list) {
   }).join(`
 `);
 }
-var IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "svg"];
+var IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp"];
 function isImageName(path) {
   const name = fileName(path);
   const dot = name.lastIndexOf(".");
@@ -947,7 +972,9 @@ function paneModel(input) {
   }
   for (const todo of actionable) {
     const first = rows.length;
-    const script = todo.script ? hardWrap(`$ ${todo.script}`, width) : [];
+    const script = todo.script ? hardWrap(`$ ${todo.script}`.split(`
+`).map(cleanLine).join(`
+`), width) : [];
     const isConfirming = todo.status === "confirming";
     const isOpen = expanded.includes(todo.id) || isConfirming;
     const shown = isOpen ? script : script.slice(0, SCRIPT_ROWS);

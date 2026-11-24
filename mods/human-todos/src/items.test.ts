@@ -15,10 +15,36 @@ test('checkKind names what each kind is missing', () => {
   expect(checkKind({ kind: 'image', title: 'x', paths: ['/a.png', 'b.png'] })).toBe('kind image needs absolute paths; b.png is not one.')
   expect(checkKind({ kind: 'image', title: 'x', paths: ['/a.png', '/b.JPG'] })).toBeUndefined()
   expect(checkKind({ kind: 'image', title: 'x', paths: ['/a.png', '/Applications/Calculator.app'] })).toBe(
-    'kind image opens image files only (png, jpg, jpeg, gif, webp, heic, heif, tif, tiff, bmp, svg); /Applications/Calculator.app is not one.',
+    'kind image opens image files only (png, jpg, jpeg, gif, webp, heic, heif, tif, tiff, bmp); /Applications/Calculator.app is not one.',
   )
   expect(checkKind({ kind: 'image', title: 'x', paths: ['/x/.png'] })).toMatch(/is not one\.$/)
   expect(checkKind({ kind: 'bogus' as TodoKind, title: 'x' })).toBe('kind bogus is not one of task, run, terminal, link, image.')
+})
+
+test('an svg is refused: its default app may be a browser, which runs what is inside it', () => {
+  expect(checkKind({ kind: 'image', title: 'x', paths: ['/a.svg'] })).toMatch(/\/a\.svg is not one\.$/)
+})
+
+test('a script, folder, link or path with characters the pane cannot show is refused', () => {
+  for (const hidden of ['\x1b[2K', '\r', '\x03', '‮', '⁦', '​', '️', ' ']) {
+    expect(checkKind({ kind: 'run', title: 'x', script: `ls${hidden}` })).toMatch(/^script has characters/)
+    expect(checkKind({ kind: 'terminal', title: 'x', script: `ls${hidden}` })).toMatch(/^script has characters/)
+    expect(checkKind({ kind: 'run', title: 'x', script: 'ls', cwd: `/w${hidden}` })).toMatch(/^cwd has characters/)
+    expect(checkKind({ kind: 'link', title: 'x', url: `https://a${hidden}` })).toMatch(/^url has characters/)
+    expect(checkKind({ kind: 'image', title: 'x', paths: [`/a${hidden}.png`] })).toMatch(/^paths has characters/)
+  }
+  expect(checkKind({ kind: 'run', title: 'x', script: 'a\n\tb "é" 日本' })).toBeUndefined()
+  expect(checkKind({ kind: 'run', title: 'x', script: 'ls', cwd: '/a\nb' })).toMatch(/^cwd has characters/)
+})
+
+test('a title, detail or doneLabel refuses control and direction characters but keeps emoji', () => {
+  for (const field of ['title', 'detail', 'doneLabel'] as const) {
+    for (const hidden of ['\x1b[2J', '‮', '⁧']) {
+      expect(checkKind({ kind: 'task', title: 'x', [field]: `a${hidden}b` })).toMatch(new RegExp(`^${field} has characters`))
+    }
+  }
+  expect(checkKind({ kind: 'task', title: 'a\nb' })).toMatch(/^title has characters/)
+  expect(checkKind({ kind: 'task', title: 'Ship it 👩‍💻', detail: 'one\ntwo' })).toBeUndefined()
 })
 
 test('toTodo drops the fields that do not belong to the kind', () => {

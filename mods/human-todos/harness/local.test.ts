@@ -132,6 +132,17 @@ test('a report prunes spills a day stale, and keeps fresh ones and the live logs
   expect(ran.filter(argv => argv[0] === 'rm' && argv.some(a => a.startsWith(`${root}/sess-0-`)))).toEqual([['rm', '-f', '--', `${root}/sess-0-1-old.spill`]])
 })
 
+test('a report removes live logs and run logs older than a saved list is kept, and no newer ones', async ($, on) => {
+  const root = '/home/u/Library/Caches/human-todos'
+  const DAY = 24 * 60 * 60 * 1000
+  const entry = (name: string, days: number) => ({ name, kind: 'file' as const, size: 1, mtimeMs: 1_000_000 - days * DAY, isLink: false })
+  on('fs.list', (_, e) => ({ value: e.path === root ? [entry('sess-0-1-old.log', 31), entry('sess-0-2-new.log', 29), entry('notes.txt', 31)] : [entry('sess-0-1.log', 31), entry('sess-0-2.log', 29)] }))
+  const { run1, ran, clock } = await seeded($, on, [todo({})], { script: () => exits([pid(9), out('x\n')]) })
+  await run1('1')
+  await clock.settle()
+  expect(ran.filter(argv => argv[0] === 'rm' && argv.some(a => a.includes('/sess-0-')))).toEqual([['rm', '-f', '--', `${root}/runs/sess-0-1.log`, `${root}/sess-0-1-old.log`]])
+})
+
 test('a session switch while the report saves its output leaves the new session\'s item of the same number alone', async ($, on) => {
   let copies = 0
   let switchTo: (() => void) | undefined

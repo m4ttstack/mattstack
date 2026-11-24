@@ -257,3 +257,8 @@ test("a run item's Done reads as not running, even when a stored item carries a 
   expect(doneOf({})?.label).toBe('Done without running')
   expect(doneOf({ doneLabel: 'Ran it' })?.label).toBe('Done without running')
 })
+
+test('a tab in a script is drawn as spaces, so the row measures what it shows', () => {
+  const { rows } = build([todo({ kind: 'run', script: 'if x\n\tmake', status: 'confirming' })], [], 60)
+  expect(rows.filter(r => r.kind === 'text' && r.tone === 'script')).toEqual([text('$ if x', 'script', true), text('        make', 'script', true)])
+})

@@ -21,11 +21,12 @@ const SETTLED = { liveTail: undefined, isStopping: false }
 const outputLine = (log: string | null | undefined) => (log === undefined ? '(no output)' : (log ?? '(the output could not be saved)'))
 
 export function settle(todo: Todo, outcome: Outcome, log?: string | null): { patch: Partial<Todo>; text: string } {
-  const who = `#${todo.id} "${todo.title}"`
+  // The agent wrote these words, so they are escaped: none can close its quote and read as the user's.
+  const who = `#${todo.id} ${JSON.stringify(todo.title)}`
   const output = `Output: ${outputLine(log)}`
   switch (outcome.kind) {
     case 'done':
-      return { patch: { status: 'done' }, text: todo.kind !== 'run' && todo.doneLabel ? `${who}: the user pressed "${todo.doneLabel}" (done).` : `${who}: the user marked it done.` }
+      return { patch: { status: 'done' }, text: todo.kind !== 'run' && todo.doneLabel ? `${who}: the user pressed ${JSON.stringify(todo.doneLabel)} (done).` : `${who}: the user marked it done.` }
     case 'skipped':
       return { patch: { status: 'skipped' }, text: `${who}: the user dismissed it.` }
     case 'message':

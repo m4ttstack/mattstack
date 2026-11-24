@@ -129,3 +129,13 @@ test('the add row shows the kind and title alone, and ctrl+o the whole call', as
     }
   }
 })
+
+test('a run item with no cwd keeps the folder the session is in, so Confirm shows where it runs', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.tool.call({ tool: ADD, kind: 'run', title: 'x', script: 'ls' })
+  await $.tool.call({ tool: ADD, kind: 'run', title: 'y', script: 'ls', cwd: '/elsewhere' })
+  await $.tool.call({ tool: ADD, kind: 'task', title: 'z' })
+  const saved = w.store.get('list:sess-1') as { todos: { cwd?: string }[] }
+  expect(saved.todos.map(t => t.cwd)).toEqual(['/work', '/elsewhere', undefined])
+})

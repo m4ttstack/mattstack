@@ -11,12 +11,12 @@ const PREFIX = 'mcp__human-todos__'
 type ToolNames = { add: string; list: string; withdraw: string }
 
 export function addDescription(paneTitle: string): string {
-  return `Add a step only the user can do to their "${paneTitle}" pane, which stays beside the transcript while replies scroll away. Use it whenever you need the user to act: a command you cannot run (denied, needs sudo, a TTY, a login or a credential), a step in a browser or another app, or an account or physical action. Add the step as soon as you hit the wall, instead of only writing it in your reply, and keep working on anything else meanwhile. Pick the kind: task (by hand), run (a command the pane runs for them and reports back), terminal (needs their terminal: sudo, password or login prompts), link (a web page), image (screenshots or other images for them to look at, opened in their default image app). You get a message when they finish, stop or run it, or write to you about it from the pane, and a dismissal comes with the next message, so never ask them to type "done".`
+  return `Add a step only the user can do to their "${paneTitle}" pane, which stays beside the transcript while replies scroll away. Use it whenever you need the user to act: a command that needs sudo, a TTY, a login or a credential, a step in a browser or another app, or an account or physical action. Add the step as soon as you hit the wall, instead of only writing it in your reply, and keep working on anything else meanwhile. Never use it to get a refused command run: if a permission or policy refused a command, say so in your reply instead. Pick the kind: task (by hand), run (a command the pane runs for them and reports back), terminal (needs their terminal: sudo, password or login prompts), link (a web page), image (screenshots or other images for them to look at, opened in their default image app). You get a message when they finish, stop or run it, or write to you about it from the pane, and a dismissal comes with the next message, so never ask them to type "done".`
 }
 
 export function guidance(names: ToolNames): string {
   return `# To-dos for the user
-When you need the user to do something you cannot do yourself (a command that needs their terminal, sudo, an interactive login or a credential; a step in a browser or another app; a physical or account action), add it with ${names.add} instead of only writing it in your reply. Long replies scroll away; the list stays in a "${TITLE}" pane beside the transcript.
+When you need the user to do something you cannot do yourself (a command that needs their terminal, sudo, an interactive login or a credential; a step in a browser or another app; a physical or account action), add it with ${names.add} instead of only writing it in your reply. Long replies scroll away; the list stays in a "${TITLE}" pane beside the transcript. Never use it to get a refused command run: if a permission or policy refused a command, say so in your reply instead.
 - Every item has a \`kind\`, which decides the buttons the user gets:
   - \`task\`: something they do by hand (an account setting, a physical step, a decision). Done or Dismiss.
   - \`run\`: a shell command that runs without a TTY. Give \`script\`; the pane offers Run and sends you the exit code and output.
@@ -51,7 +51,7 @@ export function registerContract(on: On): void {
           paths: {
             type: 'array',
             items: { type: 'string' },
-            description: 'For kind image: one absolute path per image file (png, jpg, gif, webp, heic, tiff, bmp, svg); Open opens them all in the default image app',
+            description: 'For kind image: one absolute path per image file (png, jpg, gif, webp, heic, tiff, bmp); Open opens them all in the default image app',
           },
           cwd: { type: 'string', description: 'For kind run: directory to run in; defaults to the session cwd' },
           doneLabel: {
@@ -131,7 +131,7 @@ export function registerContract(on: On): void {
     const input = e as unknown as AddInput
     const missing = checkKind(input)
     if (missing) return { deny: missing }
-    const todo = await addTodo($, input)
+    const todo = await addTodo($, input.kind === 'run' && input.cwd === undefined ? { ...input, cwd: await $.session.cwd() } : input)
     await openPane($)
     return {
       result: `Added #${todo.id} to the user's ${TITLE} pane. You will get a message when they act on it; carry on with other work meanwhile.`,

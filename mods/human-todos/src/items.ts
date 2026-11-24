@@ -14,9 +14,31 @@ export const LIVE_LINES_HERDR = 3
 const LINE_MAX = 300
 const TAIL_MAX = 8 * 1024
 
+// What runs or opens must be all there on screen: no control, format or invisible character gets in.
+const UNSEEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u
+// Prose keeps the joiners emoji are made of, but nothing that moves or reorders text.
+const UNSEEN_IN_PROSE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/u
+
+export function hasUnseen(script: string): boolean {
+  return UNSEEN.test(script.replace(/[\n\t]/g, ''))
+}
+
+function unseenField(input: AddInput): string | undefined {
+  if (hasUnseen(input.script ?? '')) return 'script'
+  if (UNSEEN.test(input.cwd ?? '')) return 'cwd'
+  if (UNSEEN.test(input.url ?? '')) return 'url'
+  if (Array.isArray(input.paths) && input.paths.some(p => UNSEEN.test(String(p)))) return 'paths'
+  if (UNSEEN_IN_PROSE.test(input.title)) return 'title'
+  if (UNSEEN_IN_PROSE.test((input.detail ?? '').replace(/[\n\t]/g, ''))) return 'detail'
+  if (UNSEEN_IN_PROSE.test(input.doneLabel ?? '')) return 'doneLabel'
+  return undefined
+}
+
 export function checkKind(input: AddInput): string | undefined {
   if (!(KINDS as readonly string[]).includes(input.kind)) return `kind ${String(input.kind)} is not one of ${KINDS.join(', ')}.`
   if ((input.kind === 'run' || input.kind === 'terminal') && !input.script?.trim()) return `kind ${input.kind} needs a script.`
+  const unseen = unseenField(input)
+  if (unseen) return `${unseen} has characters the user cannot see (control, direction or zero-width); leave them out.`
   if (input.kind === 'link' && !/^https?:\/\//.test(input.url ?? '')) return 'kind link needs an http(s) url.'
   if (input.kind === 'image') {
     const paths = Array.isArray(input.paths) ? input.paths : []
@@ -133,7 +155,7 @@ export function describe(list: readonly Todo[]): string {
     .join('\n')
 }
 
-export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif', 'tif', 'tiff', 'bmp', 'svg'] as const
+export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif', 'tif', 'tiff', 'bmp'] as const
 
 export function isImageName(path: string): boolean {
   const name = fileName(path)

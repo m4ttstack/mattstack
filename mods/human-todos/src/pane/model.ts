@@ -116,7 +116,7 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
 
   for (const todo of actionable) {
     const first = rows.length
-    const script = todo.script ? hardWrap(`$ ${todo.script}`, width) : []
+    const script = todo.script ? hardWrap(`$ ${todo.script}`.split('\n').map(cleanLine).join('\n'), width) : []
     const isConfirming = todo.status === 'confirming'
     const isOpen = expanded.includes(todo.id) || isConfirming
     const shown = isOpen ? script : script.slice(0, SCRIPT_ROWS)
