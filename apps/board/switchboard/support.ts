@@ -31,6 +31,8 @@ export interface SupportHostState {
 }
 
 export const SUPPORT_BODY_MAX_BYTES = 64 * 1024;
+/** The body is JSON inside the request's JSON, so every quote in it can double. */
+export const SUPPORT_REQUEST_MAX_BYTES = 2 * SUPPORT_BODY_MAX_BYTES + 4 * 1024;
 export const SUPPORT_TTL_MS = 7 * 24 * 60 * 60_000;
 export const SUPPORT_MACHINE_HOLD_MS = 10 * 60_000;
 export const MAX_PENDING_PER_SENDER = 20;
@@ -38,6 +40,8 @@ export const MAX_PENDING_PER_SENDER = 20;
 /** SQLite turns a lone surrogate into other characters, so an id holding one
     could be stored and never acked. */
 const ID = /^[A-Za-z0-9._:-]{1,200}$/;
+/** A status is `<request id>:<state>`, so a request id leaves room for it. */
+const REQUEST_ID_MAX = 128;
 const MAC = /^[A-Za-z0-9._:-]{1,256}$/;
 const MACHINE_MAX = 200;
 
@@ -49,6 +53,13 @@ function parseMachine(v: unknown): string | null {
   return typeof v === 'string' && v.trim() && v.length <= MACHINE_MAX
     ? v
     : null;
+}
+
+function bodyTooLarge(body: unknown): boolean {
+  return (
+    typeof body === 'string' &&
+    new TextEncoder().encode(body).length > SUPPORT_BODY_MAX_BYTES
+  );
 }
 
 export function parseSupportDraft(v: unknown): SupportDraft | null {
@@ -65,11 +76,21 @@ export function parseSupportDraft(v: unknown): SupportDraft | null {
   if (typeof id !== 'string' || !ID.test(id)) return null;
   if (typeof to !== 'string' || !to.trim() || to.trim() === '*') return null;
   if (!kind) return null;
+  if (kind === 'request' && id.length > REQUEST_ID_MAX) return null;
   if (typeof sentAt !== 'number' || !Number.isFinite(sentAt)) return null;
-  if (typeof body !== 'string') return null;
+  if (typeof body !== 'string' || bodyTooLarge(body)) return null;
   if (typeof mac !== 'string' || !MAC.test(mac)) return null;
   return { id, to: canonicalUsername(to), kind, sentAt, body, mac };
 }
+
+export type SupportPublish =
+  { ok: true } | { ok: false; error: 'unknown-recipient' | 'full' | 'changed' };
+
+const PUBLISH_STATUS = {
+  'unknown-recipient': 422,
+  full: 429,
+  changed: 409,
+} as const;
 
 export class SupportStore {
   constructor(private db: Database) {
@@ -84,6 +105,9 @@ export class SupportStore {
       mac TEXT NOT NULL,
       PRIMARY KEY (recipient, from_user, id)
     )`);
+    db.run(
+      `CREATE INDEX IF NOT EXISTS support_messages_received ON support_messages(received_at)`
+    );
     db.run(`CREATE TABLE IF NOT EXISTS support_hosts (
       username TEXT PRIMARY KEY,
       machine TEXT NOT NULL,
@@ -92,54 +116,55 @@ export class SupportStore {
     )`);
   }
 
-  publish(
-    from: string,
-    draft: SupportDraft,
-    now: number
-  ): { ok: true } | { ok: false; error: 'unknown-recipient' | 'full' } {
-    return this.db.transaction(
-      (): { ok: true } | { ok: false; error: 'unknown-recipient' | 'full' } => {
-        const known = this.db
-          .query<unknown, [string]>(`SELECT 1 FROM boards WHERE username = ?`)
-          .get(draft.to);
-        if (!known) return { ok: false, error: 'unknown-recipient' };
-        const held = this.db
-          .query<unknown, [string, string, string]>(
-            `SELECT 1 FROM support_messages WHERE recipient = ? AND from_user = ? AND id = ?`
-          )
-          .get(draft.to, from, draft.id);
-        if (held) return { ok: true };
-        const pending = this.db
-          .query<{ n: number }, [string, string]>(
-            `SELECT COUNT(*) AS n FROM support_messages WHERE recipient = ? AND from_user = ?`
-          )
-          .get(draft.to, from)!.n;
-        if (pending >= MAX_PENDING_PER_SENDER)
-          return { ok: false, error: 'full' };
-        this.db.run(
-          `INSERT INTO support_messages (recipient, from_user, id, kind, sent_at, received_at, body, mac)
+  publish(from: string, draft: SupportDraft, now: number): SupportPublish {
+    return this.db.transaction((): SupportPublish => {
+      this.prune(now);
+      const known = this.db
+        .query<unknown, [string]>(`SELECT 1 FROM boards WHERE username = ?`)
+        .get(draft.to);
+      if (!known) return { ok: false, error: 'unknown-recipient' };
+      const held = this.db
+        .query<{ kind: string; body: string }, [string, string, string]>(
+          `SELECT kind, body FROM support_messages WHERE recipient = ? AND from_user = ? AND id = ?`
+        )
+        .get(draft.to, from, draft.id);
+      // A retry may be signed again, so only what it says has to match.
+      if (held)
+        return held.kind === draft.kind && held.body === draft.body
+          ? { ok: true }
+          : { ok: false, error: 'changed' };
+      const pending = this.db
+        .query<{ n: number }, [string, string]>(
+          `SELECT COUNT(*) AS n FROM support_messages WHERE recipient = ? AND from_user = ?`
+        )
+        .get(draft.to, from)!.n;
+      if (pending >= MAX_PENDING_PER_SENDER)
+        return { ok: false, error: 'full' };
+      this.db.run(
+        `INSERT INTO support_messages (recipient, from_user, id, kind, sent_at, received_at, body, mac)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            draft.to,
-            from,
-            draft.id,
-            draft.kind,
-            draft.sentAt,
-            now,
-            draft.body,
-            draft.mac,
-          ]
-        );
-        return { ok: true };
-      }
-    )();
+        [
+          draft.to,
+          from,
+          draft.id,
+          draft.kind,
+          draft.sentAt,
+          now,
+          draft.body,
+          draft.mac,
+        ]
+      );
+      return { ok: true };
+    })();
   }
 
   list(
     username: string,
     kind: SupportKind,
+    now: number,
     limit: number = 100
   ): SupportMessage[] {
+    this.prune(now);
     return this.db
       .query<
         {
@@ -172,8 +197,10 @@ export class SupportStore {
   newestAfter(
     username: string,
     kind: SupportKind,
-    since: number
+    since: number,
+    now: number
   ): number | null {
+    this.prune(now);
     const row = this.db
       .query<{ newest: number | null }, [string, string, number]>(
         `SELECT MAX(received_at) AS newest FROM support_messages WHERE recipient = ? AND kind = ? AND received_at > ?`
@@ -270,7 +297,7 @@ function json(status: number, body: unknown): Response {
 const notAllowed = () => new Response('method not allowed', { status: 405 });
 
 async function readBody(req: Request): Promise<unknown | Response> {
-  const text = await readCappedText(req, SUPPORT_BODY_MAX_BYTES);
+  const text = await readCappedText(req, SUPPORT_REQUEST_MAX_BYTES);
   if (text === null) return new Response('too large', { status: 413 });
   try {
     return JSON.parse(text) as unknown;
@@ -330,11 +357,13 @@ export function makeSupportHandler(
       if (req.method === 'GET') {
         const kind = pollKind(new URL(req.url).searchParams, username);
         if (kind instanceof Response) return kind;
-        return json(200, { messages: store.list(username, kind) });
+        return json(200, { messages: store.list(username, kind, now()) });
       }
       if (req.method !== 'POST') return notAllowed();
       const body = await readBody(req);
       if (body instanceof Response) return body;
+      if (bodyTooLarge((body as { body?: unknown } | null)?.body))
+        return new Response('too large', { status: 413 });
       const draft = parseSupportDraft(body);
       if (!draft)
         return new Response(
@@ -344,9 +373,7 @@ export function makeSupportHandler(
       const at = stamp();
       const result = store.publish(username, draft, at);
       if (!result.ok)
-        return json(result.error === 'full' ? 429 : 422, {
-          error: result.error,
-        });
+        return json(PUBLISH_STATUS[result.error], { error: result.error });
       waiters.wake([`${draft.kind}:${draft.to}`], at);
       return json(201, { ok: true });
     }
@@ -362,7 +389,7 @@ export function makeSupportHandler(
         });
       const kind = pollKind(params, username);
       if (kind instanceof Response) return kind;
-      const pending = store.newestAfter(username, kind, since);
+      const pending = store.newestAfter(username, kind, since, now());
       if (pending !== null) return json(200, { woke: true, cursor: pending });
       const woke = await waiters.wait(
         `${kind}:${username}`,

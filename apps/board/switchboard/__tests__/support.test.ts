@@ -151,6 +151,20 @@ describe('support messages', () => {
     expect(got[0]!.receivedAt).toBe(1000);
   });
 
+  test('a repeat that says something else is 409, and the first one stands', async () => {
+    const { post, list, ada, alex } = setup();
+    await post(ada, draft('r1'));
+    for (const over of [
+      { body: '{"text":"edited"}' },
+      { kind: 'status' as const },
+    ])
+      expect((await post(ada, draft('r1', 'alex', over))).status).toBe(409);
+    const resigned = draft('r1', 'alex', { sentAt: 2, mac: 'cd34' });
+    expect((await post(ada, resigned)).status).toBe(201);
+    expect((await list(alex)).map(m => m.body)).toEqual(['{"text":"help"}']);
+    expect(await list(alex, 'status')).toEqual([]);
+  });
+
   test("ack removes only the named sender's message", async () => {
     const { post, list, call, ada, alex, bo } = setup();
     await post(ada, draft('r1'));
@@ -200,20 +214,36 @@ describe('support messages', () => {
     expect((await list(alex)).map(m => m.id)).toEqual(['r2', 'r1']);
   });
 
-  test('a body over 64 KiB is 413', async () => {
+  test('a body of 64 KiB is taken, whatever its escaping costs, and one byte more is 413', async () => {
     const { post, list, ada, alex } = setup();
-    const big = draft('r1', 'alex', {
-      body: 'x'.repeat(relay.SUPPORT_BODY_MAX_BYTES),
-    });
-    expect((await post(ada, big)).status).toBe(413);
-    expect(await list(alex)).toEqual([]);
+    const full = '"'.repeat(relay.SUPPORT_BODY_MAX_BYTES);
+    expect((await post(ada, draft('r1', 'alex', { body: full }))).status).toBe(
+      201
+    );
+    expect(
+      (await post(ada, draft('r2', 'alex', { body: `${full}"` }))).status
+    ).toBe(413);
+    expect(
+      (await post(ada, draft('r3', 'alex', { body: 'é'.repeat(40_000) })))
+        .status
+    ).toBe(413);
+    expect((await list(alex)).map(m => m.id)).toEqual(['r1']);
+  });
+
+  test('a request over the whole-request cap is 413 unread', async () => {
+    const { call, ada } = setup();
+    const body = { pad: 'x'.repeat(relay.SUPPORT_REQUEST_MAX_BYTES) };
+    expect((await call('/support/messages', { token: ada, body })).status).toBe(
+      413
+    );
   });
 
   test('a malformed message is 400', async () => {
     const { call, ada } = setup();
     const bad = [
       draft(''),
-      draft('x'.repeat(201)),
+      draft('x'.repeat(129)),
+      draft('x'.repeat(201), 'alex', { kind: 'status' }),
       draft('r1', '*'),
       draft('r1', ' '),
       { ...draft('r1'), kind: 'other' },
@@ -252,10 +282,10 @@ describe('support messages', () => {
   test('everything listed can be acked, whatever ids a sender picked', async () => {
     const { post, list, call, ada, alex } = setup();
     const id = '0f8c-4a1e:already-waiting_x.y';
-    for (const i of [id, 'x'.repeat(200), '\ud800\ud800'])
+    for (const i of [id, 'x'.repeat(128), '\ud800\ud800'])
       await post(ada, draft(i));
     const keys = (await list(alex)).map(m => ({ from: m.from, id: m.id }));
-    expect(keys.map(k => k.id).sort()).toEqual([id, 'x'.repeat(200)]);
+    expect(keys.map(k => k.id).sort()).toEqual([id, 'x'.repeat(128)]);
     await call('/support/ack', { token: alex, body: { keys } });
     expect(await list(alex)).toEqual([]);
   });
@@ -272,6 +302,30 @@ describe('support messages', () => {
     await post(ada, draft('new'));
     store.support.prune(1001 + relay.SUPPORT_TTL_MS);
     expect((await list(alex)).map(m => m.id)).toEqual(['new']);
+  });
+
+  test('a message past 7 days is gone before the prune, and no longer counts', async () => {
+    const { post, list, call, ada, alex, clock } = setup();
+    for (let i = 0; i < 20; i++) await post(ada, draft(`r${i}`));
+    clock.t = 1019 + relay.SUPPORT_TTL_MS;
+    expect((await list(alex)).map(m => m.id)).toEqual(['r19']);
+    clock.t += 1;
+    expect(await list(alex)).toEqual([]);
+    const waited = await call(
+      '/support/wait?kind=request&machine=mac-1&since=0&timeout=0',
+      { token: alex }
+    );
+    expect(await waited.json()).toEqual({ woke: false, cursor: 0 });
+    expect((await post(ada, draft('next'))).status).toBe(201);
+  });
+
+  test('an id can be used again once its message has expired', async () => {
+    const { post, list, ada, alex, clock } = setup();
+    await post(ada, draft('r1'));
+    clock.t = 1001 + relay.SUPPORT_TTL_MS;
+    const again = draft('r1', 'alex', { body: '{"text":"again"}' });
+    expect((await post(ada, again)).status).toBe(201);
+    expect((await list(alex)).map(m => m.body)).toEqual(['{"text":"again"}']);
   });
 
   test('deleting a board drops its messages and host flag', async () => {
@@ -480,6 +534,9 @@ describe('support wait', () => {
 describe('the wire the relay and the client both declare', () => {
   test('limits match', () => {
     expect(relay.SUPPORT_BODY_MAX_BYTES).toBe(client.SUPPORT_BODY_MAX_BYTES);
+    expect(relay.SUPPORT_REQUEST_MAX_BYTES).toBe(
+      client.SUPPORT_REQUEST_MAX_BYTES
+    );
     expect(relay.SUPPORT_TTL_MS).toBe(client.SUPPORT_TTL_MS);
   });
 
@@ -488,8 +545,12 @@ describe('the wire the relay and the client both declare', () => {
       draft('r1', ' Alex '),
       draft('s1', 'alex', { kind: 'status' }),
       draft(''),
-      draft('x'.repeat(200)),
-      draft('x'.repeat(201)),
+      draft('x'.repeat(128)),
+      draft('x'.repeat(129)),
+      draft('x'.repeat(200), 'alex', { kind: 'status' }),
+      draft('x'.repeat(201), 'alex', { kind: 'status' }),
+      draft('r1', 'alex', { body: 'é'.repeat(32 * 1024) }),
+      draft('r1', 'alex', { body: `${'é'.repeat(32 * 1024)}x` }),
       draft('\ud800'),
       { ...draft('r1'), mac: 'x'.repeat(256) },
       draft('r1', '*'),
