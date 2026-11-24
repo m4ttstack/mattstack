@@ -2451,7 +2451,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(readSetupState(p).flockInstalledAt).toBeUndefined();
     });
 
-    test("a failed install on an unattended run is skipped, so it never stops the run", async () => {
+    test("a failed install on a non-interactive run is skipped, so it never stops the run", async () => {
       const p = flockMac({ feedStatus: 404 });
       expect(await flockInstallStep.run(makeCtx(p, { nonInteractive: true }).ctx)).toEqual({ state: "skipped", detail: FEED_DOWN });
     });

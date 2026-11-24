@@ -159,7 +159,7 @@ async function flockInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   return result.ok ? { state: "done", detail: result.detail } : flockNotInstalled(ctx, result.detail);
 }
 
-/** An unattended run has nobody to press Retry, and a failure would stop it before services.start, so Flock's row carries the miss. */
+/** A non-interactive run has nobody to press Retry, and a failure would stop it before services.start, so Flock's row carries the miss. */
 function flockNotInstalled(ctx: ApplyContext, detail: string): StepOutcome {
   if (ctx.update) return { state: "failed", detail, remedy: "Open setup's Flock row and press Install" };
   if (ctx.nonInteractive) return { state: "skipped", detail };
