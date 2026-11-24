@@ -106,7 +106,7 @@ describe("v17 db upgrade", () => {
     db.close();
 
     const upgraded = openStateDb(dbPath, "cli");
-    expect((upgraded.query("PRAGMA user_version;").get() as { user_version: number }).user_version).toBe(18);
+    expect((upgraded.query("PRAGMA user_version;").get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION);
     expect(columnNames(upgraded, "slack_conversations")).toEqual(expect.arrayContaining(cols));
     expect(columnNames(upgraded, "slack_support_tickets")).toEqual(["id", "conversation_id", "issue_id", "title", "url", "created_at"]);
     upgraded.close();
