@@ -1749,6 +1749,7 @@ function boardBand($, e, rest, board) {
   }, band, rest);
 }
 async function turnOn($) {
+  $.ui.invalidate("ui.render");
   await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false }).catch(() => {
     return;
   });

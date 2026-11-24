@@ -80,23 +80,26 @@ test('a hand-back, which the form never draws, keeps its whole row', async ($, o
   await ui.unmount()
 })
 
-test('a row drawn before the setting is read shortens once it is', async ($, on) => {
-  const seen = rows(on)
-  const w = world(on)
-  let release!: () => void
-  w.state.holdSetting = new Promise<void>(resolve => (release = resolve))
-  await startSession($)
-  const input = { title: 'Next steps', context: CONTEXT, questions: QUESTIONS }
-  const ui = await $.ui.mount({ ...row(FORM_ASK, input), surface: 'terminal' } as never)
-  await ui.keepsBeneath()
-  expect(seen.at(-1)).toEqual(input)
-  release()
-  // A read of the drawing is what runs a redraw the plugin asked for.
-  const isShort = async () => {
+for (const sessionIdFails of [false, true]) {
+  test(`a row drawn before the setting is read shortens once it is${sessionIdFails ? ', though the restore fails' : ''}`, async ($, on) => {
+    const seen = rows(on)
+    const w = world(on)
+    w.state.sessionIdFails = sessionIdFails
+    let release!: () => void
+    w.state.holdSetting = new Promise<void>(resolve => (release = resolve))
+    await startSession($)
+    const input = { title: 'Next steps', context: CONTEXT, questions: QUESTIONS }
+    const ui = await $.ui.mount({ ...row(FORM_ASK, input), surface: 'terminal' } as never)
     await ui.keepsBeneath()
-    return !('context' in (seen.at(-1) as object))
-  }
-  expect(await eventually(isShort)).toBe(true)
-  expect(seen.at(-1)).toEqual({ title: 'Next steps', questions: 2 })
-  await ui.unmount()
-})
+    expect(seen.at(-1)).toEqual(input)
+    release()
+    // A read of the drawing is what runs a redraw the plugin asked for.
+    const isShort = async () => {
+      await ui.keepsBeneath()
+      return !('context' in (seen.at(-1) as object))
+    }
+    expect(await eventually(isShort)).toBe(true)
+    expect(seen.at(-1)).toEqual({ title: 'Next steps', questions: 2 })
+    await ui.unmount()
+  })
+}

@@ -682,6 +682,8 @@ function boardBand($: EngineInterface, e: Parameters<EngineInterface['ui']['reso
 }
 
 async function turnOn($: EngineInterface): Promise<void> {
+  // Rows drawn before the setting was read shorten now: the restore below may be slow, or fail before its own redraw.
+  $.ui.invalidate('ui.render')
   // Gates still restore when the tool can't be listed.
   await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false }).catch(() => undefined)
   await restore($)
