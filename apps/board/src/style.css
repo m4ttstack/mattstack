@@ -2253,12 +2253,26 @@ button.tui-status-more-verb:active {
   font-weight: 500;
   white-space: nowrap;
 }
+.tui-dq-key {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.tui-dq-key .tui-key-cap {
+  font-size: 12px;
+}
 @media (max-width: 720px) {
   .tui-dq-banner {
     flex-wrap: wrap;
   }
   .tui-dq-banner-copy {
     flex-basis: calc(100% - 44px);
+  }
+  .tui-dq-key {
+    display: none;
   }
   .tui-dq-banner-copy p {
     white-space: normal;

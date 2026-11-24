@@ -83,4 +83,4 @@ function useSheetKeys({
   }, []);
 }
 
-export { sheetKey, useSheetKeys };
+export { sheetKey, TYPING, useSheetKeys };
