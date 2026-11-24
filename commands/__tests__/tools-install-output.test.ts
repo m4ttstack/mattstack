@@ -45,7 +45,7 @@ test("the --json envelope never carries placed", async () => {
   const io = captureOut();
   out.__test__.setHuman(() => false);
   try {
-    await toolsInstall(["flock", "--json"], {}, fakeProbes({ home: "/home/x" }));
+    await toolsInstall(["flock-app", "--json"], {}, fakeProbes({ home: "/home/x" }));
     const env = JSON.parse(io.stdout());
     expect(Object.keys(env)).toEqual(["contract", "at", "via", "ok", "detail"]);
     expect(env.ok).toBe(true);

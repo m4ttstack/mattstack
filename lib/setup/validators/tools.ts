@@ -37,7 +37,7 @@ import { mattstackFloor } from "../mattstack-floor.ts";
 import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
 import { fetchHerdrBuilds, HERDR_MIN_BUILD, herdrVerdict, parseHerdrVersion } from "../herdr-builds.ts";
 import { shellQuote } from "../../herdr-launch.ts";
-import { flockBelowFloor, flockNeedsMacos, installedFlock } from "../flock-install.ts";
+import { FLOCK_TOOL, flockBelowFloor, flockNeedsMacos, installedFlock } from "../flock-install.ts";
 import { homebrewHerdrs, homebrewUninstallCommands, isHomebrewHerdr, staleHerdrSessions } from "../herdr-install.ts";
 import { VENDOR_INSTALLERS, vendorBinPath } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
@@ -90,7 +90,7 @@ export function named(name: string, version: string): string {
 }
 
 function provisionedInstallAction(tool: string, label: "Install" | "Upgrade" = "Install"): Action {
-  return { type: "install", label, tool, via: tool === "herdr" || tool === "flock" ? "download" : "vendor" };
+  return { type: "install", label, tool, via: tool === "herdr" || tool === FLOCK_TOOL ? "download" : "vendor" };
 }
 
 function exec(p: Probes, argv: string[], timeoutMs = PROBE_TIMEOUT_MS): Promise<ExecResult> {
@@ -110,7 +110,7 @@ async function flockRow(p: Probes): Promise<Row> {
   const installed = await installedFlock(p);
   if (installed) return row({ ...base, status: "ready", detail: named("Flock", installed.version ?? "") });
   if (await flockBelowFloor(p)) return row({ ...base, required: false, status: "skipped", detail: flockNeedsMacos() });
-  return row({ ...base, status: "missing", detail: "Flock is not installed", action: provisionedInstallAction("flock") });
+  return row({ ...base, status: "missing", detail: "Flock is not installed", action: provisionedInstallAction(FLOCK_TOOL) });
 }
 
 // ─── tool.herdr ────────────────────────────────────────────────────────────

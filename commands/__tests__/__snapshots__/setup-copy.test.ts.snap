@@ -325,7 +325,7 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
         },
         {
           "action": {
-            "tool": "flock",
+            "tool": "flock-app",
             "type": "install",
             "via": "download",
           },
@@ -941,7 +941,7 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
         },
         {
           "action": {
-            "tool": "flock",
+            "tool": "flock-app",
             "type": "install",
             "via": "download",
           },

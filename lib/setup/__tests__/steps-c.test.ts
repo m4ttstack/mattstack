@@ -2476,7 +2476,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
     test("waits for a running prepare accounts before reading the machine", async () => {
       const startedAt = new Date("2026-10-30T10:00:00.000Z");
-      const record = { stage: "accounts", startedAt: startedAt.toISOString(), pid: process.pid, items: ["flock"], failed: [] };
+      const record = { stage: "accounts", startedAt: startedAt.toISOString(), pid: process.pid, items: ["flock-app"], failed: [] };
       let sleeps = 0;
       const base = flockMac({ installed: true });
       const p: Probes = fakeProbes({
@@ -2894,7 +2894,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       });
 
       test("a Flock left missing, as an update run leaves a removed one, reads as needs-you, not a failed check", () => {
-        const install: Action = { type: "install", label: "Install", tool: "flock", via: "download" };
+        const install: Action = { type: "install", label: "Install", tool: "flock-app", via: "download" };
         const rows = [{ ...rowOf("tool.flock", "tool", "Flock", "missing"), action: install }];
         expect(outcomeFromChecks([fail("tool.flock")], rows)).toEqual({ state: "needs-you", detail: "To install: Flock" });
 

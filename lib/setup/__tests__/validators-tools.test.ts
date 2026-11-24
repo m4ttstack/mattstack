@@ -132,7 +132,7 @@ describe("toolRows — tool.flock", () => {
     const r = await flockRowOf(fakeProbes());
     expect(r.status).toBe("missing");
     expect(r.detail).toBe("Flock is not installed");
-    expect(r.action).toEqual({ type: "install", label: "Install", tool: "flock", via: "download" });
+    expect(r.action).toEqual({ type: "install", label: "Install", tool: "flock-app", via: "download" });
   });
 
   test("a Mac below macOS 15 with no Flock reads optional and skipped, with nothing to press", async () => {

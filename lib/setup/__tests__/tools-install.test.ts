@@ -64,21 +64,34 @@ describe("installTool — tool.herdr (the fork's build list)", () => {
   });
 });
 
-describe("installTool — tool.flock (the notarized app from m4ttstack/flock)", () => {
-  test("installRoute(flock) is download", async () => {
+describe("installTool — flock-app (the notarized Flock app from m4ttstack/flock)", () => {
+  test("installRoute(flock-app) is download", async () => {
     const p = fakeProbes();
-    expect(await installRoute(p, "flock", [], NOOP_SEAMS)).toBe("download");
+    expect(await installRoute(p, "flock-app", [], NOOP_SEAMS)).toBe("download");
     expect(p.calls.exec).toEqual([]);
   });
 
-  test("installTool(flock) runs installFlock", async () => {
+  test("a team's own flock command keeps its pin, and flock-app stays Flock.app", async () => {
+    const pin = { url: "https://downloads.example.com/flock", sha256: "a".repeat(64), extract: "" };
+    const reqs: PackRequirements[] = [{ pack: "widgets", integrations: [], tools: [{ name: "flock", why: "file locks", install: { download: { arm64: pin } } }] }];
+    const seams = { ...NOOP_SEAMS, hostArch: () => "arm64" as const };
+    const p = fakeProbes({ exec: (argv) => (argv[0] === "shasum" ? ok(`${"b".repeat(64)}  x\n`) : ok()), fetch: async () => ({ status: 404, body: "", headers: {} }) });
+    expect(await installRoute(p, "flock", [], seams)).toBeNull();
+    expect(await installRoute(p, "flock", reqs, seams)).toBe("download");
+    expect((await installTool(p, "flock", reqs, seams)).detail).toContain("team's pinned sha256");
+    expect(p.calls.exec.some((a) => a.includes(pin.url))).toBe(true);
+    expect(p.calls.fetch).toEqual([]);
+    expect((await installTool(p, "flock-app", reqs, seams)).detail).toContain("Flock's release feed");
+  });
+
+  test("installTool(flock-app) runs installFlock", async () => {
     const p = fakeProbes({ fetch: async () => ({ status: 404, body: "", headers: {} }) });
-    const result = await installTool(p, "flock", [], NOOP_SEAMS);
+    const result = await installTool(p, "flock-app", [], NOOP_SEAMS);
     expect(p.calls.fetch).toEqual([FLOCK_APPCAST_URL]);
     expect(result).toEqual({ via: "download", ok: false, detail: "rt could not read Flock's release feed from m4ttstack/flock" });
   });
 
-  test("installTool(flock) records when it put Flock in place, keyed on the result and not its wording", async () => {
+  test("installTool(flock-app) records when it put Flock in place, keyed on the result and not its wording", async () => {
     const p = fakeProbes({
       env: { TMPDIR: "/fake-tmp" },
       statPaths: { "/Applications": { isDirectory: true, writable: true } },
@@ -90,16 +103,16 @@ describe("installTool — tool.flock (the notarized app from m4ttstack/flock)", 
         return ok();
       },
     });
-    const result = await installTool(p, "flock", [], NOOP_SEAMS);
+    const result = await installTool(p, "flock-app", [], NOOP_SEAMS);
     expect(result).toMatchObject({ ok: true, placed: true });
     expect(readSetupState(p).flockInstalledAt).toBe(p.now().toISOString());
   });
 
-  test("installTool(flock) records nothing when Flock is already there or the install fails", async () => {
+  test("installTool(flock-app) records nothing when Flock is already there or the install fails", async () => {
     const present = fakeProbes({ files: { "/Applications/Flock.app/Contents/Info.plist": "plist" }, exec: (argv) => (argv[0] === "/usr/bin/plutil" ? ok("dev.mattstack.Flock\n") : ok()) });
-    expect((await installTool(present, "flock", [], NOOP_SEAMS)).detail).toContain("is already installed");
+    expect((await installTool(present, "flock-app", [], NOOP_SEAMS)).detail).toContain("is already installed");
     const feedDown = fakeProbes({ fetch: async () => ({ status: 404, body: "", headers: {} }) });
-    await installTool(feedDown, "flock", [], NOOP_SEAMS);
+    await installTool(feedDown, "flock-app", [], NOOP_SEAMS);
     expect(readSetupState(present).flockInstalledAt).toBeUndefined();
     expect(readSetupState(feedDown).flockInstalledAt).toBeUndefined();
   });

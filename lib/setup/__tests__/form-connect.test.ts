@@ -89,16 +89,16 @@ describe("connectRows", () => {
   });
 
   test("connect extra row shows Flock installing while prepare runs it", () => {
-    const flock = r("tool.flock", "missing", "Flock is not installed", { action: { type: "install", label: "Install", tool: "flock", via: "download" } });
-    const busy = pick(connectRows(inputs({ plan: plan(swap(joinerRows(), flock)), prepare: prepare({ items: ["flock"] }) })), "tool.flock");
+    const flock = r("tool.flock", "missing", "Flock is not installed", { action: { type: "install", label: "Install", tool: "flock-app", via: "download" } });
+    const busy = pick(connectRows(inputs({ plan: plan(swap(joinerRows(), flock)), prepare: prepare({ items: ["flock-app"] }) })), "tool.flock");
     expect(busy.state).toBe("busy");
     expect(busy.detail).toBe("Installing…");
     expect(busy.action).toBeNull();
 
-    const failed = prepare({ running: false, endedAt: "2026-10-30T09:55:00.000Z", items: ["flock"], failed: [{ tool: "flock", detail: "Downloading Flock failed (exit 22): 404" }] });
+    const failed = prepare({ running: false, endedAt: "2026-10-30T09:55:00.000Z", items: ["flock-app"], failed: [{ tool: "flock-app", detail: "Downloading Flock failed (exit 22): 404" }] });
     const todo = pick(connectRows(inputs({ plan: plan(swap(joinerRows(), flock)), prepare: failed })), "tool.flock");
     expect(todo.detail).toBe("Downloading Flock failed (exit 22): 404");
-    expect(todo.action).toMatchObject({ label: "Install", tool: "flock" });
+    expect(todo.action).toMatchObject({ label: "Install", tool: "flock-app" });
   });
 
   test("herdr installing in the background reads Installing, and a failed install offers the row's own Install", () => {

@@ -83,21 +83,21 @@ describe("runPrepare", () => {
     const seen: string[] = [];
     const p = fakeProbes({ home: HOME, exec: machine() });
     const result = await runPrepare(p, "accounts", { reqs, install: fakeInstall(seen), alive, pid: OWN_PID });
-    expect(seen).toEqual(["claude", "herdr", "flock", "doppler", "jq"]);
-    expect(result.installed).toEqual(["claude", "herdr", "flock", "doppler", "jq"]);
+    expect(seen).toEqual(["claude", "herdr", "flock-app", "doppler", "jq"]);
+    expect(result.installed).toEqual(["claude", "herdr", "flock-app", "doppler", "jq"]);
   });
 
   test("prepare lists flock when it is missing and skips it once installed", async () => {
     const missingFlock: string[] = [];
     await runPrepare(fakeProbes({ home: HOME, exec: machine() }), "accounts", { reqs: [], install: fakeInstall(missingFlock), alive, pid: OWN_PID });
-    expect(missingFlock).toContain("flock");
+    expect(missingFlock).toContain("flock-app");
 
     const base = machine();
     const exec: ExecScript = (argv, o) => (argv[0] === "/usr/bin/plutil" ? ok("dev.mattstack.Flock\n") : base(argv, o));
     const present = fakeProbes({ home: HOME, exec, files: { "/Applications/Flock.app/Contents/Info.plist": "plist" } });
     const seen: string[] = [];
     await runPrepare(present, "accounts", { reqs: [], install: fakeInstall(seen), alive, pid: OWN_PID });
-    expect(seen).not.toContain("flock");
+    expect(seen).not.toContain("flock-app");
   });
 
   test("prepare leaves flock out on a Mac below macOS 15", async () => {
@@ -113,7 +113,17 @@ describe("runPrepare", () => {
     updateSetupState(p, (s) => ({ ...s, flockInstalledAt: "2026-11-01T00:00:00.000Z" }));
     const seen: string[] = [];
     await runPrepare(p, "accounts", { reqs: [], install: fakeInstall(seen), alive, pid: OWN_PID });
-    expect(seen).not.toContain("flock");
+    expect(seen).not.toContain("flock-app");
+  });
+
+  test("a required team command named flock is prepared as itself and never brings back a removed Flock", async () => {
+    const p = fakeProbes({ home: HOME, exec: machine() });
+    updateSetupState(p, (s) => ({ ...s, flockInstalledAt: "2026-11-01T00:00:00.000Z" }));
+    const pin = { url: "https://downloads.example.com/flock", sha256: "a".repeat(64), extract: "" };
+    const teamFlock: PackRequirements[] = [{ pack: "widgets", integrations: [], tools: [{ name: "flock", why: "file locks", install: { download: { arm64: pin, x86_64: pin } } }] }];
+    const seen: string[] = [];
+    await runPrepare(p, "accounts", { reqs: teamFlock, install: fakeInstall(seen), alive, pid: OWN_PID });
+    expect(seen).toEqual(["claude", "herdr", "flock"]);
   });
 
   test("accounts installs Claude Code whenever ~/.local/bin/claude is missing, even with a claude elsewhere on PATH", async () => {
@@ -157,7 +167,7 @@ describe("runPrepare", () => {
         onSleep: () => {
           sleeps++;
           events.push("sleep");
-          expect(readPrepare(p, "accounts", alive, () => p.now())).toMatchObject({ running: true, items: ["claude", "herdr", "flock", "doppler", "jq"] });
+          expect(readPrepare(p, "accounts", alive, () => p.now())).toMatchObject({ running: true, items: ["claude", "herdr", "flock-app", "doppler", "jq"] });
           if (sleeps === 2) {
             const { pid: _pid, ...rest } = macos;
             p.writeFile(preparePath(HOME, "macos"), JSON.stringify({ ...rest, endedAt: "2026-01-01T00:10:00.000Z" }));
@@ -175,7 +185,7 @@ describe("runPrepare", () => {
       ["sleep", "5"],
       ["sleep", "5"],
     ]);
-    expect(events).toEqual(["sleep", "sleep", "install:claude", "install:herdr", "install:flock", "install:doppler", "install:jq"]);
+    expect(events).toEqual(["sleep", "sleep", "install:claude", "install:herdr", "install:flock-app", "install:doppler", "install:jq"]);
     expect(result.installed).toHaveLength(5);
   });
 
@@ -186,7 +196,7 @@ describe("runPrepare", () => {
     expect(preparePath(HOME, "macos")).toBe("/fake-home/.mattstack/rt/setup-prepare-macos.json");
     expect(preparePath(HOME, "accounts")).toBe("/fake-home/.mattstack/rt/setup-prepare-accounts.json");
     expect(readPrepare(p, "macos", alive)!.items).toEqual(["apple-clt"]);
-    expect(readPrepare(p, "accounts", alive)!.items).toEqual(["claude", "herdr", "flock", "doppler", "jq"]);
+    expect(readPrepare(p, "accounts", alive)!.items).toEqual(["claude", "herdr", "flock-app", "doppler", "jq"]);
   });
 
   test("a record whose pid died is not running", async () => {
@@ -228,12 +238,12 @@ describe("runPrepare", () => {
       doppler: new UserActionableError("no-installer", "no install method known for doppler"),
     });
     const result = await runPrepare(p, "accounts", { reqs, install, alive, pid: OWN_PID });
-    expect(seen).toEqual(["claude", "herdr", "flock", "doppler", "jq"]);
+    expect(seen).toEqual(["claude", "herdr", "flock-app", "doppler", "jq"]);
     const failed = [
       { tool: "claude", detail: "install script failed (exit 1): no network" },
       { tool: "doppler", detail: "no install method known for doppler" },
     ];
-    expect(result).toEqual({ stage: "accounts", installed: ["herdr", "flock", "jq"], failed });
+    expect(result).toEqual({ stage: "accounts", installed: ["herdr", "flock-app", "jq"], failed });
     expect(readPrepare(p, "accounts", alive)!.failed).toEqual(failed);
   });
 
@@ -251,10 +261,10 @@ describe("runPrepare", () => {
         return { state: "done" as const, detail: "Fast Browser is set up" };
       };
       const result = await runPrepare(p, "accounts", { reqs, install: fakeInstall(seen), setUpFastBrowser, alive, pid: OWN_PID });
-      expect(seen).toEqual(["claude", "herdr", "flock", "doppler", "jq", "fast-browser"]);
+      expect(seen).toEqual(["claude", "herdr", "flock-app", "doppler", "jq", "fast-browser"]);
       expect(setUps).toHaveLength(1);
-      expect(setUps[0]).toMatchObject({ running: true, items: ["claude", "herdr", "flock", "doppler", "jq", "fast-browser"] });
-      expect(result.installed).toEqual(["claude", "herdr", "flock", "doppler", "jq", "fast-browser"]);
+      expect(setUps[0]).toMatchObject({ running: true, items: ["claude", "herdr", "flock-app", "doppler", "jq", "fast-browser"] });
+      expect(result.installed).toEqual(["claude", "herdr", "flock-app", "doppler", "jq", "fast-browser"]);
     });
 
     test("a Fast Browser setup that does not finish is recorded with its reason", async () => {
@@ -298,7 +308,7 @@ describe("runPrepare", () => {
       return { via: "download", ok: true, detail: "ok" };
     };
     await runPrepare(p, "accounts", { reqs, install, alive, pid: OWN_PID });
-    expect(during[0]).toEqual({ stage: "accounts", startedAt: "2026-01-01T00:05:00.000Z", pid: OWN_PID, items: ["claude", "herdr", "flock", "doppler", "jq"], failed: [], running: true });
+    expect(during[0]).toEqual({ stage: "accounts", startedAt: "2026-01-01T00:05:00.000Z", pid: OWN_PID, items: ["claude", "herdr", "flock-app", "doppler", "jq"], failed: [], running: true });
     const after = readPrepare(p, "accounts", alive)!;
     expect(after.pid).toBeUndefined();
     expect(after.endedAt).toBe("2026-01-01T00:05:00.000Z");

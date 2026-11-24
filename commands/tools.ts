@@ -18,6 +18,7 @@ import * as out from "../lib/ui/out.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { warn } from "../lib/ui/warn.ts";
 import { readIntent, orgRefFromIntent } from "../lib/setup/intent.ts";
+import { FLOCK_TOOL } from "../lib/setup/flock-install.ts";
 import { restartStaleHerdrServers } from "../lib/setup/herdr-install.ts";
 import { recordToolInstall } from "../lib/setup/prepare.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
@@ -40,7 +41,7 @@ function resolveTeamReqs(p: Probes): PackRequirements[] {
 
 /** What installTool can act on here, mirroring its branch order: apple-clt, herdr's fork build, Flock's app download, rt's bundled tools that resolve in this environment, its hardcoded vendor installers, and the joined team's declared tools. */
 function installableTools(p: Probes, reqs: PackRequirements[]): string[] {
-  const names = new Set<string>(["apple-clt", "herdr", "flock", ...Object.keys(VENDOR_INSTALLERS)]);
+  const names = new Set<string>(["apple-clt", "herdr", FLOCK_TOOL, ...Object.keys(VENDOR_INSTALLERS)]);
   for (const name of DEFAULT_EXPOSED) if (name !== "rt" && bundledToolExec(p, name)) names.add(name);
   for (const r of reqs) for (const t of r.tools) names.add(t.name);
   return [...names].sort();

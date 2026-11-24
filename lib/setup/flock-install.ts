@@ -15,6 +15,8 @@ export const FLOCK_DOWNLOAD_PREFIX = "https://github.com/m4ttstack/flock/release
 export const FLOCK_BUNDLE_ID = "dev.mattstack.Flock";
 export const FLOCK_TEAM_ID = "5BF66B3X4V";
 export const FLOCK_MIN_MACOS = 15;
+/** Not `flock`: a team may declare the flock(1) command under that name. */
+export const FLOCK_TOOL = "flock-app";
 
 export const flockNeedsMacos = (version: string = `${FLOCK_MIN_MACOS}`): string => `Flock needs macOS ${version.replace(/(\.0)+$/, "")} or newer`;
 
