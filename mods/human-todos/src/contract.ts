@@ -120,6 +120,13 @@ export function registerContract(on: On): void {
   on('tool.check', { tool: 'mcp__human-todos__list' }, () => ({ decision: 'allow' as const }))
   on('tool.check', { tool: 'mcp__human-todos__withdraw' }, () => ({ decision: 'allow' as const }))
 
+  // The engine's row draws a call's whole input, which the pane already shows. ctrl+o still has it all.
+  on('ui.render', { component: 'ToolUse', props: { tool: 'mcp__human-todos__add' } }, ($, e, next) => {
+    const { kind, title } = (e.props.input ?? {}) as { kind?: unknown; title?: unknown }
+    if (e.props.isExpanded || typeof kind !== 'string' || typeof title !== 'string') return next(e)
+    return next({ ...e, props: { ...e.props, input: { kind, title } } })
+  })
+
   on('tool.call', { tool: 'mcp__human-todos__add' }, async ($, e) => {
     const input = e as unknown as AddInput
     const missing = checkKind(input)

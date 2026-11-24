@@ -2,7 +2,12 @@ import {
   gateAnswer as facilityGateAnswer,
   gateAsk as facilityGateAsk,
   gateWait as facilityGateWait,
+  getRun,
 } from '@mattstack/rt-client';
+import {
+  GATE_REFUSED_EXIT,
+  GateRefused,
+} from '../src/gates/review-post-check.ts';
 import {
   gateAnswer,
   gateOpen,
@@ -16,6 +21,7 @@ const io: GateVerbIo = {
   gateAsk: facilityGateAsk,
   gateWait: facilityGateWait,
   gateAnswer: facilityGateAnswer,
+  getRun: runId => getRun(runId),
   now: () => Date.now(),
 };
 
@@ -41,7 +47,7 @@ try {
       (openFile !== undefined && flag(rest, '--context') !== undefined)
     )
       throw new Error(
-        'usage: gate open <state> --kind <k> (--questions <json> [--context <text>] | --open-file <path>)'
+        'usage: gate open <state> --kind <k> (--questions <json> [--context <text>] | --open-file <path>) [--plain-reason <text>] [--no-run-reason <text>]'
       );
     const { questionsJson, context } = openFile
       ? readGateOpenFile(openFile)
@@ -49,6 +55,8 @@ try {
     const result = await gateOpen(statePath, kind, questionsJson, io, {
       context,
       worktree: process.cwd(),
+      plainReason: flag(rest, '--plain-reason'),
+      noRunReason: flag(rest, '--no-run-reason'),
     });
     console.log(JSON.stringify(result));
   } else if (verb === 'wait') {
@@ -91,5 +99,5 @@ try {
   }
 } catch (err) {
   console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
+  process.exit(err instanceof GateRefused ? GATE_REFUSED_EXIT : 1);
 }

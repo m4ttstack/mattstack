@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'fs';
 import type { Database } from 'bun:sqlite';
 
-import type { Commands, RtResponse } from '@mattstack/rt-client';
+import type { Commands, RtResponse, RunDetail } from '@mattstack/rt-client';
 import { boardRootFromStatePath } from '../agent-status/emit.ts';
 import { writeDoctorState, type DoctorStatus } from '../doctor-state.ts';
 import { mrRef } from '../mr-ref.ts';
@@ -14,6 +14,7 @@ import {
   readByHandle,
 } from '../state/index.ts';
 import { gateNotifyCopy } from './notify-copy.ts';
+import { reviewPostContext } from './review-post-check.ts';
 import { domainForKind } from './sweep.ts';
 
 export type GateAnswers = Record<string, string | string[]>;
@@ -23,10 +24,11 @@ export interface GateQuestion {
   label: string;
   multi: boolean;
   options: Array<string | { value: string; label: string }>;
+  context?: string;
 }
 
-/** Thin seam over the three rt-client gate facility wrappers this CLI drives.
-    A real `io` wires the actual `gateAsk`/`gateWait`/`gateAnswer` exports;
+/** Thin seam over the rt-client wrappers this CLI drives. A real `io` wires
+    the actual `gateAsk`/`gateWait`/`gateAnswer`/`getRun` exports;
     tests inject fakes shaped the same way. */
 export interface GateVerbIo {
   gateAsk(
@@ -38,6 +40,7 @@ export interface GateVerbIo {
   gateAnswer(
     payload: Commands['gate:answer']['payload']
   ): Promise<RtResponse<Commands['gate:answer']['data']>>;
+  getRun(runId: string): Promise<RtResponse<RunDetail>>;
   now(): number;
 }
 
@@ -76,6 +79,8 @@ interface GateVerbState {
   gateId?: string;
   paneId?: string;
   tabId?: string;
+  runStartedAt?: number;
+  startedAt: number;
 }
 
 /** Every gate verb resolves its db the same way the status CLIs do: from the
@@ -152,13 +157,29 @@ export async function gateOpen(
   kind: string,
   questionsJson: string,
   io: GateVerbIo,
-  extras: { context?: string; worktree?: string } = {}
+  extras: {
+    context?: string;
+    worktree?: string;
+    plainReason?: string;
+    noRunReason?: string;
+  } = {}
 ): Promise<GateOpenResult> {
   const questions = JSON.parse(questionsJson) as GateQuestion[];
   const db = openDbForHandle(statePath);
   const state = readGateVerbState(statePath, db);
   const domain = domainForKind(kind);
   if (!domain) throw new Error(`gate open: unrecognized kind "${kind}"`);
+
+  const context =
+    kind === 'review-post'
+      ? await reviewPostContext(
+          statePath,
+          state.runStartedAt ?? state.startedAt,
+          questions,
+          extras,
+          io.getRun
+        )
+      : extras.context;
 
   const origin: NonNullable<Commands['gate:ask']['payload']['origin']> = {
     surface: 'board',
@@ -178,7 +199,7 @@ export async function gateOpen(
     origin,
   };
   if (state.paneId) payload.paneId = state.paneId;
-  if (extras.context !== undefined) payload.context = extras.context;
+  if (context !== undefined) payload.context = context;
 
   const res = await io.gateAsk(payload);
   if (!res.ok || !res.data)

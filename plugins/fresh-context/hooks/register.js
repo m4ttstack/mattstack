@@ -268,6 +268,12 @@ async function registerToolDef($) {
 }
 function registerTool(on) {
   on("tool.check", { tool: "mcp__fresh-context__fresh_context" }, () => ({ decision: "allow" }));
+  on("ui.render", { component: "ToolUse", props: { tool: "mcp__fresh-context__fresh_context" } }, ($, e, next) => {
+    const { mode } = e.props.input ?? {};
+    if (e.props.isExpanded || typeof mode !== "string")
+      return next(e);
+    return next({ ...e, props: { ...e.props, input: { mode } } });
+  });
   on("tool.call", { tool: "mcp__fresh-context__fresh_context" }, async ($, e) => {
     if (e.agentId)
       return { deny: "Only the main session can reset itself; a subagent cannot." };
