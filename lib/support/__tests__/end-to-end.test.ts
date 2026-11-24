@@ -313,6 +313,21 @@ describe("support, end to end", () => {
     expect(second.desk).toEqual(["Alex's Mac has it and Maude is starting"]);
   });
 
+  test("off on one of the host's Macs stays off, though the other once accepted", async () => {
+    const w = world();
+    const desktop = w.mac("alex", "U0HOST");
+    await desktop.accept(true);
+    const laptop = w.mac("alex", "U0HOST", { machine: "alex-laptop" });
+    w.clock.offset = 11 * 60_000;
+    await laptop.accept(true);
+    await desktop.service.tick();
+    await laptop.accept(false);
+    w.clock.offset = 30 * 60_000;
+    await desktop.service.tick();
+    expect(await w.relayFor("ada").host("alex")).toMatchObject({ accepting: false });
+    expect(await desktop.service.handlers["support:host"]({})).toMatchObject({ data: { accepting: false } });
+  });
+
   test("a second Mac of the host's cannot accept while the first is there", async () => {
     const w = world();
     const host = await accepting(w);

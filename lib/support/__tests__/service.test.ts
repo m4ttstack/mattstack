@@ -67,7 +67,7 @@ function harness(me: "alex" | "ada" = "alex") {
     },
   };
   // What a tap on accept leaves behind.
-  if (isHost) setKvValue("support", "accepted", true, h.db);
+  if (isHost) setKvValue("support", "accepted", ORG, h.db);
   const service = createSupportService(options);
   const restart = () => createSupportService(options);
   function arrive(kind: "request" | "status", from: string, to: string, id: string, body: object) {
@@ -94,7 +94,7 @@ describe("the accepting flag", () => {
     expect(t.events.filter((e) => e.startsWith("setHost"))).toHaveLength(3);
   });
 
-  test("a Mac that lost the role to another says so, stops polling, and takes it back when it can", async () => {
+  test("a Mac that lost the role to another stops for good, and tells the host once", async () => {
     const t = harness();
     await t.service.tick();
     expect(await t.service.handlers["support:host"]({})).toMatchObject({ data: { accepting: true } });
@@ -109,14 +109,38 @@ describe("the accepting flag", () => {
     t.service.stop();
     expect(polled).toBe(0);
     t.state.setHost = "ok";
+    const calls = t.events.filter((e) => e.startsWith("setHost")).length;
+    for (const service of [t.service, t.restart()]) {
+      t.h.state.now += 2 * MINUTE;
+      await service.tick();
+    }
+    expect(t.events.filter((e) => e.startsWith("setHost"))).toHaveLength(calls);
+    expect(t.events.filter((e) => e.startsWith("notify"))).toEqual(["notify Another of your Macs answers help requests now, so this one stopped"]);
+    expect(t.events).toContain("setting false");
+    expect(await t.service.handlers["support:accept"]({ on: true })).toMatchObject({ ok: true });
+  });
+
+  test("a setting turned off outside accept takes the tap with it, and the tap is one org's", async () => {
+    const t = harness();
+    await t.service.tick();
+    const on = t.state.config!;
+    t.state.config = { ...on, accepts: false, acceptHere: false };
     t.h.state.now += 2 * MINUTE;
     await t.service.tick();
-    expect(await t.service.handlers["support:host"]({})).toMatchObject({ data: { accepting: true } });
+    t.state.config = on;
+    t.h.state.now += 2 * MINUTE;
+    await t.service.tick();
+    expect(await t.service.handlers["support:host"]({})).toMatchObject({ data: { accepting: false } });
+
+    const other = harness();
+    other.state.config = { ...other.state.config!, org: "other", orgRemote: "git.example.com/other/mattstack" };
+    await other.service.tick();
+    expect(other.events.filter((e) => e.startsWith("setHost"))).toEqual([]);
   });
 
   test("the setting alone never accepts: a tap on accept has to be recorded on this Mac", async () => {
     const t = harness();
-    setKvValue("support", "accepted", false, t.h.db);
+    setKvValue("support", "accepted", null, t.h.db);
     t.arrive("request", "ada", "alex", "r1", ask);
     t.service.start();
     await t.service.tick();

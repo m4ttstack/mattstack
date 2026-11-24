@@ -139,9 +139,9 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
     if (!relay) return refuse("no-board", "Connect your board first.");
     const keys = await deps.keys();
     if (!keys) return refuse("no-key", "This Mac cannot open the org's secrets.");
+    // Null says nothing: a revoked token reads that way too, and the send below names the fix.
     const host = await relay.host(cfg.host);
-    if (!host) return refuse(...SEND_REFUSALS.unreachable(hostName(cfg)));
-    if (!host.accepting) return refuse("not-accepting", `${hostName(cfg)} is not taking requests now. Message them directly.`);
+    if (host?.accepting === false) return refuse("not-accepting", `${hostName(cfg)} is not taking requests now. Message them directly.`);
     let slackUserId: string | null;
     try {
       slackUserId = await deps.slackUserId();

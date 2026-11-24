@@ -283,16 +283,20 @@ describe("support:send", () => {
     expect(getRequest("out", "alex", "r1", h.db)).toMatchObject({ state: "sent" });
   });
 
-  test("a host that stopped accepting, or a relay that cannot say, gets nothing sent", async () => {
-    const off = harness();
-    off.state.host = { accepting: false, lastSeenAt: 1 };
-    expect(await send(off)).toMatchObject({ ok: false, failure: { code: "support-not-accepting" } });
-    const unknown = harness();
-    unknown.state.host = null;
-    expect(await send(unknown)).toMatchObject({ ok: false, failure: { code: "support-unreachable" } });
-    for (const h of [off, unknown]) {
-      expect(h.sent).toEqual([]);
-      expect(listRequests("out", undefined, h.db)).toEqual([]);
+  test("a host that stopped accepting gets nothing sent", async () => {
+    const h = harness();
+    h.state.host = { accepting: false, lastSeenAt: 1 };
+    expect(await send(h)).toMatchObject({ ok: false, failure: { code: "support-not-accepting" } });
+    expect(h.sent).toEqual([]);
+    expect(listRequests("out", undefined, h.db)).toEqual([]);
+  });
+
+  test("when the relay cannot say whether the host accepts, the send itself answers", async () => {
+    for (const [result, code] of [["unauthorized", "support-unauthorized"], ["unreachable", "support-unreachable"]] as const) {
+      const h = harness();
+      h.state.host = null;
+      h.state.send = result;
+      expect(await send(h)).toMatchObject({ ok: false, failure: { code } });
     }
   });
 

@@ -183,11 +183,14 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
   const flag = (key: string) => getKvValue<boolean>(KV_NS, key, false, db);
   const setFlag = (key: string, on: boolean) => setKvValue(KV_NS, key, on, db);
   const readConfig = o.seams?.config ?? (() => supportConfig());
-  /** The setting can be written by anything; only a tap on accept, on this Mac, makes it count. */
+  /** The org a person tapped accept for on this Mac. The setting alone can be written by anything, so it counts only with this. */
+  const tappedFor = () => getKvValue<string | null>(KV_NS, "accepted", null, db);
+  const setTapped = (orgRemote: string | null) => setKvValue(KV_NS, "accepted", orgRemote, db);
   const config = (): SupportConfig | null => {
     const cfg = readConfig();
-    return cfg && cfg.accepts && !flag("accepted") ? { ...cfg, accepts: false, acceptHere: false } : cfg;
+    return cfg && cfg.accepts && tappedFor() !== cfg.orgRemote ? { ...cfg, accepts: false, acceptHere: false } : cfg;
   };
+  const writeSetting = o.seams?.setAccepting ?? ((on: boolean) => setSetting("support.acceptRequests", on, "machine"));
   const keysFor = o.seams?.keys ?? orgKeys(log, now);
   const keys = async () => {
     const cfg = config();
@@ -270,8 +273,6 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
   };
 
   let loops: SupportLoopHandle[] = [];
-  /** Another of this person's Macs is the accepting one, so this one leaves the queue alone. */
-  let lost = false;
 
   /** The queue of a Mac that stopped accepting is read until it is empty, so nobody waits on a request no one will take. */
   async function drain(): Promise<void> {
@@ -294,12 +295,9 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     },
     readiness: () => (o.seams?.readiness ?? readiness)(readinessDeps),
     setAccepting(on) {
-      (o.seams?.setAccepting ?? ((v: boolean) => setSetting("support.acceptRequests", v, "machine")))(on);
-      setFlag("accepted", on);
-      if (on) {
-        setFlag("draining", false);
-        lost = false;
-      }
+      writeSetting(on);
+      setTapped(on ? (readConfig()?.orgRemote ?? null) : null);
+      if (on) setFlag("draining", false);
     },
     published: (on) => setFlag("published", on),
     holdsRole: () => flag("published"),
@@ -316,8 +314,11 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
   async function publish(): Promise<void> {
     if (now() - publishedAt < PUBLISH_EVERY_MS) return;
     publishedAt = now();
+    const raw = readConfig();
+    if (!raw || raw.roster.length === 0) return;
+    if (!raw.accepts && tappedFor() !== null) setTapped(null);
     const cfg = config();
-    if (!cfg || cfg.roster.length === 0 || (!cfg.acceptHere && !flag("published"))) return;
+    if (!cfg || (!cfg.acceptHere && !flag("published"))) return;
     const result = await (await relay())?.setHost(cfg.acceptHere);
     if (!result || result === "failed") return;
     if (!cfg.acceptHere) {
@@ -325,11 +326,12 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
       if (result === "ok") setFlag("draining", true);
       return;
     }
-    if (lost !== (result === "other-machine")) {
-      lost = !lost;
-      log.info({ lost }, "support: whether another of this person's Macs is the accepting one has changed");
-    }
-    setFlag("published", !lost);
+    if (result === "ok") return setFlag("published", true);
+    // The newest tap wins: kept, this Mac would take the role back the moment the other was turned off.
+    setFlag("published", false);
+    setTapped(null);
+    writeSetting(false);
+    o.notify("Help requests", "Another of your Macs answers help requests now, so this one stopped");
   }
 
   let drainedAt = Number.NEGATIVE_INFINITY;
@@ -370,7 +372,7 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     start() {
       const loop = (kind: "request" | "status", active: () => boolean) => startSupportLoop({ kind, active, relay, pull: () => sync.pull(kind), log });
       loops = [
-        loop("request", () => !lost && config()?.accepts === true),
+        loop("request", () => config()?.accepts === true),
         loop("status", () => listRequests("out", ["sent", "received", "waiting"], db).length > 0),
       ];
       for (const l of loops) l.done.catch((err) => log.warn({ err }, "support: a relay loop stopped"));
