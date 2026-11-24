@@ -100,9 +100,9 @@ is the review for the narrowing above.
 process: it checks the id against `ID_RE` first, reads only `~/.claude/plugins/cache`,
 `~/.claude/skills` and a husk pack's render tree in `~/.mattstack/rt/rendered`
 (its `folder` the installed husk, its keys in the render), and writes nothing.
-A `dir` outside those is followed through its links only when it names a
-`/plugins/cache/` (a cswap profile's `plugins` link), and counts only when its
-real path lands in the real plugin cache. It returns paths spelled through a skill link, never its target, and refuses a
+A `dir` outside those is followed through its links only when its text
+contains `/plugins/cache/` (a cswap profile's `plugins` link), and counts only
+when its real path lands in the plugin cache or the render root. It returns paths spelled through a skill link, never its target, and refuses a
 `compiled.json` whose folder or key leaves the plugin's version folder, its
 render tree or its own skill link (the OS applies a `..` after following the
 link, so nothing may climb back out through it). Every git tool goes through `tree-guard.ts`, which
