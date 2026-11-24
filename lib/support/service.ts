@@ -201,6 +201,8 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
   let offSince: number | null = null;
   /** The settings stopped saying this Mac answers, and no person here turned it off, too recently to believe. */
   function settling(raw: SupportConfig): boolean {
+    // No roster means the org's store could not be read, which says nothing about the switch.
+    if (raw.roster.length === 0) return true;
     if (raw.acceptHere || tappedFor() !== raw.orgRemote) {
       offSince = null;
       if (raw.acceptHere && flag("told-off")) setFlag("told-off", false);
