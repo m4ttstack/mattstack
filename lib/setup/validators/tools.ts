@@ -16,6 +16,7 @@
  * never collide with this file's own built-in row ids.
  */
 
+import { join, resolve } from "path";
 import { isBrokenLauncher, resolveTool } from "../../deps/resolve.ts";
 import { detectEditors } from "../../editors.ts";
 import { joinNames, planEditorFonts } from "../editor-font.ts";
@@ -34,14 +35,16 @@ import { fits, heldCopy, runnableEngine, type Floor } from "../../engine-floor.t
 import { chromeInstalled } from "../chrome.ts";
 import { mattstackFloor } from "../mattstack-floor.ts";
 import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
+import { fetchHerdrBuilds, herdrVerdict, parseHerdrVersion } from "../herdr-builds.ts";
+import { homebrewHerdr, staleHerdrSessions } from "../herdr-install.ts";
 import { VENDOR_INSTALLERS, vendorBinPath } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
 import { writingStyleRowFor } from "./writing-style.ts";
 import { skillsOverridesRowFor } from "./skills-overrides.ts";
 
-const HERDR_FLOOR = "0.7.5";
 /** Every exec in this module is bounded: a hung team-declared `--version`, or a wedged herdr/claude subprocess, must surface as "error" (124), never hang `rt setup plan` forever. This is the bound for a quick `--version`/status probe; `fast-browser doctor` is slow by design and uses DOCTOR_TIMEOUT_MS instead. */
 const PROBE_TIMEOUT_MS = 5000;
+const HERDR_RELEASES_PAGE = "https://github.com/m4ttstack/herdr/releases/latest";
 /** `fast-browser doctor --json` runs ~22 real checks (runtime checksum, extension load, pairing) and takes about 20s on a healthy machine, so PROBE_TIMEOUT_MS reads a healthy doctor as hung. Only this one call gets the longer bound; a doctor that genuinely hangs still surfaces as "error" at 45s instead of never. */
 const DOCTOR_TIMEOUT_MS = 45_000;
 
@@ -85,7 +88,7 @@ export function named(name: string, version: string): string {
 }
 
 function provisionedInstallAction(tool: string, label: "Install" | "Upgrade" = "Install"): Action {
-  return { type: "install", label, tool, via: "vendor" };
+  return { type: "install", label, tool, via: tool === "herdr" ? "download" : "vendor" };
 }
 
 function exec(p: Probes, argv: string[], timeoutMs = PROBE_TIMEOUT_MS): Promise<ExecResult> {
@@ -112,6 +115,20 @@ function parseHerdrClaudeState(stdout: string): { known: boolean; installed: boo
   return { known: true, installed: state.toLowerCase().startsWith("current"), state };
 }
 
+/** The first herdr on PATH ahead of ~/.local/bin that is not a link to it; Homebrew's copy is the Homebrew row's. */
+function shadowingHerdr(p: Probes): string | null {
+  const own = vendorBinPath(p.home, "herdr");
+  for (const dir of (p.env.PATH ?? "").split(":").filter((d) => d.length > 0)) {
+    const candidate = join(dir, "herdr");
+    if (candidate === own) return null;
+    if (!p.exists(candidate)) continue;
+    const target = p.readlink(candidate);
+    if (target !== null && (resolve(dir, target) === own || target.includes("/Cellar/herdr/"))) continue;
+    return candidate;
+  }
+  return null;
+}
+
 async function herdrRow(p: Probes, seams: ToolsSeams): Promise<Row> {
   const base = { id: "tool.herdr", kind: "tool" as const, title: "herdr", why: "Drives Herdr panes for remote-control and multi-agent workflows.", required: true };
 
@@ -122,9 +139,45 @@ async function herdrRow(p: Probes, seams: ToolsSeams): Promise<Row> {
   if (versionRes.code === 124) return row({ ...base, status: "error", detail: "herdr did not answer in time" });
   if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run herdr (exit ${versionRes.code})` });
 
-  const version = extractVersion(versionRes.stdout);
-  if (!atLeast(version, HERDR_FLOOR)) {
-    return row({ ...base, status: "invalid", detail: /^[0-9]/.test(version) ? `${named("herdr", version)} is older than ${HERDR_FLOOR}` : `rt could not read herdr's version (it needs ${HERDR_FLOOR} or newer)`, action: provisionedInstallAction("herdr", "Upgrade") });
+  const upgrade = provisionedInstallAction("herdr", "Upgrade");
+  if (homebrewHerdr(p)) return row({ ...base, status: "invalid", detail: "Homebrew's herdr would run instead of the mattstack build. Upgrade removes it", action: upgrade });
+
+  const verdict = herdrVerdict(parseHerdrVersion(versionRes.stdout), await fetchHerdrBuilds(p));
+  const version = verdict.version;
+  if (verdict.kind === "stock") return row({ ...base, status: "invalid", detail: `${named("herdr", version)} is not the mattstack build. Upgrade installs ${verdict.target}`, action: upgrade });
+  if (verdict.kind === "outdated" && verdict.belowMinimum) {
+    return row({ ...base, status: "invalid", detail: `${named("herdr", version)} is older than ${verdict.target}, which mattstack needs`, action: upgrade });
+  }
+  if (verdict.kind === "outdated") {
+    return row({
+      ...base,
+      required: false,
+      optionalNote: "Installed by Install (herdr.integration).",
+      status: "needs-you",
+      detail: `${named("herdr", version)} has a newer mattstack build, ${verdict.target}`,
+      action: upgrade,
+    });
+  }
+
+  const shadow = shadowingHerdr(p);
+  if (shadow) {
+    return row({
+      ...base,
+      status: "needs-you",
+      detail: `${shadow} would run instead of the mattstack build. rt did not make it, so rt left it alone`,
+      action: { type: "steps", label: "Show steps…", steps: [`rm ${shadow}`] },
+    });
+  }
+
+  if ((await staleHerdrSessions(p, herdr, version)).length > 0) {
+    return row({
+      ...base,
+      required: false,
+      optionalNote: "herdr keeps working; panes end only when you restart it.",
+      status: "needs-you",
+      detail: "Restart herdr when your agents are done",
+      action: { type: "run", label: "Restart herdr", verb: ["tools", "restart", "herdr"] },
+    });
   }
 
   const integrationRes = await exec(p, [...herdr, "integration", "status"]);
@@ -133,7 +186,8 @@ async function herdrRow(p: Probes, seams: ToolsSeams): Promise<Row> {
 
   const claude = parseHerdrClaudeState(integrationRes.stdout);
   if (!claude.known) return row({ ...base, status: "error", detail: "Could not tell whether herdr's Claude integration is installed" });
-  if (claude.installed) return row({ ...base, status: "ready", detail: `${named("herdr", version)}, Claude integration installed` });
+  const unchecked = verdict.checked ? "" : " (rt could not check for a newer build)";
+  if (claude.installed) return row({ ...base, status: "ready", detail: `${named("herdr", version)}, Claude integration installed${unchecked}` });
   // Install's own herdr.integration step adds this; only the binary gates Install.
   return row({
     ...base,
@@ -541,7 +595,8 @@ function isHttpsUrl(url: string): boolean {
 }
 
 function teamToolRemedyAction(req: ToolRequirement, arch: HostArch, verb: "Install" | "Upgrade"): Action {
-  // installTool runs rt's own vendor script for these names, whatever the pack declares.
+  // installTool runs rt's own install for these names, whatever the pack declares.
+  if (req.name === "herdr") return provisionedInstallAction("herdr", verb);
   if (VENDOR_INSTALLERS[req.name]) return { type: "install", label: verb, tool: req.name, via: "vendor" };
   if (req.install?.download?.[arch]) return { type: "install", label: verb, tool: req.name, via: "download" };
   // A pack is team-authored, so its link opens in the browser only over https.
@@ -552,6 +607,7 @@ function teamToolRemedyAction(req: ToolRequirement, arch: HostArch, verb: "Insta
 
 /** The route around a failed Install, or null when the team declared no way to install the tool by hand. */
 export function teamToolManualSteps(req: ToolRequirement): Action | null {
+  if (req.name === "herdr") return { type: "steps", label: "Show steps…", steps: [`Download it from ${HERDR_RELEASES_PAGE}`] };
   const vendor = VENDOR_INSTALLERS[req.name];
   if (vendor) return { type: "steps", label: "Show steps…", steps: [`curl -fsSL ${vendor.url} | ${vendor.shell}`] };
   const url = req.install?.url;

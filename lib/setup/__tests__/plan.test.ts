@@ -37,7 +37,7 @@ const readyExec: ExecScript = (argv) => {
   if (argv[0] === "git" && argv[1] === "--version") return ok("git version 2.50.1");
   if (argv[0] === "git" && argv[1] === "-C" && argv[3] === "show") return { code: 128, stdout: "", stderr: `fatal: cannot change to '${argv[2]}': No such file or directory` };
   if (argv[0] === "herdr" && argv[1] === "integration") return ok("claude: current\n");
-  if (argv[0] === "herdr") return ok("0.8.0");
+  if (argv[0] === "herdr") return ok("herdr 0.9.5-ms.1");
   if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: true }));
   if (argv[0] === "claude") return ok("1.2.3");
   if (argv[0] === "brew") return ok("Homebrew 4.0.0");

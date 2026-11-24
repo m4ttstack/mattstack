@@ -116,17 +116,17 @@ describe("extractVersion", () => {
 });
 
 describe("toolRows — tool.herdr", () => {
-  test("127 with brew available -> missing, install action via herdr's own script", async () => {
+  test("127 with brew available -> missing, install action via the fork's download", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? missing("herdr") : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("missing");
-    expect(r.action).toEqual({ type: "install", label: "Install", tool: "herdr", via: "vendor" });
+    expect(r.action).toEqual({ type: "install", label: "Install", tool: "herdr", via: "download" });
   });
 
-  test("127 with no brew -> install action via vendor", async () => {
+  test("127 with no brew -> install action via download", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? missing("herdr") : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
-    expect(r.action).toEqual({ type: "install", label: "Install", tool: "herdr", via: "vendor" });
+    expect(r.action).toEqual({ type: "install", label: "Install", tool: "herdr", via: "download" });
   });
 
   test("--version times out -> error, never missing/needs-you", async () => {
@@ -140,7 +140,7 @@ describe("toolRows — tool.herdr", () => {
     const seen: string[][] = [];
     const exec: ExecScript = (argv) => {
       seen.push(argv);
-      if (argv[0] === brewed && argv[1] === "--version") return ok("0.9.0\n");
+      if (argv[0] === brewed && argv[1] === "--version") return ok("herdr 0.9.5-ms.1\n");
       if (argv[0] === brewed && argv[1] === "integration") return ok("claude: current (v7) (/x)\n");
       return argv[0] === "herdr" ? ok("0.1.0\n") : ok();
     };
@@ -158,7 +158,7 @@ describe("toolRows — tool.herdr", () => {
     const seen: string[][] = [];
     const exec: ExecScript = (argv) => {
       seen.push(argv);
-      if (argv[0] === brewed && argv[1] === "--version") return ok("0.9.0\n");
+      if (argv[0] === brewed && argv[1] === "--version") return ok("herdr 0.9.5-ms.1\n");
       if (argv[0] === brewed && argv[1] === "integration") return ok("claude: current (v7) (/x)\n");
       return ok();
     };
@@ -169,9 +169,9 @@ describe("toolRows — tool.herdr", () => {
     expect(seen.some((argv) => argv[0] === "herdr")).toBe(false);
   });
 
-  test("0.8.0 + the claude line reads 'current' -> ready", async () => {
+  test("a fork build + the claude line reads 'current' -> ready, noting the list was not checked", async () => {
     const exec: ExecScript = (argv) => {
-      if (argv[0] === "herdr" && argv[1] === "--version") return ok("0.8.0\n");
+      if (argv[0] === "herdr" && argv[1] === "--version") return ok("herdr 0.9.5-ms.1\n");
       if (argv[0] === "herdr" && argv[1] === "integration" && argv[2] === "status") {
         return ok("claude: current (v7) (/Users/x/.claude/hooks/herdr-agent-state.sh)\ncodex: current (v7) (/Users/x/.codex/herdr-agent-state.sh)\n");
       }
@@ -179,13 +179,13 @@ describe("toolRows — tool.herdr", () => {
     };
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("ready");
-    expect(r.detail).toBe("herdr 0.8.0, Claude integration installed");
+    expect(r.detail).toBe("herdr 0.9.5-ms.1, Claude integration installed (rt could not check for a newer build)");
     expect(r.required).toBe(true);
   });
 
   test("the claude line reads 'not installed' -> needs-you, not a false ready (H1)", async () => {
     const exec: ExecScript = (argv) => {
-      if (argv[0] === "herdr" && argv[1] === "--version") return ok("0.9.0\n");
+      if (argv[0] === "herdr" && argv[1] === "--version") return ok("herdr 0.9.5-ms.1\n");
       if (argv[0] === "herdr" && argv[1] === "integration" && argv[2] === "status") {
         return ok("claude: not installed (/Users/x/.claude/hooks/herdr-agent-state.sh)\ncodex: current (v7) (/Users/x/.codex/herdr-agent-state.sh)\n");
       }
@@ -193,7 +193,7 @@ describe("toolRows — tool.herdr", () => {
     };
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("herdr 0.9.0, Claude integration not installed");
+    expect(r.detail).toBe("herdr 0.9.5-ms.1, Claude integration not installed");
     expect(r.action).toEqual({ type: "run", label: "Install integration", verb: ["tools", "setup", "herdr"] });
     // Install's own herdr.integration step adds it — the binary gates Install, the integration never.
     expect(r.required).toBe(false);
@@ -202,7 +202,7 @@ describe("toolRows — tool.herdr", () => {
 
   test("the claude line is entirely absent -> error, never a determined negative", async () => {
     const exec: ExecScript = (argv) => {
-      if (argv[0] === "herdr" && argv[1] === "--version") return ok("0.9.0\n");
+      if (argv[0] === "herdr" && argv[1] === "--version") return ok("herdr 0.9.5-ms.1\n");
       if (argv[0] === "herdr" && argv[1] === "integration") return ok("codex: current (v7) (/x)\n");
       return ok();
     };
@@ -212,7 +212,7 @@ describe("toolRows — tool.herdr", () => {
 
   test("integration status times out -> error", async () => {
     const exec: ExecScript = (argv) => {
-      if (argv[0] === "herdr" && argv[1] === "--version") return ok("0.9.0\n");
+      if (argv[0] === "herdr" && argv[1] === "--version") return ok("herdr 0.9.5-ms.1\n");
       if (argv[0] === "herdr" && argv[1] === "integration") return { code: 124, stdout: "", stderr: "" };
       return ok();
     };
@@ -222,7 +222,7 @@ describe("toolRows — tool.herdr", () => {
 
   test("integration status a hard failure (non-0, non-124) -> error", async () => {
     const exec: ExecScript = (argv) => {
-      if (argv[0] === "herdr" && argv[1] === "--version") return ok("0.9.0\n");
+      if (argv[0] === "herdr" && argv[1] === "--version") return ok("herdr 0.9.5-ms.1\n");
       if (argv[0] === "herdr" && argv[1] === "integration") return { code: 1, stdout: "", stderr: "boom" };
       return ok();
     };
@@ -230,12 +230,132 @@ describe("toolRows — tool.herdr", () => {
     expect(r.status).toBe("error");
   });
 
-  test("below floor -> invalid, with an upgrade action (R-T7-b, no dead end)", async () => {
-    const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? ok("0.7.4\n") : ok());
+  test("stock herdr -> invalid, Upgrade installs the minimum when the list is unreachable", async () => {
+    const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? ok("herdr 0.9.9\n") : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("invalid");
-    expect(r.detail).toBe("herdr 0.7.4 is older than 0.7.5");
-    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "herdr", via: "vendor" });
+    expect(r.required).toBe(true);
+    expect(r.detail).toBe("herdr 0.9.9 is not the mattstack build. Upgrade installs 0.9.5-ms.1");
+    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "herdr", via: "download" });
+  });
+
+});
+
+describe("toolRows — tool.herdr against the fork's build list", () => {
+  const HOME = "/fake-home";
+  const LOCAL = `${HOME}/.local/bin/herdr`;
+  const sha = "a".repeat(64);
+  const asset = (v: string) => ({ url: `https://github.com/m4ttstack/herdr/releases/download/v${v}/herdr-macos-aarch64`, sha256: sha });
+  const builds = JSON.stringify({
+    schema: 1,
+    newest: "0.9.5-ms.2",
+    builds: ["0.9.5-ms.1", "0.9.5-ms.2"].map((version, i) => ({ version, herdr: "0.9.5", revision: i + 1, changesServer: true, assets: { arm64: asset(version) }, supersedes: [] })),
+  });
+  const listFetch = async () => ({ status: 200, body: builds, headers: {} });
+  const INTEGRATED = "claude: current (v7) (/x)\n";
+
+  interface HerdrScript {
+    version: string;
+    sessions?: { name: string; socket: string; version: string }[];
+  }
+
+  function herdrExec(script: HerdrScript): ExecScript {
+    return (argv, opts) => {
+      if (argv[1] === "--version") return ok(`herdr ${script.version}\n`);
+      if (argv[1] === "integration") return ok(INTEGRATED);
+      if (argv[1] === "session" && argv[2] === "list") {
+        return ok(JSON.stringify({ sessions: (script.sessions ?? []).map((s) => ({ name: s.name, running: true, socket_path: s.socket })) }));
+      }
+      if (argv[1] === "status" && argv[2] === "server") {
+        const s = script.sessions?.find((x) => x.socket === opts?.env?.HERDR_SOCKET_PATH);
+        return s ? ok(JSON.stringify({ running: true, version: s.version })) : { code: 1, stdout: "", stderr: "" };
+      }
+      return ok();
+    };
+  }
+
+  function herdrProbes(script: HerdrScript, extra: Parameters<typeof fakeProbes>[0] = {}) {
+    return fakeProbes({ home: HOME, exec: herdrExec(script), fetch: listFetch, ...extra });
+  }
+
+  const herdrRowOf = (p: ReturnType<typeof fakeProbes>) => pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+  const UPGRADE = { type: "install", label: "Upgrade", tool: "herdr", via: "download" };
+
+  test("newest fork build with the integration reads ready", async () => {
+    const p = herdrProbes({ version: "0.9.5-ms.2" });
+    const r = await herdrRowOf(p);
+    expect(r.status).toBe("ready");
+    expect(r.detail).toBe("herdr 0.9.5-ms.2, Claude integration installed");
+    expect(p.calls.fetch).toEqual(["https://github.com/m4ttstack/herdr/releases/latest/download/herdr-builds.json"]);
+  });
+
+  test("Homebrew herdr is named even when the version is also stock", async () => {
+    const r = await herdrRowOf(herdrProbes({ version: "0.9.5" }, { links: { "/opt/homebrew/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr" } }));
+    expect(r.status).toBe("invalid");
+    expect(r.required).toBe(true);
+    expect(r.detail).toBe("Homebrew's herdr would run instead of the mattstack build. Upgrade removes it");
+    expect(r.action).toEqual(UPGRADE);
+  });
+
+  test("stock herdr reads invalid with Upgrade to the list's newest", async () => {
+    const r = await herdrRowOf(herdrProbes({ version: "0.9.9" }));
+    expect(r.status).toBe("invalid");
+    expect(r.required).toBe(true);
+    expect(r.detail).toBe("herdr 0.9.9 is not the mattstack build. Upgrade installs 0.9.5-ms.2");
+    expect(r.action).toEqual(UPGRADE);
+  });
+
+  test("a fork build below the minimum reads invalid", async () => {
+    const r = await herdrRowOf(herdrProbes({ version: "0.9.4-ms.3" }));
+    expect(r.status).toBe("invalid");
+    expect(r.required).toBe(true);
+    expect(r.detail).toBe("herdr 0.9.4-ms.3 is older than 0.9.5-ms.2, which mattstack needs");
+    expect(r.action).toEqual(UPGRADE);
+  });
+
+  test("an older fork build reads needs-you, optional, with Upgrade", async () => {
+    const r = await herdrRowOf(herdrProbes({ version: "0.9.5-ms.1" }));
+    expect(r.status).toBe("needs-you");
+    expect(r.required).toBe(false);
+    expect(r.optionalNote).toBe("Installed by Install (herdr.integration).");
+    expect(r.detail).toBe("herdr 0.9.5-ms.1 has a newer mattstack build, 0.9.5-ms.2");
+    expect(r.action).toEqual(UPGRADE);
+  });
+
+  test("non-brew shadow offers steps, never deletes", async () => {
+    const shadow = "/Users/x/.cargo/bin/herdr";
+    const p = herdrProbes({ version: "0.9.5-ms.2" }, { env: { PATH: `/Users/x/.cargo/bin:${HOME}/.local/bin:/usr/bin` }, files: { [shadow]: "bin", [LOCAL]: "bin" } });
+    const r = await herdrRowOf(p);
+    expect(r.status).toBe("needs-you");
+    expect(r.required).toBe(true);
+    expect(r.detail).toBe(`${shadow} would run instead of the mattstack build. rt did not make it, so rt left it alone`);
+    expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: [`rm ${shadow}`] });
+    expect(p.calls.removed).toEqual([]);
+    expect(p.calls.exec.some((argv) => argv[0] === "rm")).toBe(false);
+  });
+
+  test("a link to ~/.local/bin/herdr earlier on PATH is no shadow", async () => {
+    const p = herdrProbes({ version: "0.9.5-ms.2" }, { env: { PATH: `/Users/x/bin:${HOME}/.local/bin` }, links: { "/Users/x/bin/herdr": LOCAL }, files: { [LOCAL]: "bin" } });
+    expect((await herdrRowOf(p)).status).toBe("ready");
+  });
+
+  test("a herdr after ~/.local/bin on PATH is no shadow", async () => {
+    const p = herdrProbes({ version: "0.9.5-ms.2" }, { env: { PATH: `${HOME}/.local/bin:/Users/x/.cargo/bin` }, files: { "/Users/x/.cargo/bin/herdr": "bin", [LOCAL]: "bin" } });
+    expect((await herdrRowOf(p)).status).toBe("ready");
+  });
+
+  test("stale server reads needs-you with Restart", async () => {
+    const r = await herdrRowOf(herdrProbes({ version: "0.9.5-ms.2", sessions: [{ name: "work", socket: "/s/work.sock", version: "0.9.5-ms.1" }] }));
+    expect(r.status).toBe("needs-you");
+    expect(r.required).toBe(false);
+    expect(r.optionalNote).toBe("herdr keeps working; panes end only when you restart it.");
+    expect(r.detail).toBe("Restart herdr when your agents are done");
+    expect(r.action).toEqual({ type: "run", label: "Restart herdr", verb: ["tools", "restart", "herdr"] });
+  });
+
+  test("a server already on the installed build reads ready", async () => {
+    const r = await herdrRowOf(herdrProbes({ version: "0.9.5-ms.2", sessions: [{ name: "work", socket: "/s/work.sock", version: "0.9.5-ms.2" }] }));
+    expect(r.status).toBe("ready");
   });
 });
 
@@ -1141,12 +1261,12 @@ describe("toolRows — tool.mission-control", () => {
 });
 
 describe("toolRows — team-declared tool.team.<name>", () => {
-  test("a pack pinning a herdr download still gets herdr's own script, as Install runs it", async () => {
+  test("a pack pinning a herdr download still gets the fork's build, as Install runs it", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "herdr", why: "panes", install: { download: { arm64: { url: "https://example.com/doppler_arm64.tar.gz", sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", extract: "doppler" } } } }] }];
     const exec: ExecScript = (argv) => (argv[1] === "--version" && argv[0]!.endsWith("herdr") ? missing("herdr") : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.herdr");
-    expect(r.action).toEqual({ type: "install", label: "Install", tool: "herdr", via: "vendor" });
-    expect(teamToolManualSteps({ name: "herdr", why: "panes" })).toEqual({ type: "steps", label: "Show steps…", steps: ["curl -fsSL https://herdr.dev/install.sh | sh"] });
+    expect(r.action).toEqual({ type: "install", label: "Install", tool: "herdr", via: "download" });
+    expect(teamToolManualSteps({ name: "herdr", why: "panes" })).toEqual({ type: "steps", label: "Show steps…", steps: ["Download it from https://github.com/m4ttstack/herdr/releases/latest"] });
   });
 
   test("doppler missing with a download pinned for this processor -> missing, install action via download, id namespaced (R-T8-L1a)", async () => {
@@ -1265,16 +1385,16 @@ describe("toolRows: a tool that prints no version", () => {
 
   test("an unreadable version says so, with the status unchanged", async () => {
     const r = await pickRow(toolRows(fakeProbes({ exec: silent("herdr") }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
-    expect(r.detail).toBe("rt could not read herdr's version (it needs 0.7.5 or newer)");
+    expect(r.detail).toBe("herdr is not the mattstack build. Upgrade installs 0.9.5-ms.1");
     expect(r.status).toBe("invalid");
   });
 
   test("nonnumeric herdr output says its version could not be read", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? ok("  development build\n") : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
-    expect(r.detail).toBe("rt could not read herdr's version (it needs 0.7.5 or newer)");
+    expect(r.detail).toBe("herdr development build is not the mattstack build. Upgrade installs 0.9.5-ms.1");
     expect(r.status).toBe("invalid");
-    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "herdr", via: "vendor" });
+    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "herdr", via: "download" });
   });
 
   test("nonnumeric team tool output says its version could not be read", async () => {
