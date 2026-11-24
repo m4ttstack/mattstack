@@ -78,6 +78,23 @@ describe("installTool — tool.flock (the notarized app from m4ttstack/flock)", 
     expect(result).toEqual({ via: "download", ok: false, detail: "rt could not read Flock's release feed from m4ttstack/flock" });
   });
 
+  test("installTool(flock) records when it put Flock in place, keyed on the result and not its wording", async () => {
+    const p = fakeProbes({
+      env: { TMPDIR: "/fake-tmp" },
+      statPaths: { "/Applications": { isDirectory: true, writable: true } },
+      dirs: { [`/fake-tmp/rt-flock-install-${process.pid}/unpacked/Flock.app`]: [] },
+      fetch: async () => ({ status: 200, body: `<item><sparkle:version>1</sparkle:version><sparkle:shortVersionString>0.12.2</sparkle:shortVersionString><enclosure url="https://github.com/m4ttstack/flock/releases/download/v0.12.2/Flock-0.12.2.zip"/></item>`, headers: {} }),
+      exec: (argv) => {
+        if (argv[0] === "/usr/bin/plutil") return ok("dev.mattstack.Flock\n");
+        if (argv[0] === "/usr/bin/codesign" && argv[1] === "-dv") return { code: 0, stdout: "", stderr: "TeamIdentifier=5BF66B3X4V\n" };
+        return ok();
+      },
+    });
+    const result = await installTool(p, "flock", [], NOOP_SEAMS);
+    expect(result).toMatchObject({ ok: true, placed: true });
+    expect(readSetupState(p).flockInstalledAt).toBe(p.now().toISOString());
+  });
+
   test("installTool(flock) records nothing when Flock is already there or the install fails", async () => {
     const present = fakeProbes({ files: { "/Applications/Flock.app/Contents/Info.plist": "plist" }, exec: (argv) => (argv[0] === "/usr/bin/plutil" ? ok("dev.mattstack.Flock\n") : ok()) });
     expect((await installTool(present, "flock", [], NOOP_SEAMS)).detail).toContain("is already installed");

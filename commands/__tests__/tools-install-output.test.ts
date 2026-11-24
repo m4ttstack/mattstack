@@ -40,6 +40,21 @@ for (const reason of ["user-copy", "dev-mode-owns-rt", "occupied", "no-bundle"] 
   });
 }
 
+test("the --json envelope never carries placed", async () => {
+  const install = spyOn(toolsInstallModule, "installTool").mockResolvedValue({ via: "download", ok: true, placed: true, detail: "Installed Flock 0.12.2 in /Applications" });
+  const io = captureOut();
+  out.__test__.setHuman(() => false);
+  try {
+    await toolsInstall(["flock", "--json"], {}, fakeProbes({ home: "/home/x" }));
+    const env = JSON.parse(io.stdout());
+    expect(Object.keys(env)).toEqual(["contract", "at", "via", "ok", "detail"]);
+    expect(env.ok).toBe(true);
+  } finally {
+    install.mockRestore();
+    io.restore();
+  }
+});
+
 function failedPresses(p: ReturnType<typeof fakeProbes>) {
   return readPrepare(p, "accounts", () => false, () => p.now())?.pressFailed;
 }

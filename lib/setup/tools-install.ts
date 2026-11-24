@@ -219,7 +219,7 @@ export async function installTool(p: Probes, tool: string, reqs: PackRequirement
   if (tool === "herdr") return installHerdrBuild(p, (seams.hostArch ?? hostArch)());
   if (tool === "flock") {
     const result = await installFlock(p);
-    if (result.ok && result.detail.startsWith("Installed")) updateSetupState(p, (s) => ({ ...s, flockInstalledAt: p.now().toISOString() }));
+    if (result.placed) updateSetupState(p, (s) => ({ ...s, flockInstalledAt: p.now().toISOString() }));
     return result;
   }
 
