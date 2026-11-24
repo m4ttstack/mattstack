@@ -36,6 +36,7 @@ import { chromeInstalled } from "../chrome.ts";
 import { mattstackFloor } from "../mattstack-floor.ts";
 import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
 import { fetchHerdrBuilds, HERDR_MIN_BUILD, herdrVerdict, parseHerdrVersion } from "../herdr-builds.ts";
+import { shellQuote } from "../../herdr-launch.ts";
 import { homebrewHerdrs, homebrewUninstallCommands, staleHerdrSessions } from "../herdr-install.ts";
 import { VENDOR_INSTALLERS, vendorBinPath } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
@@ -115,8 +116,8 @@ function parseHerdrClaudeState(stdout: string): { known: boolean; installed: boo
   return { known: true, installed: state.toLowerCase().startsWith("current"), state };
 }
 
-/** The first herdr on PATH ahead of ~/.local/bin that is not a link to it; Homebrew's copy is the Homebrew row's. */
-function shadowingHerdr(p: Probes): string | null {
+/** The first herdr on PATH ahead of ~/.local/bin that is neither a link to it nor a fork build; Homebrew's copy is the Homebrew row's. */
+async function shadowingHerdr(p: Probes): Promise<string | null> {
   const own = vendorBinPath(p.home, "herdr");
   for (const dir of (p.env.PATH ?? "").split(":").filter((d) => d.length > 0)) {
     const candidate = join(dir, "herdr");
@@ -124,6 +125,8 @@ function shadowingHerdr(p: Probes): string | null {
     if (!p.exists(candidate)) continue;
     const target = p.readlink(candidate);
     if (target !== null && (resolve(dir, target) === own || target.includes("/Cellar/herdr/"))) continue;
+    const reported = await exec(p, [candidate, "--version"]);
+    if (reported.code === 0 && parseHerdrVersion(reported.stdout).fork !== null) continue;
     return candidate;
   }
   return null;
@@ -159,13 +162,13 @@ async function herdrRow(p: Probes, seams: ToolsSeams): Promise<Row> {
     return row({ ...base, status: "invalid", detail: `${which} is not the mattstack build. Upgrade installs ${verdict.target}`, action: upgrade });
   }
 
-  const shadow = shadowingHerdr(p);
+  const shadow = herdr[0] === vendorBinPath(p.home, "herdr") ? await shadowingHerdr(p) : null;
   if (shadow) {
     return row({
       ...base,
-      status: "needs-you",
+      status: "invalid",
       detail: `${shadow} would run instead of the mattstack build. rt did not make it, so rt left it alone`,
-      action: { type: "steps", label: "Show steps…", steps: [`rm ${shadow}`] },
+      action: { type: "steps", label: "Show steps…", steps: [`rm ${shellQuote(shadow)}`] },
     });
   }
 

@@ -258,12 +258,14 @@ describe("toolRows — tool.herdr against the fork's build list", () => {
 
   interface HerdrScript {
     version: string;
+    /** A version per binary path, for a herdr other than the one setup runs. */
+    versions?: Record<string, string>;
     sessions?: { name: string; socket: string; version: string }[];
   }
 
   function herdrExec(script: HerdrScript): ExecScript {
     return (argv, opts) => {
-      if (argv[1] === "--version") return ok(`herdr ${script.version}\n`);
+      if (argv[1] === "--version") return ok(`herdr ${script.versions?.[argv[0]!] ?? script.version}\n`);
       if (argv[1] === "integration") return ok(INTEGRATED);
       if (argv[1] === "session" && argv[2] === "list") {
         return ok(JSON.stringify({ sessions: (script.sessions ?? []).map((s) => ({ name: s.name, running: true, socket_path: s.socket })) }));
@@ -280,7 +282,11 @@ describe("toolRows — tool.herdr against the fork's build list", () => {
     return fakeProbes({ home: HOME, exec: herdrExec(script), fetch: listFetch, ...extra });
   }
 
-  const herdrRowOf = (p: ReturnType<typeof fakeProbes>) => pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+  const resolvedTo = (path: string): ToolsSeams => ({
+    ...NOOP_SEAMS,
+    resolveTool: (_p, tool) => (tool === "herdr" ? { tool, bundled: null, exec: [path], userCopy: path, linked: false, chosen: path } : noopResolution(tool)),
+  });
+  const herdrRowOf = (p: ReturnType<typeof fakeProbes>, seams: ToolsSeams = resolvedTo(LOCAL)) => pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, seams), "tool.herdr");
   const UPGRADE: Action = { type: "install", label: "Upgrade", tool: "herdr", via: "download" };
 
   test("newest fork build with the integration reads ready", async () => {
@@ -335,14 +341,35 @@ describe("toolRows — tool.herdr against the fork's build list", () => {
 
   test("non-brew shadow offers steps, never deletes", async () => {
     const shadow = "/Users/x/.cargo/bin/herdr";
-    const p = herdrProbes({ version: "0.9.5-ms.2" }, { env: { PATH: `/Users/x/.cargo/bin:${HOME}/.local/bin:/usr/bin` }, files: { [shadow]: "bin", [LOCAL]: "bin" } });
+    const p = herdrProbes({ version: "0.9.5-ms.2", versions: { [shadow]: "0.9.5" } }, { env: { PATH: `/Users/x/.cargo/bin:${HOME}/.local/bin:/usr/bin` }, files: { [shadow]: "bin", [LOCAL]: "bin" } });
     const r = await herdrRowOf(p);
-    expect(r.status).toBe("needs-you");
+    expect(r.status).toBe("invalid");
     expect(r.required).toBe(true);
     expect(r.detail).toBe(`${shadow} would run instead of the mattstack build. rt did not make it, so rt left it alone`);
     expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: [`rm ${shadow}`] });
     expect(p.calls.removed).toEqual([]);
     expect(p.calls.exec.some((argv) => argv[0] === "rm")).toBe(false);
+  });
+
+  test("a shadow whose path has a space is quoted in its step", async () => {
+    const shadow = "/Users/x/my tools/herdr";
+    const p = herdrProbes({ version: "0.9.5-ms.2", versions: { [shadow]: "0.9.5" } }, { env: { PATH: `/Users/x/my tools:${HOME}/.local/bin` }, files: { [shadow]: "bin", [LOCAL]: "bin" } });
+    expect((await herdrRowOf(p)).action).toEqual({ type: "steps", label: "Show steps…", steps: ["rm '/Users/x/my tools/herdr'"] });
+  });
+
+  test("a fork build earlier on PATH than ~/.local/bin is no shadow", async () => {
+    const other = "/Users/x/.cargo/bin/herdr";
+    const p = herdrProbes({ version: "0.9.5-ms.2", versions: { [other]: "0.9.5-ms.1" } }, { env: { PATH: `/Users/x/.cargo/bin:${HOME}/.local/bin` }, files: { [other]: "bin", [LOCAL]: "bin" } });
+    expect((await herdrRowOf(p)).status).toBe("ready");
+  });
+
+  test("a dev fork build outside ~/.local/bin, with none there, reads ready", async () => {
+    for (const dev of ["/Users/x/bin/herdr", "/Users/x/.cargo/bin/herdr"]) {
+      const p = herdrProbes({ version: "0.9.5-ms.9" }, { env: { PATH: `${dev.slice(0, -"/herdr".length)}:/usr/bin` }, files: { [dev]: "bin" } });
+      const r = await herdrRowOf(p, resolvedTo(dev));
+      expect({ dev, status: r.status }).toEqual({ dev, status: "ready" });
+      expect(p.calls.exec.some((argv) => argv[0] === "rm")).toBe(false);
+    }
   });
 
   test("a link to ~/.local/bin/herdr earlier on PATH is no shadow", async () => {
@@ -379,7 +406,7 @@ describe("toolRows — tool.herdr against the fork's build list", () => {
 
   test("an outdated fork build behind a stock shadow reads the shadow row", async () => {
     const shadow = "/Users/x/.cargo/bin/herdr";
-    const p = herdrProbes({ version: "0.9.5-ms.1" }, { env: { PATH: `/Users/x/.cargo/bin:${HOME}/.local/bin` }, files: { [shadow]: "bin", [LOCAL]: "bin" } });
+    const p = herdrProbes({ version: "0.9.5-ms.1", versions: { [shadow]: "0.9.5" } }, { env: { PATH: `/Users/x/.cargo/bin:${HOME}/.local/bin` }, files: { [shadow]: "bin", [LOCAL]: "bin" } });
     const r = await herdrRowOf(p);
     expect(r.detail).toBe(`${shadow} would run instead of the mattstack build. rt did not make it, so rt left it alone`);
     expect(r.required).toBe(true);
