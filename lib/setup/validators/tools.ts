@@ -37,7 +37,7 @@ import { mattstackFloor } from "../mattstack-floor.ts";
 import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
 import { fetchHerdrBuilds, HERDR_MIN_BUILD, herdrVerdict, parseHerdrVersion } from "../herdr-builds.ts";
 import { shellQuote } from "../../herdr-launch.ts";
-import { installedFlock } from "../flock-install.ts";
+import { flockBelowFloor, flockNeedsMacos, installedFlock } from "../flock-install.ts";
 import { homebrewHerdrs, homebrewUninstallCommands, isHomebrewHerdr, staleHerdrSessions } from "../herdr-install.ts";
 import { VENDOR_INSTALLERS, vendorBinPath } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
@@ -104,11 +104,12 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 // ─── tool.flock ────────────────────────────────────────────────────────────
 
-/** Any installed version is ready: rt never upgrades Flock, Sparkle does. */
+/** Any installed version is ready: rt never upgrades Flock, Sparkle does. A Mac below Flock's macOS floor can never install it, so there the row is optional and skipped. */
 async function flockRow(p: Probes): Promise<Row> {
   const base = { id: "tool.flock", kind: "tool" as const, title: "Flock", why: "The Mac app for your herdr panes and agents.", required: true, recheck: "on-activate" as const };
   const installed = await installedFlock(p);
   if (installed) return row({ ...base, status: "ready", detail: named("Flock", installed.version ?? "") });
+  if (await flockBelowFloor(p)) return row({ ...base, required: false, status: "skipped", detail: flockNeedsMacos() });
   return row({ ...base, status: "missing", detail: "Flock is not installed", action: provisionedInstallAction("flock") });
 }
 

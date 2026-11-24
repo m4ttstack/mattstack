@@ -135,6 +135,25 @@ describe("toolRows — tool.flock", () => {
     expect(r.action).toEqual({ type: "install", label: "Install", tool: "flock", via: "download" });
   });
 
+  test("a Mac below macOS 15 with no Flock reads optional and skipped, with nothing to press", async () => {
+    const exec: ExecScript = (argv) => (argv[0] === "sw_vers" ? ok("14.7.1\n") : ok());
+    const r = await flockRowOf(fakeProbes({ exec }));
+    expect(r).toMatchObject({ required: false, status: "skipped", detail: "Flock needs macOS 15 or newer" });
+    expect(r.action).toBeNull();
+  });
+
+  test("macOS 15 or an unreadable version still offers Install", async () => {
+    const at15: ExecScript = (argv) => (argv[0] === "sw_vers" ? ok("15.0\n") : ok());
+    expect(await flockRowOf(fakeProbes({ exec: at15 }))).toMatchObject({ required: true, status: "missing" });
+    const unreadable: ExecScript = (argv) => (argv[0] === "sw_vers" ? missing("sw_vers") : ok());
+    expect(await flockRowOf(fakeProbes({ exec: unreadable }))).toMatchObject({ required: true, status: "missing" });
+  });
+
+  test("an installed Flock is ready on macOS 14 too", async () => {
+    const exec: ExecScript = (argv) => (argv[0] === "sw_vers" ? ok("14.7.1\n") : plutil("dev.mattstack.Flock", "0.12.2")(argv, {}));
+    expect(await flockRowOf(fakeProbes({ files: { [FLOCK_PLIST]: "plist" }, exec }))).toMatchObject({ status: "ready", required: true });
+  });
+
   test("Flock-dev alone reads missing", async () => {
     const r = await flockRowOf(fakeProbes({ files: { [FLOCK_PLIST]: "plist" }, exec: plutil("dev.mattstack.Flock.dev", "0.12.2") }));
     expect(r.status).toBe("missing");

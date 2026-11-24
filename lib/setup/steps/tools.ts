@@ -23,7 +23,7 @@ import { readSetupState, updateSetupState } from "../state.ts";
 import { fetchHerdrBuilds, herdrVerdict, parseHerdrVersion } from "../herdr-builds.ts";
 import { homebrewHerdrs, installHerdrBuild, removeHerdrBackups } from "../herdr-install.ts";
 import type { InstallResult } from "../install-result.ts";
-import { installedFlock } from "../flock-install.ts";
+import { flockBelowFloor, flockNeedsMacos, installedFlock } from "../flock-install.ts";
 import { claudeConfigDirs, hostArch, installTool, NO_EDITORS_DETAIL, NO_RECORDED_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
@@ -152,6 +152,7 @@ export const herdrIntegrationStep: StepDef = {
 async function flockInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   await waitWhilePreparing(ctx.p, "accounts", { onWait: (line) => ctx.log("flock.install", line) });
   if (await installedFlock(ctx.p)) return { state: "skipped", detail: "Flock is already installed" };
+  if (await flockBelowFloor(ctx.p)) return { state: "skipped", detail: flockNeedsMacos() };
   // An update run must not put back a Flock the member removed after rt installed it.
   if (ctx.update && readSetupState(ctx.p).flockInstalledAt) return { state: "skipped", detail: "Flock was removed after rt installed it, so rt left it alone" };
   const result = await installTool(ctx.p, "flock", []);

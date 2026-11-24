@@ -100,6 +100,14 @@ describe("runPrepare", () => {
     expect(seen).not.toContain("flock");
   });
 
+  test("prepare leaves flock out on a Mac below macOS 15", async () => {
+    const base = machine();
+    const exec: ExecScript = (argv, o) => (argv[0] === "sw_vers" ? ok("14.7.1\n") : base(argv, o));
+    const seen: string[] = [];
+    await runPrepare(fakeProbes({ home: HOME, exec }), "accounts", { reqs: [], install: fakeInstall(seen), alive, pid: OWN_PID });
+    expect(seen).toEqual(["claude", "herdr"]);
+  });
+
   test("prepare leaves out a Flock the member removed", async () => {
     const p = fakeProbes({ home: HOME, exec: machine() });
     updateSetupState(p, (s) => ({ ...s, flockInstalledAt: "2026-11-01T00:00:00.000Z" }));

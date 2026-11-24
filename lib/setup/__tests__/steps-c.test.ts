@@ -2381,7 +2381,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     const appcast = `<rss xmlns:sparkle="x"><channel><item><sparkle:version>1173</sparkle:version><sparkle:shortVersionString>0.12.2</sparkle:shortVersionString><enclosure url="https://github.com/m4ttstack/flock/releases/download/v0.12.2/Flock-0.12.2.zip"/></item></channel></rss>`;
 
     /** A Mac with no Flock, a reachable feed, and a download that verifies; `installed` puts a real-looking Flock in /Applications. */
-    function flockMac(opts: { installed?: boolean; feedStatus?: number } = {}) {
+    function flockMac(opts: { installed?: boolean; feedStatus?: number; macos?: string } = {}) {
       return fakeProbes({
         home,
         env: { TMPDIR: TMP },
@@ -2390,6 +2390,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         files: { [join(UNPACKED_APP, "Contents", "Info.plist")]: "plist", ...(opts.installed ? { [INSTALLED_PLIST]: "plist" } : {}) },
         fetch: async () => ({ status: opts.feedStatus ?? 200, body: opts.feedStatus && opts.feedStatus !== 200 ? "Not Found" : appcast, headers: {} }),
         exec: (argv) => {
+          if (argv[0] === "sw_vers") return ok(opts.macos ? `${opts.macos}\n` : "");
           if (argv[0] === "/usr/bin/plutil") return ok(argv[2] === "CFBundleIdentifier" ? "dev.mattstack.Flock\n" : "0.12.2\n");
           if (argv[0] === "/usr/bin/codesign" && argv[1] === "-dv") return { code: 0, stdout: "", stderr: "TeamIdentifier=5BF66B3X4V\n" };
           return ok();
@@ -2408,6 +2409,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = flockMac({ installed: true });
       const outcome = await flockInstallStep.run(makeCtx(p).ctx);
       expect(outcome).toEqual({ state: "skipped", detail: "Flock is already installed" });
+      expect(p.calls.fetch).toEqual([]);
+      expect(readSetupState(p).flockInstalledAt).toBeUndefined();
+    });
+
+    test("a Mac below macOS 15 skips with the floor and fetches nothing", async () => {
+      const p = flockMac({ macos: "14.7.1" });
+      const outcome = await flockInstallStep.run(makeCtx(p).ctx);
+      expect(outcome).toEqual({ state: "skipped", detail: "Flock needs macOS 15 or newer" });
       expect(p.calls.fetch).toEqual([]);
       expect(readSetupState(p).flockInstalledAt).toBeUndefined();
     });

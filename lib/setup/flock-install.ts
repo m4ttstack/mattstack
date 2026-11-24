@@ -96,9 +96,12 @@ export async function fetchFlockRelease(p: Pick<Probes, "fetch">, macos?: string
   return (await fetchFlockFeed(p, macos))?.release ?? null;
 }
 
+/** A probe that throws counts as unreadable here: Flock's floor must never fail a row or an install on its own. */
+const macosOrNull = (p: Pick<Probes, "exec">) => readMacosVersion(p).catch(() => null);
+
 /** True only on a Mac whose version could be read and is below the floor. */
 export async function flockBelowFloor(p: Pick<Probes, "exec">): Promise<boolean> {
-  const macos = await readMacosVersion(p);
+  const macos = await macosOrNull(p);
   return macos !== null && macos.major < FLOCK_MIN_MACOS;
 }
 
@@ -157,7 +160,7 @@ export async function installFlock(p: Probes): Promise<InstallResult> {
     const present = await installedFlock(p);
     if (present) return already(present);
 
-    const macos = await readMacosVersion(p);
+    const macos = await macosOrNull(p);
     if (macos && macos.major < FLOCK_MIN_MACOS) return fail(flockNeedsMacos());
 
     const feed = await fetchFlockFeed(p, macos?.version);

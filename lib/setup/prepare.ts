@@ -8,7 +8,7 @@
 import { dirname } from "path";
 import { resolveTool } from "../deps/resolve.ts";
 import type { StepOutcome } from "./apply.ts";
-import { installedFlock } from "./flock-install.ts";
+import { flockBelowFloor, installedFlock } from "./flock-install.ts";
 import { FAST_BROWSER, preparePath, readPrepare, waitWhilePreparing, type PrepareRecord, type PrepareStage } from "./prepare-record.ts";
 import type { Probes } from "./probes.ts";
 import type { PackRequirements, ToolRequirement } from "./requirements.ts";
@@ -75,7 +75,7 @@ export async function prepareTools(p: Probes, stage: PrepareStage, reqs: PackReq
   if (!p.exists(vendorBinPath(p.home, "claude"))) items.push("claude");
   if (await missingBinary(p, "herdr")) items.push("herdr");
   // A Flock the member removed after rt installed it stays removed: the connect screen starts this stage again.
-  if (!(await installedFlock(p)) && !readSetupState(p).flockInstalledAt) items.push("flock");
+  if (!(await installedFlock(p)) && !readSetupState(p).flockInstalledAt && !(await flockBelowFloor(p))) items.push("flock");
 
   const required = (tools: ToolRequirement[]) => tools.filter((t) => !t.optional);
   const team = firstByName([...required(signInTools(reqs)), ...required(reqs.flatMap((r) => r.tools))]);
