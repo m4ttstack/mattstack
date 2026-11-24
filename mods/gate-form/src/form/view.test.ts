@@ -158,6 +158,21 @@ test('a More menu opened by click on a question takes the keys, and an option cl
   expect(perform({ type: 'option', idx: 1 }, controlled, open())!.state.menu.open).toBe(false)
 })
 
+test('Chat with the More menu open closes it, so Enter cannot pause the run', () => {
+  for (const armed of [perform({ type: 'chat' }, controlled, open())!, keyEffect({ key: 'x', ctrl: true }, controlled, open())!]) {
+    expect(armed.state.menu.open).toBe(false)
+    expect(keyEffect({ key: 'return' }, controlled, armed.state)?.post).not.toMatchObject({ answers: { next: 'hold' } })
+  }
+})
+
+test('a write-in clicked with the More menu open takes typing at once', () => {
+  const form = toForm('T', undefined, [{ id: 'a', label: 'Pick one', writeIn: true, options: [{ value: 'x', label: 'X' }] }], 'gate') as Form
+  const gate = { ...form, controls: { pause: true, goBack: [] } }
+  const menu = perform({ type: 'menu', hit: { type: 'toggle' } }, gate, initial(gate))!.state
+  const onWriteIn = perform({ type: 'option', idx: 1 }, gate, menu)!.state
+  expect(keyEffect({ key: 'h' }, gate, onWriteIn)!.state.text[0]).toBe('h')
+})
+
 test('the context page shows the armed Chat label after a first press', () => {
   const gate = { ...oneQuestion, source: 'gate' as const }
   const paged: State = { ...initial(gate), contextPaged: true, page: -1, chatArmed: true }

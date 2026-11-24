@@ -16,7 +16,8 @@ export type Action =
 export type Effect = { state: State; post?: JsonValue }
 
 const disarm = (s: State): State => ({ ...s, chatArmed: undefined })
-const shut = (s: State): State => ({ ...s, menu: { ...s.menu, open: false } })
+// Closing an open menu takes the keys off the nav row with it.
+const shut = (s: State): State => (s.menu.open ? { ...s, menu: { ...s.menu, open: false }, onNav: undefined, navAt: 'next' } : s)
 
 function post(form: Form, s: State, answers: Record<string, unknown>, control?: string): Effect {
   return { state: { ...s, phase: 'submitted', sent: form.attempt ?? 0, control }, post: { type: 'answer', formId: form.id, answers: answers as JsonValue } }
@@ -53,8 +54,9 @@ export function optionClick(form: Form, s: State, idx: number, now: number): Eff
 }
 
 // The first press arms it; the second sets the form aside. A gate set aside stays open and answerable.
-function chat(form: Form, s: State): Effect | undefined {
+function chat(form: Form, opened: State): Effect | undefined {
   if (!canChat(form)) return undefined
+  const s = shut(opened)
   if (!s.chatArmed) return { state: { ...s, chatArmed: true } }
   const state = form.source === 'gate' ? disarm(s) : { ...disarm(s), phase: 'chat' as const }
   return { state, post: { type: 'chat', formId: form.id, draft: answersOf(form, s) as JsonValue } }

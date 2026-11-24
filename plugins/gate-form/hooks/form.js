@@ -1084,7 +1084,7 @@ function deleteChar(s) {
 
 // mods/gate-form/src/form/input.ts
 var disarm = (s) => ({ ...s, chatArmed: undefined });
-var shut = (s) => ({ ...s, menu: { ...s.menu, open: false } });
+var shut = (s) => s.menu.open ? { ...s, menu: { ...s.menu, open: false }, onNav: undefined, navAt: "next" } : s;
 function post(form, s, answers, control) {
   return { state: { ...s, phase: "submitted", sent: form.attempt ?? 0, control }, post: { type: "answer", formId: form.id, answers } };
 }
@@ -1115,9 +1115,10 @@ function optionClick(form, s, idx, now) {
     return send(form, once) ?? { state: once };
   return { state: advance(form, once) };
 }
-function chat(form, s) {
+function chat(form, opened) {
   if (!canChat(form))
     return;
+  const s = shut(opened);
   if (!s.chatArmed)
     return { state: { ...s, chatArmed: true } };
   const state = form.source === "gate" ? disarm(s) : { ...disarm(s), phase: "chat" };
