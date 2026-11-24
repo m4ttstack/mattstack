@@ -2872,6 +2872,12 @@ function registerContract(on) {
   on("tool.check", { tool: "mcp__human-todos__add" }, () => ({ decision: "allow" }));
   on("tool.check", { tool: "mcp__human-todos__list" }, () => ({ decision: "allow" }));
   on("tool.check", { tool: "mcp__human-todos__withdraw" }, () => ({ decision: "allow" }));
+  on("ui.render", { component: "ToolUse", props: { tool: "mcp__human-todos__add" } }, ($, e, next) => {
+    const { kind, title } = e.props.input ?? {};
+    if (e.props.isExpanded || typeof kind !== "string" || typeof title !== "string")
+      return next(e);
+    return next({ ...e, props: { ...e.props, input: { kind, title } } });
+  });
   on("tool.call", { tool: "mcp__human-todos__add" }, async ($, e) => {
     const input = e;
     const missing = checkKind(input);

@@ -31,6 +31,13 @@ export async function registerToolDef($: EngineInterface): Promise<void> {
 export function registerTool(on: On): void {
   on('tool.check', { tool: TOOL }, () => ({ decision: 'allow' as const }))
 
+  // The engine's row draws a call's whole input, ledger and all. ctrl+o still has it all.
+  on('ui.render', { component: 'ToolUse', props: { tool: TOOL } }, ($, e, next) => {
+    const { mode } = (e.props.input ?? {}) as { mode?: unknown }
+    if (e.props.isExpanded || typeof mode !== 'string') return next(e)
+    return next({ ...e, props: { ...e.props, input: { mode } } })
+  })
+
   on('tool.call', { tool: TOOL }, async ($, e) => {
     if (e.agentId) return { deny: 'Only the main session can reset itself; a subagent cannot.' }
     const { mode, ledger, then } = e as unknown as { mode?: unknown; ledger?: unknown; then?: unknown }

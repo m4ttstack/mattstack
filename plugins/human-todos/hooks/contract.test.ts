@@ -104,3 +104,28 @@ test('withdraw still answers when the runner cannot tidy up, and tells the perso
   expect(toasts).toEqual(['Could not tidy up after #1'])
   expect((await $.tool.call({ tool: LIST })).result).toBe('No to-dos.')
 })
+
+const ROW = (input: unknown, isExpanded = false) =>
+  ({
+    plugin: 'human-todos',
+    component: 'ToolUse',
+    requestId: 'toolu_1',
+    props: { tool_use_id: 'toolu_1', tool: ADD, input, isRunning: false, isErrored: false, isInterrupted: false, isExpanded },
+  }) as const
+
+test('the add row shows the kind and title alone, and ctrl+o the whole call', async ($, on) => {
+  const seen: unknown[] = []
+  on('ui.render', { component: 'ToolUse' }, (_, e, next) => {
+    seen.push(e.props.input)
+    return next(e)
+  })
+  world(on)
+  const input = { kind: 'run', title: 'Deploy', detail: 'To staging', script: 'one\ntwo\nthree' }
+  for (const surface of ['terminal', 'desktop'] as const) {
+    for (const [row, drawn] of [[ROW(input), { kind: 'run', title: 'Deploy' }], [ROW(input, true), input], [ROW({ kind: 'run' }), { kind: 'run' }]] as const) {
+      const ui = await $.ui.mount({ ...row, surface } as never)
+      expect(seen.at(-1)).toEqual(drawn)
+      await ui.unmount()
+    }
+  }
+})
