@@ -516,6 +516,7 @@ type AccountsPrepare = (PrepareRecord & { running: boolean }) | null;
 
 function preparedTool(rowId: string): string | null {
   if (rowId === "tool.herdr") return "herdr";
+  if (rowId === "tool.flock") return "flock";
   return rowId.startsWith("tool.team.") ? rowId.slice("tool.team.".length) : null;
 }
 

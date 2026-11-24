@@ -77,6 +77,15 @@ describe("installTool — tool.flock (the notarized app from m4ttstack/flock)", 
     expect(p.calls.fetch).toEqual([FLOCK_APPCAST_URL]);
     expect(result).toEqual({ via: "download", ok: false, detail: "rt could not read Flock's release feed from m4ttstack/flock" });
   });
+
+  test("installTool(flock) records nothing when Flock is already there or the install fails", async () => {
+    const present = fakeProbes({ files: { "/Applications/Flock.app/Contents/Info.plist": "plist" }, exec: (argv) => (argv[0] === "/usr/bin/plutil" ? ok("dev.mattstack.Flock\n") : ok()) });
+    expect((await installTool(present, "flock", [], NOOP_SEAMS)).detail).toContain("is already installed");
+    const feedDown = fakeProbes({ fetch: async () => ({ status: 404, body: "", headers: {} }) });
+    await installTool(feedDown, "flock", [], NOOP_SEAMS);
+    expect(readSetupState(present).flockInstalledAt).toBeUndefined();
+    expect(readSetupState(feedDown).flockInstalledAt).toBeUndefined();
+  });
 });
 
 describe("installTool — tool.claude (vendor installer, never brew)", () => {

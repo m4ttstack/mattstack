@@ -29,6 +29,7 @@ import {
   extensionInstallRun,
   extensionInstallStep,
   fastbrowserSetupStep,
+  flockInstallStep,
   herdrIntegrationStep,
   servicesStartRun,
   waitForDaemonUp,
@@ -2368,6 +2369,79 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
     test("the step is titled Set up herdr", () => {
       expect(herdrIntegrationStep.title).toBe("Set up herdr");
+    });
+  });
+
+  // ─── flock.install ───────────────────────────────────────────────────────
+
+  describe("flock.install", () => {
+    const TMP = "/fake-tmp";
+    const UNPACKED_APP = join(TMP, `rt-flock-install-${process.pid}`, "unpacked", "Flock.app");
+    const INSTALLED_PLIST = "/Applications/Flock.app/Contents/Info.plist";
+    const appcast = `<rss xmlns:sparkle="x"><channel><item><sparkle:version>1173</sparkle:version><sparkle:shortVersionString>0.12.2</sparkle:shortVersionString><enclosure url="https://github.com/m4ttstack/flock/releases/download/v0.12.2/Flock-0.12.2.zip"/></item></channel></rss>`;
+
+    /** A Mac with no Flock, a reachable feed, and a download that verifies; `installed` puts a real-looking Flock in /Applications. */
+    function flockMac(opts: { installed?: boolean; feedStatus?: number } = {}) {
+      return fakeProbes({
+        home,
+        env: { TMPDIR: TMP },
+        statPaths: { "/Applications": { isDirectory: true, writable: true } },
+        dirs: { [UNPACKED_APP]: [] },
+        files: { [join(UNPACKED_APP, "Contents", "Info.plist")]: "plist", ...(opts.installed ? { [INSTALLED_PLIST]: "plist" } : {}) },
+        fetch: async () => ({ status: opts.feedStatus ?? 200, body: opts.feedStatus && opts.feedStatus !== 200 ? "Not Found" : appcast, headers: {} }),
+        exec: (argv) => {
+          if (argv[0] === "/usr/bin/plutil") return ok(argv[2] === "CFBundleIdentifier" ? "dev.mattstack.Flock\n" : "0.12.2\n");
+          if (argv[0] === "/usr/bin/codesign" && argv[1] === "-dv") return { code: 0, stdout: "", stderr: "TeamIdentifier=5BF66B3X4V\n" };
+          return ok();
+        },
+      });
+    }
+
+    test("installs a missing Flock and records it", async () => {
+      const p = flockMac();
+      const outcome = await flockInstallStep.run(makeCtx(p).ctx);
+      expect(outcome).toEqual({ state: "done", detail: "Installed Flock 0.12.2 in /Applications" });
+      expect(readSetupState(p).flockInstalledAt).toBe(p.now().toISOString());
+    });
+
+    test("skips an installed Flock", async () => {
+      const p = flockMac({ installed: true });
+      const outcome = await flockInstallStep.run(makeCtx(p).ctx);
+      expect(outcome).toEqual({ state: "skipped", detail: "Flock is already installed" });
+      expect(p.calls.fetch).toEqual([]);
+      expect(readSetupState(p).flockInstalledAt).toBeUndefined();
+    });
+
+    test("update run leaves a Flock the member removed", async () => {
+      const p = flockMac();
+      updateSetupState(p, (s) => ({ ...s, flockInstalledAt: "2026-11-01T00:00:00.000Z" }));
+      const outcome = await flockInstallStep.run(makeCtx(p, { update: true }).ctx);
+      expect(outcome).toEqual({ state: "skipped", detail: "Flock was removed after rt installed it, so rt left it alone" });
+      expect(p.calls.fetch).toEqual([]);
+    });
+
+    test("update run installs Flock on a Mac rt never installed it on", async () => {
+      const p = flockMac();
+      const outcome = await flockInstallStep.run(makeCtx(p, { update: true }).ctx);
+      expect(outcome.state).toBe("done");
+      expect(p.calls.fetch.length).toBe(1);
+    });
+
+    test("a full run reinstalls a removed Flock", async () => {
+      const p = flockMac();
+      updateSetupState(p, (s) => ({ ...s, flockInstalledAt: "2026-11-01T00:00:00.000Z" }));
+      expect((await flockInstallStep.run(makeCtx(p).ctx)).state).toBe("done");
+    });
+
+    test("a failed install names the row", async () => {
+      const p = flockMac({ feedStatus: 404 });
+      const outcome = await flockInstallStep.run(makeCtx(p).ctx);
+      expect(outcome).toEqual({ state: "failed", detail: "rt could not read Flock's release feed from m4ttstack/flock", remedy: "Open setup's Flock row and press Install" });
+      expect(readSetupState(p).flockInstalledAt).toBeUndefined();
+    });
+
+    test("the step is titled Install Flock", () => {
+      expect(flockInstallStep.title).toBe("Install Flock");
     });
   });
 

@@ -217,7 +217,11 @@ export function teamPin(reqs: PackRequirements[], tool: string, arch: HostArch):
 export async function installTool(p: Probes, tool: string, reqs: PackRequirements[], seams: ToolsInstallSeams = REAL_SEAMS): Promise<InstallResult> {
   if (tool === "apple-clt") return installAppleClt(p);
   if (tool === "herdr") return installHerdrBuild(p, (seams.hostArch ?? hostArch)());
-  if (tool === "flock") return installFlock(p);
+  if (tool === "flock") {
+    const result = await installFlock(p);
+    if (result.ok && result.detail.startsWith("Installed")) updateSetupState(p, (s) => ({ ...s, flockInstalledAt: p.now().toISOString() }));
+    return result;
+  }
 
   const bundled = seams.bundledToolExec(p, tool);
   if (bundled) {

@@ -190,18 +190,22 @@ function fakeClaude(argv: string[]) {
   return ok();
 }
 
+const FLOCK_PLIST = "/Applications/Flock.app/Contents/Info.plist";
+
 function probes(): Probes {
   const real = createRealProbes();
   return {
     ...real,
     home,
     env: { HOME: home, PATH: join(home, "bin"), USER: "dev1", RT_ENGINE_PACK_DIR: ENGINE_PACK_DIR },
-    exists: (path) => !path.startsWith("/Applications/") && real.exists(path),
+    // The member already has Flock, so flock.install skips and nothing here can reach the network or /Applications.
+    exists: (path) => path === FLOCK_PLIST || (!path.startsWith("/Applications/") && real.exists(path)),
     exec: async (argv, opts) => {
       const bin = basename(argv[0]!);
       if (bin === "git") return real.exec(argv, { ...opts, env: { ...gitEnv(), ...(opts?.env ?? {}) } });
       if (bin === "gh" || bin === "glab") return ok(JSON.stringify({ login: "dev1", username: "dev1" }));
       if (bin === "claude") return fakeClaude(argv);
+      if (bin === "plutil") return ok(argv[2] === "CFBundleIdentifier" ? "dev.mattstack.Flock\n" : "0.12.2\n");
       return ok();
     },
     daemon: async () => null,

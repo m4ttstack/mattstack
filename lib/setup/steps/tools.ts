@@ -1,5 +1,5 @@
 /**
- * `fastbrowser.setup`, `herdr.integration`, `extension.install`,
+ * `fastbrowser.setup`, `herdr.integration`, `flock.install`, `extension.install`,
  * `services.start`, `snapshot.push` — the remaining `--tool`/rt-driven apply
  * steps. Each tool-setup step pre-checks the tool's own presence itself
  * (never lets `setupTool`'s `UserActionableError` fall through to the
@@ -23,7 +23,8 @@ import { readSetupState, updateSetupState } from "../state.ts";
 import { fetchHerdrBuilds, herdrVerdict, parseHerdrVersion } from "../herdr-builds.ts";
 import { homebrewHerdrs, installHerdrBuild, removeHerdrBackups } from "../herdr-install.ts";
 import type { InstallResult } from "../install-result.ts";
-import { claudeConfigDirs, hostArch, NO_EDITORS_DETAIL, NO_RECORDED_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
+import { installedFlock } from "../flock-install.ts";
+import { claudeConfigDirs, hostArch, installTool, NO_EDITORS_DETAIL, NO_RECORDED_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 const HERDR_VERSION_TIMEOUT_MS = 5000;
@@ -144,6 +145,33 @@ export const herdrIntegrationStep: StepDef = {
   updateSafe: true,
   applies: () => true,
   run: herdrIntegrationRunSafe,
+};
+
+// ─── flock.install ───────────────────────────────────────────────────────────
+
+async function flockInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
+  await waitWhilePreparing(ctx.p, "accounts", { onWait: (line) => ctx.log("flock.install", line) });
+  if (await installedFlock(ctx.p)) return { state: "skipped", detail: "Flock is already installed" };
+  // An update run must not put back a Flock the member removed after rt installed it.
+  if (ctx.update && readSetupState(ctx.p).flockInstalledAt) return { state: "skipped", detail: "Flock was removed after rt installed it, so rt left it alone" };
+  const result = await installTool(ctx.p, "flock", []);
+  if (result.ok) return { state: "done", detail: result.detail };
+  return { state: "failed", detail: result.detail, remedy: "Open setup's Flock row and press Install" };
+}
+
+export const flockInstallStep: StepDef = {
+  id: "flock.install",
+  title: "Install Flock",
+  kind: "rt",
+  updateSafe: true,
+  applies: () => true,
+  run: async (ctx) => {
+    try {
+      return await flockInstallRun(ctx);
+    } catch (err) {
+      return toFailedOutcome(err);
+    }
+  },
 };
 
 // ─── extension.install ───────────────────────────────────────────────────────

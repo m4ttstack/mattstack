@@ -29,7 +29,7 @@ off) carries `tone: "off"`, drawn as a grey dash; the tray keys on `tone`,
 never the detail's words. `rt setup prepare
 <macos|accounts>` (`lib/setup/prepare.ts`) runs the installs setup can do
 while the member answers: Command Line Tools at the macos stage; Claude
-Code, herdr, the team's sign-in and required tools, then Fast Browser's
+Code, herdr, Flock, the team's sign-in and required tools, then Fast Browser's
 setup (so Add to Chrome is ready on the connect screen) at the accounts
 stage, once the member is approved. Each stage keeps a record the form reads
 to draw a row as installing. The bar is one `rt setup apply` holding

@@ -88,6 +88,19 @@ describe("connectRows", () => {
     expect(rows.map((x) => x.id)).not.toContain("slack");
   });
 
+  test("connect extra row shows Flock installing while prepare runs it", () => {
+    const flock = r("tool.flock", "missing", "Flock is not installed", { action: { type: "install", label: "Install", tool: "flock", via: "download" } });
+    const busy = pick(connectRows(inputs({ plan: plan(swap(joinerRows(), flock)), prepare: prepare({ items: ["flock"] }) })), "tool.flock");
+    expect(busy.state).toBe("busy");
+    expect(busy.detail).toBe("Installing…");
+    expect(busy.action).toBeNull();
+
+    const failed = prepare({ running: false, endedAt: "2026-10-30T09:55:00.000Z", items: ["flock"], failed: [{ tool: "flock", detail: "Downloading Flock failed (exit 22): 404" }] });
+    const todo = pick(connectRows(inputs({ plan: plan(swap(joinerRows(), flock)), prepare: failed })), "tool.flock");
+    expect(todo.detail).toBe("Downloading Flock failed (exit 22): 404");
+    expect(todo.action).toMatchObject({ label: "Install", tool: "flock" });
+  });
+
   test("herdr installing in the background reads Installing, and a failed install offers the row's own Install", () => {
     const missing = swap(joinerRows(), r("tool.herdr", "missing", "herdr is not installed", { action: HERDR_INSTALL }));
     const busy = pick(connectRows(inputs({ plan: plan(missing), prepare: prepare({ items: ["herdr"] }) })), "tool.herdr");
@@ -553,7 +566,7 @@ describe("composeForm", () => {
     const form = await composeForm(p, { sections: ["connect"], secrets: NO_SECRETS, orgs: [] });
     const elapsed = performance.now() - started;
     const list = form.sections.connect ?? [];
-    expect(list.map((x) => x.id).filter((id) => id !== "tool.app")).toEqual(["forge", "forge.gitlab", "claude", "tool.herdr", "fast-browser"]);
+    expect(list.map((x) => x.id).filter((id) => id !== "tool.app")).toEqual(["forge", "forge.gitlab", "claude", "tool.herdr", "tool.flock", "fast-browser"]);
     expect(pick(list, "claude").action).toEqual({ type: "install", label: "Install", tool: "claude", via: "vendor" });
     expect(pick(list, "fast-browser").action).toMatchObject({ label: "Get Chrome" });
     expect(form.continueReady).toBe(false);

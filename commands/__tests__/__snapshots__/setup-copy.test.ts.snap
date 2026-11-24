@@ -63,6 +63,10 @@ exports[`the setup plan's shape and copy apply phases: the copy is what the copy
     "paused": "Couldn't set up Fast Browser",
     "weight": 4,
   },
+  "flock.install": {
+    "paused": "Couldn't install Flock",
+    "weight": 2,
+  },
   "git.identity": {
     "paused": "Couldn't set up git",
     "weight": 1,

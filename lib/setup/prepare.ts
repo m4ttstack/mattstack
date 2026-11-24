@@ -8,6 +8,7 @@
 import { dirname } from "path";
 import { resolveTool } from "../deps/resolve.ts";
 import type { StepOutcome } from "./apply.ts";
+import { installedFlock } from "./flock-install.ts";
 import { FAST_BROWSER, preparePath, readPrepare, waitWhilePreparing, type PrepareRecord, type PrepareStage } from "./prepare-record.ts";
 import type { Probes } from "./probes.ts";
 import type { PackRequirements, ToolRequirement } from "./requirements.ts";
@@ -72,6 +73,7 @@ export async function prepareTools(p: Probes, stage: PrepareStage, reqs: PackReq
   // The board runs claude from the vendor path only, so a copy elsewhere on PATH still needs the vendor install.
   if (!p.exists(vendorBinPath(p.home, "claude"))) items.push("claude");
   if (await missingBinary(p, "herdr")) items.push("herdr");
+  if (!(await installedFlock(p))) items.push("flock");
 
   const required = (tools: ToolRequirement[]) => tools.filter((t) => !t.optional);
   const team = firstByName([...required(signInTools(reqs)), ...required(reqs.flatMap((r) => r.tools))]);
