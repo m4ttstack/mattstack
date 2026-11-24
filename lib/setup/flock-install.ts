@@ -7,7 +7,7 @@
 
 import { join } from "path";
 import type { InstallResult } from "./install-result.ts";
-import type { Probes } from "./probes.ts";
+import type { ExecResult, Probes } from "./probes.ts";
 
 export const FLOCK_APPCAST_URL = "https://github.com/m4ttstack/flock/releases/latest/download/appcast.xml";
 export const FLOCK_DOWNLOAD_PREFIX = "https://github.com/m4ttstack/flock/releases/download/";
@@ -46,7 +46,7 @@ export function parseFlockAppcast(xml: string): FlockRelease | null {
     const version = tag(block, "sparkle:shortVersionString");
     const url = block.match(/<enclosure\b[^>]*?\burl="([^"]+)"/)?.[1];
     if (!build || !/^\d+$/.test(build) || !version || !url) continue;
-    if (!url.startsWith(FLOCK_DOWNLOAD_PREFIX) || !url.endsWith(".zip")) continue;
+    if (!url.startsWith(FLOCK_DOWNLOAD_PREFIX) || !url.endsWith(".zip") || url.includes("..")) continue;
     if (!best || Number(build) > best.build) best = { version, build: Number(build), url };
   }
   return best;
@@ -66,8 +66,12 @@ export interface InstalledFlock {
   version: string | null;
 }
 
+async function plutilRead(p: Probes, plist: string, key: string): Promise<ExecResult | null> {
+  return p.exec(["/usr/bin/plutil", "-extract", key, "raw", "-o", "-", plist], { timeoutMs: PROBE_TIMEOUT_MS }).catch(() => null);
+}
+
 async function plistValue(p: Probes, plist: string, key: string): Promise<string | null> {
-  const res = await p.exec(["/usr/bin/plutil", "-extract", key, "raw", "-o", "-", plist], { timeoutMs: PROBE_TIMEOUT_MS }).catch(() => null);
+  const res = await plutilRead(p, plist, key);
   return res && res.code === 0 ? res.stdout.trim() : null;
 }
 
@@ -82,15 +86,20 @@ export async function installedFlock(p: Probes): Promise<InstalledFlock | null> 
   return null;
 }
 
-/** Bundle id, team, signature and notarization, each by exit code. */
-async function isMattstackFlock(p: Probes, app: string): Promise<boolean> {
-  if ((await plistValue(p, join(app, "Contents", "Info.plist"), "CFBundleIdentifier")) !== FLOCK_BUNDLE_ID) return false;
-  const strict = await p.exec(["/usr/bin/codesign", "--verify", "--deep", "--strict", app], { timeoutMs: VERIFY_TIMEOUT_MS });
-  if (strict.code !== 0) return false;
-  const details = await p.exec(["/usr/bin/codesign", "-dv", app], { timeoutMs: PROBE_TIMEOUT_MS });
-  if (details.code !== 0 || !new RegExp(`^TeamIdentifier=${FLOCK_TEAM_ID}$`, "m").test(details.stderr)) return false;
-  const assessed = await p.exec(["/usr/sbin/spctl", "--assess", "--type", "execute", app], { timeoutMs: VERIFY_TIMEOUT_MS });
-  return assessed.code === 0;
+/** "timeout" is kept apart from "bad": a slow Mac must not read as a forged download. */
+async function verifyFlock(p: Probes, app: string): Promise<"ok" | "bad" | "timeout"> {
+  const checks: [() => Promise<ExecResult | null>, (r: ExecResult) => boolean][] = [
+    [() => plutilRead(p, join(app, "Contents", "Info.plist"), "CFBundleIdentifier"), (r) => r.stdout.trim() === FLOCK_BUNDLE_ID],
+    [() => p.exec(["/usr/bin/codesign", "--verify", "--deep", "--strict", app], { timeoutMs: VERIFY_TIMEOUT_MS }), () => true],
+    [() => p.exec(["/usr/bin/codesign", "-dv", app], { timeoutMs: PROBE_TIMEOUT_MS }), (r) => new RegExp(`^TeamIdentifier=${FLOCK_TEAM_ID}$`, "m").test(r.stderr)],
+    [() => p.exec(["/usr/sbin/spctl", "--assess", "--type", "execute", app], { timeoutMs: VERIFY_TIMEOUT_MS }), () => true],
+  ];
+  for (const [run, passes] of checks) {
+    const res = await run();
+    if (res?.code === 124) return "timeout";
+    if (!res || res.code !== 0 || !passes(res)) return "bad";
+  }
+  return "ok";
 }
 
 function shown(home: string, dir: string): string {
@@ -101,14 +110,15 @@ export async function installFlock(p: Probes): Promise<InstallResult> {
   const fail = (detail: string): InstallResult => ({ via: "download", ok: false, detail });
   const already = (f: InstalledFlock): InstallResult => ({ via: "download", ok: true, detail: `Flock ${f.version ? `${f.version} ` : ""}is already installed` });
 
-  const present = await installedFlock(p);
-  if (present) return already(present);
-
-  const release = await fetchFlockRelease(p);
-  if (!release) return fail("rt could not read Flock's release feed from m4ttstack/flock");
-
   const work = join(p.env.TMPDIR || "/tmp", `rt-flock-install-${process.pid}`);
+  let staged: string | null = null;
   try {
+    const present = await installedFlock(p);
+    if (present) return already(present);
+
+    const release = await fetchFlockRelease(p);
+    if (!release) return fail("rt could not read Flock's release feed from m4ttstack/flock");
+
     await p.exec(["rm", "-rf", work], { timeoutMs: PROBE_TIMEOUT_MS });
     p.mkdirp(work);
     const zip = join(work, "Flock.zip");
@@ -118,11 +128,14 @@ export async function installFlock(p: Probes): Promise<InstallResult> {
 
     const unpacked = join(work, "unpacked");
     const unzipped = await p.exec(["ditto", "-x", "-k", zip, unpacked], { timeoutMs: VERIFY_TIMEOUT_MS });
+    if (unzipped.code === 124) return fail("Unpacking the Flock download did not finish in time");
     if (unzipped.code !== 0) return fail(`Unpacking the Flock download failed: ${firstLine(unzipped.stderr || unzipped.stdout)}`);
     const app = join(unpacked, "Flock.app");
     if (!p.exists(app)) return fail("The Flock download has no Flock.app in it, so nothing was installed");
 
-    if (!(await isMattstackFlock(p, app))) return fail("The Flock download is not signed and notarized by mattstack, so nothing was installed");
+    const verdict = await verifyFlock(p, app);
+    if (verdict === "timeout") return fail("Checking the Flock download's signature did not finish in time, so nothing was installed");
+    if (verdict === "bad") return fail("The Flock download is not signed and notarized by mattstack, so nothing was installed");
 
     const target = p.statPath("/Applications")?.writable ? "/Applications" : join(p.home, "Applications");
     const targetShown = shown(p.home, target);
@@ -133,20 +146,24 @@ export async function installFlock(p: Probes): Promise<InstallResult> {
     if (p.exists(dest)) return fail(`Something else is at ${targetShown}/Flock.app, so nothing was installed`);
 
     // A copy killed midway must never leave a half-written Flock.app that reads ready, so it lands under a staged name and is renamed whole.
-    const staged = join(target, `.Flock-${process.pid}.app`);
+    staged = join(target, `.Flock-${process.pid}.new`);
     if (p.exists(staged)) p.removeDir(staged);
     const copied = await p.exec(["ditto", app, staged], { timeoutMs: DOWNLOAD_TIMEOUT_MS });
     if (copied.code !== 0) {
       p.removeDir(staged);
-      return fail(`Copying Flock into ${targetShown} failed: ${firstLine(copied.stderr || copied.stdout)}`);
+      return fail(copied.code === 124 ? `Copying Flock into ${targetShown} did not finish in time` : `Copying Flock into ${targetShown} failed: ${firstLine(copied.stderr || copied.stdout)}`);
     }
     try {
       p.rename(staged, dest);
     } catch (e) {
       p.removeDir(staged);
-      return fail(`Copying Flock into ${targetShown} failed: ${(e as Error).message}`);
+      const raced = await installedFlock(p);
+      return raced ? already(raced) : fail(`Copying Flock into ${targetShown} failed: ${(e as Error).message}`);
     }
-    return { via: "download", ok: true, detail: `Installed Flock ${release.version} in ${targetShown}` };
+    return { via: "download", ok: true, placed: true, detail: `Installed Flock ${release.version} in ${targetShown}` };
+  } catch (e) {
+    if (staged) p.removeDir(staged);
+    return fail(`Installing Flock failed: ${(e as Error).message}`);
   } finally {
     p.removeDir(work);
   }

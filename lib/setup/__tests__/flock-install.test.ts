@@ -14,7 +14,7 @@ const URL_0_12_2 = "https://github.com/m4ttstack/flock/releases/download/v0.12.2
 const URL_0_12_1 = "https://github.com/m4ttstack/flock/releases/download/v0.12.1/Flock-0.12.1.zip";
 const SYSTEM = "/Applications/Flock.app";
 const USER = join(HOME, "Applications", "Flock.app");
-const stagedIn = (dir: string) => join(dir, `.Flock-${process.pid}.app`);
+const stagedIn = (dir: string) => join(dir, `.Flock-${process.pid}.new`);
 
 const item = (build: number, version: string, url: string) => `
     <item>
@@ -36,6 +36,8 @@ interface Script {
   /** Runs when the download starts, to change the machine mid-install. */
   onCurl?: () => void;
   unzip?: ExecResult;
+  /** The plutil answer for the unpacked download, in place of its bundle id. */
+  plutilApp?: ExecResult;
   codesignVerify?: ExecResult;
   codesignDetails?: ExecResult;
   spctl?: ExecResult;
@@ -47,6 +49,7 @@ function flockExec(script: Script) {
   return (argv: string[]): ExecResult => {
     if (argv[0] === "/usr/bin/plutil") {
       const app = argv[6]!.replace(/\/Contents\/Info\.plist$/, "");
+      if (app === APP && script.plutilApp) return script.plutilApp;
       if (argv[2] === "CFBundleIdentifier") return ids[app] ? ok(`${ids[app]}\n`) : { code: 1, stdout: "", stderr: "no plist" };
       return ok(`${script.versions?.[app] ?? "0.12.2"}\n`);
     }
@@ -90,6 +93,10 @@ describe("parseFlockAppcast", () => {
     expect(parseFlockAppcast("not xml at all")).toBeNull();
   });
 
+  test("rejects an enclosure that climbs out of the release folder", () => {
+    expect(parseFlockAppcast(feed(item(1, "0.1.0", "https://github.com/m4ttstack/flock/releases/download/../../../evil/Flock.zip")))).toBeNull();
+  });
+
   test("skips an item with no integer build and takes the best of the rest", () => {
     const bad = item(1, "9.9.9", URL_0_12_2).replace("<sparkle:version>1</sparkle:version>", "<sparkle:version>abc</sparkle:version>");
     expect(parseFlockAppcast(feed(bad, item(1171, "0.12.1", URL_0_12_1)))?.version).toBe("0.12.1");
@@ -131,7 +138,7 @@ describe("installFlock", () => {
     expect(p.calls.exec).toContainEqual(["ditto", "-x", "-k", ZIP, UNPACKED]);
     expect(p.calls.exec).toContainEqual(["ditto", APP, stagedIn("/Applications")]);
     expect(p.calls.renames).toEqual([[stagedIn("/Applications"), SYSTEM]]);
-    expect(result).toEqual({ via: "download", ok: true, detail: "Installed Flock 0.12.2 in /Applications" });
+    expect(result).toEqual({ via: "download", ok: true, placed: true, detail: "Installed Flock 0.12.2 in /Applications" });
     expect(p.calls.removed).toContain(WORK);
     expect(p.calls.removed).not.toContain(SYSTEM);
   });
@@ -247,11 +254,59 @@ describe("installFlock", () => {
     expect(p.calls.removed).not.toContain(SYSTEM);
   });
 
+  test("a rename that fails because Flock appeared during the copy reports it installed", async () => {
+    const p: ReturnType<typeof setup> = setup({ ids: { [SYSTEM]: FLOCK_BUNDLE_ID } });
+    p.rename = (from, to) => {
+      p.calls.renames.push([from, to]);
+      p.writeFile(plistOf(SYSTEM), "plist");
+      throw new Error("ENOTEMPTY: directory not empty");
+    };
+    const result = await installFlock(p);
+    expect(result).toEqual({ via: "download", ok: true, detail: "Flock 0.12.2 is already installed" });
+    expect(p.calls.removed).toContain(stagedIn("/Applications"));
+    expect(p.calls.removed).not.toContain(SYSTEM);
+  });
+
+  test("unpacking and copying that time out say so", async () => {
+    const slowUnzip = setup({ unzip: { code: 124, stdout: "", stderr: "" } });
+    expect((await installFlock(slowUnzip)).detail).toBe("Unpacking the Flock download did not finish in time");
+    const slowCopy = setup({ copy: { code: 124, stdout: "", stderr: "" } });
+    expect((await installFlock(slowCopy)).detail).toBe("Copying Flock into /Applications did not finish in time");
+    expect(slowCopy.calls.removed).toContain(stagedIn("/Applications"));
+  });
+
+  test("a verification command that times out is not read as a bad signature", async () => {
+    const timedOut = { code: 124, stdout: "", stderr: "" };
+    for (const script of [{ plutilApp: timedOut }, { codesignVerify: timedOut }, { codesignDetails: timedOut }, { spctl: timedOut }]) {
+      const p = setup(script);
+      expect(await installFlock(p)).toEqual({ via: "download", ok: false, detail: "Checking the Flock download's signature did not finish in time, so nothing was installed" });
+      expect(copies(p)).toEqual([]);
+    }
+  });
+
+  test("a throw while installing becomes a failure and the work folder still goes", async () => {
+    const p = setup({}, { statPaths: { "/Applications": { isDirectory: true, writable: false } } });
+    const mkdirp = p.mkdirp.bind(p);
+    p.mkdirp = (path, mode) => {
+      if (path === join(HOME, "Applications")) throw new Error("EACCES: permission denied");
+      mkdirp(path, mode);
+    };
+    const result = await installFlock(p);
+    expect(result).toEqual({ via: "download", ok: false, detail: "Installing Flock failed: EACCES: permission denied" });
+    expect(p.calls.removed).toContain(WORK);
+  });
+
   test("a stale staged copy for this pid is removed before the copy", async () => {
     const stale = stagedIn("/Applications");
     const p = setup({}, { dirs: { [APP]: [], [stale]: [] } });
     const result = await installFlock(p);
     expect(result.ok).toBe(true);
     expect(p.calls.removed).toContain(stale);
+  });
+
+  test("a result that put the app in place says so, and one that found it already there does not", async () => {
+    expect(await installFlock(setup())).toMatchObject({ ok: true, placed: true });
+    const there = setup({ ids: { [SYSTEM]: FLOCK_BUNDLE_ID } }, { files: { [plistOf(SYSTEM)]: "plist" } });
+    expect((await installFlock(there)).placed).toBeUndefined();
   });
 });
