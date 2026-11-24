@@ -998,7 +998,8 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["machine"],
     default: false,
     merge: "replace",
-    description: "Answer the org's support requests on this Mac. Only the org's support host can use it, on one Mac.",
+    description:
+      "Answer the org's support requests on this Mac. The support host turns it on in the app, under Settings > Team, on one Mac; the value alone does not start it.",
   },
 
   // --- agent (rt agent handoff) --------------------------------------------

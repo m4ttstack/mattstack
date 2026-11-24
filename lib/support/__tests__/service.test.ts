@@ -136,7 +136,7 @@ describe("the accepting flag", () => {
     expect(await t.service.handlers["support:host"]({})).toMatchObject({ data: { accepting: false } });
 
     const other = harness();
-    other.state.config = { ...other.state.config!, org: "other", orgRemote: "git.example.com/other/mattstack" };
+    other.state.config = { ...other.state.config!, org: "other", orgPath: "other/mattstack" };
     await other.service.tick();
     expect(other.events.filter((e) => e.startsWith("setHost"))).toEqual([]);
   });
@@ -166,6 +166,23 @@ describe("the accepting flag", () => {
     await t.service.tick();
     expect(t.left()).toBe(0);
     expect(getRequest("in", "ada", "r1", t.h.db)!.state).toBe("not-accepting");
+  });
+
+  test("a Mac that stops accepting with a chat open says so, since another Mac cannot see it", async () => {
+    const t = harness();
+    await t.service.tick();
+    t.h.operatorChat("U0ADA");
+    await t.service.handlers["support:accept"]({ on: false });
+    expect(t.events).toContain("notify 1 Slack chat is still open on this Mac, so stop it before another of your Macs accepts");
+
+    const lost = harness();
+    await lost.service.tick();
+    lost.h.operatorChat("U0ADA");
+    lost.h.operatorChat("U0BO");
+    lost.state.setHost = "other-machine";
+    lost.h.state.now += 2 * MINUTE;
+    await lost.service.tick();
+    expect(lost.events).toContain("notify 2 Slack chats are still open on this Mac, so stop them before another of your Macs accepts");
   });
 
   test("a claim that did not land is tried again a minute later", async () => {
@@ -379,9 +396,20 @@ describe("the sender's side", () => {
     expect(say("expired")).toBe("It was never picked up. Message Alex directly.");
   });
 
+  test("a notice names the host's bot, not the sender's own", async () => {
+    const t = harness("ada");
+    insertRequest({ id: "r1", direction: "out", peer: "alex", org: ORG, text: "x", parts: [], slackUserId: "U0ADA", state: "sent", reason: null, persona: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: t.h.state.now, receivedAt: t.h.state.now }, t.h.db);
+    t.arrive("status", "alex", "ada", "r1:opened", { requestId: "r1", state: "opened", at: 5, persona: "Robin" });
+    t.service.start();
+    await Bun.sleep(30);
+    t.service.stop();
+    expect(t.events).toContain("notify Robin messaged you in Slack");
+    expect(getRequest("out", "alex", "r1", t.h.db)!.persona).toBe("Robin");
+  });
+
   test("prune keeps what is recent", () => {
     const t = harness("ada");
-    insertRequest({ id: "old", direction: "out", peer: "alex", org: "acme", text: "x", parts: [], slackUserId: "U", state: "opened", reason: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: 1, receivedAt: 1 }, t.h.db);
+    insertRequest({ id: "old", direction: "out", peer: "alex", org: "acme", text: "x", parts: [], slackUserId: "U", state: "opened", reason: null, persona: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: 1, receivedAt: 1 }, t.h.db);
     t.service.prune();
     expect(listRequests("out", undefined, t.h.db)).toEqual([]);
   });

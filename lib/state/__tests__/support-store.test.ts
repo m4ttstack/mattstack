@@ -39,6 +39,7 @@ const request = (over: Partial<SupportRequest> = {}): Omit<SupportRequest, "upda
   slackUserId: "U0TEST",
   state: "received",
   reason: null,
+  persona: null,
   dmLink: null,
   conversationId: null,
   gateId: null,

@@ -60,7 +60,7 @@ function harness(opts: { pane?: string | null; paneExit?: number; slack?: "ok" |
   };
   const supportRequest = () =>
     insertRequest(
-      { id: "r1", direction: "in", peer: "ada", org: "acme", text: "help", parts: [], slackUserId: "U0TEST", state: "opened", reason: null, dmLink: null, conversationId: conv.id, gateId: null, statusAt: 0, sentAt: NOW, receivedAt: NOW },
+      { id: "r1", direction: "in", peer: "ada", org: "acme", text: "help", parts: [], slackUserId: "U0TEST", state: "opened", reason: null, persona: null, dmLink: null, conversationId: conv.id, gateId: null, statusAt: 0, sentAt: NOW, receivedAt: NOW },
       db,
     );
   return { db, conv, deps, events, notices, desk, room, supportRequest };

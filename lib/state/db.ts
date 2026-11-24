@@ -409,6 +409,7 @@ CREATE TABLE IF NOT EXISTS support_requests (
   slack_user_id   TEXT NOT NULL,    -- the sender's
   state           TEXT NOT NULL,
   reason          TEXT,
+  persona         TEXT,             -- out: the host's bot, from its last status
   dm_link         TEXT,
   conversation_id INTEGER,
   gate_id         TEXT,

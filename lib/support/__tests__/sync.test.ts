@@ -9,12 +9,12 @@ import type { SupportConfig } from "../config.ts";
 import type { SupportKeys } from "../org-key.ts";
 import { supportMac } from "../proof.ts";
 import type { SupportRelay } from "../relay.ts";
-import { createSupportSync, PROOF_SETTLE_MS, signDraft, type RequestBody, type StatusBody, type SyncDeps } from "../sync.ts";
+import { createSupportSync, PROOF_SETTLE_MS, STRANGER_SETTLE_MS, signDraft, type RequestBody, type StatusBody, type SyncDeps } from "../sync.ts";
 
 const KEY = Buffer.alloc(32, 1).toString("base64");
 const OLD = Buffer.alloc(32, 2).toString("base64");
 const FOREIGN = Buffer.alloc(32, 3).toString("base64");
-const ORG = "git.example.com/acme/mattstack";
+const ORG = "acme/mattstack";
 
 let n = 0;
 let db: Database;
@@ -30,7 +30,7 @@ let onRequestHook: (r: SupportRequest) => void;
 
 const host: SupportConfig = {
   org: "acme",
-  orgRemote: ORG,
+  orgPath: ORG,
   enabled: true,
   host: "alex",
   me: "alex",
@@ -148,11 +148,13 @@ describe("pulling requests", () => {
 
   test("a bad MAC, another org's key, or a sender off the roster is acked, logged and never stored or answered", async () => {
     arrive({ id: "forged", key: FOREIGN });
-    arrive({ id: "other-org", org: "git.example.com/other/mattstack" });
+    arrive({ id: "other-org", org: "other/mattstack" });
     arrive({ id: "off-roster", from: "zed" });
     arrive({ id: "stranger", from: "zed", key: FOREIGN });
     const s = sync();
     await s.pull("request");
+    expect(acked).toEqual([]);
+    await awake(s, STRANGER_SETTLE_MS);
     expect(acked).toEqual(["zed stranger"]);
     await awake(s, PROOF_SETTLE_MS);
     expect(acked.sort()).toEqual(["ada forged", "ada other-org", "zed off-roster", "zed stranger"]);
@@ -171,6 +173,18 @@ describe("pulling requests", () => {
     config = { ...host, roster: [...host.roster, { username: "zed" }] };
     await s.pull("request");
     expect(listRequests("in", undefined, db)).toHaveLength(2);
+  });
+
+  test("a new member whose key and roster entry this Mac both lacks is taken once the org syncs", async () => {
+    arrive({ id: "r1", from: "zed", key: FOREIGN });
+    const s = sync();
+    await s.pull("request");
+    expect(acked).toEqual([]);
+    keys = { current: FOREIGN, retired: [{ key: KEY, retiredAt: clock }] };
+    config = { ...host, roster: [...host.roster, { username: "zed" }] };
+    await s.pull("request");
+    expect(acked).toEqual(["zed r1"]);
+    expect(getRequest("in", "zed", "r1", db)).not.toBeNull();
   });
 
   test("time asleep does not count toward proving a message", async () => {
@@ -370,7 +384,7 @@ describe("pulling statuses", () => {
   beforeEach(() => {
     config = sender;
     insertRequest(
-      { id: "r1", direction: "out", peer: "alex", org: "acme", text: "help", parts: [], slackUserId: "U0ADA", state: "sent", reason: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: clock, receivedAt: clock },
+      { id: "r1", direction: "out", peer: "alex", org: "acme", text: "help", parts: [], slackUserId: "U0ADA", state: "sent", reason: null, persona: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: clock, receivedAt: clock },
       db,
     );
   });

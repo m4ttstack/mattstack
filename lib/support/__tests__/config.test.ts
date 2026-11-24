@@ -44,15 +44,17 @@ describe("supportConfig", () => {
     expect(supportConfig()).toBeNull();
   });
 
-  test("the org's remote reads the same however the clone was made", () => {
+  test("the org's path reads the same however the clone was made", () => {
     for (const remote of [
       "git@git.example.com:Acme/Mattstack.git",
       "https://git.example.com/acme/mattstack",
       "https://x-access-token:secret@GIT.example.com/Acme/mattstack.git/",
       "ssh://git@git.example.com:2222/acme/mattstack.git",
+      "git@work-alias:acme/mattstack.git",
+      "ssh://git@ssh.git.example.com:443/acme/mattstack.git",
     ]) {
       seed({}, "alex", remote);
-      expect(supportConfig()!.orgRemote).toBe("git.example.com/acme/mattstack");
+      expect(supportConfig()!.orgPath).toBe("acme/mattstack");
     }
   });
 

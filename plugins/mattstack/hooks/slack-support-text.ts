@@ -35,7 +35,7 @@ const SPLIT_OPTION = String.raw`-[iv0]*S|--split-string`
 // Refuses the options above so each word has one parse: a run of `-u -u -u` would
 // otherwise backtrack exponentially.
 const FLAG = String.raw`-(?!(?:[iv0]*[uCPLUa]|-unset|-chdir|-argv0)\s|[iv0]*S|-split-string(?:\s|=))\S+`
-const WRAPPERS = String.raw`(?:(?:\w+=${VALUE}|(?:${VALUE_OPTION})\s+(?=\S)${VALUE}|${FLAG}|env|command|exec|nohup|time|timeout|sudo|\d+[smh]?|xargs|then|do|else|bun(?:\s+run)?)\s+|(?:${SPLIT_OPTION})(?:=|\s+)?["']?)*`
+const WRAPPERS = String.raw`(?:(?:\w+=${VALUE}|(?:${VALUE_OPTION})\s+(?=\S)${VALUE}|${FLAG}|env|command|exec|nohup|time|timeout|sudo|\d+[smh]?|xargs|if|elif|while|until|then|do|else|!|nice|caffeinate|gtimeout|stdbuf|setsid|bun(?:\s+run)?)\s+|(?:${SPLIT_OPTION})(?:=|\s+)?["']?)*`
 const TOOL = String.raw`(?:\S*/)?(?:rt|herdr|cli\.ts)(?=\s|$)`
 // What can type into a pane. A chat body can name the command without running it.
 const TYPES_INTO_PANE = String.raw`(?:(?:\S*/)?herdr(?=\s|$)|(?:\S*/)?(?:rt|cli\.ts)(?:\s+-\S+)*\s+(?:pane|agent)(?![\w-]))`
@@ -46,8 +46,11 @@ const RUNS_HIDDEN_VERB = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}${OPTIONS
 // Only the console and this mod may answer a slack-open gate.
 const RUNS_GATE_ANSWER = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}${OPTIONS}\\s+gate\\s+answer(?![\\w-])`)
 const APPROVING_SURFACE = /--by(?:\s+|=)["']?(?:slack-mod|console)(?![\w-])/
-// A person sends a help request, accepts them and stops a chat, so no shell line may reach those daemon verbs.
+// Sending a help request, accepting them and stopping a chat are a person's to do. This catches the plain shell
+// spellings of those daemon verbs, not a determined one: the daemon takes any caller on its socket.
 const RUNS_SOCKET_TOOL = new RegExp(`${COMMAND_START}${WRAPPERS}(?:\\S*/)?(?:curl|wget|nc|ncat|socat)(?=\\s|$)`)
+const RUNS_INLINE_CODE = new RegExp(`${COMMAND_START}${WRAPPERS}(?:\\S*/)?(?:bun|node|deno|python3?|ruby|perl)\\s+(?:-\\S+\\s+)*(?:-[ecp]|--eval|--print|eval)(?=[\\s="']|$)`)
+const SUPPORT_CALL = /\bsupport(?:Send|Accept|Stop)\b/
 const SUPPORT_VERB = /support(?::|%3a)(?:send|accept|stop)(?![\w-])|support\.acceptRequests/i
 const SETS_ACCEPT = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}${OPTIONS}\\s+settings\\s+set${OPTIONS}\\s+["']?support\\.acceptRequests(?![\\w-])`)
 const SLASH_COMMAND = /(?<![\w.-])\/slack-support(?![\w.-])/
@@ -178,11 +181,15 @@ export function isRefusalLine(raw: string): boolean {
 }
 
 export function touchesSlackSupport(command: string): boolean {
+  // The shell drops quotes and backslashes inside a word, so `c\url` and `"support:"send` reach the same place.
+  const bare = command.replace(/["'\\]/g, '')
+  const runs = (tool: RegExp) => tool.test(command) || tool.test(bare)
   return (
     RUNS_HIDDEN_VERB.test(command) ||
     (RUNS_TYPING_TOOL.test(command) && SLASH_COMMAND.test(command)) ||
     (RUNS_GATE_ANSWER.test(command) && APPROVING_SURFACE.test(command)) ||
-    (RUNS_SOCKET_TOOL.test(command) && SUPPORT_VERB.test(command)) ||
+    (runs(RUNS_SOCKET_TOOL) && SUPPORT_VERB.test(bare)) ||
+    (runs(RUNS_INLINE_CODE) && (SUPPORT_VERB.test(bare) || SUPPORT_CALL.test(bare))) ||
     SETS_ACCEPT.test(command)
   )
 }

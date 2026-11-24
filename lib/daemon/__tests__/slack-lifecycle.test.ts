@@ -814,7 +814,7 @@ test("a manually opened conversation has no open deadline", async () => {
 
 function supportRow(h: ReturnType<typeof harness>, conversationId: number) {
   insertRequest(
-    { id: "r1", direction: "in", peer: "ada", org: "acme", text: "help", parts: [], slackUserId: "U0TEST", state: "opened", reason: null, dmLink: null, conversationId, gateId: null, statusAt: 0, sentAt: START, receivedAt: START },
+    { id: "r1", direction: "in", peer: "ada", org: "acme", text: "help", parts: [], slackUserId: "U0TEST", state: "opened", reason: null, persona: null, dmLink: null, conversationId, gateId: null, statusAt: 0, sentAt: START, receivedAt: START },
     h.db,
   );
 }

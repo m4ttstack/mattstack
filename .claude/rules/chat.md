@@ -61,7 +61,9 @@ in the last 24 hours, makes it a `slack-open` gate with a `support:` subject
 and `meta.action` `support`, which lives 7 days and is reconciled on every
 `support-tick`. `support:send`, `support:accept` and
 `support:stop` are a person's alone: no CLI verb, MCP tool or `rt_verb` route
-may call them, and the mod denies shell lines that would. Stop
+may call them, and the mod denies the plain shell spellings. That stops
+accidents and misled panes, not a determined one: the daemon takes any caller
+on its socket. Stop
 (`lib/support/stop.ts`) closes the row before the pane and leaves no grace
 window. A second request from someone with a chat or a request open is
 answered `already-open` or `already-waiting`, never a gate.

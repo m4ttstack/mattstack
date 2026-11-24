@@ -365,6 +365,24 @@ test("a 429 is retried after Retry-After", async () => {
   expect(messages(h, room)).toHaveLength(1);
 });
 
+test("a chat stopped while a reply waits out a 429 does not get the reply", async () => {
+  const closing: { run: () => void } = { run: () => {} };
+  const h = harness(async () => {
+    closing.run();
+    throw new SlackError("ratelimited", 3000);
+  });
+  const { agent, room, conversation } = await openChat(h);
+  closing.run = () => void closeConversation(conversation.id, "operator", 2000, h.db);
+
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "hello", sessionId: PANE_SESSION });
+
+  expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.error).toContain("This Slack chat is closed");
+  expect(h.posts).toHaveLength(1);
+  expect(messages(h, room)).toEqual([]);
+});
+
 test("a Retry-After past what the caller will wait for fails with the reason", async () => {
   const h = harness(async () => {
     throw new SlackError("ratelimited", 600_000);

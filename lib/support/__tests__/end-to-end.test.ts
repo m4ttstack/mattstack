@@ -24,7 +24,7 @@ import { createSupportService, type SupportService } from "../service.ts";
 
 const KEY = Buffer.alloc(32, 1).toString("base64");
 const OTHER_KEY = Buffer.alloc(32, 2).toString("base64");
-const ORG = "git.example.com/acme/mattstack";
+const ORG = "acme/mattstack";
 const REPO = "remote:git.example.com%2Facme%2Fapp";
 const DAY = 24 * 60 * 60_000;
 const log = { warn() {}, info() {}, debug() {}, error() {}, child: () => log } as unknown as Logger;
@@ -64,7 +64,7 @@ function world() {
   const org = { enabled: true, host: "alex" as string | null, roster: [{ username: "alex", name: "Alex" }, { username: "ada" }, { username: "bo" }] };
   const configFor = (me: string, accepts: boolean): SupportConfig => {
     const isHost = org.host === me;
-    return { org: "acme", orgRemote: ORG, me, isHost, accepts, acceptHere: org.enabled && isHost && accepts, ...org };
+    return { org: "acme", orgPath: ORG, me, isHost, accepts, acceptHere: org.enabled && isHost && accepts, ...org };
   };
 
   const slack: { channel: string; text: string }[] = [];

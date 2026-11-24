@@ -16,7 +16,7 @@ let n = 0;
 
 export const REPO = "remote:git.example.com%2Facme%2Fapp";
 export const DM_LINK = "slack://user?team=T1&id=U0HOST";
-export const ORG = "git.example.com/acme/mattstack";
+export const ORG = "acme/mattstack";
 
 const PEOPLE: Record<string, string> = { U0ADA: "Ada Example", U0BO: "Bo Example", U0CY: "Cy Example" };
 
@@ -30,7 +30,7 @@ export function supportHost() {
     now: Date.now(),
     config: {
       org: "acme",
-      orgRemote: ORG,
+      orgPath: ORG,
       enabled: true,
       host: "alex",
       me: "alex",
@@ -117,6 +117,7 @@ export function supportHost() {
     posted: (room, id) => void posted.push({ room, id }),
     dmLink: async () => DM_LINK,
     gate: (id) => gates.find((g) => g.id === id) ?? null,
+    persona: () => "Maude",
     chain: createChain(),
   };
 
@@ -125,15 +126,15 @@ export function supportHost() {
     const i = ids++;
     const row = {
       id: `r${i}`, direction: "in" as const, org: ORG, text: "the board will not load", parts: [], state: "received" as const,
-      reason: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: state.now, receivedAt: state.now + i, ...ADA, ...over,
+      reason: null, persona: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: state.now, receivedAt: state.now + i, ...ADA, ...over,
     };
     insertRequest(row, db);
     return { ...row, updatedAt: row.receivedAt };
   }
 
-  function statuses(): (Omit<StatusBody, "at"> & { to: string })[] {
+  function statuses(): (Omit<StatusBody, "at" | "persona"> & { to: string })[] {
     return pendingStatuses(db).map((s) => {
-      const { at: _, ...body } = JSON.parse(s.body) as StatusBody;
+      const { at: _, persona: __, ...body } = JSON.parse(s.body) as StatusBody;
       return { ...body, to: s.to };
     });
   }

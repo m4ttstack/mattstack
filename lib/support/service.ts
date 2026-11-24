@@ -25,6 +25,7 @@ import { slackPersona } from "../slack/persona.ts";
 import type { SlackOpenDeps } from "../slack/request.ts";
 import { supportRepoFromSetting } from "../slack/trigger-offer.ts";
 import { getKvValue, setKvValue } from "../state/kv-blob.ts";
+import { listOpenConversations } from "../state/slack-conversation-store.ts";
 import { listRequests, pruneSupport, type SupportRequest } from "../state/support-store.ts";
 import { childEnv } from "../subprocess.ts";
 import { readBoardSwitchboardToken } from "../team/board-token.ts";
@@ -185,10 +186,10 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
   const readConfig = o.seams?.config ?? (() => supportConfig());
   /** The org a person tapped accept for on this Mac. The setting alone can be written by anything, so it counts only with this. */
   const tappedFor = () => getKvValue<string | null>(KV_NS, "accepted", null, db);
-  const setTapped = (orgRemote: string | null) => setKvValue(KV_NS, "accepted", orgRemote, db);
+  const setTapped = (orgPath: string | null) => setKvValue(KV_NS, "accepted", orgPath, db);
   const config = (): SupportConfig | null => {
     const cfg = readConfig();
-    return cfg && cfg.accepts && tappedFor() !== cfg.orgRemote ? { ...cfg, accepts: false, acceptHere: false } : cfg;
+    return cfg && cfg.accepts && tappedFor() !== cfg.orgPath ? { ...cfg, accepts: false, acceptHere: false } : cfg;
   };
   const writeSetting = o.seams?.setAccepting ?? ((on: boolean) => setSetting("support.acceptRequests", on, "machine"));
   const keysFor = o.seams?.keys ?? orgKeys(log, now);
@@ -226,12 +227,21 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
       return teamId && userId ? `slack://user?team=${encodeURIComponent(teamId)}&id=${encodeURIComponent(userId)}` : null;
     },
     gate: o.gate,
+    persona: () => slackPersona().name,
     chain: createChain(),
   };
 
   function noticeStatus(r: SupportRequest): void {
     const name = config()?.roster.find((e) => canonicalHandle(e.username) === r.peer)?.name ?? r.peer;
-    o.notify("Help request", statusNotice(r, name, slackPersona().name), r.dmLink ?? undefined);
+    o.notify("Help request", statusNotice(r, name, r.persona ?? slackPersona().name), r.dmLink ?? undefined);
+  }
+
+  /** The limits on open chats are this Mac's own, so a chat left open here is one another Mac could open again. */
+  function noticeOpenChats(): void {
+    const open = listOpenConversations(db).length;
+    if (open === 0) return;
+    const [are, them] = open === 1 ? ["1 Slack chat is", "it"] : [`${open} Slack chats are`, "them"];
+    o.notify("Help requests", `${are} still open on this Mac, so stop ${them} before another of your Macs accepts`);
   }
 
   const takes = createChain();
@@ -300,8 +310,9 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     },
     readiness: () => (o.seams?.readiness ?? readiness)(readinessDeps),
     setAccepting(on) {
+      if (!on && readConfig()?.accepts) noticeOpenChats();
       writeSetting(on);
-      setTapped(on ? (readConfig()?.orgRemote ?? null) : null);
+      setTapped(on ? (readConfig()?.orgPath ?? null) : null);
       if (on) setFlag("draining", false);
     },
     published: (on) => setFlag("published", on),
@@ -337,6 +348,7 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     setTapped(null);
     writeSetting(false);
     o.notify("Help requests", "Another of your Macs answers help requests now, so this one stopped");
+    noticeOpenChats();
   }
 
   let drainedAt = Number.NEGATIVE_INFINITY;

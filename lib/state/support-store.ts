@@ -30,6 +30,7 @@ interface RequestRow {
   slack_user_id: string;
   state: SupportState;
   reason: string | null;
+  persona: string | null;
   dm_link: string | null;
   conversation_id: number | null;
   gate_id: string | null;
@@ -50,6 +51,7 @@ function toRequest(r: RequestRow): SupportRequest {
     slackUserId: r.slack_user_id,
     state: r.state,
     reason: r.reason,
+    persona: r.persona,
     dmLink: r.dm_link,
     conversationId: r.conversation_id,
     gateId: r.gate_id,
@@ -65,8 +67,8 @@ export function insertRequest(r: Omit<SupportRequest, "updatedAt">, db: Database
   const { changes } = db
     .query(
       `INSERT INTO support_requests
-         (direction, peer, id, org, text, parts, slack_user_id, state, reason, dm_link, conversation_id, gate_id, status_at, sent_at, received_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (direction, peer, id, org, text, parts, slack_user_id, state, reason, persona, dm_link, conversation_id, gate_id, status_at, sent_at, received_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(direction, peer, id) DO NOTHING;`,
     )
     .run(
@@ -79,6 +81,7 @@ export function insertRequest(r: Omit<SupportRequest, "updatedAt">, db: Database
       r.slackUserId,
       r.state,
       r.reason,
+      r.persona,
       r.dmLink,
       r.conversationId,
       r.gateId,
@@ -107,9 +110,9 @@ export function listRequests(direction: SupportDirection, states?: readonly Supp
 }
 
 type RequestKey = Pick<SupportRequest, "direction" | "peer" | "id">;
-type RequestPatch = Partial<Pick<SupportRequest, "state" | "reason" | "dmLink" | "conversationId" | "gateId" | "statusAt">>;
+type RequestPatch = Partial<Pick<SupportRequest, "state" | "reason" | "persona" | "dmLink" | "conversationId" | "gateId" | "statusAt">>;
 
-const PATCH_COLUMNS = { state: "state", reason: "reason", dmLink: "dm_link", conversationId: "conversation_id", gateId: "gate_id", statusAt: "status_at" } as const;
+const PATCH_COLUMNS = { state: "state", reason: "reason", persona: "persona", dmLink: "dm_link", conversationId: "conversation_id", gateId: "gate_id", statusAt: "status_at" } as const;
 
 /** True only for the caller that found the row in one of `from`. */
 export function moveRequest(r: RequestKey, from: readonly SupportState[], patch: RequestPatch, now: number, db: Database = getStateDb()): boolean {

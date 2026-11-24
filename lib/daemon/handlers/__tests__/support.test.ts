@@ -12,7 +12,7 @@ import { createSupportHandlers, type SupportHandlerDeps } from "../support.ts";
 import type { HandlerContext } from "../types.ts";
 
 const KEY = Buffer.alloc(32, 1).toString("base64");
-const ORG = "git.example.com/acme/mattstack";
+const ORG = "acme/mattstack";
 const DAY = 24 * 60 * 60_000;
 let n = 0;
 
@@ -21,7 +21,7 @@ function harness() {
   const state = {
     now: 1_800_000_000_000,
     config: {
-      org: "acme", orgRemote: ORG, enabled: true, host: "Alex", me: "ada", isHost: false, accepts: false, acceptHere: false,
+      org: "acme", orgPath: ORG, enabled: true, host: "Alex", me: "ada", isHost: false, accepts: false, acceptHere: false,
       roster: [{ username: "Alex", name: "Alex Doe" }, { username: "ada" }],
     } as SupportConfig | null,
     keys: true,
@@ -82,7 +82,7 @@ function harness() {
   const handlers = createSupportHandlers(deps);
   const request = (over: Partial<SupportRequest> = {}) =>
     insertRequest(
-      { id: "old", direction: "out", peer: "alex", org: ORG, text: "help", parts: [], slackUserId: "U0ADA", state: "sent", reason: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: state.now, receivedAt: state.now, ...over },
+      { id: "old", direction: "out", peer: "alex", org: ORG, text: "help", parts: [], slackUserId: "U0ADA", state: "sent", reason: null, persona: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: state.now, receivedAt: state.now, ...over },
       db,
     );
   return { db, state, deps, sent, events, handlers, request };

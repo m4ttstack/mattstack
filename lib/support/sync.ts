@@ -40,6 +40,8 @@ export interface StatusBody {
   at: number;
   reason?: string;
   dmLink?: string;
+  /** The name the host's bot signs with. */
+  persona?: string;
 }
 
 export interface RequestBody {
@@ -67,9 +69,12 @@ export interface SupportSync {
 
 /** How long this Mac must be awake and seeing a message it cannot prove before dropping it: its copy of the org may not have pulled a new key or a new member yet. */
 export const PROOF_SETTLE_MS = 60 * 60_000;
+/** The same wait for a message that proves nothing: a new member can arrive with a new key, but a stranger's must not fill the queue for long. */
+export const STRANGER_SETTLE_MS = 20 * 60_000;
 const PAGE = 100;
 const MAX_PAGES = 20;
 const REASON_MAX = 500;
+const PERSONA_MAX = 60;
 const UNREADABLE = "the host's mattstack could not read your request";
 const UNPROVED_MAX = 1000;
 /** The most one sighting counts for: a longer gap since the last one is time asleep. */
@@ -91,14 +96,14 @@ const HOST_STATES: readonly string[] = [
 const SENDER_OPEN: readonly SupportState[] = ["sent", "received", "waiting"];
 
 export function signDraft(
-  cfg: Pick<SupportConfig, "orgRemote" | "me">,
+  cfg: Pick<SupportConfig, "orgPath" | "me">,
   keys: SupportKeys,
   m: { id: string; to: string; kind: SupportKind; body: string },
   now: number,
 ): SupportDraft {
   if (cfg.me === null) throw new Error("support: this Mac does not know its own username");
   const to = canonicalHandle(m.to);
-  const mac = supportMac(keys.current, { ...m, to, org: cfg.orgRemote, from: cfg.me, sentAt: now });
+  const mac = supportMac(keys.current, { ...m, to, org: cfg.orgPath, from: cfg.me, sentAt: now });
   return { id: m.id, to, kind: m.kind, sentAt: now, body: m.body, mac };
 }
 
@@ -135,6 +140,7 @@ function parseStatusBody(text: string): StatusBody | null {
     state: v.state as SupportState,
     at: v.at,
     ...(typeof v.reason === "string" ? { reason: v.reason.slice(0, REASON_MAX) } : {}),
+    ...(typeof v.persona === "string" && v.persona.trim() ? { persona: v.persona.replace(/\s+/g, " ").trim().slice(0, PERSONA_MAX) } : {}),
     ...(typeof v.dmLink === "string" && v.dmLink.startsWith("slack://") ? { dmLink: v.dmLink } : {}),
   };
 }
@@ -148,7 +154,7 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
   /** Whether the message may be believed: `wait` leaves it on the relay for now. */
   function judge(m: SupportMessage, cfg: SupportConfig, keys: string[]): "proved" | "wait" | "drop" {
     const named = onRoster(cfg, m.from);
-    const signed = verifySupportMac(keys, { ...m, to: cfg.me ?? "", org: cfg.orgRemote }, m.mac);
+    const signed = verifySupportMac(keys, { ...m, to: cfg.me ?? "", org: cfg.orgPath }, m.mac);
     const key = `${m.from} ${m.id}`;
     if (named && signed) {
       unproved.delete(key);
@@ -158,7 +164,7 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
     const seen = unproved.get(key);
     const waited = seen ? seen.waited + Math.max(0, Math.min(now - seen.lastSeen, SIGHTING_MS)) : 0;
     const about = { from: m.from, id: m.id, kind: m.kind, named, signed };
-    if ((named || signed) && waited < PROOF_SETTLE_MS) {
+    if (waited < (named || signed ? PROOF_SETTLE_MS : STRANGER_SETTLE_MS)) {
       if (!seen) log.warn(about, "support: a message is not proved to come from the org yet");
       if (!seen && unproved.size >= UNPROVED_MAX) unproved.clear();
       unproved.set(key, { lastSeen: now, waited });
@@ -182,10 +188,11 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
       id: m.id,
       direction: "in" as const,
       peer: m.from,
-      org: cfg.orgRemote,
+      org: cfg.orgPath,
       ...body,
       state: "received" as const,
       reason: null,
+      persona: null,
       dmLink: null,
       conversationId: null,
       gateId: null,
@@ -207,7 +214,7 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
     // The person's other Mac may be the one that asked.
     if (!row) return listRequests("out", undefined, db).some((r) => r.id === body.requestId);
     if (body.at <= row.statusAt) return true;
-    const patch = { state: body.state, reason: body.reason ?? null, dmLink: body.dmLink ?? null, statusAt: body.at };
+    const patch = { state: body.state, reason: body.reason ?? null, dmLink: body.dmLink ?? null, statusAt: body.at, ...(body.persona !== undefined ? { persona: body.persona } : {}) };
     if (moveRequest(row, SENDER_OPEN, patch, deps.now(), db)) {
       deps.onStatus(getRequest("out", m.from, body.requestId, db)!);
     }

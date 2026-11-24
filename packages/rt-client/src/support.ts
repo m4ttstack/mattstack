@@ -48,13 +48,15 @@ export interface SupportRequest {
   id: string;
   direction: SupportDirection;
   peer: string;
-  /** The org clone's remote as `host/path`, which a rename of its folder keeps. */
+  /** The path of the org clone's remote, which a rename of its folder keeps. */
   org: string;
   text: string;
   parts: SupportPart[];
   slackUserId: string;
   state: SupportState;
   reason: string | null;
+  /** The host's bot, as its Mac named it; null until a status says. */
+  persona: string | null;
   dmLink: string | null;
   conversationId: number | null;
   gateId: string | null;

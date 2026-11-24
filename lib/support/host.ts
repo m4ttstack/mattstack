@@ -43,6 +43,7 @@ export interface HostDeps extends SlackOpenDeps {
   /** A link a teammate opens their DM with the host by. */
   dmLink(): Promise<string | null>;
   gate(id: string): GateRow | null;
+  persona(): string;
   chain: Chain;
 }
 
@@ -76,7 +77,7 @@ function settle(
     const at = Math.max(deps.now(), (getRequest(r.direction, r.peer, r.id, deps.db)?.statusAt ?? 0) + 1);
     const patch = { ...extra, state, statusAt: at, ...(reason !== undefined ? { reason } : {}) };
     if (!moveRequest(r, from, patch, deps.now(), deps.db)) return false;
-    const body: StatusBody = { requestId: r.id, state: report, at, ...(reason !== undefined ? { reason } : {}), ...(extra.dmLink ? { dmLink: extra.dmLink } : {}) };
+    const body: StatusBody = { requestId: r.id, state: report, at, persona: deps.persona(), ...(reason !== undefined ? { reason } : {}), ...(extra.dmLink ? { dmLink: extra.dmLink } : {}) };
     queueStatus({ id: `${r.id}:${report}`, to: r.peer, body: JSON.stringify(body) }, deps.now(), deps.db);
     return true;
   });
@@ -206,7 +207,7 @@ function standing(deps: HostDeps, r: SupportRequest): "ok" | "unknown" | "strang
   const cfg = deps.config();
   // A store that cannot be read gives no roster, which would make a stranger of everyone.
   if (!cfg || cfg.roster.length === 0) return "unknown";
-  if (cfg.orgRemote !== r.org || !onRoster(cfg, r.peer)) return "stranger";
+  if (cfg.orgPath !== r.org || !onRoster(cfg, r.peer)) return "stranger";
   return cfg.acceptHere ? "ok" : "not-accepting";
 }
 
