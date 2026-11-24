@@ -67,6 +67,11 @@ export function closingLine(operatorName: string, paneGone: boolean, persona: Sl
   return paneGone ? `${base} ${operatorName} will follow up. ${resume}` : `${base} ${resume}`;
 }
 
+/** No trigger: a stopped chat is not one to pick back up. */
+export function stoppedLine(operatorName: string, persona: SlackPersona): string {
+  return `${slackPrefix(persona)}This chat with ${persona.name} is closed. ${operatorName} will follow up with you.`;
+}
+
 const REDACTION = "[redacted]";
 
 const SECRET_SHAPES: RegExp[] = [

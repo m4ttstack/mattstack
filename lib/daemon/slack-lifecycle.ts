@@ -31,6 +31,7 @@ import {
   type SlackCloseReason,
   type SlackConversation,
 } from "../state/index.ts";
+import { requestForConversation } from "../state/support-store.ts";
 
 export const SLACK_CHECK_IN_MS = 30 * 60_000;
 export const SLACK_IDLE_MS = 60 * 60_000;
@@ -44,7 +45,8 @@ const SLEEP_GAP_MS = 2 * 60_000;
 const CLOCK_NS = "slack-lifecycle";
 const CLOCK_KEY = "clock";
 
-const log = lazyChildLogger("slack-lifecycle");
+export const slackLifecycleLog = lazyChildLogger("slack-lifecycle");
+const log = slackLifecycleLog;
 
 export interface SlackLifecycleDeps {
   db: Database;
@@ -70,7 +72,7 @@ export function slackDeskNotify(title: string, message: string): void {
   notify(title, message, undefined, CHAT_NOTIFICATION_CATEGORY);
 }
 
-async function sendToSlack(conv: SlackConversation, text: string, deps: SlackLifecycleDeps): Promise<boolean> {
+export async function sendToSlack(conv: SlackConversation, text: string, deps: SlackLifecycleDeps): Promise<boolean> {
   try {
     const client = await deps.client();
     if (!client) {
@@ -85,7 +87,7 @@ async function sendToSlack(conv: SlackConversation, text: string, deps: SlackLif
   }
 }
 
-function tellOperator(title: string, message: string, deps: SlackLifecycleDeps): void {
+export function tellOperator(title: string, message: string, deps: SlackLifecycleDeps): void {
   try {
     deps.notify(title, message);
   } catch (err) {
@@ -93,7 +95,7 @@ function tellOperator(title: string, message: string, deps: SlackLifecycleDeps):
   }
 }
 
-function recordInRoom(conv: SlackConversation, body: string, deps: SlackLifecycleDeps): void {
+export function recordInRoom(conv: SlackConversation, body: string, deps: SlackLifecycleDeps): void {
   try {
     if (!deps.post({ room: conv.room, handle: conv.agentHandle, body, fromSlack: true })) {
       log.warn({ conversationId: conv.id }, "slack-lifecycle: the chat room refused a closing line");
@@ -109,6 +111,24 @@ async function tellRequester(conv: SlackConversation, m: SlackMilestone, deps: S
   } catch (err) {
     log.warn({ err, conversationId: conv.id, kind: m.kind }, "slack-lifecycle: a milestone could not be sent");
   }
+}
+
+/** Whether a teammate's request from mattstack opened this chat, or the chat it picks back up. */
+function fromSupportRequest(conv: SlackConversation, db: Database): boolean {
+  for (let c: SlackConversation | undefined = conv; c; c = c.resumedFrom === null ? undefined : conversationById(c.resumedFrom, db)) {
+    if (requestForConversation(c.id, db)) return true;
+  }
+  return false;
+}
+
+/** The outcome and tickets. A manual open has no requester, and the operator who typed it already sees the desk notices of its close. */
+export async function tellClosed(conv: SlackConversation, reason: SlackCloseReason, summary: string | null, deps: SlackLifecycleDeps): Promise<void> {
+  if (conv.requesterHandle === null && conv.requesterSession === null && !fromSupportRequest(conv, deps.db)) return;
+  await tellRequester(
+    conv,
+    { kind: "closed", person: conv.slackDisplayName, reason, summary, tickets: listSupportTickets(conv.id, deps.db).map((t) => t.id) },
+    deps,
+  );
 }
 
 /** Nothing happens for a chat already closing, so the first reason stands. */
@@ -171,20 +191,7 @@ export async function finishClose(
   else if (namedTicket) tellOperator("Slack chat closed", `The farewell to ${name} named a ticket, so only the closing line was sent`, deps);
   else if (reason === "pane-gone") tellOperator("Slack chat closed", `Claude stopped responding to ${name}, who is waiting to hear from you`, deps);
   else if (!hasWrapUp) tellOperator("Slack chat closed", `The chat with ${name} closed with no farewell (${reason})`, deps);
-  // A manual open has no requester, and the operator who typed it already sees the desk notices above.
-  if (conv.requesterHandle !== null || conv.requesterSession !== null) {
-    await tellRequester(
-      conv,
-      {
-        kind: "closed",
-        person: conv.slackDisplayName,
-        reason,
-        summary: cleaned.text.trim() || null,
-        tickets: listSupportTickets(conversationId, db).map((t) => t.id),
-      },
-      deps,
-    );
-  }
+  await tellClosed(conv, reason, cleaned.text.trim() || null, deps);
   return { redacted: cleaned.redacted };
 }
 
