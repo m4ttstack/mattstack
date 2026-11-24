@@ -73,6 +73,7 @@ export {
   supportAccept,
   supportAvailability,
   supportContext,
+  supportEnable,
   supportHost,
   supportMine,
   supportSend,

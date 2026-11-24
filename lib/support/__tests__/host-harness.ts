@@ -16,7 +16,7 @@ let n = 0;
 
 export const REPO = "remote:git.example.com%2Facme%2Fapp";
 export const DM_LINK = "slack://user?team=T1&id=U0HOST";
-export const ORG = "acme/mattstack";
+export const ORG = "git.example.com/acme/mattstack";
 
 const PEOPLE: Record<string, string> = { U0ADA: "Ada Example", U0BO: "Bo Example", U0CY: "Cy Example" };
 

@@ -32,6 +32,7 @@ import { accessRows } from "./validators/access.ts";
 import { accountRows, BOARD_PEERING_ROW_ID, teamDeclaresIntegration, type SecretPresence } from "./validators/accounts.ts";
 import { adminSecretsRowSafe } from "./validators/admin-secrets.ts";
 import { supportHostRow } from "./validators/support-host.ts";
+import { supportKeyRow } from "./validators/support-key.ts";
 import { boardTeamFieldsRowFor } from "./validators/board-team-fields.ts";
 import { macRows } from "./validators/mac.ts";
 import { orgRows } from "./validators/org.ts";
@@ -216,9 +217,10 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
         forgeAccess: () => forgeAccessRow(i.p, team.slug),
       }) : [];
       const adminSecrets = i.orgs.includes(team.slug) ? await adminSecretsRowSafe(i.p, team.slug, i.secrets) : null;
+      const supportKey = i.orgs.includes(team.slug) ? supportKeyRow(i.p, team.slug) : null;
       const supportHost = i.orgs.includes(team.slug) ? await supportHostRow(i.p, team.slug) : null;
       const afterInstall = intent?.mode === "join" && !i.orgs.includes(team.slug) ? [AFTER_INSTALL_ROW] : [];
-      return [...accounts, ...afterInstall, ...org, ...(adminSecrets ? [adminSecrets] : []), ...(supportHost ? [supportHost] : [])];
+      return [...accounts, ...afterInstall, ...org, ...(adminSecrets ? [adminSecrets] : []), ...(supportKey ? [supportKey] : []), ...(supportHost ? [supportHost] : [])];
     }),
     buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {

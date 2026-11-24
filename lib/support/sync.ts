@@ -71,6 +71,8 @@ export interface SupportSync {
 export const PROOF_SETTLE_MS = 60 * 60_000;
 /** The same wait for a message that proves nothing: a new member can arrive with a new key, but a stranger's must not fill the queue for long. */
 export const STRANGER_SETTLE_MS = 20 * 60_000;
+/** How far a sender's clock may be off before its message reads as too old, or from the future. */
+const CLOCK_SLACK_MS = 24 * 60 * 60_000;
 const PAGE = 100;
 const MAX_PAGES = 20;
 const REASON_MAX = 500;
@@ -156,11 +158,14 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
     const named = onRoster(cfg, m.from);
     const signed = verifySupportMac(keys, { ...m, to: cfg.me ?? "" }, m.mac);
     const key = `${m.from} ${m.id}`;
+    const now = deps.now();
     if (named && signed) {
       unproved.delete(key);
-      return "proved";
+      const age = now - m.sentAt;
+      if (age <= SUPPORT_TTL_MS + CLOCK_SLACK_MS && age >= -CLOCK_SLACK_MS) return "proved";
+      log.warn({ from: m.from, id: m.id, kind: m.kind, age }, "support: a message signed too long ago, or ahead of time, was dropped");
+      return "drop";
     }
-    const now = deps.now();
     const seen = unproved.get(key);
     const waited = seen ? seen.waited + Math.max(0, Math.min(now - seen.lastSeen, SIGHTING_MS)) : 0;
     const about = { from: m.from, id: m.id, kind: m.kind, named, signed };

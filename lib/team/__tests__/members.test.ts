@@ -325,6 +325,34 @@ describe("membersSync", () => {
     expect(readTeamRecipients(SLUG, secrets)).toContain(OWNER_PUBLIC_KEY);
   });
 
+  describe("this Mac's own roster entry", () => {
+    const mine = { createdByRt: true, joinedByRt: false, rtMayManageMembership: true, forgeUsername: "Dev1" };
+    async function sync(roster: Record<string, unknown>[], local: Partial<typeof mine> = mine) {
+      const store: Record<string, unknown> = { "mattstack.roster": roster };
+      const { seams, writes } = fakeMembersSeams({
+        readTeamLocal: () => ({ ...mine, forgeUsername: undefined, ...local }),
+        readTeamStore: () => store,
+      });
+      await membersSync(fakeProbes({ home: HOME }), fakeRelay(), seamsWithClone().secrets, SLUG, seams);
+      return writes.filter((w) => w.key === "mattstack.roster");
+    }
+
+    test("gains its key when it has none, and keeps the rest of the roster", async () => {
+      const writes = await sync([{ username: "alice", agePublicKey: ALICE_PUBLIC_KEY }, { username: "dev1", name: "Dev One", teams: ["web"] }]);
+      expect(writes.map((w) => [w.value, w.scope])).toEqual([
+        [[{ username: "alice", agePublicKey: ALICE_PUBLIC_KEY }, { username: "dev1", name: "Dev One", teams: ["web"], agePublicKey: OWNER_PUBLIC_KEY }], "org"],
+      ]);
+    });
+
+    test("is left alone with any key recorded, when the key is someone else's, off the roster, or with no known username", async () => {
+      expect(await sync([{ username: "dev1", agePublicKey: OWNER_PUBLIC_KEY }])).toEqual([]);
+      expect(await sync([{ username: "dev1", agePublicKey: ALICE_PUBLIC_KEY }])).toEqual([]);
+      expect(await sync([{ username: "dev1" }, { username: "bo", agePublicKey: OWNER_PUBLIC_KEY }])).toEqual([]);
+      expect(await sync([{ username: "alice" }])).toEqual([]);
+      expect(await sync([{ username: "dev1" }], { forgeUsername: undefined })).toEqual([]);
+    });
+  });
+
   test("a reply that decrypts but carries a malformed age key never reaches .sops.yaml, and stays pending for a retry", async () => {
     const p = fakeProbes({ home: HOME });
     upsertInviteRecord(p, SLUG, "alice", aliceRecord());

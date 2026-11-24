@@ -3,6 +3,7 @@ import { join } from "path";
 import { readdirSync, readFileSync, statSync } from "fs";
 import { describe, expect, test } from "bun:test";
 import { SUPPORT_AWAY_MS, SUPPORT_TTL_MS, type SupportDraft, type SupportHostState } from "../../../../packages/rt-client/src/support.ts";
+import { UserActionableError } from "../../../errors.ts";
 import { openStateDb } from "../../../state/db.ts";
 import { getRequest, insertRequest, listRequests, type SupportRequest, type SupportState } from "../../../state/support-store.ts";
 import type { SupportConfig } from "../../../support/config.ts";
@@ -12,7 +13,7 @@ import { createSupportHandlers, type SupportHandlerDeps } from "../support.ts";
 import type { HandlerContext } from "../types.ts";
 
 const KEY = Buffer.alloc(32, 1).toString("base64");
-const ORG = "acme/mattstack";
+const ORG = "git.example.com/acme/mattstack";
 const DAY = 24 * 60 * 60_000;
 let n = 0;
 
@@ -34,14 +35,16 @@ function harness() {
     setHost: "ok" as "ok" | "other-machine" | "failed",
     setup: ["account.slack-support"] as string[] | null,
     holdsRole: true,
+    enable: null as Error | null,
     stop: { ok: true, told: true } as { ok: true; told: boolean } | { ok: false; reason: string },
   };
   const sent: SupportDraft[] = [];
   const events: string[] = [];
+  const logged: object[] = [];
   const deps: SupportHandlerDeps = {
     db,
     now: () => state.now,
-    log: { warn() {}, info() {}, debug() {}, error() {} } as unknown as HandlerContext["log"],
+    log: { warn: (o: object) => void logged.push(o), info() {}, debug() {}, error() {} } as unknown as HandlerContext["log"],
     config: () => state.config,
     keys: async () => (state.keys ? { current: KEY, retired: [] } : null),
     keyMissing: () => state.keyMissing,
@@ -78,6 +81,16 @@ function harness() {
     versions: async () => ({ rt: "1.2.3", app: "4.5.6", macos: "15.1" }),
     unreadySetupRows: async () => state.setup,
     holdsRole: () => state.holdsRole,
+    enable: async (host) => {
+      if (state.enable) throw state.enable;
+      events.push(`enable ${host ?? "saved"}`);
+      return { host: "Alex" };
+    },
+    disable: () => {
+      if (state.enable) throw state.enable;
+      events.push("disable");
+      return { host: "Alex" };
+    },
   };
   const handlers = createSupportHandlers(deps);
   const request = (over: Partial<SupportRequest> = {}) =>
@@ -85,10 +98,59 @@ function harness() {
       { id: "old", direction: "out", peer: "alex", org: ORG, text: "help", parts: [], slackUserId: "U0ADA", state: "sent", reason: null, persona: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: state.now, receivedAt: state.now, ...over },
       db,
     );
-  return { db, state, deps, sent, events, handlers, request };
+  return { db, state, deps, sent, events, logged, handlers, request };
 }
 
 const ASK = { id: "r1", text: "the board will not load", parts: [{ key: "versions" as const, label: "Versions", value: "rt 1.2.3" }] };
+
+describe("support:enable", () => {
+  test("turns support on for the named or the saved host, and off, and wakes the loops", async () => {
+    const h = harness();
+    expect(await h.handlers["support:enable"]({ on: true, host: "alex" })).toEqual({ ok: true, data: { enabled: true, host: "Alex" } });
+    expect(await h.handlers["support:enable"]({ on: true })).toEqual({ ok: true, data: { enabled: true, host: "Alex" } });
+    expect(await h.handlers["support:enable"]({ on: false })).toEqual({ ok: true, data: { enabled: false, host: "Alex" } });
+    expect(h.events).toEqual(["enable alex", "poke", "enable saved", "poke", "disable", "poke"]);
+  });
+
+  test("a refusal reads as one plain message with its reason and its command", async () => {
+    const h = harness();
+    for (const [err, message] of [
+      [new UserActionableError("team-pull-only", "The org's shared files belong to its admins", {}, { why: "Ask dev1 (an org admin) to make this change." }), "The org's shared files belong to its admins. Ask dev1 (an org admin) to make this change."],
+      [new UserActionableError("no-recipients", "The acme org's secrets are not locked to anyone yet", {}, { next: "rt team members sync" }), "The acme org's secrets are not locked to anyone yet. Run rt team members sync."],
+    ] as const) {
+      h.state.enable = err;
+      for (const on of [true, false]) {
+        expect(await h.handlers["support:enable"]({ on })).toMatchObject({ ok: false, failure: { code: `support-${err.code}`, message } });
+      }
+    }
+    expect(h.events).toEqual([]);
+  });
+
+  test("a refusal's technical detail goes to the log and never to the screen", async () => {
+    const h = harness();
+    h.state.enable = new UserActionableError("secrets-unreadable", "The org's secrets could not be opened", {}, { log: "sops: mac mismatch" });
+    const r = await h.handlers["support:enable"]({ on: true });
+    expect(r).toMatchObject({ ok: false, failure: { code: "support-secrets-unreadable" } });
+    expect(JSON.stringify(r)).not.toContain("sops");
+    expect(h.logged).toEqual([{ code: "secrets-unreadable", detail: "sops: mac mismatch" }]);
+  });
+
+  test("anything else that goes wrong never shows its own words", async () => {
+    const h = harness();
+    h.state.enable = new Error("sops: /Users/x/secret failed");
+    const r = await h.handlers["support:enable"]({ on: true });
+    expect(r).toMatchObject({ ok: false, failure: { code: "support-enable" } });
+    expect(JSON.stringify(r)).not.toContain("sops");
+  });
+
+  test("a payload that says nothing, or names a host that is not a name, is refused", async () => {
+    const h = harness();
+    for (const payload of [null, {}, { on: "yes" }, { on: true, host: 3 }, { on: true, host: " " }]) {
+      expect(await h.handlers["support:enable"](payload)).toMatchObject({ ok: false, failure: { code: "support-enable" } });
+    }
+    expect(h.events).toEqual([]);
+  });
+});
 
 describe("support:availability", () => {
   const availability = async (h: ReturnType<typeof harness>) => {

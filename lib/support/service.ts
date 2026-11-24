@@ -10,6 +10,7 @@ import { chatViewerUrl, readChatViewerUrlSetting } from "../chat-viewer-url.ts";
 import { createSupportHandlers, expireSent } from "../daemon/handlers/support.ts";
 import { readSwitchboardToken } from "../daemon/handlers/secrets.ts";
 import type { SlackLifecycleDeps } from "../daemon/slack-lifecycle.ts";
+import { UserActionableError } from "../errors.ts";
 import { orgIdContext } from "../linear/org-ids.ts";
 import { readSupportApiKey } from "../linear/support-key.ts";
 import { machineKey } from "../rt-paths.ts";
@@ -17,10 +18,11 @@ import { rtSelfArgv } from "../rt-self.ts";
 import { createRealTeamSecretsSeams, teamSecretsFile } from "../secrets/team-store.ts";
 import { storedValue } from "../settings/presence.ts";
 import { getSetting } from "../settings/resolve.ts";
+import { currentOrg } from "../settings/stores.ts";
 import { setSetting } from "../settings/write.ts";
 import { createRealProbes } from "../setup/probes.ts";
 import { rtVersion } from "../setup/update.ts";
-import type { SlackClient } from "../slack/client.ts";
+import { isDeadConnection, type SlackClient } from "../slack/client.ts";
 import { slackPersona } from "../slack/persona.ts";
 import type { SlackOpenDeps } from "../slack/request.ts";
 import { supportRepoFromSetting } from "../slack/trigger-offer.ts";
@@ -30,12 +32,14 @@ import { listRequests, pruneSupport, type SupportRequest } from "../state/suppor
 import { childEnv } from "../subprocess.ts";
 import { readBoardSwitchboardToken } from "../team/board-token.ts";
 import { canonicalHandle } from "../team/board-peers.ts";
+import { realMembersSeams } from "../team/members.ts";
 import { readPingVersions } from "../telemetry/ping.ts";
 import { createChain } from "./chain.ts";
 import { supportConfig, type SupportConfig } from "./config.ts";
+import { disableSupport, enableSupport, type EnableDeps } from "./enable.ts";
 import { answerSupportGate, takeRequests, tickRequests, type HostDeps } from "./host.ts";
 import { startSupportLoop, type SupportLoopHandle } from "./loop.ts";
-import { readSupportKeys, type SupportKeys } from "./org-key.ts";
+import { ensureSupportKey, readSupportKeys, type SupportKeys } from "./org-key.ts";
 import { readiness, type ReadinessDeps } from "./readiness.ts";
 import { createSupportRelay, type SupportRelay } from "./relay.ts";
 import { stopSlackChat } from "./stop.ts";
@@ -43,6 +47,8 @@ import { createSupportSync } from "./sync.ts";
 
 const KV_NS = "support";
 const PUBLISH_EVERY_MS = 60_000;
+/** A settings file caught mid-write, or broken by hand, reads as its defaults, so this Mac is off only once it has read off for this long. */
+const OFF_SETTLE_MS = 60_000;
 const TOKEN_TTL_MS = 5 * 60_000;
 const KEY_RETRY_MS = 60_000;
 const SETUP_TTL_MS = 5 * 60_000;
@@ -75,6 +81,7 @@ export interface SupportSeams {
   versions(): Promise<{ rt: string; app: string | null; macos: string | null }>;
   unreadySetupRows(): Promise<string[] | null>;
   loops: boolean;
+  enable: Partial<EnableDeps>;
 }
 
 export interface SupportService {
@@ -191,6 +198,33 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     const cfg = readConfig();
     return cfg && cfg.accepts && tappedFor() !== cfg.orgRemote ? { ...cfg, accepts: false, acceptHere: false } : cfg;
   };
+  let offSince: number | null = null;
+  /** The settings stopped saying this Mac answers, and no person here turned it off, too recently to believe. */
+  function settling(raw: SupportConfig): boolean {
+    // No roster means the org's store could not be read, which says nothing about the switch.
+    if (raw.roster.length === 0) return true;
+    if (raw.acceptHere || tappedFor() !== raw.orgRemote) {
+      offSince = null;
+      if (raw.acceptHere && flag("told-off")) setFlag("told-off", false);
+      return false;
+    }
+    offSince ??= now();
+    return now() - offSince < OFF_SETTLE_MS;
+  }
+  function tellOff(raw: SupportConfig): void {
+    if (raw.acceptHere || tappedFor() !== raw.orgRemote || flag("told-off")) return;
+    setFlag("told-off", true);
+    const why = !raw.accepts
+      ? "This Mac no longer answers help requests, since its setting was turned off"
+      : !raw.enabled
+        ? "Your org turned help requests off, so this Mac no longer answers them"
+        : "Your org names someone else for help requests, so this Mac no longer answers them";
+    try {
+      o.notify("Help requests", why);
+    } catch (err) {
+      log.warn({ err }, "support: the host could not be told this Mac stopped answering");
+    }
+  }
   const writeSetting = o.seams?.setAccepting ?? ((on: boolean) => setSetting("support.acceptRequests", on, "machine"));
   const keysFor = o.seams?.keys ?? orgKeys(log, now);
   const keys = async () => {
@@ -214,7 +248,10 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
   const host: HostDeps = {
     ...o.slackOpen,
     now,
-    config,
+    config() {
+      const raw = readConfig();
+      return raw === null || settling(raw) ? null : config();
+    },
     defaultRepo,
     notifyOpening(r, room) {
       o.notify("Help request", `${r.peer} asked for help, and ${slackPersona().name} is answering`, chatViewerUrl(readChatViewerUrlSetting(), room));
@@ -297,6 +334,18 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     orgIds: orgIdContext,
   };
 
+  const enableDeps: EnableDeps = {
+    probes: createRealProbes(),
+    seams: realMembersSeams(),
+    ensureKey: (slug) => ensureSupportKey(slug, createRealTeamSecretsSeams(slug)),
+    ...o.seams?.enable,
+  };
+  function thisOrg(): string {
+    const org = currentOrg();
+    if (org === null) throw new UserActionableError("no-org", "This Mac is in no org yet");
+    return org;
+  }
+
   let loops: SupportLoopHandle[] = [];
 
   /** The queue of a Mac that stopped accepting is read until it is empty, so nobody waits on a request no one will take. */
@@ -317,18 +366,27 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     relay,
     slackUserId: async () => {
       const client = await o.slackClient();
-      return client ? (await client.authTest()).userId : null;
+      if (!client) return null;
+      try {
+        return (await client.authTest()).userId;
+      } catch (err) {
+        if (isDeadConnection(err)) return null;
+        throw err;
+      }
     },
     readiness: () => (o.seams?.readiness ?? readiness)(readinessDeps),
     setAccepting(on) {
       writeSetting(on);
       setTapped(on ? (readConfig()?.orgRemote ?? null) : null);
+      setFlag("told-off", false);
       if (on) setFlag("draining", false);
     },
     published: setPublished,
     holdsRole: () => flag("published"),
     drain,
     poke: () => loops.forEach((l) => l.poke()),
+    enable: (host) => enableSupport(enableDeps, thisOrg(), "team support on", host),
+    disable: () => disableSupport(enableDeps, thisOrg(), "team support off"),
     stop: (conversation) => stopSlackChat(conversation, o.stop),
     versions: o.seams?.versions ?? readVersions,
     unreadySetupRows,
@@ -342,6 +400,8 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     publishedAt = now();
     const raw = readConfig();
     if (!raw || raw.roster.length === 0) return;
+    if (settling(raw)) return;
+    tellOff(raw);
     if (!raw.accepts && tappedFor() !== null) setTapped(null);
     const cfg = config();
     if (!cfg || (!cfg.acceptHere && !flag("published"))) return;

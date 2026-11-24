@@ -24,7 +24,7 @@ import { createSupportService, type SupportService } from "../service.ts";
 
 const KEY = Buffer.alloc(32, 1).toString("base64");
 const OTHER_KEY = Buffer.alloc(32, 2).toString("base64");
-const ORG = "acme/mattstack";
+const ORG = "git.example.com/acme/mattstack";
 const REPO = "remote:git.example.com%2Facme%2Fapp";
 const DAY = 24 * 60 * 60_000;
 const log = { warn() {}, info() {}, debug() {}, error() {}, child: () => log } as unknown as Logger;
@@ -267,11 +267,14 @@ describe("support, end to end", () => {
     await bo.ask("r2");
     w.org.enabled = false;
     for (const m of [ada, bo, host]) m.service.start();
+    for (let i = 0; i < 2; i++) {
+      w.clock.offset += 61_000;
+      await host.service.tick();
+    }
     await until("both are answered", () => ada.state("r1") === "not-accepting" && bo.state("r2") === "not-accepting");
     expect(host.agents).toEqual([]);
     expect(ada.desk).toEqual(["Alex is not taking requests now. Message Alex directly."]);
-    w.clock.offset += 2 * 60_000;
-    await host.service.tick();
+    expect(host.desk).toContain("Your org turned help requests off, so this Mac no longer answers them");
     expect(await w.relayFor("bo").host("alex")).toMatchObject({ accepting: false });
   });
 

@@ -18,6 +18,7 @@ import {
   type SupportRequest,
   type SupportState,
 } from "../../../packages/rt-client/src/support.ts";
+import { UserActionableError } from "../../errors.ts";
 import { getRequest, insertRequest, listRequests, moveRequest } from "../../state/support-store.ts";
 import { createChain } from "../../support/chain.ts";
 import type { SupportConfig } from "../../support/config.ts";
@@ -27,7 +28,7 @@ import { signDraft, type RequestBody } from "../../support/sync.ts";
 import { canonicalHandle } from "../../team/board-peers.ts";
 import type { CommandResult, HandlerContext } from "./types.ts";
 
-const SUPPORT_COMMANDS = ["support:availability", "support:context", "support:send", "support:mine", "support:host", "support:accept", "support:stop"] as const;
+const SUPPORT_COMMANDS = ["support:availability", "support:context", "support:send", "support:mine", "support:host", "support:accept", "support:enable", "support:stop"] as const;
 
 const REQUEST_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const LABEL_MAX = 100;
@@ -56,6 +57,9 @@ export interface SupportHandlerDeps {
   drain(): Promise<void>;
   /** Something the relay loops wait for has changed. */
   poke(): void;
+  /** The org's own switch, for its admins: throws a UserActionableError when it refuses. */
+  enable(host?: string): Promise<{ host: string }>;
+  disable(): { host: string | null };
   stop(conversation: number): Promise<{ ok: true; told: boolean } | { ok: false; reason: string }>;
   /** The relay holds this Mac as the accepting one, as far as this Mac knows. */
   holdsRole(): boolean;
@@ -66,6 +70,11 @@ export interface SupportHandlerDeps {
 
 function refuse(code: string, message: string): { ok: false; error: string; failure: { code: string; message: string } } {
   return { ok: false, error: `support: ${message}`, failure: { code: `support-${code}`, message } };
+}
+
+/** A refusal's words as one line for a screen that shows no callouts. */
+function plainly(err: UserActionableError): string {
+  return [err.message, err.why?.replace(/\.$/, ""), err.next && `Run ${err.next}`].filter(Boolean).map((s) => `${s}.`).join(" ");
 }
 
 function oneLine(text: string, max: number): string {
@@ -121,6 +130,8 @@ export function expireSent(db: Database, now: number): SupportRequest[] {
 export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof SUPPORT_COMMANDS)[number]]: (payload: unknown) => Promise<CommandResult<K>> } {
   const { db } = deps;
   const sending = createChain();
+  /** Two at once would each find no key and make one. */
+  const enabling = createChain();
   const noKey = () => (deps.keyMissing() ? NO_SUPPORT_KEY : "This Mac cannot open the org's secrets");
 
   async function send(id: string, text: string, parts: SupportPart[]): Promise<CommandResult<"support:send">> {
@@ -264,6 +275,24 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
       deps.setAccepting(true);
       deps.poke();
       return { ok: true, data: { accepting: true } };
+    },
+
+    "support:enable": async (rawPayload: unknown): Promise<CommandResult<"support:enable">> => {
+      const { on, host } = (rawPayload ?? {}) as Partial<Commands["support:enable"]["payload"]>;
+      if (typeof on !== "boolean") return refuse("enable", "Say whether to turn support on.");
+      if (host !== undefined && (typeof host !== "string" || !host.trim())) return refuse("enable", "Say who answers support requests.");
+      try {
+        const changed = await enabling.run(async () => (on ? deps.enable(host?.trim()) : deps.disable()));
+        deps.poke();
+        return { ok: true, data: { enabled: on, host: changed.host } };
+      } catch (err) {
+        if (err instanceof UserActionableError) {
+          if (err.log) deps.log.warn({ code: err.code, detail: err.log }, "support: the org's support switch was refused");
+          return refuse(err.code, plainly(err));
+        }
+        deps.log.warn({ err }, "support: the org's support switch could not be changed");
+        return refuse("enable", `Support could not be turned ${on ? "on" : "off"}, and rt's log says why.`);
+      }
     },
 
     "support:stop": async (rawPayload: unknown): Promise<CommandResult<"support:stop">> => {

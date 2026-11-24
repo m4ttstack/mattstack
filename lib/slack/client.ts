@@ -61,6 +61,13 @@ export class SlackError extends Error {
   }
 }
 
+const DEAD_CONNECTION_CODES: readonly string[] = ["invalid_auth", "not_authed", "token_revoked", "token_expired", "account_inactive"];
+
+/** Slack refused the token itself: only connecting again mends it, so a retry never does. */
+export function isDeadConnection(err: unknown): boolean {
+  return err instanceof SlackError && DEAD_CONNECTION_CODES.includes(err.code);
+}
+
 type Json = Record<string, any>;
 
 const DEFAULT_RETRY_MS = 1000;

@@ -2,7 +2,12 @@ import {
   isLocalRequest,
   type LocalServer,
 } from '@mattstack/app-server/local-request';
-import { getSetting, parseIdentity, rtCommand } from '@mattstack/rt-client';
+import {
+  getSetting,
+  parseIdentity,
+  rtCommand,
+  supportEnable,
+} from '@mattstack/rt-client';
 import {
   settingsHandler,
   type SettingsHandlerOptions,
@@ -10,6 +15,8 @@ import {
 import { Hono } from 'hono';
 
 import { rolesInfo } from './boxscore-roles';
+import { fixtureMode } from './fixtures/design/fixtureRt';
+import { FIXTURE_READ_ONLY } from './fixtures/design/runsFixture';
 import { sharedRead } from './sharedRead';
 import { suggestValues } from './suggest';
 
@@ -38,13 +45,44 @@ function registeredRepos(): () => Promise<string[]> {
   };
 }
 
+export interface SettingsDeps {
+  enableSupport: (
+    payload: Parameters<typeof supportEnable>[0]
+  ) => ReturnType<typeof supportEnable>;
+}
+
+/** The org's support switch going on, as settings-kit would accept it. */
+async function turnsSupportOn(req: Request): Promise<boolean> {
+  if (req.method !== 'POST') return false;
+  const type = req.headers.get('content-type')?.split(';', 1)[0];
+  if (type?.trim().toLowerCase() !== 'application/json') return false;
+  const body = (await req
+    .clone()
+    .json()
+    .catch(() => null)) as Record<string, unknown> | null;
+  return (
+    body?.key === 'support.enabled' &&
+    body.scope === 'org' &&
+    body.value === true
+  );
+}
+
+function whyNotOn(res: Awaited<ReturnType<typeof supportEnable>>): string {
+  if (res.failure?.code.startsWith('support-')) return res.failure.message;
+  // An older daemon's reply, which RtResponse does not type.
+  if ('code' in res && res.code === 'unknown-command')
+    return 'rt is older than this app, so nothing changed. Restart rt, then try again.';
+  return 'rt did not answer. Reload to see whether support is on.';
+}
+
 /**
  * Console's typed reads and suggestion lists, then settings-kit for defs/explain/set/unset.
  * The typed routes must be registered first: Hono matches in order, and the
  * catch-all would otherwise answer them with a 404.
  */
 export function createSettingsRoutes(
-  kit: Omit<SettingsHandlerOptions, 'allowWrite'> = {}
+  kit: Omit<SettingsHandlerOptions, 'allowWrite'> = {},
+  deps: SettingsDeps = { enableSupport: payload => supportEnable(payload) }
 ) {
   const listRepos = registeredRepos();
   return (
@@ -95,6 +133,21 @@ export function createSettingsRoutes(
           return c.json({ error: 'unknown suggestion list' }, 404);
         return c.json({ values }, 200);
       })
+      /** Support is on only once the org has a key, which the daemon makes.
+          What it refuses leaves the switch off with its reason. */
+      .post('/api/settings/set', async (c, next) => {
+        const local = isLocalRequest(
+          c.req.raw,
+          c.env as LocalServer | undefined
+        );
+        if (local && (await turnsSupportOn(c.req.raw))) {
+          const res = await deps.enableSupport({ on: true });
+          if (!res.ok) {
+            return c.json({ error: whyNotOn(res) }, 400);
+          }
+        }
+        await next();
+      })
       .all('/api/settings/*', async c => {
         // Under Bun.serve, Hono's `c.env` is the Bun server, which lets the
         // locality gate check the socket peer, not just the forgeable Host.
@@ -110,4 +163,15 @@ export function createSettingsRoutes(
   );
 }
 
-export const settings = createSettingsRoutes();
+export const settings = createSettingsRoutes(
+  {},
+  fixtureMode(process.env)
+    ? {
+        enableSupport: async () => ({
+          ok: false,
+          error: FIXTURE_READ_ONLY,
+          failure: { code: 'support-fixture', message: FIXTURE_READ_ONLY },
+        }),
+      }
+    : undefined
+);

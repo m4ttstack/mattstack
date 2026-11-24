@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { dirname } from "path";
 import { teamSecretsFile } from "../../secrets/team-store.ts";
 import { setSetting, unsetSetting } from "../../settings/write.ts";
+import { SlackError } from "../../slack/client.ts";
 import { setKvValue } from "../../state/kv-blob.ts";
 import { getRequest, insertRequest, listRequests, pendingStatuses } from "../../state/support-store.ts";
 import type { SupportDraft, SupportMessage } from "../../../packages/rt-client/src/support.ts";
@@ -128,8 +129,11 @@ describe("the accepting flag", () => {
     await t.service.tick();
     const on = t.state.config!;
     t.state.config = { ...on, accepts: false, acceptHere: false };
-    t.h.state.now += 2 * MINUTE;
-    await t.service.tick();
+    for (let i = 0; i < 2; i++) {
+      t.h.state.now += 2 * MINUTE;
+      await t.service.tick();
+    }
+    expect(t.events.filter((e) => e.startsWith("notify"))).toEqual(["notify This Mac no longer answers help requests, since its setting was turned off"]);
     t.state.config = on;
     t.h.state.now += 2 * MINUTE;
     await t.service.tick();
@@ -161,8 +165,10 @@ describe("the accepting flag", () => {
     await t.service.tick();
     t.state.config = { ...t.state.config!, accepts: false, acceptHere: false };
     t.arrive("request", "ada", "alex", "r1", ask);
-    t.h.state.now += 2 * MINUTE;
-    await t.service.tick();
+    for (let i = 0; i < 2; i++) {
+      t.h.state.now += 2 * MINUTE;
+      await t.service.tick();
+    }
     await t.service.tick();
     expect(t.left()).toBe(0);
     expect(getRequest("in", "ada", "r1", t.h.db)!.state).toBe("not-accepting");
@@ -174,6 +180,7 @@ describe("the accepting flag", () => {
     t.h.operatorChat("U0ADA");
     await t.service.handlers["support:accept"]({ on: false });
     const one = "notify 1 Slack chat is still open here, where your other Macs cannot see it. Stop it if another Mac answers";
+    await t.service.handlers["support:accept"]({ on: false });
     expect(t.events.filter((e) => e === one)).toHaveLength(1);
 
     const outside = harness();
@@ -209,6 +216,73 @@ describe("the accepting flag", () => {
     t.h.state.now += 2 * MINUTE;
     await service.tick();
     expect(t.events.filter((e) => e === "setHost true")).toHaveLength(1);
+  });
+
+  test("one bad read of the settings ends nothing and tells no one", async () => {
+    for (const bad of [{ enabled: false }, { accepts: false }, { isHost: false, host: null }]) {
+      const t = harness();
+      await t.service.tick();
+      t.h.operatorChat("U0XX1");
+      t.h.operatorChat("U0XX2");
+      const r = t.h.request();
+      const later = t.h.request({ id: "r-later", peer: "bo", slackUserId: "U0BO" });
+      await t.service.tick();
+      const good = t.state.config!;
+      t.state.config = { ...good, ...bad, acceptHere: false };
+      t.h.state.now += 2 * MINUTE;
+      await t.service.tick();
+      t.h.state.now += MINUTE - 1;
+      await t.service.tick();
+      expect(getRequest("in", "ada", r.id, t.h.db)!.state).toBe("waiting");
+      expect(getRequest("in", "bo", later.id, t.h.db)!.state).toBe("waiting");
+      t.state.config = good;
+      t.h.state.now += 2 * MINUTE;
+      await t.service.tick();
+      expect(await t.service.handlers["support:host"]({})).toMatchObject({ data: { accepting: true } });
+      expect(t.events.filter((e) => e === "setHost false" || e.startsWith("notify"))).toEqual([]);
+    }
+  });
+
+  test("a request read while the settings look off waits for them to settle", async () => {
+    const t = harness();
+    await t.service.tick();
+    t.state.config = { ...t.state.config!, enabled: false, acceptHere: false };
+    const r = t.h.request();
+    await t.service.tick();
+    expect(getRequest("in", "ada", r.id, t.h.db)!.state).toBe("received");
+    t.h.state.now += MINUTE;
+    await t.service.tick();
+    expect(getRequest("in", "ada", r.id, t.h.db)!.state).toBe("not-accepting");
+  });
+
+  test("the host is told once, and why, when the org or its settings turn this Mac off", async () => {
+    for (const [off, said] of [
+      [{ enabled: false }, "Your org turned help requests off, so this Mac no longer answers them"],
+      [{ isHost: false, host: "ada" }, "Your org names someone else for help requests, so this Mac no longer answers them"],
+    ] as const) {
+      const t = harness();
+      await t.service.tick();
+      t.state.config = { ...t.state.config!, ...off, acceptHere: false };
+      for (const service of [t.service, t.service, t.restart(), t.restart()]) {
+        for (let i = 0; i < 2; i++) {
+          t.h.state.now += 2 * MINUTE;
+          await service.tick();
+        }
+      }
+      expect(t.events.filter((e) => e.startsWith("notify"))).toEqual([`notify ${said}`]);
+    }
+  });
+
+  test("a tap on accept off answers at once, with nothing to settle and no notice", async () => {
+    const t = harness();
+    await t.service.tick();
+    t.state.setHost = "failed";
+    const r = t.h.request();
+    await t.service.handlers["support:accept"]({ on: false });
+    expect(getRequest("in", "ada", r.id, t.h.db)!.state).toBe("not-accepting");
+    t.h.state.now += 2 * MINUTE;
+    await t.service.tick();
+    expect(t.events.filter((e) => e.startsWith("notify"))).toEqual([]);
   });
 
   test("a claim that did not land is tried again a minute later", async () => {
@@ -379,6 +453,19 @@ describe("accepting requests", () => {
 });
 
 describe("the sender's side", () => {
+  test("a Slack connection that no longer works asks for a new one", async () => {
+    const t = harness("ada");
+    t.options.slackClient = async () =>
+      ({
+        authTest: async () => {
+          throw new SlackError("token_revoked");
+        },
+      }) as never;
+    const service = t.restart();
+    expect(await service.handlers["support:send"]({ id: "r1", text: "help", parts: [] })).toMatchObject({ failure: { message: "Connect Slack first." } });
+    expect(await service.handlers["support:availability"]({})).toMatchObject({ data: { state: "disabled", reason: "Connect Slack first" } });
+  });
+
   test("a status that arrives after sending raises one desk notification", async () => {
     const t = harness("ada");
     await t.service.handlers["support:send"]({ id: "r1", text: "help", parts: [] });

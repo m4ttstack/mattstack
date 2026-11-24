@@ -169,6 +169,16 @@ function recordRosterKey(seams: MembersSeams, slug: string, handle: string, ageP
   seams.writeSetting("mattstack.roster", withRosterKey(readRoster(seams, slug), handle, agePublicKey), "org");
 }
 
+/** An entry with a key already, or a key already under another name, is left for a person to sort out. */
+function recordOwnKey(p: Probes, seams: MembersSeams, slug: string, agePublicKey: string): void {
+  const me = seams.readTeamLocal(p, slug).forgeUsername;
+  if (!me) return;
+  const roster = readRoster(seams, slug);
+  const entry = roster.find((m) => isMember(m, me));
+  if (!entry || entry.agePublicKey || roster.some((m) => m?.agePublicKey === agePublicKey)) return;
+  recordRosterKey(seams, slug, me, agePublicKey);
+}
+
 export interface MembersSeams {
   /** The org store's own top-level keys, unmerged with the active team's, as in invite.ts: a roster read-modify-write targets the org layer. */
   readTeamStore: (slug: string) => Record<string, unknown>;
@@ -337,6 +347,7 @@ export async function membersSync(
     const ownerResult = await addTeamRecipient(slug, ownerPublicKey, secrets);
     for (const f of ownerResult.reencrypted) reencrypted.add(f);
     if (ownerResult.added) added.push(ownerPublicKey);
+    recordOwnKey(p, seams, slug, ownerPublicKey);
 
     const records = readInviteRecords(p, slug);
     for (const [handle, rec] of Object.entries(records)) {
