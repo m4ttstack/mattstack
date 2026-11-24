@@ -119,20 +119,34 @@ export function dirClimbsOutOfCache(dir: string, home: string): boolean {
   return posix.isAbsolute(dir) && dir.startsWith(`${cache}/`) && !within(cache, posix.normalize(dir));
 }
 
+/** `dir` with its links followed, through its nearest existing ancestor: a unit folder need not exist yet. */
+function followLinks(dir: string, fs: ResolveFs): string | null {
+  let at = dir;
+  while (at !== "/" && fs.realPath(at) === null) at = posix.dirname(at);
+  const real = fs.realPath(at);
+  return real === null ? null : at === dir ? real : posix.join(real, posix.relative(at, dir));
+}
+
 /**
  * The version folder `dir` sits in, read from `<cache>/<market>/<plugin>/<version>/`
- * or a render tree's `<root>/<org>/<plugin>/<version>/`. A path is only
- * looked up on disk once its text sits inside one of them, so nothing outside
- * is touched.
+ * or a render tree's `<root>/<org>/<plugin>/<version>/`. A path written
+ * through a link (a cswap profile's `plugins`, whichever profile installed the
+ * pack) counts when its real path sits in a root's real path. A path is only
+ * looked up on disk once its text sits inside a root or names a plugin cache,
+ * so nothing else is touched.
  */
 export function versionOfDir(id: string, plugin: string, dir: string, deps: ResolveDeps): string | null {
   if (!posix.isAbsolute(dir)) return null;
   const text = posix.normalize(dir);
   // A render tree, `<root>/<org>/<plugin>/<version>/<mattstack>/`, names its pack version the way a cache copy does.
-  const root = [pluginCache(deps.home), renderRoot(deps.home)].find((r) => within(r, text));
-  if (root === undefined) return null;
+  const roots = [pluginCache(deps.home), renderRoot(deps.home)];
+  const written = roots.find((r) => within(r, text));
+  // Only a folder written inside a root, or one naming a plugin cache through a link (a cswap profile's `plugins`), is looked up on disk.
+  if (written === undefined && !text.includes("/plugins/cache/")) return null;
   // The written path, not its normalized text: the OS follows a link before the `..` after it.
-  const real = deps.fs.realPath(dir);
+  const real = followLinks(dir, deps.fs);
+  const root = written ?? (real === null ? undefined : roots.find((r) => within(deps.fs.realPath(r) ?? r, real)));
+  if (root === undefined) return null;
   const [base, path] = real === null ? [root, text] : [deps.fs.realPath(root) ?? root, real];
   if (!within(base, path)) return null;
   const [, named, version] = path.slice(base.length + 1).split("/");

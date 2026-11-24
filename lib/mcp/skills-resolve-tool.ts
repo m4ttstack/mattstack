@@ -2,7 +2,9 @@
  * Reads only under ~/.claude/plugins/cache, ~/.claude/skills and, for a husk
  * pack, its render tree under ~/.mattstack/rt/rendered, and writes nothing:
  * the id is checked against ID_RE before any read, a `dir` is looked up only
- * once its text sits inside the plugin cache or the render root, and
+ * once its text sits inside the plugin cache or the render root, or contains
+ * `/plugins/cache/`, and counts only when its real path lands in the plugin
+ * cache or the render root, and
  * resolvePointers refuses a compiled.json that points outside its plugin
  * version folder, its render tree or its skill link before it touches that
  * path.

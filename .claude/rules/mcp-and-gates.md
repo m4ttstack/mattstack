@@ -96,14 +96,14 @@ in `GITHUB_REFUSED_QUERY_KEYS`. Those lists are widened, never narrowed,
 without a design review;
 `docs/superpowers/specs/2026-11-13-gitlab-get-github-guard-narrowing-design.md`
 is the review for the narrowing above.
-`skills_resolve` (`skills-resolve-tool.ts`) runs `rt skills resolve`'s code in
-process: it checks the id against `ID_RE` first, reads only `~/.claude/plugins/cache`,
-`~/.claude/skills` and a husk pack's render tree in `~/.mattstack/rt/rendered`
-(its `folder` the installed husk, its keys in the render), and writes nothing.
-It returns paths spelled through a skill link, never its target, and refuses a
-`compiled.json` whose folder or key leaves the plugin's version folder, its
-render tree or its own skill link (the OS applies a `..` after following the
-link, so nothing may climb back out through it). Every git tool goes through `tree-guard.ts`, which
+`skills_resolve` (`skills-resolve-tool.ts`) runs `rt skills resolve`'s code in process: it checks
+the id against `ID_RE` first, reads only `~/.claude/plugins/cache`, `~/.claude/skills` and a husk
+pack's render tree in `~/.mattstack/rt/rendered` (its `folder` the installed husk, its keys in the
+render), and writes nothing. A `dir` containing `/plugins/cache/` (a cswap profile's link) is also
+followed, and counts only when its real path lands in the plugin cache or render root. It returns
+paths spelled through a skill link, never its target, and refuses a `compiled.json` whose folder or
+key leaves the plugin's version folder, its render tree or its own skill link (the OS applies a `..`
+after following the link, so nothing may climb back out through it). Every git tool goes through `tree-guard.ts`, which
 admits only the root of a registered checkout or worktree: `git_push` pushes
 one explicit refspec to the branch's same-named upstream (the checked sha when
 a check ran, since git's `-u` records nothing for a sha source and rt writes
