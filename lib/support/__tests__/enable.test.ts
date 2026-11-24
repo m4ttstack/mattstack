@@ -6,6 +6,7 @@ import { UserActionableError } from "../../errors.ts";
 import { NoAgeKeyError } from "../../secrets/store.ts";
 import { NoTeamRecipientsError } from "../../secrets/team-store.ts";
 import { getSetting } from "../../settings/resolve.ts";
+import { setSetting } from "../../settings/write.ts";
 import { createRealProbes } from "../../setup/probes.ts";
 import { closeStateDb } from "../../state/index.ts";
 import { realMembersSeams } from "../../team/members.ts";
@@ -63,6 +64,17 @@ describe("enableSupport", () => {
     seed();
     expect((await refusal(() => enableSupport(deps(), "acme", "team support on"))).code).toBe("no-host");
     expect(org().enabled).toBe(false);
+  });
+
+  test("a host saved while the key is made is the one that stands, and one given by name wins", async () => {
+    seed({ "support.host": "alex" });
+    expect(await enableSupport(deps(async () => setSetting("support.host", "ada", "org")), "acme", "team support on")).toEqual({ host: "ada" });
+    expect(org()).toEqual({ enabled: true, host: "ada" });
+    expect(await enableSupport(deps(async () => setSetting("support.host", "ada", "org")), "acme", "team support on", "alex")).toEqual({ host: "Alex" });
+
+    seed({ "support.host": "alex" });
+    expect((await refusal(() => enableSupport(deps(async () => setSetting("support.host", "bo", "org")), "acme", "team support on"))).code).toBe("not-a-member");
+    expect(org()).toEqual({ enabled: false, host: "bo" });
   });
 
   test("refuses a person off the roster, a member, and an org this Mac does not read", async () => {

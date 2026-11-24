@@ -137,7 +137,7 @@ export function createSettingsRoutes(
           if (!res.ok) {
             const said = res.failure?.code.startsWith('support-')
               ? res.failure.message
-              : 'rt did not answer, so support is still off. Try again.';
+              : 'rt did not answer. Reload to see whether support is on.';
             return c.json({ error: said }, 400);
           }
         }

@@ -286,7 +286,10 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
         deps.poke();
         return { ok: true, data: { enabled: on, host: changed.host } };
       } catch (err) {
-        if (err instanceof UserActionableError) return refuse(err.code, plainly(err));
+        if (err instanceof UserActionableError) {
+          if (err.log) deps.log.warn({ code: err.code, detail: err.log }, "support: the org's support switch was refused");
+          return refuse(err.code, plainly(err));
+        }
         deps.log.warn({ err }, "support: the org's support switch could not be changed");
         return refuse("enable", `Support could not be turned ${on ? "on" : "off"}, and rt's log says why.`);
       }

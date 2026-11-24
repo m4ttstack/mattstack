@@ -40,10 +40,11 @@ function harness() {
   };
   const sent: SupportDraft[] = [];
   const events: string[] = [];
+  const logged: object[] = [];
   const deps: SupportHandlerDeps = {
     db,
     now: () => state.now,
-    log: { warn() {}, info() {}, debug() {}, error() {} } as unknown as HandlerContext["log"],
+    log: { warn: (o: object) => void logged.push(o), info() {}, debug() {}, error() {} } as unknown as HandlerContext["log"],
     config: () => state.config,
     keys: async () => (state.keys ? { current: KEY, retired: [] } : null),
     keyMissing: () => state.keyMissing,
@@ -97,7 +98,7 @@ function harness() {
       { id: "old", direction: "out", peer: "alex", org: ORG, text: "help", parts: [], slackUserId: "U0ADA", state: "sent", reason: null, persona: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: state.now, receivedAt: state.now, ...over },
       db,
     );
-  return { db, state, deps, sent, events, handlers, request };
+  return { db, state, deps, sent, events, logged, handlers, request };
 }
 
 const ASK = { id: "r1", text: "the board will not load", parts: [{ key: "versions" as const, label: "Versions", value: "rt 1.2.3" }] };
@@ -123,6 +124,15 @@ describe("support:enable", () => {
       }
     }
     expect(h.events).toEqual([]);
+  });
+
+  test("a refusal's technical detail goes to the log and never to the screen", async () => {
+    const h = harness();
+    h.state.enable = new UserActionableError("secrets-unreadable", "The org's secrets could not be opened", {}, { log: "sops: mac mismatch" });
+    const r = await h.handlers["support:enable"]({ on: true });
+    expect(r).toMatchObject({ ok: false, failure: { code: "support-secrets-unreadable" } });
+    expect(JSON.stringify(r)).not.toContain("sops");
+    expect(h.logged).toEqual([{ code: "secrets-unreadable", detail: "sops: mac mismatch" }]);
   });
 
   test("anything else that goes wrong never shows its own words", async () => {

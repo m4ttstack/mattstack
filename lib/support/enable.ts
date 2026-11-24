@@ -35,23 +35,31 @@ function savedHost(deps: EnableDeps, slug: string): string | null {
   return typeof host === "string" ? host : null;
 }
 
-/** `host` left out means the saved one. The key comes first: support on with no key refuses every request. */
-export async function enableSupport(deps: EnableDeps, slug: string, verb: string, host?: string): Promise<{ host: string }> {
-  assertMayChange(deps, slug, verb);
+/** As the roster spells it. */
+function hostOnRoster(deps: EnableDeps, slug: string, host?: string): string {
   const named = host ?? savedHost(deps, slug);
   if (!named) throw new UserActionableError("no-host", "No one is set to answer support requests yet", {}, { why: "Set support.host to a person in the org first." });
   const entry = readOrgRoster(slug).find((e) => canonicalHandle(e.username) === canonicalHandle(named));
   if (!entry) {
     throw new UserActionableError("not-a-member", `${named} is not in this org yet`, {}, { next: `rt team invite --handle ${named} --teams <team>` });
   }
+  return entry.username;
+}
+
+/** `host` left out means the saved one. The key comes first: support on with no key refuses every request. */
+export async function enableSupport(deps: EnableDeps, slug: string, verb: string, host?: string): Promise<{ host: string }> {
+  assertMayChange(deps, slug, verb);
+  hostOnRoster(deps, slug, host);
   try {
     await deps.ensureKey(slug);
   } catch (err) {
     throw keyFailure(err, slug);
   }
-  deps.seams.writeSetting("support.host", entry.username, "org");
+  // Making the key takes a while, and the saved host can change meanwhile.
+  const answers = hostOnRoster(deps, slug, host);
+  deps.seams.writeSetting("support.host", answers, "org");
   deps.seams.writeSetting("support.enabled", true, "org");
-  return { host: entry.username };
+  return { host: answers };
 }
 
 /** Open chats carry on, and the key and host stay for next time. */

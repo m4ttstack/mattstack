@@ -278,7 +278,7 @@ describe('settings-kit behind console', () => {
       expect(writes).toHaveLength(0);
     });
 
-    it('reads plainly when rt does not answer', async () => {
+    it('never claims support is off when rt does not answer', async () => {
       answer = { ok: false, error: 'connect ENOENT /tmp/rt.sock' };
       const res = await withSupport.fetch(
         post('localhost', SUPPORT_ON),
@@ -286,7 +286,7 @@ describe('settings-kit behind console', () => {
       );
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({
-        error: 'rt did not answer, so support is still off. Try again.',
+        error: 'rt did not answer. Reload to see whether support is on.',
       });
       expect(writes).toHaveLength(0);
     });
