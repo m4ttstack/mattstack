@@ -150,8 +150,18 @@ test('gate open refuses a plain review gate with exit 3, apart from a daemon fai
   const plain = await run();
   expect(plain.code).toBe(3);
   expect(plain.stderr).toContain('review-source.sh');
+  expect(plain.stderr).toContain('run_enter');
 
   const reasoned = await run('--plain-reason', 'review-source.sh exit 2');
-  expect(reasoned.code).toBe(1);
+  expect(reasoned.code).toBe(3);
   expect(reasoned.stderr).not.toContain('review-source.sh');
+
+  const both = await run(
+    '--plain-reason',
+    'review-source.sh exit 2',
+    '--no-run-reason',
+    'run_enter refused'
+  );
+  expect(both.code).toBe(1);
+  expect(both.stderr).not.toContain('run_enter');
 });

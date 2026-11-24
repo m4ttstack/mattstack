@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'fs';
 import type { Database } from 'bun:sqlite';
 
-import type { Commands, RtResponse } from '@mattstack/rt-client';
+import type { Commands, RtResponse, RunDetail } from '@mattstack/rt-client';
 import { boardRootFromStatePath } from '../agent-status/emit.ts';
 import { writeDoctorState, type DoctorStatus } from '../doctor-state.ts';
 import { mrRef } from '../mr-ref.ts';
@@ -14,7 +14,7 @@ import {
   readByHandle,
 } from '../state/index.ts';
 import { gateNotifyCopy } from './notify-copy.ts';
-import { reviewPostContext } from './plain-review.ts';
+import { reviewPostContext } from './review-post-check.ts';
 import { domainForKind } from './sweep.ts';
 
 export type GateAnswers = Record<string, string | string[]>;
@@ -27,8 +27,8 @@ export interface GateQuestion {
   context?: string;
 }
 
-/** Thin seam over the three rt-client gate facility wrappers this CLI drives.
-    A real `io` wires the actual `gateAsk`/`gateWait`/`gateAnswer` exports;
+/** Thin seam over the rt-client wrappers this CLI drives. A real `io` wires
+    the actual `gateAsk`/`gateWait`/`gateAnswer`/`getRun` exports;
     tests inject fakes shaped the same way. */
 export interface GateVerbIo {
   gateAsk(
@@ -40,6 +40,7 @@ export interface GateVerbIo {
   gateAnswer(
     payload: Commands['gate:answer']['payload']
   ): Promise<RtResponse<Commands['gate:answer']['data']>>;
+  getRun(runId: string): Promise<RtResponse<RunDetail>>;
   now(): number;
 }
 
@@ -156,7 +157,12 @@ export async function gateOpen(
   kind: string,
   questionsJson: string,
   io: GateVerbIo,
-  extras: { context?: string; worktree?: string; plainReason?: string } = {}
+  extras: {
+    context?: string;
+    worktree?: string;
+    plainReason?: string;
+    noRunReason?: string;
+  } = {}
 ): Promise<GateOpenResult> {
   const questions = JSON.parse(questionsJson) as GateQuestion[];
   const db = openDbForHandle(statePath);
@@ -166,11 +172,12 @@ export async function gateOpen(
 
   const context =
     kind === 'review-post'
-      ? reviewPostContext(
+      ? await reviewPostContext(
           statePath,
           state.runStartedAt ?? state.startedAt,
           questions,
-          extras
+          extras,
+          io.getRun
         )
       : extras.context;
 
