@@ -5,9 +5,9 @@ import { usePeople } from './people.ts';
 import { PersonLead } from './PersonLead.tsx';
 import { Sep } from './Sep.tsx';
 
-/** A review gate's identity card: the invader, the author and where the MR
-    merges, and its links share the top line; the title, the age and diff
-    size, and the branch each take the card's full width below it. */
+/** A review gate's identity card: the invader, the author and the MR's links
+    share the top line; the title, the branch with the one it merges into, and
+    the age and diff size each take a line below it. */
 export function MrCard({ mr }: { mr: BoardMRWithReview }) {
   const people = usePeople(mr);
   return (
@@ -17,9 +17,19 @@ export function MrCard({ mr }: { mr: BoardMRWithReview }) {
         name={people.short(mr.author.username)}
         trailing={<MrLinks mr={mr} />}
       >
-        opened <MrRef mr={mr} /> into {mr.targetBranch}
+        opened <MrRef mr={mr} />
       </PersonLead>
       <p className="tui-id-card-title">{cleanTitle(mr.title)}</p>
+      {mr.sourceBranch && (
+        <p className="tui-mr-card-branches">
+          <span className="tui-id-card-branch" title={mr.sourceBranch}>
+            {mr.sourceBranch}
+          </span>{' '}
+          <span className="tui-mr-card-target" title={mr.targetBranch}>
+            → {mr.targetBranch}
+          </span>
+        </p>
+      )}
       <p className="tui-id-card-meta">
         <span>{ago(mr.createdAt, Date.now())}</span>
         {mr.diff && (
@@ -28,14 +38,6 @@ export function MrCard({ mr }: { mr: BoardMRWithReview }) {
             <span className="tui-mr-card-diff">
               <span className="tui-mr-card-diff-add">+{mr.diff.additions}</span>
               <span className="tui-mr-card-diff-del">-{mr.diff.deletions}</span>
-            </span>
-          </>
-        )}
-        {mr.sourceBranch && (
-          <>
-            <Sep />
-            <span className="tui-id-card-branch" title={mr.sourceBranch}>
-              {mr.sourceBranch}
             </span>
           </>
         )}

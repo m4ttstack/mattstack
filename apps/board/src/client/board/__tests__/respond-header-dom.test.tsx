@@ -189,15 +189,15 @@ test('an open plan@1 gate opens the respond sheet: threads left; MR card, decisi
   expect($('.tui-respond-sheet')).not.toBeNull();
   const card = $('.tui-sheet-rail .tui-mr-card')!;
   expect(card.querySelector('.tui-id-card-lead')!.textContent).toBe(
-    'Alex opened !87 into main'
+    'Alex opened !87'
   );
   expect(card.querySelector('.tui-id-card-title')!.textContent).toBe(
     'add retry to the fetch queue'
   );
-  expect(card.querySelector('.tui-id-card-branch')!.textContent).toBe(
-    'feature/demo-12-retry'
+  expect(card.querySelector('.tui-mr-card-branches')!.textContent).toBe(
+    'feature/demo-12-retry → main'
   );
-  expect(card.querySelectorAll('.tui-sep').length).toBe(1);
+  expect(card.querySelectorAll('.tui-sep').length).toBe(0);
   const context = $('.tui-sheet-rail .tui-sheet-context-card')!;
   expect(context.querySelector('.tui-id-card-lead')!.textContent).toBe(
     'renee reviewed your merge request'

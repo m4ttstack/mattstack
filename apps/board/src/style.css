@@ -8293,13 +8293,25 @@ a.tui-id-card-ref:focus-visible {
 
 /* The MR card's age, diff and branch share one line; a long branch clips
    rather than taking a line of its own. */
-.tui-mr-card .tui-id-card-meta {
-  flex-wrap: nowrap;
+.tui-mr-card-branches {
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.tui-mr-card-branches .tui-id-card-branch {
   min-width: 0;
 }
-.tui-mr-card .tui-id-card-branch {
-  flex: 1;
-  min-width: 0;
+/* A long source branch gives way before the target does. */
+.tui-mr-card-target {
+  flex-shrink: 0;
+  max-width: 50%;
+  overflow: hidden;
+  color: var(--text-4);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The decision context's severities as the cards show them: a dot, the
