@@ -8,6 +8,7 @@ import {
   newestBuild,
   parseHerdrBuilds,
   parseHerdrVersion,
+  serverNeedsMove,
 } from "../herdr-builds.ts";
 import { fakeProbes } from "./fakes.ts";
 
@@ -62,6 +63,21 @@ describe("parseHerdrBuilds", () => {
     expect(parseHerdrBuilds(JSON.stringify(listJson({ builds: [build("0.9.5-ms.1", 1), bad] })))).toBeNull();
   });
 
+  test("rejects an asset url that climbs out of the fork with dot segments", () => {
+    const bad = build("0.9.5-ms.2", 2);
+    bad.assets.arm64.url = `${HERDR_ASSET_PREFIX}../../../evil/herdr/releases/download/x`;
+    expect(parseHerdrBuilds(JSON.stringify(listJson({ builds: [build("0.9.5-ms.1", 1), bad] })))).toBeNull();
+  });
+
+  test("rejects a build whose version is not fork-shaped or disagrees with herdr and revision", () => {
+    const stock = { ...build("0.9.5-ms.2", 2), version: "0.9.5" };
+    expect(parseHerdrBuilds(JSON.stringify(listJson({ newest: "0.9.5", builds: [stock] })))).toBeNull();
+    const wrongBase = { ...build("0.9.5-ms.2", 2), herdr: "0.9.6" };
+    expect(parseHerdrBuilds(JSON.stringify(listJson({ builds: [build("0.9.5-ms.1", 1), wrongBase] })))).toBeNull();
+    const wrongRevision = { ...build("0.9.5-ms.2", 2), revision: 3 };
+    expect(parseHerdrBuilds(JSON.stringify(listJson({ builds: [build("0.9.5-ms.1", 1), wrongRevision] })))).toBeNull();
+  });
+
   test("rejects schema 2, a missing newest, a short sha256", () => {
     expect(parseHerdrBuilds(JSON.stringify(listJson({ schema: 2 })))).toBeNull();
     expect(parseHerdrBuilds(JSON.stringify(listJson({ newest: "0.9.5-ms.9" })))).toBeNull();
@@ -94,6 +110,34 @@ describe("herdrVerdict", () => {
   test("a build below the minimum is outdated and says so", () => {
     expect(herdrVerdict(v("herdr 0.9.5-ms.1"), null, "0.9.5-ms.2")).toEqual({ kind: "outdated", version: "0.9.5-ms.1", target: "0.9.5-ms.2", belowMinimum: true });
     expect(herdrVerdict(v("herdr 0.9.5-ms.1"), list, "0.9.5-ms.2")).toEqual({ kind: "outdated", version: "0.9.5-ms.1", target: "0.9.5-ms.2", belowMinimum: true });
+  });
+});
+
+describe("serverNeedsMove", () => {
+  const withServerChanges = (changes: Record<string, boolean>) =>
+    parseHerdrBuilds(
+      JSON.stringify(listJson({ newest: Object.keys(changes).at(-1), builds: Object.entries(changes).map(([version, changesServer], i) => ({ ...build(version, i + 1), changesServer })) })),
+    )!;
+
+  test("a server already on the installed build never moves", () => {
+    expect(serverNeedsMove("0.9.5-ms.2", "0.9.5-ms.2", null)).toBe(false);
+    expect(serverNeedsMove("0.9.5-ms.2", "0.9.5-ms.2", list)).toBe(false);
+  });
+
+  test("a stock server always moves, whatever the builds say", () => {
+    expect(serverNeedsMove("0.9.5", "0.9.5-ms.2", withServerChanges({ "0.9.5-ms.1": false, "0.9.5-ms.2": false }))).toBe(true);
+  });
+
+  test("a fork server moves only when a build after it, up to the installed one, changes the server", () => {
+    const keep = withServerChanges({ "0.9.5-ms.1": true, "0.9.5-ms.2": false });
+    expect(serverNeedsMove("0.9.5-ms.1", "0.9.5-ms.2", keep)).toBe(false);
+    const between = withServerChanges({ "0.9.5-ms.1": false, "0.9.5-ms.2": true, "0.9.5-ms.3": false });
+    expect(serverNeedsMove("0.9.5-ms.1", "0.9.5-ms.3", between)).toBe(true);
+    expect(serverNeedsMove("0.9.5-ms.2", "0.9.5-ms.3", between)).toBe(false);
+  });
+
+  test("without the list, any other version moves", () => {
+    expect(serverNeedsMove("0.9.5-ms.1", "0.9.5-ms.2", null)).toBe(true);
   });
 });
 

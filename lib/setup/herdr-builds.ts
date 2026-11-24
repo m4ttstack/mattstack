@@ -52,9 +52,18 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/** A dot segment would pass a plain prefix check and still leave the fork once resolved, so only a URL already in its resolved form counts. */
+function isCanonicalForkUrl(url: string): boolean {
+  try {
+    return new URL(url).href === url && url.startsWith(HERDR_ASSET_PREFIX);
+  } catch {
+    return false;
+  }
+}
+
 function parseAsset(raw: unknown): HerdrBuildAsset | null {
   if (!isRecord(raw) || typeof raw.url !== "string" || typeof raw.sha256 !== "string") return null;
-  if (!raw.url.startsWith(HERDR_ASSET_PREFIX) || !SHA256.test(raw.sha256)) return null;
+  if (!isCanonicalForkUrl(raw.url) || !SHA256.test(raw.sha256)) return null;
   return { url: raw.url, sha256: raw.sha256 };
 }
 
@@ -62,6 +71,8 @@ function parseBuild(raw: unknown): HerdrBuild | null {
   if (!isRecord(raw)) return null;
   const { version, herdr, revision, changesServer, assets, supersedes } = raw;
   if (typeof version !== "string" || typeof herdr !== "string" || typeof revision !== "number" || typeof changesServer !== "boolean") return null;
+  const fork = forkOf(version);
+  if (!fork || fork.herdr !== herdr || fork.revision !== revision) return null;
   if (!isRecord(assets) || !Array.isArray(supersedes) || !supersedes.every((s) => typeof s === "string")) return null;
   const parsed: Partial<Record<HostArch, HerdrBuildAsset>> = {};
   for (const [arch, entry] of Object.entries(assets)) {
@@ -123,6 +134,23 @@ export function herdrVerdict(installed: ReturnType<typeof parseHerdrVersion>, li
   const newest = forkOf(list.newest);
   if (newest && compareForkVersions(fork, newest) < 0) return { kind: "outdated", version, target, belowMinimum: false };
   return { kind: "current", version, checked: true };
+}
+
+/**
+ * Whether a running server must move onto the installed build: a stock
+ * server always does, and a fork server does when a listed build after it,
+ * up to the installed one, changes the server. Without the list, any other
+ * version moves.
+ */
+export function serverNeedsMove(server: string, installed: string, list: HerdrBuilds | null): boolean {
+  if (server === installed) return false;
+  const from = forkOf(server);
+  const to = forkOf(installed);
+  if (!from || !to || !list) return true;
+  return list.builds.some((b) => {
+    const fork = forkOf(b.version)!;
+    return b.changesServer && compareForkVersions(fork, from) > 0 && compareForkVersions(fork, to) <= 0;
+  });
 }
 
 export async function fetchHerdrBuilds(p: Pick<Probes, "fetch">): Promise<HerdrBuilds | null> {

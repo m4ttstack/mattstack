@@ -427,10 +427,10 @@ function herdrList(versions: string[]) {
   return {
     schema: 1,
     newest: versions[versions.length - 1],
-    builds: versions.map((version, i) => ({
+    builds: versions.map((version) => ({
       version,
-      herdr: "0.9.5",
-      revision: i + 1,
+      herdr: version.split("-ms.")[0],
+      revision: Number(version.split("-ms.")[1]),
       changesServer: false,
       assets: { arm64: { url: `${prefix}v${version}/herdr-macos-aarch64`, sha256: sha } },
       supersedes: [],
