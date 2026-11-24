@@ -53,6 +53,18 @@ export const EXAMPLES: Record<string, Example> = {
     good: ["!!ada"],
     bad: [{ value: "", path: [] }],
   },
+  "support.enabled": {
+    good: [true, false],
+    bad: [{ value: "on", path: [] }],
+  },
+  "support.host": {
+    good: ["alex"],
+    bad: [{ value: "", path: [] }, { value: " ", path: [] }],
+  },
+  "support.acceptRequests": {
+    good: [true, false],
+    bad: [{ value: "yes", path: [] }],
+  },
   "rt.roles": {
     good: [
       {},

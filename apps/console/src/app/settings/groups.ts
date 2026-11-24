@@ -127,6 +127,13 @@ export const GROUPS: Group[] = [
     match: prefix('chat.'),
   },
   {
+    id: 'support',
+    label: 'Support',
+    tier: 'apps',
+    blurb: 'Who in the org can ask for help, and whose Mac answers.',
+    match: prefix('support.'),
+  },
+  {
     id: 'deck',
     label: 'Deck',
     tier: 'apps',

@@ -2377,5 +2377,27 @@
       "title": "Plan execution",
       "description": "How Claude runs a superpowers plan once it is ready: Native with reviews, subagent-driven, Native, or ask each time."
     }
+  },
+  "support.acceptRequests": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "boolean"
+    }
+  },
+  "support.enabled": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "boolean"
+    }
+  },
+  "support.host": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "string",
+      "pattern": "\\S"
+    }
   }
 }

@@ -1,11 +1,11 @@
-import { activeTeam, decideActiveTeam, type RosterEntry } from "../packages/rt-client/src/settings/active-team.ts";
+import { activeTeam, decideActiveTeam, readOrgRoster, type RosterEntry } from "../packages/rt-client/src/settings/active-team.ts";
 import { useTeam, type UseTeamSeams } from "../lib/team/use.ts";
 import type { SecretsSeams } from "../lib/secrets/store.ts";
 import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
 import { orgStoreFile } from "../lib/team/org-store.ts";
 import { rosterFrom } from "../packages/rt-client/src/settings/active-team.ts";
 import { activeTeamFor } from "../lib/team/active-team.ts";
-import { roleFor, rolesFor } from "../lib/team/roles.ts";
+import { assertMayWrite, roleFor, rolesFor } from "../lib/team/roles.ts";
 import { applyForgeAccess, readForgeAccess, realForgeAccessSeams, sharedBranchSentence, type ForgeAccessApplied, type ForgeAccessReport, type ForgeAccessSeams } from "../lib/team/forge-access-apply.ts";
 import { diffLines, hasChanges, limitSentence } from "../lib/team/forge-access-plan.ts";
 import { restoreDataBranch, type RestorePlan, type RestoreResult } from "../lib/team/data-branch-guard.ts";
@@ -25,6 +25,7 @@ import { isOrgAdmin, roleOf } from "../packages/rt-client/src/settings/org-roles
  *   rt team members remove <handle> [--key <age1...>] [--team <slug>] [--json]
  *   rt team status [--team <slug>] [--json]
  *   rt team peer [--team <slug>] [--rotate] [--json]
+ *   rt team support on [--host <username>]|off|status [--team <slug>] [--json]
  *
  * Every mutating path funnels through one `UserActionableError` → exit-2
  * envelope, via `exitUserError` (lib/errors.ts), including a locked
@@ -39,7 +40,7 @@ import type { AgeKeySeam } from "../lib/home/age-key.ts";
 import { createRealAgeKeySeam } from "../lib/home/age-key.ts";
 import { promptSecret } from "../lib/prompt-secret.ts";
 import { orgDirUnder, orgSettingsPath } from "../lib/rt-paths.ts";
-import { createRealTeamSecretsSeams } from "../lib/secrets/team-store.ts";
+import { createRealTeamSecretsSeams, NoTeamRecipientsError } from "../lib/secrets/team-store.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { storedValue } from "../lib/settings/presence.ts";
 import { listOrgs, parseStoreText, readStore, TEAM_NAME_RE } from "../lib/settings/stores.ts";
@@ -70,6 +71,10 @@ import { MembersKeyError, MembersSyncAbortedError, membersAddToTeam, membersDrop
 import { sendAnnouncement } from "../lib/team/announce.ts";
 import { peerOwnBoard, realPeerSeams, type PeerResult, type PeerSeams } from "../lib/team/peer.ts";
 import { publishTeam } from "../lib/team/publish.ts";
+import { ensureSupportKey, readSupportKeys } from "../lib/support/org-key.ts";
+import { NoAgeKeyError } from "../lib/secrets/store.ts";
+import { assertCurrentOrg } from "../lib/team/team-local.ts";
+import { ORG_STORE_REL } from "../packages/rt-client/src/settings/paths.ts";
 import { renameOrg, type ConvergeOutcome, type RenameResult, type RenameSeams } from "../lib/team/rename.ts";
 import { writeGeneratedMarketplace } from "../lib/setup/generated-marketplace.ts";
 import { commitPendingPackShares, droppedShareBlocks, droppedShares, packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share-pack.ts";
@@ -131,6 +136,8 @@ export interface TeamDeps {
   renameSeams?: Partial<RenameSeams>;
   /** The forge reads and writes `rt team forge-access` makes; real by default. */
   forgeAccessSeams?: ForgeAccessSeams;
+  /** The org support key `rt team support` makes and reads; real by default. */
+  supportKeys?: { ensure: typeof ensureSupportKey; read: typeof readSupportKeys };
   /** The announcement send, seamed so a test never reaches the switchboard; real by default. */
   announce?: typeof sendAnnouncement;
   /** The open invites and their states for `teamStatus`; real relay and clock by default. */
@@ -966,6 +973,115 @@ export function manageMembershipBlocks(slug: string, on: boolean, runsOrg: boole
   return [
     out.line("off", `You manage who can reach ${slug} on the forge`, "membership management is off"),
     runsOrg ? out.callout("next", out.cmd(`rt team manage-membership on --team ${slug}`)) : out.callout("note", "Only an org admin can turn this on"),
+  ];
+}
+
+export interface SupportStatus {
+  slug: string;
+  enabled: boolean;
+  host: string | null;
+  hostOnRoster: boolean;
+  key: "ready" | "missing" | "unreadable";
+}
+
+const SUPPORT_USAGE = "rt team support on --host <username> [--team <slug>] [--json]";
+
+/** A person's fix for a key rt could not make: anything else is unexpected and reaches the seam. */
+function supportKeyFailure(err: unknown, slug: string): unknown {
+  if (err instanceof NoTeamRecipientsError) {
+    return new UserActionableError("no-recipients", `The ${slug} org's secrets are not locked to anyone yet`, {}, { next: "rt team members sync" });
+  }
+  if (err instanceof NoAgeKeyError) return new UserActionableError("no-age-key", "This Mac has no secrets key yet", {}, { next: "rt home init" });
+  return err;
+}
+
+export async function teamSupportOn(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  try {
+    const slug = resolveTeamSlug(args, "team support on");
+    const seams = deps.membersSeams ?? realMembersSeams();
+    assertMayWrite(deps.probes, slug, ORG_STORE_REL);
+    assertCurrentOrg(slug, seams.currentOrg(), "team support on");
+    const store = seams.readTeamStore(slug);
+    const named = flagValue(args, "--host") ?? (typeof store["support.host"] === "string" ? store["support.host"] : null);
+    if (!named) return usageError(deps, json, "Say whose Mac answers", SUPPORT_USAGE);
+    const entry = readOrgRoster(slug).find((e) => canonicalHandle(e.username) === canonicalHandle(named));
+    if (!entry) {
+      throw new UserActionableError("not-a-member", `${named} is not in this org yet`, {}, { next: `rt team invite --handle ${named} --teams <team>` });
+    }
+    try {
+      await (deps.supportKeys?.ensure ?? ensureSupportKey)(slug, deps.secrets ?? createRealTeamSecretsSeams(slug));
+    } catch (err) {
+      throw supportKeyFailure(err, slug);
+    }
+    seams.writeSetting("support.host", entry.username, "org");
+    seams.writeSetting("support.enabled", true, "org");
+    if (json) return deps.print(JSON.stringify(envelope({ slug, enabled: true, host: entry.username })));
+    out.print(
+      out.line("done", `${entry.username} answers support requests for ${slug}`),
+      out.callout("note", `Nothing opens until ${entry.username} turns on accepting requests on their Mac.`),
+    );
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+export async function teamSupportOff(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  try {
+    const slug = resolveTeamSlug(args, "team support off");
+    const seams = deps.membersSeams ?? realMembersSeams();
+    assertMayWrite(deps.probes, slug, ORG_STORE_REL);
+    assertCurrentOrg(slug, seams.currentOrg(), "team support off");
+    const host = seams.readTeamStore(slug)["support.host"];
+    seams.writeSetting("support.enabled", false, "org");
+    if (json) return deps.print(JSON.stringify(envelope({ slug, enabled: false, host: typeof host === "string" ? host : null })));
+    out.print(out.line("off", `Support requests are off for ${slug}`, "open chats carry on"));
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+export async function teamSupportStatus(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  try {
+    const slug = resolveTeamSlug(args, "team support status");
+    const store = (deps.membersSeams ?? realMembersSeams()).readTeamStore(slug);
+    const host = typeof store["support.host"] === "string" ? store["support.host"] : null;
+    const status: SupportStatus = {
+      slug,
+      enabled: store["support.enabled"] === true,
+      host,
+      hostOnRoster: host !== null && readOrgRoster(slug).some((e) => canonicalHandle(e.username) === canonicalHandle(host)),
+      key: await (deps.supportKeys?.read ?? readSupportKeys)(slug, deps.secrets ?? createRealTeamSecretsSeams(slug)).then(
+        (keys) => (keys === null ? ("missing" as const) : ("ready" as const)),
+        (err) => {
+          logCliEvent("warn", "team.support", withoutUrls(err instanceof Error ? err.message : String(err)));
+          return "unreadable" as const;
+        },
+      ),
+    };
+    if (json) return deps.print(JSON.stringify(envelope({ ...status })));
+    out.print(...supportStatusBlocks(status));
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+export function supportStatusBlocks(s: SupportStatus): Block[] {
+  const turnOn = out.cmd(`rt team support on --host ${s.host ?? "<username>"}`);
+  if (!s.enabled) return [out.line("off", `Support requests are off for ${s.slug}`), out.callout("next", turnOn)];
+  if (s.host === null) return [out.line("needs-you", `No one answers support requests for ${s.slug}`), out.callout("next", turnOn)];
+  if (!s.hostOnRoster) {
+    return [out.line("needs-you", `${s.host} is not in this org, so no one answers support requests`), out.callout("next", out.cmd("rt team support on --host <username>"))];
+  }
+  if (s.key === "missing") return [out.line("needs-you", "Support has no key yet, so no request can be sent"), out.callout("next", turnOn)];
+  return [
+    out.line("done", `${s.host} answers support requests for ${s.slug}`),
+    ...(s.key === "unreadable" ? [out.callout("note", "This Mac cannot open the org's secrets, so it cannot send or answer one.")] : []),
   ];
 }
 
