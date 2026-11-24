@@ -117,6 +117,7 @@ struct HelpForm: View {
         TextEditor(text: $text)
             .font(.system(size: 13))
             .scrollContentBackground(.hidden)
+            .scrollIndicators(.never)
             .padding(EdgeInsets(top: 8, leading: 5, bottom: 8, trailing: 5))
             .frame(height: 120)
             .background(RoundedRectangle(cornerRadius: 7).fill(Color(nsColor: .textBackgroundColor)))
