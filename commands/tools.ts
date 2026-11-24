@@ -3,7 +3,8 @@
  *
  *   rt tools install <tool> [--json]
  *   rt tools setup <tool> [--config-dir <dir>]… [--json]
- *   rt tools restart herdr [--check] [--json]
+ *   rt tools restart herdr [--json]
+ *   rt tools stale herdr [--json]
  *
  * Thin CLI shell over lib/setup/tools-install.ts: this module only parses
  * args, resolves the joined team's pack requirements (for team-declared
@@ -149,51 +150,35 @@ export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: P
   out.print(out.line("done", `Set up ${t}`, result.detail));
 }
 
-const RESTART_TOOLS = ["herdr"];
-const RESTART_USAGE = "usage: rt tools restart herdr [--check] [--json]";
+const HERDR_SERVER_TOOLS = ["herdr"];
 
-/** Names the herdr servers a restart would stop, and stops none. */
-async function checkHerdr(p: Probes, json: boolean): Promise<void> {
-  const { stale, error } = await checkStaleHerdrServers(p);
-  if (json) {
-    out.json(envelope({ stale, ...(error ? { error: { code: "herdr-check-failed", message: error } } : {}) }));
-    // The app reads an envelope's error only on exit 2.
-    if (error) process.exit(2);
-    return;
+/** Resolves once the one tool with servers is named; anything else is a usage failure. */
+async function requireHerdr(args: string[], verb: "restart" | "stale", ask: string, refusal: string): Promise<void> {
+  const json = args.includes("--json");
+  const usage = `usage: rt tools ${verb} herdr [--json]`;
+  const command = `rt tools ${verb} herdr`;
+  let t = tool(args);
+  if (!t) {
+    if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
+      t = (await pickTool(ask, HERDR_SERVER_TOOLS)) ?? undefined;
+      if (!t) process.exit(0);
+    } else if (json) {
+      exitUserError(new UserActionableError("usage", usage), json);
+    } else {
+      out.fail(usageFailure("Which tool?", command));
+      process.exit(2);
+    }
   }
-  if (error) {
-    out.fail({ title: "rt could not check herdr's servers", why: error });
-    process.exit(1);
-  }
-  if (stale.length === 0) {
-    out.print(out.line("done", "No herdr server needs a restart"));
-    return;
-  }
-  out.print(out.line("stale", stale.length === 1 ? "1 herdr server runs an older herdr" : `${stale.length} herdr servers run an older herdr`, stale.join(", ")));
+  if (t === "herdr") return;
+  if (json) exitUserError(new UserActionableError("usage", usage), json);
+  out.fail(usageFailure(refusal, command));
+  process.exit(2);
 }
 
 /** Ends the herdr servers still on an older herdr, which ends their panes. */
 export async function toolsRestart(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
   const json = args.includes("--json");
-  let t = tool(args);
-  if (!t) {
-    if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
-      t = (await pickTool("Restart which tool?", RESTART_TOOLS)) ?? undefined;
-      if (!t) process.exit(0);
-    } else if (json) {
-      exitUserError(new UserActionableError("usage", RESTART_USAGE), json);
-    } else {
-      out.fail(usageFailure("Which tool?", "rt tools restart herdr"));
-      process.exit(2);
-    }
-  }
-  if (t !== "herdr") {
-    if (json) exitUserError(new UserActionableError("usage", RESTART_USAGE), json);
-    out.fail(usageFailure("rt can only restart herdr", "rt tools restart herdr"));
-    process.exit(2);
-  }
-
-  if (args.includes("--check")) return checkHerdr(p, json);
+  await requireHerdr(args, "restart", "Restart which tool?", "rt can only restart herdr");
 
   const result = await restartStaleHerdrServers(p);
   const failed = result.error !== undefined || result.failed.length > 0;
@@ -217,4 +202,31 @@ export async function toolsRestart(args: string[], _ctx: CommandContext = {}, p:
     return;
   }
   out.print(out.line("done", "Stopped herdr's older servers", result.stopped.join(", ")));
+}
+
+/**
+ * Names the herdr servers a restart would stop, and stops none. Its own verb
+ * rather than a flag on restart: rt ignores a flag it does not know, so an
+ * older rt asked to check would restart.
+ */
+export async function toolsStale(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
+  const json = args.includes("--json");
+  await requireHerdr(args, "stale", "Check which tool?", "rt can only check herdr");
+
+  const { stale, error } = await checkStaleHerdrServers(p);
+  if (json) {
+    out.json(envelope({ stale, ...(error ? { error: { code: "herdr-check-failed", message: error } } : {}) }));
+    // The app reads an envelope's error only on exit 2.
+    if (error) process.exit(2);
+    return;
+  }
+  if (error) {
+    out.fail({ title: "rt could not check herdr's servers", why: error });
+    process.exit(1);
+  }
+  if (stale.length === 0) {
+    out.print(out.line("done", "No herdr server needs a restart"));
+    return;
+  }
+  out.print(out.line("stale", stale.length === 1 ? "1 herdr server runs an older herdr" : `${stale.length} herdr servers run an older herdr`, stale.join(", ")));
 }
