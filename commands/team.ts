@@ -1003,8 +1003,11 @@ export async function teamSupportOn(args: string[], _ctx: CommandContext = {}, d
     assertMayWrite(deps.probes, slug, ORG_STORE_REL);
     assertCurrentOrg(slug, seams.currentOrg(), "team support on");
     const store = seams.readTeamStore(slug);
-    const named = flagValue(args, "--host") ?? (typeof store["support.host"] === "string" ? store["support.host"] : null);
-    if (!named) return usageError(deps, json, "Say whose Mac answers", SUPPORT_USAGE);
+    const given = args.find((a) => a === "--host" || a.startsWith("--host="));
+    const flag = given?.startsWith("--host=") ? given.slice("--host=".length) : flagValue(args, "--host");
+    const stored = typeof store["support.host"] === "string" ? store["support.host"] : null;
+    const named = given === undefined ? stored : flag;
+    if (!named || named.startsWith("--")) return usageError(deps, json, "Say whose Mac answers", SUPPORT_USAGE);
     const entry = readOrgRoster(slug).find((e) => canonicalHandle(e.username) === canonicalHandle(named));
     if (!entry) {
       throw new UserActionableError("not-a-member", `${named} is not in this org yet`, {}, { next: `rt team invite --handle ${named} --teams <team>` });

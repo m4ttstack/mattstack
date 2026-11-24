@@ -111,6 +111,20 @@ describe("rt team support", () => {
     expect(second.calls).toEqual([]);
   });
 
+  test("a host given with an equals sign counts, and one left blank asks", async () => {
+    seed({ "support.host": "ada" });
+    const { d } = deps();
+    await teamSupportOn(["--host=alex", "--json"], {}, d);
+    expect(org()).toEqual({ enabled: true, host: "Alex" });
+    for (const args of [["--host", "--json"], ["--host=", "--json"], ["--json", "--host"]]) {
+      seed({ "support.host": "ada" });
+      const blank = deps();
+      expect(await exitCode(() => teamSupportOn(args, {}, blank.d))).toBe(2);
+      expect(JSON.parse(blank.lines[0]!).error.code).toBe("usage");
+      expect(blank.calls).toEqual([]);
+    }
+  });
+
   test("a member is refused with the org's admins named", async () => {
     for (const verb of [teamSupportOn, teamSupportOff]) {
       seed({ "support.enabled": true }, "ada");
@@ -154,7 +168,7 @@ describe("rt team support", () => {
 
   test("status reads and writes nothing, for a member too", async () => {
     seed({ "support.enabled": true, "support.host": "bo" }, "ada");
-    const { d, lines, calls } = deps({ keys: async () => ({ current: "k", previous: null, rotatedAt: null }) });
+    const { d, lines, calls } = deps({ keys: async () => ({ current: "k", retired: [] }) });
     await teamSupportStatus(["--json"], {}, d);
     expect(JSON.parse(lines[0]!)).toMatchObject({ slug: "acme", enabled: true, host: "bo", hostOnRoster: false, key: "ready" });
     expect(calls).toEqual([]);

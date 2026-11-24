@@ -790,7 +790,7 @@ describe("membersRemove", () => {
 
     const after = (await readSupportKeys(SLUG, secrets))!;
     expect(after.current).not.toBe(before.current);
-    expect(after.previous).toBe(before.current);
+    expect(after.retired.map((r) => r.key)).toEqual([before.current]);
     expect(result.manualSteps.join(" ")).not.toContain("support key");
   });
 

@@ -44,12 +44,16 @@ describe("supportConfig", () => {
     expect(supportConfig()).toBeNull();
   });
 
-  test("the org's remote reads the same over ssh and https", () => {
-    seed();
-    const overSsh = supportConfig()!.orgRemote;
-    seed({}, "alex", "https://git.example.com/Acme/Mattstack.git");
-    expect(supportConfig()!.orgRemote).toBe(overSsh);
-    expect(overSsh.toLowerCase()).toBe("git.example.com/acme/mattstack");
+  test("the org's remote reads the same however the clone was made", () => {
+    for (const remote of [
+      "git@git.example.com:Acme/Mattstack.git",
+      "https://git.example.com/acme/mattstack",
+      "https://x-access-token:secret@GIT.example.com/Acme/mattstack.git/",
+      "ssh://git@git.example.com:2222/acme/mattstack.git",
+    ]) {
+      seed({}, "alex", remote);
+      expect(supportConfig()!.orgRemote).toBe("git.example.com/acme/mattstack");
+    }
   });
 
   test("off by default, with nobody as the host", () => {

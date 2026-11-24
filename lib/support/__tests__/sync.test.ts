@@ -45,7 +45,7 @@ beforeEach(() => {
   db = openStateDb(join(tmpdir(), `support-sync-test-${process.pid}-${n++}-${Date.now()}.db`));
   clock = 1_000_000_000;
   config = host;
-  keys = { current: KEY, previous: null, rotatedAt: null };
+  keys = { current: KEY, retired: [] };
   inbox = [];
   acked = [];
   sent = [];
@@ -158,7 +158,7 @@ describe("pulling requests", () => {
     const s = sync();
     await s.pull("request");
     expect(acked).toEqual([]);
-    keys = { current: FOREIGN, previous: KEY, rotatedAt: clock };
+    keys = { current: FOREIGN, retired: [{ key: KEY, retiredAt: clock }] };
     config = { ...host, roster: [...host.roster, { username: "zed" }] };
     await s.pull("request");
     expect(acked.sort()).toEqual(["ada new-key", "zed new-member"]);
@@ -178,13 +178,13 @@ describe("pulling requests", () => {
     const s = sync();
     await s.pull("request");
     expect(acked).toEqual([]);
-    keys = { current: KEY, previous: null, rotatedAt: null };
+    keys = { current: KEY, retired: [] };
     await s.pull("request");
     expect(events).toContain("request ada r1");
   });
 
   test("a request signed with the previous key inside 7 days is stored", async () => {
-    keys = { current: KEY, previous: OLD, rotatedAt: clock };
+    keys = { current: KEY, retired: [{ key: OLD, retiredAt: clock }] };
     arrive({ key: OLD });
     await sync().pull("request");
     expect(getRequest("in", "ada", "r1", db)).not.toBeNull();
@@ -377,7 +377,7 @@ describe("flushing statuses", () => {
 
   test("a status is signed with the key of the moment it is sent", async () => {
     queueStatus({ id: "r1:received", to: "ada", body: "{}" }, clock, db);
-    keys = { current: FOREIGN, previous: KEY, rotatedAt: clock };
+    keys = { current: FOREIGN, retired: [{ key: KEY, retiredAt: clock }] };
     await sync().flush();
     const d = sent[0]!;
     expect(d.mac).toBe(supportMac(FOREIGN, { ...d, org: ORG, from: "alex" }));
@@ -425,7 +425,7 @@ describe("flushing statuses", () => {
     queueStatus({ id: "r1:received", to: "ada", body: "{}" }, clock, db);
     keys = null;
     await s.flush();
-    keys = { current: KEY, previous: null, rotatedAt: null };
+    keys = { current: KEY, retired: [] };
     config = { ...host, me: null };
     await s.flush();
     expect(sent).toEqual([]);

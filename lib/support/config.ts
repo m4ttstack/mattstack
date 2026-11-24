@@ -29,7 +29,7 @@ export function supportConfig(p: Probes = createRealProbes()): SupportConfig | n
   const org = currentOrg();
   if (org === null) return null;
   const remote = teamRemote(p, org);
-  const orgRemote = remote === null ? null : normalizeRemote(remote);
+  const orgRemote = remote === null ? null : canonicalRemote(remote);
   if (orgRemote === null) return null;
 
   const roster = readOrgRoster(org).map((e) => ({ username: e.username, ...(typeof e.name === "string" ? { name: e.name } : {}) }));
@@ -40,6 +40,15 @@ export function supportConfig(p: Probes = createRealProbes()): SupportConfig | n
   const isHost = host !== null && me !== null && canonicalHandle(host) === canonicalHandle(me);
   const accepts = getSetting<boolean>("support.acceptRequests").value === true;
   return { org, orgRemote, enabled, host, me, isHost, accepts, acceptHere: enabled && isHost && accepts, roster };
+}
+
+/** Two Macs reach one org by differently spelled remotes, and a proof must not depend on which. */
+function canonicalRemote(remote: string): string | null {
+  const normalized = normalizeRemote(remote);
+  if (normalized === null) return null;
+  const slash = normalized.indexOf("/");
+  const host = normalized.slice(0, slash).replace(/:\d+$/, "");
+  return `${host}${normalized.slice(slash).replace(/\.git$/, "")}`.toLowerCase();
 }
 
 function listed(roster: SupportConfig["roster"], username: string): boolean {
