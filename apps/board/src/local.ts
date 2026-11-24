@@ -1,4 +1,5 @@
 export {
+  fromOperatorPage,
   hasLocalOrigin,
   isLocalRequest,
 } from '@mattstack/app-server/local-request';

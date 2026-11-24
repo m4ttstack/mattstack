@@ -185,6 +185,20 @@ export function statusPhrase(mr: BoardMR): { text: string; hue: PillHue } {
   return { text: label, hue: PILL_HUE[label] ?? 'amber' };
 }
 
+/** The MR in a few words, for a help request about it: its review state,
+    then whatever the board's agents are doing or last did. */
+export function helpState(mr: BoardMRWithReview): string {
+  const lanes = [
+    ['review', mr.review?.status],
+    ['respond', mr.respond?.status],
+    ['doctor', mr.doctor?.status],
+  ] as const;
+  return [
+    statusPhrase(mr).text,
+    ...lanes.filter(([, s]) => s).map(([lane, s]) => `${lane} ${s}`),
+  ].join(', ');
+}
+
 // ── line 3: the candidates ──────────────────────────────────────────────────
 
 const REVIEW_IN_FLIGHT = new Set<ReviewStatus>(['queued', 'reviewing']);

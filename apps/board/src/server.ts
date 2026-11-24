@@ -39,6 +39,10 @@ import {
   rtCommand,
   setSetting,
   subscribe,
+  supportAvailability,
+  supportContext,
+  supportMine,
+  supportSend,
   type ForgeFileDiffData,
   type ForgeGetData,
   type GateRow,
@@ -270,7 +274,12 @@ import {
   syncBranchLocally,
   takeSyncLine,
 } from './local-sync.ts';
-import { hasLocalOrigin, isLocalRequest, requireJsonBody } from './local.ts';
+import {
+  fromOperatorPage,
+  hasLocalOrigin,
+  isLocalRequest,
+  requireJsonBody,
+} from './local.ts';
 import {
   doctorSkillTabs,
   laneBoardTab,
@@ -472,6 +481,7 @@ import {
   writerRank,
 } from './state/index.ts';
 import styleCss from './style.css' with { type: 'text' };
+import { supportRoute } from './support.ts';
 import {
   MAX_HEADER_LEN,
   renderOwnerPrefix,
@@ -2362,6 +2372,14 @@ const httpServer = Bun.serve({
           return new Response(fixtureDataJson(), {
             headers: { 'content-type': 'application/json' },
           });
+        case '/support':
+          return Response.json({
+            availability: { state: 'hidden' },
+            persona: 'Maude',
+            hostDm: null,
+          });
+        case '/support/mine':
+          return Response.json({ requests: [] });
         case '/discussions':
           return new Response(
             readFileSync(fixtureFile('discussions.json'), 'utf8'),
@@ -2539,6 +2557,27 @@ const httpServer = Bun.serve({
 
     // The review sheet's file diffs come through the daemon's own forge
     // access, so they need none of the board's tokens below.
+    if (pathname === '/support' || pathname.startsWith('/support/'))
+      return supportRoute(req, {
+        isLocal: r => isLocalRequest(r, server) && hasLocalOrigin(r),
+        fromPage: fromOperatorPage,
+        requireJson: requireJsonBody,
+        boardVersion: pkg.version,
+        persona: () =>
+          getSetting<{ name?: string }>('agent.persona').value?.name?.trim() ||
+          'Maude',
+        hostDm: () => {
+          const host = getSetting<string>('support.host').value;
+          const id = host && slackMatch.ids.get(canonicalUsername(host));
+          return id
+            ? `https://slack.com/app_redirect?channel=${encodeURIComponent(id)}`
+            : null;
+        },
+        availability: () => supportAvailability(),
+        mine: () => supportMine(),
+        context: a => supportContext(a),
+        send: a => supportSend(a),
+      });
     if (pathname === '/review/file-diff')
       return fileDiffRoute(req, {
         isLocal: r => isLocalRequest(r, server),

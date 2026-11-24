@@ -36,7 +36,14 @@ import { slackPosts } from './slack-posts.ts';
 
 export type Lane = 'review' | 'respond' | 'doctor';
 export type Section =
-  'top' | 'agent' | 'flock' | 'sessions' | 'gitlab' | 'slack' | 'more';
+  | 'top'
+  | 'agent'
+  | 'flock'
+  | 'sessions'
+  | 'gitlab'
+  | 'slack'
+  | 'more'
+  | 'help';
 
 export type ActionGlyph =
   | {
@@ -65,6 +72,7 @@ export type ActionGlyph =
   | { kind: 'flock' }
   | { kind: 'rt' }
   | { kind: 'shredder' }
+  | { kind: 'help' }
   | { kind: 'emoji'; glyph: string };
 
 export type LaunchFlow =
@@ -98,6 +106,7 @@ export type ActionRequest =
   | { kind: 'dismiss'; lane: Lane }
   | { kind: 'stand-down'; on: boolean }
   | { kind: 'drop-review' }
+  | { kind: 'help' }
   | {
       kind: 'flock';
       action: FlockAction;
@@ -190,6 +199,8 @@ export interface ActionEnv {
   teams?: OrgTeam[];
   /** The seat's active team. */
   ownTeam?: string | null;
+  /** The board has someone to ask for help. */
+  help?: boolean;
   /** Every MR on the board, for the stack checks. */
   allMrs: BoardMR[];
   /** The open row's flock menu once loaded; absent while it loads. */
@@ -846,6 +857,17 @@ export function rowActions(
     ...gitlab,
     ...slack,
     ...more,
+    ...(env.help
+      ? [
+          item(
+            'help',
+            'help',
+            `need help with this ${mrNoun(mrx)}?`,
+            { kind: 'help' },
+            { kind: 'help' }
+          ),
+        ]
+      : []),
   ];
 }
 
@@ -922,6 +944,7 @@ export const BULK_SECTION: Record<Section, BulkSection> = {
   gitlab: 'gitlab',
   slack: 'slack',
   more: 'slack',
+  help: 'slack',
 };
 const SECTION_RANK: Record<BulkSection, number> = {
   agent: 0,

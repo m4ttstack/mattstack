@@ -105,6 +105,8 @@ import {
 import { AskConfirmDialog } from './AskConfirmDialog.tsx';
 import { verbLane } from './asks/ask-copy.ts';
 import { AsksButton } from './asks/AsksButton.tsx';
+import { HelpButton } from './support/HelpButton.tsx';
+import { useSupport } from './support/use-support.ts';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
 import { ConsoleSettingsModal } from './ConsoleSettingsModal.tsx';
 import {
@@ -166,7 +168,7 @@ import {
   type RowAction,
   type RunOpts,
 } from './row-actions.ts';
-import { reviewGroupHue, statusGroupHue } from './row-status.ts';
+import { helpState, reviewGroupHue, statusGroupHue } from './row-status.ts';
 import { RowMenu } from './RowMenu.tsx';
 import { RowSpotlight } from './RowSpotlight.tsx';
 import { RowView } from './RowView.tsx';
@@ -603,6 +605,8 @@ export function Board() {
   const [commentsFor, setCommentsFor] = useState<BoardMR | null>(null);
   const comments = useLingering(commentsFor);
   const { toasts, addToast, startToast } = useToasts();
+  const help = useSupport(!!data?.local);
+  const askAbout = help?.askAbout;
 
   // A drawer action succeeded: swap the chip to its resolved state, close the
   // drawer, and confirm with a toast (the board's transient-confirmation form).
@@ -1341,6 +1345,12 @@ export function Board() {
       standDown: handleStandDown,
       dropReview: handleDropReview,
       postSlack: handlePostSlack,
+      help: mr =>
+        askAbout?.({
+          url: mr.webUrl ?? '',
+          ref: mrRef(mr),
+          state: helpState(mr as BoardMRWithReview),
+        }),
     }),
     [
       handleCopy,
@@ -1348,6 +1358,7 @@ export function Board() {
       handleStandDown,
       handleDropReview,
       handlePostSlack,
+      askAbout,
     ]
   );
   const handleAskRetry = useCallback(
@@ -1894,6 +1905,7 @@ export function Board() {
     peers: data.peers,
     teams: data.teams,
     ownTeam: data.ownTeam,
+    help: help?.read.availability.state === 'ready',
     allMrs: data.mrs,
   };
   // A remote board has no bulk actions (each needs the local server), so a
@@ -2541,6 +2553,7 @@ export function Board() {
             />
           )}
 
+          {help && !queue.open && <HelpButton help={help} />}
           <ToastHost toasts={toasts} />
         </div>
       </PeopleProvider>

@@ -58,4 +58,14 @@
     background: var(--sb-tooltip-bg);
     clip-path: var(--sb-tooltip-arrow-clip);
   }
+
+  .card[data-side="top"] {
+    transform-origin: var(--tooltip-arrow-x, 50%) bottom;
+  }
+
+  .card[data-side="top"]::before {
+    top: auto;
+    bottom: calc(-1 * var(--sb-tooltip-arrow-h));
+    transform: scaleY(-1);
+  }
 }
