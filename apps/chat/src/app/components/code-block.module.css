@@ -1,0 +1,83 @@
+.block {
+  position: relative;
+}
+
+.pre {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-radius: inherit;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: var(--mantine-font-size-sm);
+  line-height: 20px;
+  white-space: pre;
+}
+
+.pre[data-wrap] {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Sized boxes rather than overlay scrollbars, so the bar takes its own row
+   and never sits on a line. */
+.pre::-webkit-scrollbar {
+  height: 8px;
+}
+
+.pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pre::-webkit-scrollbar-thumb {
+  background-color: var(--tk-border);
+  border-radius: 4px;
+}
+
+.pre code {
+  display: block;
+  font: inherit;
+}
+
+/* The block's right edge, so the toolbar can follow a long block down. */
+.corner {
+  position: absolute;
+  inset: 8px 8px 8px auto;
+  pointer-events: none;
+}
+
+/* Slack's message toolbar, in the corner: 28px, so a one-line block leaves 8px
+   around it. */
+.toolbar {
+  position: sticky;
+  top: 8px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  pointer-events: auto;
+}
+
+/* With no hover to hide behind, the toolbar always shows, so the code ends
+   short of it: two buttons, and the 8px on either side. */
+@media (hover: none) {
+  .pre {
+    margin-right: 68px;
+  }
+}
+
+/* Hidden by opacity, so Tab can still reach the buttons and reveal it. */
+@media (hover: hover) {
+  .toolbar {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .block:hover .toolbar {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.block:has(:focus-visible) .toolbar {
+  opacity: 1;
+  pointer-events: auto;
+}

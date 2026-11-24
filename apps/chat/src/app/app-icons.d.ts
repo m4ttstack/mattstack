@@ -5,6 +5,7 @@ declare module '@mattstack/app-kit/icons' {
     hash: true;
     history: true;
     messageSquare: true;
+    wrapText: true;
   }
 }
 export {};
