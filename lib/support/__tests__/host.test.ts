@@ -7,6 +7,7 @@ import { getRequest, moveRequest, recordStop } from "../../state/support-store.t
 import { finishClose, type SlackLifecycleDeps } from "../../daemon/slack-lifecycle.ts";
 import { stopSlackChat } from "../stop.ts";
 import { renderRequest, SUPPORT_STOP_HOLD_MS, takeRequests, tickRequests } from "../host.ts";
+import { SlackError } from "../../slack/client.ts";
 import { ADA, BO, CY, DM_LINK, supportHost } from "./host-harness.ts";
 
 type Host = ReturnType<typeof supportHost>;
@@ -305,6 +306,28 @@ describe("a request that does not open", () => {
     expect(h.statuses()).toEqual([]);
     h.state.slackDown = false;
     await tickRequests(h.deps);
+    expect(row(h, r).state).toBe("opening");
+  });
+
+  test("a Slack connection that no longer works fails the request and tells the host, instead of asking again every tick", async () => {
+    for (const code of ["invalid_auth", "token_revoked", "token_expired", "account_inactive", "not_authed"]) {
+      const h = supportHost();
+      let lookups = 0;
+      h.deps.findPerson = async () => (lookups++, { ok: false, reason: `Slack did not answer (${code})`, error: new SlackError(code) });
+      const r = h.request();
+      await takeRequests(h.deps);
+      await tickRequests(h.deps);
+      expect(row(h, r)).toMatchObject({ state: "failed", reason: "the host's Mac cannot reach Slack" });
+      expect(lookups).toBe(1);
+      expect(h.desk).toEqual([`ada could not be connected: Slack did not answer (${code})`]);
+    }
+  });
+
+  test("an id with no digit in it is still an id", async () => {
+    const h = supportHost();
+    h.state.people["UABCDEFGH"] = "Dee Example";
+    const r = h.request({ slackUserId: "UABCDEFGH" });
+    await takeRequests(h.deps);
     expect(row(h, r).state).toBe("opening");
   });
 

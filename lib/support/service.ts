@@ -22,7 +22,7 @@ import { currentOrg } from "../settings/stores.ts";
 import { setSetting } from "../settings/write.ts";
 import { createRealProbes } from "../setup/probes.ts";
 import { rtVersion } from "../setup/update.ts";
-import type { SlackClient } from "../slack/client.ts";
+import { isDeadConnection, type SlackClient } from "../slack/client.ts";
 import { slackPersona } from "../slack/persona.ts";
 import type { SlackOpenDeps } from "../slack/request.ts";
 import { supportRepoFromSetting } from "../slack/trigger-offer.ts";
@@ -47,6 +47,8 @@ import { createSupportSync } from "./sync.ts";
 
 const KV_NS = "support";
 const PUBLISH_EVERY_MS = 60_000;
+/** A settings file caught mid-write, or broken by hand, reads as its defaults, so this Mac is off only once it has read off for this long. */
+const OFF_SETTLE_MS = 60_000;
 const TOKEN_TTL_MS = 5 * 60_000;
 const KEY_RETRY_MS = 60_000;
 const SETUP_TTL_MS = 5 * 60_000;
@@ -196,6 +198,31 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     const cfg = readConfig();
     return cfg && cfg.accepts && tappedFor() !== cfg.orgRemote ? { ...cfg, accepts: false, acceptHere: false } : cfg;
   };
+  let offSince: number | null = null;
+  /** The settings stopped saying this Mac answers, and no person here turned it off, too recently to believe. */
+  function settling(raw: SupportConfig): boolean {
+    if (raw.acceptHere || tappedFor() !== raw.orgRemote) {
+      offSince = null;
+      if (raw.acceptHere && flag("told-off")) setFlag("told-off", false);
+      return false;
+    }
+    offSince ??= now();
+    return now() - offSince < OFF_SETTLE_MS;
+  }
+  function tellOff(raw: SupportConfig): void {
+    if (raw.acceptHere || tappedFor() !== raw.orgRemote || flag("told-off")) return;
+    setFlag("told-off", true);
+    const why = !raw.accepts
+      ? "This Mac no longer answers help requests, since its setting was turned off"
+      : !raw.enabled
+        ? "Your org turned help requests off, so this Mac no longer answers them"
+        : "Your org names someone else for help requests, so this Mac no longer answers them";
+    try {
+      o.notify("Help requests", why);
+    } catch (err) {
+      log.warn({ err }, "support: the host could not be told this Mac stopped answering");
+    }
+  }
   const writeSetting = o.seams?.setAccepting ?? ((on: boolean) => setSetting("support.acceptRequests", on, "machine"));
   const keysFor = o.seams?.keys ?? orgKeys(log, now);
   const keys = async () => {
@@ -219,7 +246,10 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
   const host: HostDeps = {
     ...o.slackOpen,
     now,
-    config,
+    config() {
+      const raw = readConfig();
+      return raw === null || settling(raw) ? null : config();
+    },
     defaultRepo,
     notifyOpening(r, room) {
       o.notify("Help request", `${r.peer} asked for help, and ${slackPersona().name} is answering`, chatViewerUrl(readChatViewerUrlSetting(), room));
@@ -334,12 +364,19 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     relay,
     slackUserId: async () => {
       const client = await o.slackClient();
-      return client ? (await client.authTest()).userId : null;
+      if (!client) return null;
+      try {
+        return (await client.authTest()).userId;
+      } catch (err) {
+        if (isDeadConnection(err)) return null;
+        throw err;
+      }
     },
     readiness: () => (o.seams?.readiness ?? readiness)(readinessDeps),
     setAccepting(on) {
       writeSetting(on);
       setTapped(on ? (readConfig()?.orgRemote ?? null) : null);
+      setFlag("told-off", false);
       if (on) setFlag("draining", false);
     },
     published: setPublished,
@@ -361,6 +398,8 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     publishedAt = now();
     const raw = readConfig();
     if (!raw || raw.roster.length === 0) return;
+    if (settling(raw)) return;
+    tellOff(raw);
     if (!raw.accepts && tappedFor() !== null) setTapped(null);
     const cfg = config();
     if (!cfg || (!cfg.acceptHere && !flag("published"))) return;

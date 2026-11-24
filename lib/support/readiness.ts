@@ -1,6 +1,7 @@
 /** What a host's Mac still needs before it can answer support requests. */
 
 import type { OrgIdContext } from "../linear/org-ids.ts";
+import { isDeadConnection } from "../slack/client.ts";
 import { SLACK_SUPPORT_CHAT_SCOPES } from "../setup/slack-app.ts";
 import { isValidChatName } from "../state/index.ts";
 import { NO_SUPPORT_KEY, type SupportKeyState } from "./org-key.ts";
@@ -27,12 +28,14 @@ async function attempt<T>(read: () => T | Promise<T>, fallback: T): Promise<T> {
   }
 }
 
+const CONNECT_SLACK = "Connect Slack for support chats in Setup";
+
 async function slackMissing(deps: ReadinessDeps): Promise<string | null> {
   try {
     const scopes = await deps.slackScopes();
-    return scopes && SLACK_SUPPORT_CHAT_SCOPES.every((s) => scopes.includes(s)) ? null : "Connect Slack for support chats in Setup";
-  } catch {
-    return "Slack did not answer";
+    return scopes && SLACK_SUPPORT_CHAT_SCOPES.every((s) => scopes.includes(s)) ? null : CONNECT_SLACK;
+  } catch (err) {
+    return isDeadConnection(err) ? CONNECT_SLACK : "Slack did not answer";
   }
 }
 

@@ -260,6 +260,23 @@ describe("pulling requests", () => {
     expect(getRequest("in", "ada", "r2", db)).toBeNull();
   });
 
+  test("a message signed longer ago than a request lives, or far ahead, is dropped however new the relay says it is", async () => {
+    const DAY = 24 * 60 * 60_000;
+    clock = 30 * DAY;
+    const at = (id: string, sentAt: number) => {
+      const text = JSON.stringify(body);
+      const mac = supportMac(KEY, { kind: "request", id, from: "ada", to: "alex", sentAt, body: text });
+      inbox.push({ id, to: "alex", from: "ada", kind: "request", sentAt, body: text, mac, receivedAt: clock });
+    };
+    at("replayed", clock - SUPPORT_TTL_MS - DAY - 1);
+    at("ahead", clock + DAY + 1);
+    at("slow-clock", clock - SUPPORT_TTL_MS - DAY + 1);
+    at("fast-clock", clock + DAY - 1);
+    await sync().pull("request");
+    expect(acked).toEqual(["ada replayed", "ada ahead", "ada slow-clock", "ada fast-clock"]);
+    expect(listRequests("in", undefined, db).map((r) => r.id).sort()).toEqual(["fast-clock", "slow-clock"]);
+  });
+
   test("a repeat delivery calls onRequest once", async () => {
     arrive();
     const again = inbox[0]!;

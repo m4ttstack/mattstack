@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { SLACK_SUPPORT_CHAT_SCOPES } from "../../setup/slack-app.ts";
+import { SlackError } from "../../slack/client.ts";
 import { readiness, type ReadinessDeps } from "../readiness.ts";
 
 const ready: ReadinessDeps = {
@@ -26,6 +27,15 @@ describe("readiness", () => {
     ["no Slack connection", { slackScopes: async () => null }, "Connect Slack for support chats in Setup"],
     ["a Slack connection without the support scopes", { slackScopes: async () => ["chat:write"] }, "Connect Slack for support chats in Setup"],
     ["a Slack that does not answer", { slackScopes: boom }, "Slack did not answer"],
+    [
+      "a Slack connection that no longer works",
+      {
+        slackScopes: async () => {
+          throw new SlackError("token_revoked");
+        },
+      },
+      "Connect Slack for support chats in Setup",
+    ],
     ["no Linear key", { linearKey: async () => null }, "Add the Linear key support tickets are filed with"],
     ["a Linear key that cannot be read", { linearKey: boom }, "Add the Linear key support tickets are filed with"],
     ["no default repo", { defaultRepo: () => null }, "Choose the repo the support agent works in"],

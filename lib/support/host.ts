@@ -5,6 +5,7 @@
 
 import { SUPPORT_TTL_MS } from "../../packages/rt-client/src/support.ts";
 import type { GateQuestion, GateRow } from "../../packages/rt-client/src/commands.ts";
+import { isDeadConnection } from "../slack/client.ts";
 import { sendMilestone } from "../slack/milestones.ts";
 import { approveSlackOpen, SLACK_OPEN_KIND, slackOpenApproved, slackOpenMarker, slackSupportMeta, type SlackOpenDeps, type SlackOpenFailure } from "../slack/request.ts";
 import { agentHasPosted, conversationById, conversationForSlackUser, listOpenConversations } from "../state/slack-conversation-store.ts";
@@ -19,7 +20,8 @@ const OLD_REQUEST_MS = 24 * 60 * 60_000;
 /** An opening request with no chat by now was cut off by a restart. */
 const LOST_OPEN_MS = 3 * 60_000;
 const REASON_MAX = 300;
-const SLACK_ID = /^[UW][A-Z0-9]*[0-9][A-Z0-9]*$/;
+/** Only ids are looked up. A name in capitals passes too, so the person found has to carry the id that was asked for. */
+const SLACK_ID = /^[UW][A-Z0-9]+$/;
 
 const NO_ACCOUNT = "the host's Slack workspace has no active account for you";
 const NEVER_REACHED = "the support agent never reached the chat";
@@ -34,6 +36,7 @@ const FAILED: Record<Exclude<SlackOpenFailure, "cap" | "busy">, string> = {
 };
 
 export interface HostDeps extends SlackOpenDeps {
+  /** Null while the settings cannot be read, or have only just stopped saying this Mac answers. */
   config(): SupportConfig | null;
   /** The wire identity of the repo the support agent runs in, null when none is set; throws when the setting cannot be read. */
   defaultRepo(): string | null;
@@ -236,7 +239,7 @@ async function takeNow(deps: HostDeps, stale: SupportRequest): Promise<void> {
 
   const found = SLACK_ID.test(r.slackUserId) ? await deps.findPerson(r.slackUserId) : null;
   if (found && !found.ok && !found.refused) {
-    if (found.error !== undefined) return;
+    if (found.error !== undefined && !isDeadConnection(found.error)) return;
     if (settle(deps, r, from, "failed", { reason: "the host's Mac cannot reach Slack" })) await tellHost(deps, r.peer, found.reason);
     return;
   }
