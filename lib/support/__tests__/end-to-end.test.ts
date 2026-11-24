@@ -24,7 +24,7 @@ import { createSupportService, type SupportService } from "../service.ts";
 
 const KEY = Buffer.alloc(32, 1).toString("base64");
 const OTHER_KEY = Buffer.alloc(32, 2).toString("base64");
-const ORG = "acme/mattstack";
+const ORG = "git.example.com/acme/mattstack";
 const REPO = "remote:git.example.com%2Facme%2Fapp";
 const DAY = 24 * 60 * 60_000;
 const log = { warn() {}, info() {}, debug() {}, error() {}, child: () => log } as unknown as Logger;

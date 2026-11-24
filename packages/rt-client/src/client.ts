@@ -525,6 +525,10 @@ export function supportAccept(a: Commands["support:accept"]["payload"], o: RtCli
   return rtCommand<Commands["support:accept"]["data"]>("support:accept", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 120_000 });
 }
 
+export function supportEnable(a: Commands["support:enable"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["support:enable"]["data"]>> {
+  return rtCommand<Commands["support:enable"]["data"]>("support:enable", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 120_000 });
+}
+
 export function supportStop(a: Commands["support:stop"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["support:stop"]["data"]>> {
   return rtCommand<Commands["support:stop"]["data"]>("support:stop", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
 }

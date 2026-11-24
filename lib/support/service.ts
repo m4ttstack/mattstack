@@ -10,6 +10,7 @@ import { chatViewerUrl, readChatViewerUrlSetting } from "../chat-viewer-url.ts";
 import { createSupportHandlers, expireSent } from "../daemon/handlers/support.ts";
 import { readSwitchboardToken } from "../daemon/handlers/secrets.ts";
 import type { SlackLifecycleDeps } from "../daemon/slack-lifecycle.ts";
+import { UserActionableError } from "../errors.ts";
 import { orgIdContext } from "../linear/org-ids.ts";
 import { readSupportApiKey } from "../linear/support-key.ts";
 import { machineKey } from "../rt-paths.ts";
@@ -17,6 +18,7 @@ import { rtSelfArgv } from "../rt-self.ts";
 import { createRealTeamSecretsSeams, teamSecretsFile } from "../secrets/team-store.ts";
 import { storedValue } from "../settings/presence.ts";
 import { getSetting } from "../settings/resolve.ts";
+import { currentOrg } from "../settings/stores.ts";
 import { setSetting } from "../settings/write.ts";
 import { createRealProbes } from "../setup/probes.ts";
 import { rtVersion } from "../setup/update.ts";
@@ -30,12 +32,14 @@ import { listRequests, pruneSupport, type SupportRequest } from "../state/suppor
 import { childEnv } from "../subprocess.ts";
 import { readBoardSwitchboardToken } from "../team/board-token.ts";
 import { canonicalHandle } from "../team/board-peers.ts";
+import { realMembersSeams } from "../team/members.ts";
 import { readPingVersions } from "../telemetry/ping.ts";
 import { createChain } from "./chain.ts";
 import { supportConfig, type SupportConfig } from "./config.ts";
+import { disableSupport, enableSupport, type EnableDeps } from "./enable.ts";
 import { answerSupportGate, takeRequests, tickRequests, type HostDeps } from "./host.ts";
 import { startSupportLoop, type SupportLoopHandle } from "./loop.ts";
-import { readSupportKeys, type SupportKeys } from "./org-key.ts";
+import { ensureSupportKey, readSupportKeys, type SupportKeys } from "./org-key.ts";
 import { readiness, type ReadinessDeps } from "./readiness.ts";
 import { createSupportRelay, type SupportRelay } from "./relay.ts";
 import { stopSlackChat } from "./stop.ts";
@@ -75,6 +79,7 @@ export interface SupportSeams {
   versions(): Promise<{ rt: string; app: string | null; macos: string | null }>;
   unreadySetupRows(): Promise<string[] | null>;
   loops: boolean;
+  enable: Partial<EnableDeps>;
 }
 
 export interface SupportService {
@@ -297,6 +302,18 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     orgIds: orgIdContext,
   };
 
+  const enableDeps: EnableDeps = {
+    probes: createRealProbes(),
+    seams: realMembersSeams(),
+    ensureKey: (slug) => ensureSupportKey(slug, createRealTeamSecretsSeams(slug)),
+    ...o.seams?.enable,
+  };
+  function thisOrg(): string {
+    const org = currentOrg();
+    if (org === null) throw new UserActionableError("no-org", "This Mac is in no org yet");
+    return org;
+  }
+
   let loops: SupportLoopHandle[] = [];
 
   /** The queue of a Mac that stopped accepting is read until it is empty, so nobody waits on a request no one will take. */
@@ -329,6 +346,8 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     holdsRole: () => flag("published"),
     drain,
     poke: () => loops.forEach((l) => l.poke()),
+    enable: (host) => enableSupport(enableDeps, thisOrg(), "team support on", host),
+    disable: () => disableSupport(enableDeps, thisOrg(), "team support off"),
     stop: (conversation) => stopSlackChat(conversation, o.stop),
     versions: o.seams?.versions ?? readVersions,
     unreadySetupRows,

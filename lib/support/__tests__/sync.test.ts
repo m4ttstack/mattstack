@@ -14,7 +14,7 @@ import { createSupportSync, PROOF_SETTLE_MS, STRANGER_SETTLE_MS, signDraft, type
 const KEY = Buffer.alloc(32, 1).toString("base64");
 const OLD = Buffer.alloc(32, 2).toString("base64");
 const FOREIGN = Buffer.alloc(32, 3).toString("base64");
-const ORG = "acme/mattstack";
+const ORG = "git.example.com/acme/mattstack";
 
 let n = 0;
 let db: Database;

@@ -931,6 +931,8 @@ export interface Commands {
   /** A person's alone. */
   "support:accept": { payload: { on: boolean }; data: { accepting: boolean } };
   /** A person's alone: closes any open Slack support chat at once. */
+  /** An org admin's alone: makes the org's support key when it has none, then writes the host (the saved one without `host`) and turns support on. Off keeps the key and the host. */
+  "support:enable": { payload: { on: boolean; host?: string }; data: { enabled: boolean; host: string | null } };
   "support:stop": { payload: { conversation: number }; data: { /** The teammate's line reached Slack. */ told: boolean } };
   "pane:list": { payload: Record<string, never>; data: { panes: ChatPane[] } };
   "pane:peek": { payload: { paneId: string; lines?: number }; data: { paneId: string; lines: string[] } };
@@ -1405,6 +1407,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "support:mine",
   "support:host",
   "support:accept",
+  "support:enable",
   "support:stop",
   "pane:list",
   "pane:peek",
