@@ -136,6 +136,12 @@ describe("serverNeedsMove", () => {
     expect(serverNeedsMove("0.9.5-ms.2", "0.9.5-ms.3", between)).toBe(false);
   });
 
+  test("an installed build the list does not name moves every server not on it", () => {
+    const keep = withServerChanges({ "0.9.5-ms.1": false, "0.9.5-ms.2": false });
+    expect(serverNeedsMove("0.9.5-ms.2", "0.9.5-ms.7", keep)).toBe(true);
+    expect(serverNeedsMove("0.9.5-ms.7", "0.9.5-ms.7", keep)).toBe(false);
+  });
+
   test("without the list, any other version moves", () => {
     expect(serverNeedsMove("0.9.5-ms.1", "0.9.5-ms.2", null)).toBe(true);
   });

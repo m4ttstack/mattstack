@@ -1293,6 +1293,7 @@ describe("toolRows — team-declared tool.team.<name>", () => {
         "Download the herdr build for this Mac's processor from https://github.com/m4ttstack/herdr/releases/latest",
         "Move it to ~/.local/bin/herdr",
         "Run: chmod 755 ~/.local/bin/herdr",
+        "Run: xattr -d com.apple.quarantine ~/.local/bin/herdr",
       ] });
   });
 

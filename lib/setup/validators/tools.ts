@@ -616,7 +616,7 @@ export function teamToolManualSteps(req: ToolRequirement): Action | null {
     return {
       type: "steps",
       label: "Show steps…",
-      steps: [`Download the herdr build for this Mac's processor from ${HERDR_RELEASES_PAGE}`, "Move it to ~/.local/bin/herdr", "Run: chmod 755 ~/.local/bin/herdr"],
+      steps: [`Download the herdr build for this Mac's processor from ${HERDR_RELEASES_PAGE}`, "Move it to ~/.local/bin/herdr", "Run: chmod 755 ~/.local/bin/herdr", "Run: xattr -d com.apple.quarantine ~/.local/bin/herdr"],
     };
   }
   const vendor = VENDOR_INSTALLERS[req.name];

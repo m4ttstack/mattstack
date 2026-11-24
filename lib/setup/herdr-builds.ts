@@ -139,14 +139,14 @@ export function herdrVerdict(installed: ReturnType<typeof parseHerdrVersion>, li
 /**
  * Whether a running server must move onto the installed build: a stock
  * server always does, and a fork server does when a listed build after it,
- * up to the installed one, changes the server. Without the list, any other
- * version moves.
+ * up to the installed one, changes the server. Without the list, or for an
+ * installed build the list does not name, any other version moves.
  */
 export function serverNeedsMove(server: string, installed: string, list: HerdrBuilds | null): boolean {
   if (server === installed) return false;
   const from = forkOf(server);
   const to = forkOf(installed);
-  if (!from || !to || !list) return true;
+  if (!from || !to || !list || !list.builds.some((b) => b.version === installed)) return true;
   return list.builds.some((b) => {
     const fork = forkOf(b.version)!;
     return b.changesServer && compareForkVersions(fork, from) > 0 && compareForkVersions(fork, to) <= 0;

@@ -51,6 +51,7 @@ interface Script {
   brewUninstall?: ExecResult;
   curl?: ExecResult;
   install?: ExecResult;
+  xattr?: ExecResult;
 }
 
 type Seen = { argv: string[]; env?: Record<string, string> };
@@ -61,6 +62,7 @@ function herdrExec(script: Script, seen: Seen[]) {
     seen.push({ argv, env: opts?.env });
     if (argv[0] === "curl") return script.curl ?? ok();
     if (argv[0] === "install") return script.install ?? ok();
+    if (argv[0] === "/usr/bin/xattr") return script.xattr ?? ok();
     if (argv[0] === "shasum") return ok(`${script.sha ?? ARM.sha256}  ${argv[3]}\n`);
     if (argv[0]!.endsWith(".new") && argv[1] === "--version") return ok(`herdr ${script.stagedVersion ?? argv[0]!.slice(argv[0]!.indexOf(".herdr-") + 7, -4)}\n`);
     if (argv[0] === DEST && argv[1] === "--version") return script.installedVersion === "" ? { code: 127, stdout: "", stderr: "ENOENT" } : ok(`herdr ${script.installedVersion ?? "0.9.5-ms.2"}\n`);
@@ -107,6 +109,23 @@ describe("installHerdrBuild", () => {
     expect(result.ok).toBe(true);
     expect(result.detail.startsWith("Installed herdr 0.9.5-ms.2")).toBe(true);
     expect(p.calls.removed).toContain(WORK);
+  });
+
+  test("clears quarantine on the staged copy before running it or swapping it in", async () => {
+    const { p } = setup();
+    await installHerdrBuild(p, "arm64");
+    const xattr = p.calls.exec.findIndex((argv) => argv.join(" ") === `/usr/bin/xattr -d com.apple.quarantine ${STAGED}`);
+    const version = p.calls.exec.findIndex((argv) => argv[0] === STAGED && argv[1] === "--version");
+    expect(xattr).toBeGreaterThan(p.calls.exec.findIndex((argv) => argv[0] === "install"));
+    expect(xattr).toBeLessThan(version);
+    expect(p.calls.renames).toEqual([[STAGED, DEST]]);
+  });
+
+  test("a copy with no quarantine attribute still installs", async () => {
+    const { p } = setup({ xattr: { code: 1, stdout: "", stderr: `xattr: ${STAGED}: No such xattr: com.apple.quarantine\n` } });
+    const result = await installHerdrBuild(p, "arm64");
+    expect(result.ok).toBe(true);
+    expect(p.calls.renames).toEqual([[STAGED, DEST]]);
   });
 
   test("an Intel Mac downloads the x86_64 asset", async () => {

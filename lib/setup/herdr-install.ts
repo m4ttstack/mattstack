@@ -113,6 +113,8 @@ async function placeBuild(p: Probes, work: string, asset: HerdrBuildAsset, versi
     p.removeFile(staged);
     return `Copying herdr into ~/.local/bin failed: ${firstLine(placed.stderr || placed.stdout)}`;
   }
+  // The fork's builds are signed but not notarized, so Gatekeeper blocks a quarantined copy. A copy with no quarantine makes xattr exit non-zero, and any other failure shows up in the --version check below.
+  await p.exec(["/usr/bin/xattr", "-d", "com.apple.quarantine", staged], { timeoutMs: PROBE_TIMEOUT_MS });
   const reported = await p.exec([staged, "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
   const got = reported.code === 0 ? parseHerdrVersion(reported.stdout).version : null;
   if (got !== version) {
