@@ -40,7 +40,7 @@ export function skillsResolveToolDefs(deps: SkillsResolveDeps = { fs: realResolv
         if (!home) return err("HOME is not set in this server's environment, so the installed skills cannot be found");
         if (dir !== undefined && dirClimbsOutOfCache(dir, home)) return err("dir climbs out of the plugin cache through ..; pass the loaded skill's own directory as it is");
         try {
-          return ok(resolvePointers(id, { fs: deps.fs, home, ...(env.CLAUDE_CONFIG_DIR ? { configDir: env.CLAUDE_CONFIG_DIR } : {}) }, dir));
+          return ok(resolvePointers(id, { fs: deps.fs, home }, dir));
         } catch (e) {
           if (!(e instanceof UserActionableError)) throw e;
           return err([e.message, e.why, e.next ? `Fix: ${e.next}` : undefined].filter(Boolean).join(" "));

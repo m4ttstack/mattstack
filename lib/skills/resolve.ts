@@ -8,7 +8,7 @@ import { isIdSafeVersion, MAP_FILE } from "./unit-maps.ts";
 
 /** `realPath` is null for a path that does not exist. */
 export type ResolveFs = PluginFs & { readFile(p: string): string | null; isSymlink(p: string): boolean; realPath(p: string): string | null };
-export type ResolveDeps = { fs: ResolveFs; home: string; configDir?: string };
+export type ResolveDeps = { fs: ResolveFs; home: string };
 export type ResolveResult = { id: string; folder: string; covers: string[]; keys: Record<string, string>; pinned: boolean; warning?: string };
 
 export const realResolveFs: ResolveFs = {
@@ -119,22 +119,30 @@ export function dirClimbsOutOfCache(dir: string, home: string): boolean {
   return posix.isAbsolute(dir) && dir.startsWith(`${cache}/`) && !within(cache, posix.normalize(dir));
 }
 
+/** `dir` with its links followed, through its nearest existing ancestor: a unit folder need not exist yet. */
+function followLinks(dir: string, fs: ResolveFs): string | null {
+  let at = dir;
+  while (at !== "/" && fs.realPath(at) === null) at = posix.dirname(at);
+  const real = fs.realPath(at);
+  return real === null ? null : at === dir ? real : posix.join(real, posix.relative(at, dir));
+}
+
 /**
  * The version folder `dir` sits in, read from `<cache>/<market>/<plugin>/<version>/`
- * or a render tree's `<root>/<org>/<plugin>/<version>/`. A path is only
- * looked up on disk once its text sits inside one of them, so nothing outside
- * is touched.
+ * or a render tree's `<root>/<org>/<plugin>/<version>/`. A path written
+ * through a link (a cswap profile's `plugins`, whichever profile installed the
+ * pack) counts when its real path sits in a root's real path; only its link
+ * targets are resolved, no file outside is read.
  */
 export function versionOfDir(id: string, plugin: string, dir: string, deps: ResolveDeps): string | null {
   if (!posix.isAbsolute(dir)) return null;
   const text = posix.normalize(dir);
   // A render tree, `<root>/<org>/<plugin>/<version>/<mattstack>/`, names its pack version the way a cache copy does.
-  // A CLAUDE_CONFIG_DIR profile (a cswap account) names the cache through its own `plugins` link.
-  const caches = deps.configDir ? [pluginCache(deps.home), `${posix.normalize(deps.configDir)}/plugins/cache`] : [pluginCache(deps.home)];
-  const root = [...caches, renderRoot(deps.home)].find((r) => within(r, text));
-  if (root === undefined) return null;
+  const roots = [pluginCache(deps.home), renderRoot(deps.home)];
   // The written path, not its normalized text: the OS follows a link before the `..` after it.
-  const real = deps.fs.realPath(dir);
+  const real = followLinks(dir, deps.fs);
+  const root = roots.find((r) => within(r, text)) ?? (real === null ? undefined : roots.find((r) => within(deps.fs.realPath(r) ?? r, real)));
+  if (root === undefined) return null;
   const [base, path] = real === null ? [root, text] : [deps.fs.realPath(root) ?? root, real];
   if (!within(base, path)) return null;
   const [, named, version] = path.slice(base.length + 1).split("/");

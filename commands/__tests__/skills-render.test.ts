@@ -90,16 +90,29 @@ describe("rt skills render", () => {
     expect(err.extra.why).toBe(err.why);
   });
 
-  test("a folder written through a CLAUDE_CONFIG_DIR whose plugins links to ~/.claude/plugins serves the render", async () => {
+  test("a folder written through any profile whose plugins links to ~/.claude/plugins serves the render", async () => {
     const w = setup();
     const profile = join(w.home, "profile");
     mkdirSync(profile);
     symlinkSync(join(w.home, ".claude", "plugins"), join(profile, "plugins"));
-    process.env.CLAUDE_CONFIG_DIR = profile;
+    process.env.CLAUDE_CONFIG_DIR = join(w.home, "another-profile");
     io = captureOut();
     await skillsRender(["acme:work", "--dir", join(profile, "plugins", "cache", "acme-market", "acme", "0.1.0", "skills", "work"), "--mattstack-dir", w.mattstackDir, "--json"]);
     const printed = JSON.parse(io.stdout()) as Record<string, unknown>;
     expect(printed.path).toBe(join(w.root, "acme", "acme", "0.1.0", "1.0.0", "skills", "work", "SKILL.md"));
+  });
+
+  test("a profile with its own plugins folder, not a link into ~/.claude/plugins, is refused", async () => {
+    const w = setup();
+    const copy = join(w.home, "profile", "plugins", "cache", "acme-market", "acme", "0.1.0");
+    cpSync(w.installed, copy, { recursive: true });
+    process.env.CLAUDE_CONFIG_DIR = join(w.home, "profile");
+    io = captureOut();
+    const err = await skillsRender(["acme:work", "--dir", join(copy, "skills", "work"), "--mattstack-dir", w.mattstackDir, "--json"]).then(
+      () => { throw new Error("expected a refusal"); },
+      (e: unknown) => e as UserActionableError,
+    );
+    expect(err.code).toBe("render-bad-dir");
   });
 
   test("missing tree when the clone is ahead", async () => {
