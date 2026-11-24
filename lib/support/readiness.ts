@@ -3,6 +3,7 @@
 import type { OrgIdContext } from "../linear/org-ids.ts";
 import { SLACK_SUPPORT_CHAT_SCOPES } from "../setup/slack-app.ts";
 import { isValidChatName } from "../state/index.ts";
+import { NO_SUPPORT_KEY, type SupportKeyState } from "./org-key.ts";
 
 export interface ReadinessDeps {
   /** Null with no Slack connection; throws when Slack does not answer. */
@@ -14,8 +15,7 @@ export interface ReadinessDeps {
   boardToken(): Promise<string | null>;
   /** Whether the relay takes this Mac's token. */
   relayAnswers(): Promise<boolean>;
-  /** Whether the org's support key opens on this Mac. */
-  supportKey(): Promise<boolean>;
+  supportKey(): Promise<SupportKeyState>;
   orgIds(): OrgIdContext;
 }
 
@@ -47,6 +47,12 @@ async function boardMissing(deps: ReadinessDeps): Promise<string | null> {
   return (await attempt(() => deps.relayAnswers(), false)) ? null : "Your board's connection is not working";
 }
 
+async function keyMissing(deps: ReadinessDeps): Promise<string | null> {
+  const key = await attempt<SupportKeyState>(() => deps.supportKey(), "unreadable");
+  if (key === "ready") return null;
+  return key === "missing" ? NO_SUPPORT_KEY : "This Mac cannot open the org's support key";
+}
+
 /** One plain sentence for each thing missing; empty when the Mac is ready. */
 export async function readiness(deps: ReadinessDeps): Promise<string[]> {
   const orgIds = await attempt<OrgIdContext>(() => deps.orgIds(), { forgeHost: null, teamKeys: null });
@@ -56,7 +62,7 @@ export async function readiness(deps: ReadinessDeps): Promise<string[]> {
     await repoMissing(deps),
     isValidChatName(await attempt(() => deps.humanHandle(), "")) ? null : "Set your chat name",
     await boardMissing(deps),
-    (await attempt(() => deps.supportKey(), false)) ? null : "This Mac cannot open the org's support key",
+    await keyMissing(deps),
     orgIds.forgeHost ? null : "Your org's settings name no forge host, which tickets need",
     orgIds.teamKeys ? null : "Your org's settings name no Linear team, which tickets need",
   ];

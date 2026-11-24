@@ -10,7 +10,7 @@ const ready: ReadinessDeps = {
   humanHandle: () => "alex",
   boardToken: async () => "tok",
   relayAnswers: async () => true,
-  supportKey: async () => true,
+  supportKey: async () => "ready",
   orgIds: () => ({ forgeHost: "git.example.com", teamKeys: ["ACME"] }),
 };
 const boom = async () => {
@@ -43,7 +43,8 @@ describe("readiness", () => {
     ["a chat name rt refuses", { humanHandle: () => "Not A Handle!" }, "Set your chat name"],
     ["no board token", { boardToken: async () => null }, "Connect your board to your team's boards"],
     ["a relay that refuses the token", { relayAnswers: async () => false }, "Your board's connection is not working"],
-    ["no support key", { supportKey: async () => false }, "This Mac cannot open the org's support key"],
+    ["an org with no support key", { supportKey: async () => "missing" }, "Your org has no support key yet, so an org admin runs rt team support on"],
+    ["a support key this Mac's own does not open", { supportKey: async () => "unreadable" }, "This Mac cannot open the org's support key"],
     ["a support key this Mac cannot open", { supportKey: boom }, "This Mac cannot open the org's support key"],
     ["no forge host", { orgIds: () => ({ forgeHost: null, teamKeys: ["ACME"] }) }, "Your org's settings name no forge host, which tickets need"],
     ["no Linear team", { orgIds: () => ({ forgeHost: "git.example.com", teamKeys: null }) }, "Your org's settings name no Linear team, which tickets need"],

@@ -206,7 +206,7 @@ function standing(deps: HostDeps, r: SupportRequest): "ok" | "unknown" | "strang
   const cfg = deps.config();
   // A store that cannot be read gives no roster, which would make a stranger of everyone.
   if (!cfg || cfg.roster.length === 0) return "unknown";
-  if (cfg.org !== r.org || !onRoster(cfg, r.peer)) return "stranger";
+  if (cfg.orgRemote !== r.org || !onRoster(cfg, r.peer)) return "stranger";
   return cfg.acceptHere ? "ok" : "not-accepting";
 }
 

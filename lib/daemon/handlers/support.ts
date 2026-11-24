@@ -21,7 +21,7 @@ import {
 import { getRequest, insertRequest, listRequests, moveRequest } from "../../state/support-store.ts";
 import { createChain } from "../../support/chain.ts";
 import type { SupportConfig } from "../../support/config.ts";
-import type { SupportKeys } from "../../support/org-key.ts";
+import { NO_SUPPORT_KEY, type SupportKeys } from "../../support/org-key.ts";
 import type { SupportRelay, SupportSend } from "../../support/relay.ts";
 import { signDraft, type RequestBody } from "../../support/sync.ts";
 import { canonicalHandle } from "../../team/board-peers.ts";
@@ -42,6 +42,8 @@ export interface SupportHandlerDeps {
   now(): number;
   config(): SupportConfig | null;
   keys(): Promise<SupportKeys | null>;
+  /** The org has no support key at all, which nothing on this Mac can mend. */
+  keyMissing(): boolean;
   /** Null with no board token. */
   relay(): Promise<SupportRelay | null>;
   /** This Mac's own Slack user, null with no connection; throws when Slack does not answer. */
@@ -119,6 +121,7 @@ export function expireSent(db: Database, now: number): SupportRequest[] {
 export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof SUPPORT_COMMANDS)[number]]: (payload: unknown) => Promise<CommandResult<K>> } {
   const { db } = deps;
   const sending = createChain();
+  const noKey = () => (deps.keyMissing() ? NO_SUPPORT_KEY : "This Mac cannot open the org's secrets");
 
   async function send(id: string, text: string, parts: SupportPart[]): Promise<CommandResult<"support:send">> {
     const cfg = deps.config();
@@ -133,12 +136,12 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
       return same ? { ok: true, data: { request: already } } : refuse(...CHANGED);
     }
     expireSent(db, deps.now());
-    if (listRequests("out", OPEN, db).some((r) => r.peer === to && r.org === cfg.org)) return refuse("already-waiting", "You already have a request waiting.");
+    if (listRequests("out", OPEN, db).some((r) => r.peer === to && r.org === cfg.orgRemote)) return refuse("already-waiting", "You already have a request waiting.");
 
     const relay = await deps.relay();
     if (!relay) return refuse("no-board", "Connect your board first.");
     const keys = await deps.keys();
-    if (!keys) return refuse("no-key", "This Mac cannot open the org's secrets.");
+    if (!keys) return refuse("no-key", `${noKey()}.`);
     // Null says nothing: a revoked token reads that way too, and the send below names the fix.
     const host = await relay.host(cfg.host);
     if (host?.accepting === false) return refuse("not-accepting", `${hostName(cfg)} is not taking requests now. Message them directly.`);
@@ -158,7 +161,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
     if (result !== "ok" && result !== "changed") return refuse(...SEND_REFUSALS[result](hostName(cfg)));
 
     const request = {
-      id, direction: "out" as const, peer: to, org: cfg.org, text, parts, slackUserId, state: "sent" as const,
+      id, direction: "out" as const, peer: to, org: cfg.orgRemote, text, parts, slackUserId, state: "sent" as const,
       reason: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt, receivedAt: sentAt,
     };
     insertRequest(request, db);
@@ -181,7 +184,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
       if (!status?.accepting) return hidden;
       const slack = await deps.slackUserId().catch(() => "unknown");
       if (slack === null) return disabled("Connect Slack first");
-      if (!(await deps.keys())) return disabled("This Mac cannot open the org's secrets");
+      if (!(await deps.keys())) return disabled(noKey());
       const away = status.lastSeenAt === null || deps.now() - status.lastSeenAt > SUPPORT_AWAY_MS;
       return { ok: true, data: { state: "ready", host, away } };
     },

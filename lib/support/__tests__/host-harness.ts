@@ -124,7 +124,7 @@ export function supportHost() {
   function request(over: Partial<SupportRequest> = {}): SupportRequest {
     const i = ids++;
     const row = {
-      id: `r${i}`, direction: "in" as const, org: "acme", text: "the board will not load", parts: [], state: "received" as const,
+      id: `r${i}`, direction: "in" as const, org: ORG, text: "the board will not load", parts: [], state: "received" as const,
       reason: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: state.now, receivedAt: state.now + i, ...ADA, ...over,
     };
     insertRequest(row, db);

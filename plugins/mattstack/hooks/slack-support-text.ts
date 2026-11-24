@@ -48,7 +48,7 @@ const RUNS_GATE_ANSWER = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}${OPTIONS
 const APPROVING_SURFACE = /--by(?:\s+|=)["']?(?:slack-mod|console)(?![\w-])/
 // A person sends a help request, accepts them and stops a chat, so no shell line may reach those daemon verbs.
 const RUNS_SOCKET_TOOL = new RegExp(`${COMMAND_START}${WRAPPERS}(?:\\S*/)?(?:curl|wget|nc|ncat|socat)(?=\\s|$)`)
-const SUPPORT_VERB = /support(?::|%3a|\/)(?:send|accept|stop)(?![\w-])|support\.acceptRequests/i
+const SUPPORT_VERB = /support(?::|%3a)(?:send|accept|stop)(?![\w-])|support\.acceptRequests/i
 const SETS_ACCEPT = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}${OPTIONS}\\s+settings\\s+set${OPTIONS}\\s+["']?support\\.acceptRequests(?![\\w-])`)
 const SLASH_COMMAND = /(?<![\w.-])\/slack-support(?![\w.-])/
 

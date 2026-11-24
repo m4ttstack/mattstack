@@ -13,6 +13,11 @@ export interface SupportKeys {
   retired: { key: string; retiredAt: number }[];
 }
 
+/** Missing when the opt-in was written as a plain setting: only `rt team support on` makes the key. */
+export type SupportKeyState = "ready" | "missing" | "unreadable";
+
+export const NO_SUPPORT_KEY = "Your org has no support key yet, so an org admin runs rt team support on";
+
 const KEY_BYTES = 32;
 
 /** An HMAC takes an empty key without complaint, so a value that is not a whole key must never reach one. */

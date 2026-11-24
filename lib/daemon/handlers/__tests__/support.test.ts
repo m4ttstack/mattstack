@@ -25,6 +25,7 @@ function harness() {
       roster: [{ username: "Alex", name: "Alex Doe" }, { username: "ada" }],
     } as SupportConfig | null,
     keys: true,
+    keyMissing: false,
     relay: true,
     host: { accepting: true, lastSeenAt: 1_800_000_000_000 } as SupportHostState | null,
     send: "ok" as SupportSend,
@@ -43,6 +44,7 @@ function harness() {
     log: { warn() {}, info() {}, debug() {}, error() {} } as unknown as HandlerContext["log"],
     config: () => state.config,
     keys: async () => (state.keys ? { current: KEY, retired: [] } : null),
+    keyMissing: () => state.keyMissing,
     relay: async () =>
       state.relay
         ? {
@@ -80,7 +82,7 @@ function harness() {
   const handlers = createSupportHandlers(deps);
   const request = (over: Partial<SupportRequest> = {}) =>
     insertRequest(
-      { id: "old", direction: "out", peer: "alex", org: "acme", text: "help", parts: [], slackUserId: "U0ADA", state: "sent", reason: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: state.now, receivedAt: state.now, ...over },
+      { id: "old", direction: "out", peer: "alex", org: ORG, text: "help", parts: [], slackUserId: "U0ADA", state: "sent", reason: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: state.now, receivedAt: state.now, ...over },
       db,
     );
   return { db, state, deps, sent, events, handlers, request };
@@ -118,6 +120,7 @@ describe("support:availability", () => {
       [(h) => void (h.state.relay = false), "Connect your board first"],
       [(h) => void (h.state.slackUserId = null), "Connect Slack first"],
       [(h) => void (h.state.keys = false), "This Mac cannot open the org's secrets"],
+      [(h) => void ((h.state.keys = false), (h.state.keyMissing = true)), "Your org has no support key yet, so an org admin runs rt team support on"],
       [(h) => void (h.state.config = { ...h.state.config!, me: null }), "Connect your forge account first"],
     ];
     for (const [set, reason] of cases) {
@@ -209,7 +212,7 @@ describe("support:send", () => {
     expect(d).toMatchObject({ id: "r1", to: "alex", kind: "request", sentAt: h.state.now });
     expect(d.mac).toBe(supportMac(KEY, { ...d, org: ORG, from: "ada" }));
     expect(JSON.parse(d.body)).toEqual({ text: ASK.text, parts: ASK.parts, slackUserId: "U0ADA" });
-    expect(getRequest("out", "alex", "r1", h.db)).toMatchObject({ org: "acme", sentAt: h.state.now });
+    expect(getRequest("out", "alex", "r1", h.db)).toMatchObject({ org: ORG, sentAt: h.state.now });
     expect(h.events).toEqual(["poke"]);
   });
 
@@ -340,6 +343,21 @@ describe("support:send", () => {
       expect((await send(h)).ok).toBe(false);
       expect(h.sent).toEqual([]);
     }
+  });
+
+  test("send tells an org with no support key from one this Mac cannot open", async () => {
+    const h = harness();
+    h.state.keys = false;
+    expect(await send(h)).toMatchObject({ failure: { code: "support-no-key", message: "This Mac cannot open the org's secrets." } });
+    h.state.keyMissing = true;
+    expect(await send(h)).toMatchObject({ failure: { code: "support-no-key", message: "Your org has no support key yet, so an org admin runs rt team support on." } });
+  });
+
+  test("a rename of the org's folder leaves the request already waiting", async () => {
+    const h = harness();
+    h.request({ state: "waiting" });
+    h.state.config = { ...h.state.config!, org: "renamed" };
+    expect(await send(h)).toMatchObject({ ok: false, failure: { code: "support-already-waiting" } });
   });
 
   test("send refuses while the sender has a request in sent, received, opening or waiting", async () => {

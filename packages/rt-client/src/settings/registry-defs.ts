@@ -981,7 +981,8 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["org"],
     default: false,
     merge: "replace",
-    description: "Let everyone in the org ask the support host's agent for help from mattstack.",
+    description:
+      "Let everyone in the org ask the support host's agent for help from mattstack. Turn it on with rt team support on, which also makes the org's support key.",
   },
   {
     key: "support.host",

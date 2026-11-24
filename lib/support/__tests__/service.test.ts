@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { dirname } from "path";
+import { teamSecretsFile } from "../../secrets/team-store.ts";
 import { setSetting, unsetSetting } from "../../settings/write.ts";
 import { setKvValue } from "../../state/kv-blob.ts";
 import { getRequest, insertRequest, listRequests, pendingStatuses } from "../../state/support-store.ts";
@@ -217,6 +220,24 @@ describe("readiness", () => {
     await service.handlers["support:host"]({});
     unsetSetting("chat.humanHandle", "user");
     expect(seen).toEqual(["", "alex"]);
+  });
+});
+
+describe("the org's support key", () => {
+  test("an org whose setting was turned on without one is told apart from one this Mac cannot open", async () => {
+    const t = harness();
+    const seen: string[] = [];
+    const service = createSupportService({
+      ...t.options,
+      seams: { ...t.options.seams, keys: async () => null, readiness: async (d) => (seen.push(await d.supportKey()), []) },
+    });
+    await service.handlers["support:host"]({});
+    const file = teamSecretsFile("acme", "support");
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, "not sops");
+    await service.handlers["support:host"]({});
+    rmSync(file);
+    expect(seen).toEqual(["missing", "unreadable"]);
   });
 });
 

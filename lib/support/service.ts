@@ -1,7 +1,7 @@
 /** Support on this Mac: the relay loops, the host's requests and what the handlers need, built once by the daemon. */
 
 import type { Database } from "bun:sqlite";
-import { statSync } from "fs";
+import { existsSync, statSync } from "fs";
 import { join } from "path";
 import type { Logger } from "pino";
 import type { GateRow } from "../../packages/rt-client/src/commands.ts";
@@ -196,6 +196,10 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     const cfg = config();
     return cfg ? keysFor(cfg) : null;
   };
+  const keyMissing = () => {
+    const cfg = config();
+    return cfg !== null && !existsSync(teamSecretsFile(cfg.org, "support"));
+  };
   const boardToken = o.seams?.boardToken ?? cached(TOKEN_TTL_MS, now, () => readBoardSwitchboardToken(createRealProbes(), () => readSwitchboardToken()));
   const relay =
     o.seams?.relay ??
@@ -268,7 +272,7 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
       const r = await relay();
       return cfg?.me != null && r !== null && (await r.host(cfg.me)) !== null;
     },
-    supportKey: async () => (await keys()) !== null,
+    supportKey: async () => ((await keys()) ? "ready" : keyMissing() ? "missing" : "unreadable"),
     orgIds: orgIdContext,
   };
 
@@ -288,6 +292,7 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     now,
     config,
     keys,
+    keyMissing,
     relay,
     slackUserId: async () => {
       const client = await o.slackClient();

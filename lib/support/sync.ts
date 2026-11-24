@@ -182,7 +182,7 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
       id: m.id,
       direction: "in" as const,
       peer: m.from,
-      org: cfg.org,
+      org: cfg.orgRemote,
       ...body,
       state: "received" as const,
       reason: null,

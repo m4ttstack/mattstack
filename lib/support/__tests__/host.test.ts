@@ -245,7 +245,7 @@ describe("a request that does not open", () => {
   test("a stored request from someone no longer on the roster, or for another org, ends with no reply", async () => {
     for (const set of [
       (h: Host) => void (h.state.config = { ...h.state.config!, roster: [{ username: "alex" }] }),
-      (h: Host) => void (h.state.config = { ...h.state.config!, org: "other" }),
+      (h: Host) => void (h.state.config = { ...h.state.config!, org: "other", orgRemote: "git.example.com/other/mattstack" }),
     ]) {
       const h = supportHost();
       set(h);
@@ -255,6 +255,15 @@ describe("a request that does not open", () => {
       expect(h.statuses()).toEqual([]);
       expect(h.started).toEqual([]);
     }
+  });
+
+  test("a rename of the org's folder leaves its stored requests alone", async () => {
+    const h = supportHost();
+    h.state.config = { ...h.state.config!, org: "renamed" };
+    const r = h.request();
+    await tickRequests(h.deps);
+    expect(row(h, r).state).toBe("opening");
+    expect(h.started).toHaveLength(1);
   });
 
   test("a person no longer on the roster hears nothing, even past 7 days", async () => {

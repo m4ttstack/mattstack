@@ -127,7 +127,7 @@ describe("pulling requests", () => {
     expect(seenAtAck!).toMatchObject({
       state: "received",
       peer: "ada",
-      org: "acme",
+      org: ORG,
       text: body.text,
       parts: body.parts,
       slackUserId: "U0ADA",

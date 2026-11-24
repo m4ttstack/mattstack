@@ -895,7 +895,7 @@ for (const command of [
   'curl --unix-socket ~/.mattstack/rt/rt.sock http://x/support:send -d {}',
   "curl -s --unix-socket /tmp/rt.sock -X POST 'http://localhost/support:accept' -d '{\"on\":true}'",
   'curl http://127.0.0.1:4111/api/support%3Astop',
-  'A=1 /usr/bin/curl -d @x http://h/support/send',
+  'A=1 /usr/bin/curl -d @x http://h/support%3asend',
   'echo "{}" | nc -U ~/.mattstack/rt/rt.sock support:accept',
   'printf "POST /support:stop HTTP/1.1" | ncat -U rt.sock',
   'cd x && socat - UNIX:rt.sock <<< "support:send"',
@@ -913,6 +913,9 @@ for (const command of [
 for (const command of [
   'rg "support:send" lib',
   'curl https://example.com/support:hours',
+  'curl -X POST http://localhost:3000/api/support/send',
+  'curl https://api.example.com/v1/support/accept',
+  'wget https://help.example.com/support/stop.html',
   'rt settings get support.acceptRequests',
   'rt chat post rt "support:send is the daemon verb, curl is denied"',
   'git commit -m "support:accept refuses a second Mac"',

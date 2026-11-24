@@ -48,6 +48,7 @@ export interface SupportRequest {
   id: string;
   direction: SupportDirection;
   peer: string;
+  /** The org clone's remote as `host/path`, which a rename of its folder keeps. */
   org: string;
   text: string;
   parts: SupportPart[];
