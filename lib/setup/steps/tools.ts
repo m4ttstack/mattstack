@@ -115,7 +115,6 @@ async function installForkHerdrIfNeeded(p: Probes, herdr: string[]): Promise<Ins
   return installHerdrBuild(p, hostArch());
 }
 
-
 async function herdrIntegrationRun(ctx: ApplyContext): Promise<StepOutcome> {
   const resolved = resolveTool(ctx.p, "herdr");
   if (!resolved.chosen) return { state: "skipped", detail: "herdr is not installed (see the Tools section)" };

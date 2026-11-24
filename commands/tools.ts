@@ -102,10 +102,10 @@ export async function toolsInstall(args: string[], _ctx: CommandContext = {}, p:
   }
   if (!result.ok) {
     if (result.reason && result.reason !== "no-bundle") out.note(out.line("refused", `rt left your ${t} alone`, result.detail));
-    else out.fail({ title: `${t} was not installed`, why: result.detail });
+    else out.fail({ title: result.title ?? `${t} was not installed`, why: result.detail });
     process.exit(1);
   }
-  out.print(out.line("done", `Installed ${t}`, result.detail));
+  out.print(out.line("done", result.title ?? `Installed ${t}`, result.detail));
 }
 
 export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {

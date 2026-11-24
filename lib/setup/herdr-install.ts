@@ -93,7 +93,7 @@ export function isHomebrewHerdr(p: Probes, herdr: readonly string[], brews: read
   return false;
 }
 
-export function homebrewUninstallCommands(brews: readonly HomebrewHerdr[]): string[] {
+function homebrewUninstallCommands(brews: readonly HomebrewHerdr[]): string[] {
   return brews.map((b) => `${shellQuote(b.brew)} uninstall herdr`);
 }
 
@@ -196,7 +196,8 @@ export async function installHerdrBuild(p: Probes, arch: HostArch): Promise<Inst
   const brews = homebrewHerdrs(p);
   if (brews.length > 0 && (await runsCurrentBuild(p, list, brews))) {
     const removed = await uninstallHomebrewHerdr(p, brews);
-    return { via: "download", ok: removed.ok, detail: capitalize(removed.note), ...(removed.remedy ? { remedy: removed.remedy } : {}) };
+    const title = removed.ok ? "herdr was already current" : "Homebrew's herdr was not removed";
+    return { via: "download", ok: removed.ok, title, detail: capitalize(removed.note), ...(removed.remedy ? { remedy: removed.remedy } : {}) };
   }
   if (!list) return fail("rt could not read herdr's build list from m4ttstack/herdr");
   const build = newestBuild(list);
@@ -230,7 +231,8 @@ export async function installHerdrBuild(p: Probes, arch: HostArch): Promise<Inst
   if (refused > 0) notes.push("restart herdr when your agents are done");
   if (removed) notes.push(removed.note);
 
-  return { via: "download", ok: removed?.ok ?? true, detail: [`Installed herdr ${build.version}`, ...notes].join("; "), ...(removed?.remedy ? { remedy: removed.remedy } : {}) };
+  const title = removed?.ok === false ? { title: "herdr was installed, but Homebrew's copy was not removed" } : {};
+  return { via: "download", ok: removed?.ok ?? true, ...title, detail: [`Installed herdr ${build.version}`, ...notes].join("; "), ...(removed?.remedy ? { remedy: removed.remedy } : {}) };
 }
 
 /** `error` is set when ~/.local/bin/herdr does not run or cannot list its sessions, so nothing was checked or stopped. */
