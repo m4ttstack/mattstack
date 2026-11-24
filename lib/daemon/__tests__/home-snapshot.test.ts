@@ -4919,7 +4919,7 @@ describe("current snapshot authorization", () => {
       expect((await handle.runNow("watch")).committed).toBe(true);
       revokeOnFetch = true;
       timers.fire((timer) => timer.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
-      await flushAsync();
+      await handle.settled();
       expect(exec.calls.filter((argv) => gitVerb(argv) === "push")).toEqual([]);
       expect(handle.status()).toMatchObject({ pullOnly: true, pushPending: true, lastPushError: expect.stringContaining("Your role no longer owns"), unownedDirty: ["mattstack/teams/widgets/settings.team.jsonc"] });
     } finally { handle.stop(); }
@@ -4940,7 +4940,7 @@ describe("current snapshot authorization", () => {
       expect((await handle.runNow("watch")).committed).toBe(true);
       beforePush();
       timers.fire((timer) => timer.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
-      await flushAsync();
+      await handle.settled();
       return { pushes: exec.calls.filter((argv) => gitVerb(argv) === "push"), status: handle.status() };
     } finally { handle.stop(); }
   }
@@ -4987,7 +4987,7 @@ describe("current snapshot authorization", () => {
       expect((await handle.runNow("watch")).committed).toBe(true);
       stall.armed = true;
       timers.fire((timer) => timer.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
-      await flushAsync();
+      await handle.settled();
       expect(stall.remoteChecks).toBe(2);
       expect(exec.calls.filter((argv) => gitVerb(argv) === "push")).toEqual([]);
       expect(handle.status().pushPending).toBe(true);
@@ -5080,7 +5080,7 @@ describe("current snapshot authorization", () => {
       await handle.ready;
       await handle.runNow("watch");
       timers.fire((timer) => timer.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
-      await flushAsync();
+      await handle.settled();
       expect(exec.calls.filter((argv) => gitVerb(argv) === "push")).toEqual([]);
       expect(handle.status()).toMatchObject({ pullOnly: false, pushPending: true, lastPushError: "rt could not check your pending changes", unownedDirty: [] });
     } finally { handle.stop(); }
@@ -5105,7 +5105,7 @@ describe("current snapshot authorization", () => {
       await handle.ready;
       await handle.runNow("watch");
       timers.fire((timer) => timer.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
-      await flushAsync();
+      await handle.settled();
       expect(exec.calls.filter((argv) => gitVerb(argv) === "push")).toEqual([]);
       expect(handle.status()).toMatchObject({ pushPending: true, lastPushError: "This copy is on org-trial, which origin does not have yet. Push it once with git push -u origin org-trial" });
     } finally { handle.stop(); }
@@ -5144,7 +5144,7 @@ describe("current snapshot authorization", () => {
       await handle.runNow("watch");
       revokeOnFetch = true;
       timers.fire((timer) => timer.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
-      await flushAsync();
+      await handle.settled();
       expect(exec.calls.filter((argv) => gitVerb(argv) === "push")).toEqual([]);
       expect(handle.status()).toMatchObject({ pullOnly: false, pushPending: true, lastPushError: expect.stringContaining("Your role no longer owns"), unownedDirty: ["mattstack/teams/widgets/settings.team.jsonc"] });
     } finally { handle.stop(); }
