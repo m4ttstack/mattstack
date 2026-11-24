@@ -86,7 +86,7 @@ export async function skillsRender(args: string[], seams: RenderSeams = {}): Pro
   const home = process.env.HOME || homedir();
   const probes = createRealProbes();
 
-  const packVersion = stamped ?? versionOfDir(id, plugin, dir, { fs: realResolveFs, home });
+  const packVersion = stamped ?? versionOfDir(id, plugin, dir, { fs: realResolveFs, home, ...(process.env.CLAUDE_CONFIG_DIR ? { configDir: process.env.CLAUDE_CONFIG_DIR } : {}) });
   if (packVersion === null) {
     throw fail("render-bad-dir", `${dir} isn't inside an installed copy of ${plugin}.`, { why: 'Pass the loaded skill\'s own directory, the one its "Base directory for this skill" line names.' });
   }

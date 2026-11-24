@@ -8,7 +8,7 @@ import { isIdSafeVersion, MAP_FILE } from "./unit-maps.ts";
 
 /** `realPath` is null for a path that does not exist. */
 export type ResolveFs = PluginFs & { readFile(p: string): string | null; isSymlink(p: string): boolean; realPath(p: string): string | null };
-export type ResolveDeps = { fs: ResolveFs; home: string };
+export type ResolveDeps = { fs: ResolveFs; home: string; configDir?: string };
 export type ResolveResult = { id: string; folder: string; covers: string[]; keys: Record<string, string>; pinned: boolean; warning?: string };
 
 export const realResolveFs: ResolveFs = {
@@ -129,7 +129,9 @@ export function versionOfDir(id: string, plugin: string, dir: string, deps: Reso
   if (!posix.isAbsolute(dir)) return null;
   const text = posix.normalize(dir);
   // A render tree, `<root>/<org>/<plugin>/<version>/<mattstack>/`, names its pack version the way a cache copy does.
-  const root = [pluginCache(deps.home), renderRoot(deps.home)].find((r) => within(r, text));
+  // A CLAUDE_CONFIG_DIR profile (a cswap account) names the cache through its own `plugins` link.
+  const caches = deps.configDir ? [pluginCache(deps.home), `${posix.normalize(deps.configDir)}/plugins/cache`] : [pluginCache(deps.home)];
+  const root = [...caches, renderRoot(deps.home)].find((r) => within(r, text));
   if (root === undefined) return null;
   // The written path, not its normalized text: the OS follows a link before the `..` after it.
   const real = deps.fs.realPath(dir);

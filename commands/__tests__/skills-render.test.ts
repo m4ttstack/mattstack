@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { UserActionableError } from "../../lib/errors.ts";
 import { LOCK_REL, serializeLock } from "../../lib/skills/compiled-lock.ts";
@@ -12,6 +12,7 @@ import { skillsRender } from "../skills-render.ts";
 
 const made: string[] = [];
 const savedHome = process.env.HOME;
+const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
 let io: CapturedOut | null = null;
 
 beforeEach(() => out.__test__.reset());
@@ -19,6 +20,8 @@ afterEach(() => {
   io?.restore();
   io = null;
   process.env.HOME = savedHome;
+  if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+  else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
   out.__test__.reset();
   for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
@@ -85,6 +88,18 @@ describe("rt skills render", () => {
     expect(err.next).toBeUndefined();
     expect(err.why).toBe('Pass the loaded skill\'s own directory, the one its "Base directory for this skill" line names.');
     expect(err.extra.why).toBe(err.why);
+  });
+
+  test("a folder written through a CLAUDE_CONFIG_DIR whose plugins links to ~/.claude/plugins serves the render", async () => {
+    const w = setup();
+    const profile = join(w.home, "profile");
+    mkdirSync(profile);
+    symlinkSync(join(w.home, ".claude", "plugins"), join(profile, "plugins"));
+    process.env.CLAUDE_CONFIG_DIR = profile;
+    io = captureOut();
+    await skillsRender(["acme:work", "--dir", join(profile, "plugins", "cache", "acme-market", "acme", "0.1.0", "skills", "work"), "--mattstack-dir", w.mattstackDir, "--json"]);
+    const printed = JSON.parse(io.stdout()) as Record<string, unknown>;
+    expect(printed.path).toBe(join(w.root, "acme", "acme", "0.1.0", "1.0.0", "skills", "work", "SKILL.md"));
   });
 
   test("missing tree when the clone is ahead", async () => {
