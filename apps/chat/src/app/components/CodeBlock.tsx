@@ -20,7 +20,8 @@ function hasLongLine(pre: HTMLElement, code: string, wrap: boolean): boolean {
   const rows =
     (pre.firstElementChild as HTMLElement).offsetHeight /
     parseFloat(getComputedStyle(pre).lineHeight);
-  return Math.round(rows) > code.split('\n').length;
+  // A browser draws no row for a final newline.
+  return Math.round(rows) > code.replace(/\n$/, '').split('\n').length;
 }
 
 /** A fence in a message. Long lines wrap until the reader turns that off for

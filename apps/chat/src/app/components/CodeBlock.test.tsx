@@ -34,6 +34,12 @@ test('a block whose lines all fit has no wrap toggle', () => {
   expect(toggle()).toBeNull();
 });
 
+test('a final newline draws no row, so it never hides the toggle', () => {
+  layout({ rows: 2, scrollWidth: 400 });
+  renderWithProviders(<CodeBlock code={'one long line\n'} />);
+  expect(toggle()).not.toBeNull();
+});
+
 test('a long line wraps, until the toggle turns wrapping off for the block', () => {
   layout({ rows: 3, scrollWidth: 900 });
   renderWithProviders(<CodeBlock code={'one\ntwo'} />);
