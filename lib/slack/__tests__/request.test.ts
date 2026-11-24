@@ -212,7 +212,7 @@ describe("approveSlackOpen", () => {
     h.milestones.length = 0;
     h.started.length = 0;
     const second = await approveSlackOpen(h.deps, meta());
-    expect(second).toEqual({ ok: false, reason: `Alex Example already has a Slack chat open in ${room}` });
+    expect(second).toMatchObject({ ok: false, reason: `Alex Example already has a Slack chat open in ${room}` });
     expect(h.started).toEqual([]);
     expect(listOpenConversations(h.db)).toHaveLength(1);
     expect(h.milestones).toEqual([{ via: "dm", body: `Alex Example could not be connected: Alex Example already has a Slack chat open in ${room}` }]);
@@ -239,7 +239,7 @@ describe("approveSlackOpen", () => {
   test("an agent:start error sends open-failed with the reason and writes no row", async () => {
     const h = harness({ startError: "no free herdr server" });
     const res = await approveSlackOpen(h.deps, meta());
-    expect(res).toEqual({ ok: false, reason: "no free herdr server" });
+    expect(res).toEqual({ ok: false, reason: "no free herdr server", code: "agent" });
     expect(h.stopped).toEqual([]);
     expect(listOpenConversations(h.db)).toEqual([]);
     expect(h.milestones).toEqual([{ via: "dm", body: "Alex Example could not be connected: no free herdr server" }]);
@@ -256,7 +256,7 @@ describe("approveSlackOpen", () => {
   test("a Slack failure before the agent starts starts no agent", async () => {
     const h = harness({ lookupFails: true });
     const res = await approveSlackOpen(h.deps, meta());
-    expect(res).toEqual({ ok: false, reason: "Slack did not answer" });
+    expect(res).toEqual({ ok: false, reason: "Slack did not answer", code: "slack" });
     expect(h.started).toEqual([]);
     expect(h.milestones[0]!.body).toBe("Alex Example could not be connected: Slack did not answer");
   });

@@ -165,31 +165,35 @@ export interface SupportOpenOptions {
   record(conversation: SlackConversation, messageId: number): void;
 }
 
+/** `reason` is for the operator alone; a teammate is told by the code. */
+export type SlackOpenFailure = "cap" | "busy" | "setup" | "slack" | "agent";
+
 class TooManyOpen extends Error {}
 
 export async function approveSlackOpen(
   deps: SlackOpenDeps,
   meta: Omit<SlackOpenMeta, "action"> & { action?: "open" },
   options?: SupportOpenOptions,
-): Promise<{ ok: true; conversation: number } | { ok: false; reason: string; code?: "cap" | "busy" }> {
-  const fail = async (reason: string, code?: "cap" | "busy") => {
+): Promise<{ ok: true; conversation: number } | { ok: false; reason: string; code: SlackOpenFailure }> {
+  const fail = async (reason: string, code: SlackOpenFailure) => {
     // A support request answers a full house or an open chat itself, so neither is a failure the host is told of.
-    if (!options || !code) await tell(deps, meta, { kind: "open-failed", person: meta.personName, reason });
-    return { ok: false as const, reason, ...(options && code ? { code } : {}) };
+    const settled = options && (code === "cap" || code === "busy");
+    if (!settled) await tell(deps, meta, { kind: "open-failed", person: meta.personName, reason });
+    return { ok: false as const, reason, code };
   };
   const heldBy = (room: string) => `${meta.personName} already has a Slack chat open in ${room}`;
 
   const busy = conversationForSlackUser(meta.person, deps.db);
   if (busy) return fail(heldBy(busy.room), "busy");
   const humanHandle = deps.humanHandle();
-  if (!isValidChatName(humanHandle)) return fail(`the chat.humanHandle setting is empty or invalid ("${humanHandle}")`);
+  if (!isValidChatName(humanHandle)) return fail(`the chat.humanHandle setting is empty or invalid ("${humanHandle}")`, "setup");
   const connected = await deps.connect(meta.person);
-  if (!connected.ok) return fail(connected.reason);
-  if (deps.repoPath(meta.repo) === null) return fail("the folder for this repo is not known to rt");
+  if (!connected.ok) return fail(connected.reason, "slack");
+  if (deps.repoPath(meta.repo) === null) return fail("the folder for this repo is not known to rt", "setup");
 
   const started = await deps.startAgent(meta.repo, meta.personName);
-  if (!started.ok) return fail(started.error);
-  if (started.reused) return fail("an earlier support agent is still running in this repo");
+  if (!started.ok) return fail(started.error, "agent");
+  if (started.reused) return fail("an earlier support agent is still running in this repo", "agent");
   const { agent } = started;
   const { target } = connected;
 
@@ -246,7 +250,7 @@ export async function approveSlackOpen(
     }
     if (err instanceof TooManyOpen) return fail("the most chats that can be open at once are open", "cap");
     deps.log.warn({ err }, "slack: the open could not be recorded");
-    return fail("the chat could not be recorded");
+    return fail("the chat could not be recorded", "agent");
   }
 }
 

@@ -105,7 +105,7 @@ export function supportHost() {
         const g = gates.find((row) => row.id === id);
         if (g) Object.assign(g, { status: "closed", closedReason: "abandoned" });
       },
-      listOpen: () => gates.filter((g) => g.status === "open"),
+      listOpen: () => gates.filter((g) => g.status === "open" || g.status === "parked"),
       appendContext: () => {},
     },
     config: () => state.config,

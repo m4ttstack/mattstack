@@ -6,11 +6,11 @@
 import { SUPPORT_TTL_MS } from "../../packages/rt-client/src/support.ts";
 import type { GateQuestion, GateRow } from "../../packages/rt-client/src/commands.ts";
 import { sendMilestone } from "../slack/milestones.ts";
-import { approveSlackOpen, SLACK_OPEN_KIND, slackOpenApproved, slackOpenMarker, slackSupportMeta, type SlackOpenDeps } from "../slack/request.ts";
+import { approveSlackOpen, SLACK_OPEN_KIND, slackOpenApproved, slackOpenMarker, slackSupportMeta, type SlackOpenDeps, type SlackOpenFailure } from "../slack/request.ts";
 import { agentHasPosted, conversationById, conversationForSlackUser, listOpenConversations } from "../state/slack-conversation-store.ts";
 import { getRequest, listRequests, moveRequest, queueStatus, stoppedSince, type SupportRequest, type SupportState } from "../state/support-store.ts";
 import type { Chain } from "./chain.ts";
-import type { SupportConfig } from "./config.ts";
+import { onRoster, type SupportConfig } from "./config.ts";
 import type { StatusBody } from "./sync.ts";
 
 export const SUPPORT_MAX_OPEN = 2;
@@ -24,6 +24,14 @@ const SLACK_ID = /^[UW][A-Z0-9]*[0-9][A-Z0-9]*$/;
 const NO_ACCOUNT = "the host's Slack workspace has no active account for you";
 const NEVER_REACHED = "the support agent never reached the chat";
 const STOPPED = "the host closed the chat";
+const NOT_SET_UP = "the host's Mac is not set up for support yet";
+const NO_AGENT = "the support agent could not start";
+/** A host's own errors can hold paths and settings, so the sender reads one of these instead. */
+const FAILED: Record<Exclude<SlackOpenFailure, "cap" | "busy">, string> = {
+  setup: NOT_SET_UP,
+  slack: "the host's Mac could not reach Slack",
+  agent: NO_AGENT,
+};
 
 export interface HostDeps extends SlackOpenDeps {
   config(): SupportConfig | null;
@@ -116,7 +124,7 @@ async function openGate(deps: HostDeps, r: SupportRequest, personName: string, w
     subject: `support:${r.peer}:${r.id}`,
     kind: SLACK_OPEN_KIND,
     questions: [question],
-    context: `Person: ${personName}\n\nMessage:\n${renderRequest(r)}`,
+    context: `Person: ${personName} (${r.peer})\n\nMessage:\n${renderRequest(r)}`,
     meta,
   });
   if (!opened.ok) {
@@ -145,7 +153,7 @@ async function openChat(deps: HostDeps, r: SupportRequest, personName: string, f
   }
   if (repo === null || deps.repoPath(repo) === null) {
     const reason = repo === null ? "the chat.slackSupport.defaultRepo setting names no repo for the support agent" : "the folder for the chat.slackSupport.defaultRepo repo is not known to rt";
-    if (settle(deps, r, [from], "failed", { reason: "the host's Mac is not set up for support yet" })) await tellHost(deps, personName, reason);
+    if (settle(deps, r, [from], "failed", { reason: NOT_SET_UP })) await tellHost(deps, personName, reason);
     return;
   }
   if (!settle(deps, r, [from], "opening", { gateId: null }, "received")) return;
@@ -170,10 +178,14 @@ async function openChat(deps: HostDeps, r: SupportRequest, personName: string, f
       record(conversation, message) {
         room = conversation.room;
         messageId = message;
-        moveRequest(r, ["opening"], { conversationId: conversation.id }, deps.now(), db);
+        if (!moveRequest(r, ["opening"], { conversationId: conversation.id }, deps.now(), db)) throw new Error("the request moved on while its chat opened");
       },
     },
-  );
+  ).catch(async (err: unknown) => {
+    deps.log.warn({ err, id: r.id }, "support: opening a chat threw");
+    await tellHost(deps, personName, "rt could not open the chat, and its log says why");
+    return { ok: false as const, code: "agent" as const };
+  });
   if (opened.ok) {
     for (const tell of [() => deps.posted(room, messageId), () => deps.notifyOpening(r, room)]) {
       try {
@@ -186,7 +198,28 @@ async function openChat(deps: HostDeps, r: SupportRequest, personName: string, f
   }
   if (opened.code === "cap") return raiseGate(deps, r, personName, "cap");
   if (opened.code === "busy") return settleAlreadyOpen(deps, r, ["opening"]);
-  settle(deps, r, ["opening"], "failed", { reason: opened.reason });
+  settle(deps, r, ["opening"], "failed", { reason: FAILED[opened.code] });
+}
+
+/** Whether a stored request may still be acted on: `unknown` is a settings store that cannot be read now. */
+function standing(deps: HostDeps, r: SupportRequest): "ok" | "unknown" | "stranger" | "not-accepting" {
+  const cfg = deps.config();
+  // A store that cannot be read gives no roster, which would make a stranger of everyone.
+  if (!cfg || cfg.roster.length === 0) return "unknown";
+  if (cfg.org !== r.org || !onRoster(cfg, r.peer)) return "stranger";
+  return cfg.acceptHere ? "ok" : "not-accepting";
+}
+
+/** Someone the org no longer lists is never answered. */
+function dropStranger(deps: HostDeps, r: SupportRequest): void {
+  deps.log.warn({ id: r.id, peer: r.peer }, "support: a request was dropped, since its sender is not in the org");
+  moveRequest(r, [r.state], { state: "failed", reason: "not in the org", gateId: null }, deps.now(), deps.db);
+}
+
+/** The proven person's requests name every Slack account they have claimed, and a limit on them covers all of those. */
+function claimedAccounts(deps: HostDeps, r: SupportRequest): string[] {
+  const mine = listRequests("in", undefined, deps.db).filter((o) => o.peer === r.peer);
+  return [...new Set(mine.map((o) => o.slackUserId))];
 }
 
 async function takeNow(deps: HostDeps, stale: SupportRequest): Promise<void> {
@@ -194,8 +227,11 @@ async function takeNow(deps: HostDeps, stale: SupportRequest): Promise<void> {
   const r = getRequest("in", stale.peer, stale.id, db);
   if (r?.state !== "received") return;
   const from: SupportState[] = ["received"];
-  if (!deps.config()?.acceptHere) return void settle(deps, r, from, "not-accepting");
   if (deps.now() - r.receivedAt >= SUPPORT_TTL_MS) return void settle(deps, r, from, "expired");
+  const stands = standing(deps, r);
+  if (stands === "unknown") return;
+  if (stands === "stranger") return dropStranger(deps, r);
+  if (stands === "not-accepting") return void settle(deps, r, from, "not-accepting");
 
   const found = SLACK_ID.test(r.slackUserId) ? await deps.findPerson(r.slackUserId) : null;
   if (found && !found.ok && !found.refused) {
@@ -209,10 +245,10 @@ async function takeNow(deps: HostDeps, stale: SupportRequest): Promise<void> {
   }
   const personName = found.person.displayName;
 
-  if (conversationForSlackUser(r.slackUserId, db)) return settleAlreadyOpen(deps, r, from);
-  const others = listRequests("in", ["waiting", "opening"], db).filter((o) => o.slackUserId === r.slackUserId || o.peer === r.peer);
-  if (others.length > 0) return void settle(deps, r, from, "already-waiting");
-  if (stoppedSince(r.slackUserId, deps.now() - SUPPORT_STOP_HOLD_MS, db)) return raiseGate(deps, r, personName, "stopped");
+  const accounts = claimedAccounts(deps, r);
+  if (accounts.some((id) => conversationForSlackUser(id, db))) return settleAlreadyOpen(deps, r, from);
+  if (listRequests("in", ["waiting", "opening"], db).some((o) => o.peer === r.peer)) return void settle(deps, r, from, "already-waiting");
+  if (accounts.some((id) => stoppedSince(id, deps.now() - SUPPORT_STOP_HOLD_MS, db))) return raiseGate(deps, r, personName, "stopped");
   if (listOpenConversations(db).length >= SUPPORT_MAX_OPEN) return raiseGate(deps, r, personName, "cap");
   await openChat(deps, r, personName, "received", SUPPORT_MAX_OPEN);
 }
@@ -238,13 +274,20 @@ async function followWaiting(deps: HostDeps, stale: SupportRequest): Promise<voi
   const end = async (state: SupportState, extra: { dmLink?: string | null } = {}) => {
     if (settle(deps, r, from, state, { ...extra, gateId: null })) await closeGate(deps, r.gateId);
   };
-  if (!deps.config()?.acceptHere) return end("not-accepting");
   if (deps.now() - r.receivedAt >= SUPPORT_TTL_MS) return end("expired");
+  const stands = standing(deps, r);
+  if (stands === "unknown") return;
+  if (stands === "stranger") {
+    dropStranger(deps, r);
+    return closeGate(deps, r.gateId);
+  }
+  if (stands === "not-accepting") return end("not-accepting");
   if (conversationForSlackUser(r.slackUserId, db)) return end("already-open", { dmLink: await dmLink(deps) });
 
   const gate = r.gateId === null ? null : deps.gate(r.gateId);
   const meta = gate ? slackSupportMeta(gate) : null;
-  if (gate?.status === "open" || gate?.status === "parked") return;
+  // The console lists open gates only, so a parked one is as good as closed.
+  if (gate?.status === "open") return;
   if (gate?.answer && meta) {
     if (slackOpenApproved(gate)) await openChat(deps, r, meta.personName, "waiting", null);
     else settle(deps, r, from, "declined", { gateId: null });
@@ -274,9 +317,19 @@ async function each(deps: HostDeps, states: SupportState[], f: (r: SupportReques
   }
 }
 
+/** A gate left open with no request behind it would take an answer that does nothing. */
+async function closeStrayGates(deps: HostDeps): Promise<void> {
+  for (const gate of deps.gates.listOpen()) {
+    const meta = slackSupportMeta(gate);
+    if (!meta) continue;
+    const r = getRequest("in", meta.peer, meta.requestId, deps.db);
+    if (r?.state !== "waiting" || r.gateId !== gate.id) await closeGate(deps, gate.id);
+  }
+}
+
 /** Serialized, so requests open in the order they arrived; the count inside the open's transaction is what holds the cap. */
-export function takeRequest(deps: HostDeps, r: SupportRequest): Promise<void> {
-  return deps.chain.run(() => takeNow(deps, r));
+export function takeRequests(deps: HostDeps): Promise<void> {
+  return deps.chain.run(() => each(deps, ["received"], (r) => takeNow(deps, r)));
 }
 
 export function tickRequests(deps: HostDeps): Promise<void> {
@@ -284,5 +337,6 @@ export function tickRequests(deps: HostDeps): Promise<void> {
     await each(deps, ["opening"], (r) => followOpening(deps, r));
     await each(deps, ["waiting"], (r) => followWaiting(deps, r));
     await each(deps, ["received"], (r) => takeNow(deps, r));
+    await closeStrayGates(deps);
   });
 }

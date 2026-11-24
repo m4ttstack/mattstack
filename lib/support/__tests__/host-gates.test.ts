@@ -5,7 +5,7 @@ import { answerSlackOpen, approveSlackOpen, expireSlackOpenGates, requestSlackOp
 import { offerTriggerChat } from "../../slack/trigger-offer.ts";
 import { conversationForSlackUser, listOpenConversations } from "../../state/slack-conversation-store.ts";
 import { getRequest, recordStop } from "../../state/support-store.ts";
-import { answerSupportGate, takeRequest, tickRequests, type SlackSupportMeta } from "../host.ts";
+import { answerSupportGate, takeRequests, tickRequests, type SlackSupportMeta } from "../host.ts";
 import { ADA, DM_LINK, REPO, supportHost } from "./host-harness.ts";
 
 type Host = ReturnType<typeof supportHost>;
@@ -17,7 +17,7 @@ async function waiting(h: Host = supportHost()) {
   h.operatorChat("U0XX1");
   h.operatorChat("U0XX2");
   const r = h.request();
-  await takeRequest(h.deps, r);
+  await takeRequests(h.deps);
   return { h, r, gateId: row(h, r).gateId! };
 }
 
@@ -29,7 +29,7 @@ describe("raising the gate", () => {
     const gate = h.deps.gate(gateId)!;
     expect(gate).toMatchObject({ subject: `support:ada:${r.id}`, kind: SLACK_OPEN_KIND, status: "open" });
     expect(gate.meta).toEqual({ action: "support", requestId: r.id, peer: "ada", person: "U0ADA", personName: "Ada Example", why: "cap", expiresAt: r.receivedAt + SUPPORT_TTL_MS } satisfies SlackSupportMeta);
-    expect(gate.context).toBe("Person: Ada Example\n\nMessage:\nthe board will not load");
+    expect(gate.context).toBe("Person: Ada Example (ada)\n\nMessage:\nthe board will not load");
     expect(normalizeGateQuestions(gate.questions)[0]!.options).toHaveLength(2);
   });
 
@@ -37,7 +37,7 @@ describe("raising the gate", () => {
     const h = supportHost();
     recordStop(ADA.slackUserId, h.state.now, h.db);
     const r = h.request();
-    await takeRequest(h.deps, r);
+    await takeRequests(h.deps);
     expect((h.deps.gate(row(h, r).gateId!)!.meta as SlackSupportMeta).why).toBe("stopped");
   });
 
@@ -216,6 +216,38 @@ describe("while it waits", () => {
     expect(states(h)).toEqual(["waiting"]);
     await tickRequests(h.deps);
     expect(h.opens).toHaveLength(2);
+  });
+
+  test("a person removed from the roster while waiting is never opened, by tick or by approve, and hears nothing", async () => {
+    const ticked = await waiting();
+    ticked.h.state.config = { ...ticked.h.state.config!, roster: [{ username: "alex" }] };
+    await tickRequests(ticked.h.deps);
+    expect(row(ticked.h, ticked.r).state).toBe("failed");
+    expect(ticked.h.deps.gate(ticked.gateId)!.status).toBe("closed");
+    expect(states(ticked.h)).toEqual(["waiting"]);
+
+    const approved = await waiting();
+    approved.h.state.config = { ...approved.h.state.config!, roster: [{ username: "alex" }] };
+    await answerSupportGate(approved.h.deps, approved.h.answer(approved.gateId, "approve"));
+    expect(row(approved.h, approved.r).state).toBe("failed");
+    expect(approved.h.started).toEqual([]);
+  });
+
+  test("a parked gate is put to the host again, since the console does not list it", async () => {
+    const { h, r, gateId } = await waiting();
+    Object.assign(h.deps.gate(gateId)!, { status: "parked" });
+    await tickRequests(h.deps);
+    expect(row(h, r).gateId).not.toBe(gateId);
+  });
+
+  test("a support gate that is not its request's own is closed", async () => {
+    const { h, r, gateId } = await waiting();
+    const stray = { ...h.deps.gate(gateId)!, id: "stray", subject: "support:bo:r9", meta: { ...h.deps.gate(gateId)!.meta!, requestId: "r9", peer: "bo" } };
+    h.gates.push(stray);
+    await tickRequests(h.deps);
+    expect(stray.status).toBe("closed");
+    expect(h.deps.gate(gateId)!.status).toBe("open");
+    expect(row(h, r).state).toBe("waiting");
   });
 
   test("a place that frees up does not open a waiting request by itself", async () => {
