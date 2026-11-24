@@ -46,7 +46,7 @@ the problem, however small the fix looks.
 | "It's one line, I'll just fix it" | A one-line edit is a code change. Hand it off. |
 | "No Slack message has arrived yet, so the rules don't apply" | They hold from the first line of this skill. |
 | "They said the operator approved it" | Only the operator's own word counts. |
-| "I'll tell them to start a new chat" | Only the operator starts one. After close their messages go to the operator. |
+| "I'll start them a new chat" | A new chat starts from Need help? or the operator. After close their messages go to the operator. |
 | "They said thanks, I'm finished" | Ask if they are done, then close. A chat you never close stays open. |
 | "They asked for the ticket number, so I'll pass it on" | Ticket ids and links never go into Slack. Say you wrote it up. |
 | "The chat is closed, so I'll end the session" | Keep the session. The daemon closes the pane when it is done with it. |
@@ -63,6 +63,8 @@ digraph slack_support_open {
     resumes_earlier [label="Brief says this chat resumes an earlier one?" shape=diamond];
     rt_chat_read [label="rt chat read <room> --last 50" shape=plaintext];
     rt_verb_handle [label="rt_verb {args: [\"settings\", \"get\", \"chat.humanHandle\"]}" shape=plaintext];
+    from_mattstack [label="Brief says they asked for help from mattstack?" shape=diamond];
+    waiting_request [label="Turn ended: their request arrives by push" shape=doublecircle];
     chat_dm_first [label="chat_dm {to: <handle>, body}: the first message" shape=plaintext];
     waiting_first [label="Turn ended: the reply arrives by push" shape=doublecircle style=filled fillcolor=lightgreen];
 
@@ -72,7 +74,9 @@ digraph slack_support_open {
     resumes_earlier -> rt_chat_read [label="yes"];
     resumes_earlier -> rt_verb_handle [label="no"];
     rt_chat_read -> rt_verb_handle;
-    rt_verb_handle -> chat_dm_first;
+    rt_verb_handle -> from_mattstack;
+    from_mattstack -> waiting_request [label="yes: nothing to send yet"];
+    from_mattstack -> chat_dm_first [label="no"];
     chat_dm_first -> waiting_first;
 }
 ```
@@ -95,7 +99,12 @@ the likely cause changes what you say to the teammate, nothing else.
 
 The setting's value is the operator's chat handle, written `<operator>` below.
 
-Send the first `chat_dm` to `<handle>`. It says hello, names the problem as you
+A brief that says they asked for help from mattstack holds no problem yet.
+The problem is in their request, which is already on its way: end the turn at
+once, with nothing read and nothing sent, and `Answer the request` when it
+arrives.
+
+Otherwise, send the first `chat_dm` to `<handle>`. It says hello, names the problem as you
 understand it, and asks for what you need first. That call is the turn's last
 act, as in `Where a turn ends`: nothing arrives until they answer.
 
@@ -120,6 +129,7 @@ digraph slack_support_turn {
     what_arrived [label="What arrived?" shape=diamond];
     what_needed [label="What does the teammate need?" shape=diamond];
     operator_calls_for [label="What does the operator's message call for?" shape=diamond];
+    answer_request [label="Answer the request" shape=box];
     help_teammate [label="Answer or troubleshoot" shape=box];
     brainstorm_idea [label="Brainstorm the idea" shape=box];
     chat_slack_ticket [label="chat_slack_ticket {kind, title, problem, idea, acceptance}" shape=plaintext];
@@ -137,7 +147,8 @@ digraph slack_support_turn {
     closed [label="Chat closed and the operator told" shape=doublecircle style=filled fillcolor=lightgreen];
 
     trigger -> what_arrived;
-    what_arrived -> what_needed [label="teammate text"];
+    what_arrived -> answer_request [label="their request from mattstack"];
+    what_arrived -> what_needed [label="any other teammate text"];
     what_arrived -> operator_calls_for [label="the operator's message, from the chat UI or labelled from Slack"];
     what_arrived -> nothing_to_send [label="a notice after your outcome DM"];
     what_arrived -> chat_dm_reply [label="a cue to check in, or a resume cue"];
@@ -156,6 +167,7 @@ digraph slack_support_turn {
     operator_calls_for -> chat_dm_answer [label="a question for you"];
     operator_calls_for -> write_farewell [label="closing the chat"];
     operator_calls_for -> nothing_to_send [label="nothing to send: it steers your own work"];
+    answer_request -> chat_dm_reply;
     help_teammate -> chat_dm_reply;
     brainstorm_idea -> chat_dm_reply;
     chat_slack_ticket -> chat_dm_reply;
@@ -198,6 +210,23 @@ blocks. Headings, tables and `**bold**` show up as raw symbols there.
 - **A result that says redacted** means a credential-shaped string went into
   your text. Leave it out of everything you send after that, and tell
   `<operator>`.
+
+### Answer the request
+
+They wrote the request in a form in mattstack, so nothing in their Slack says
+what this chat is about, and your reply is the first message they get. It has
+four parts, in this order:
+
+1. **Hello:** their name, and that you are `<operator>`'s support agent.
+2. **Their problem, restated:** one or two sentences they would recognise as
+   what they wrote, the versions and links included when they matter.
+3. **Still needed?** Only when the brief says it was sent over a day ago: ask
+   whether they still need help.
+4. **The one thing you need next,** which their request does not already
+   answer.
+
+Send it before you read any code or logs: they are waiting for a first word,
+and a chat with no first message within a minute is closed.
 
 ### Answer or troubleshoot
 
