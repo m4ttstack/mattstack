@@ -786,7 +786,7 @@ else if (a0 === "setup" && a1 === "prepare") {
   const ms = prepareMs();
   stateSet(`prepare-${stage}-until`, Date.now() + ms);
   await sleep(ms);
-  emit({ stage, installed: stage === "macos" ? ["apple-clt"] : ["claude", "herdr"], failed: [] });
+  emit({ stage, installed: stage === "macos" ? ["apple-clt"] : ["claude", "herdr", "flock"], failed: [] });
 }
 else if (a0 === "setup" && a1 === "claude" && a2 === "connect") {
   await sleep(waitMs(1));
