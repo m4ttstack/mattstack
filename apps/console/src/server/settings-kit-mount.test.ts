@@ -291,6 +291,24 @@ describe('settings-kit behind console', () => {
       expect(writes).toHaveLength(0);
     });
 
+    it('names the fix when rt is older than the console', async () => {
+      answer = {
+        ok: false,
+        code: 'unknown-command',
+        error: 'daemon at version 1.0.0 does not know "support:enable"',
+      } as typeof answer;
+      const res = await withSupport.fetch(
+        post('localhost', SUPPORT_ON),
+        LOOPBACK
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error:
+          'rt is older than this app, so nothing changed. Restart rt, then try again.',
+      });
+      expect(writes).toHaveLength(0);
+    });
+
     it('leaves every other write to the kit', async () => {
       for (const body of [
         { ...SUPPORT_ON, value: false },

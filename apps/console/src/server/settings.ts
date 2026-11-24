@@ -67,6 +67,14 @@ async function turnsSupportOn(req: Request): Promise<boolean> {
   );
 }
 
+function whyNotOn(res: Awaited<ReturnType<typeof supportEnable>>): string {
+  if (res.failure?.code.startsWith('support-')) return res.failure.message;
+  // An older daemon's reply, which RtResponse does not type.
+  if ('code' in res && res.code === 'unknown-command')
+    return 'rt is older than this app, so nothing changed. Restart rt, then try again.';
+  return 'rt did not answer. Reload to see whether support is on.';
+}
+
 /**
  * Console's typed reads and suggestion lists, then settings-kit for defs/explain/set/unset.
  * The typed routes must be registered first: Hono matches in order, and the
@@ -135,10 +143,7 @@ export function createSettingsRoutes(
         if (local && (await turnsSupportOn(c.req.raw))) {
           const res = await deps.enableSupport({ on: true });
           if (!res.ok) {
-            const said = res.failure?.code.startsWith('support-')
-              ? res.failure.message
-              : 'rt did not answer. Reload to see whether support is on.';
-            return c.json({ error: said }, 400);
+            return c.json({ error: whyNotOn(res) }, 400);
           }
         }
         await next();
