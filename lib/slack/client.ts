@@ -37,7 +37,7 @@ function httpsAvatar(url: unknown): { avatar?: string } {
 }
 
 export interface SlackClient {
-  authTest(): Promise<{ userId: string; scopes: string[] }>;
+  authTest(): Promise<{ userId: string; teamId: string; scopes: string[] }>;
   listUsers(): Promise<SlackUser[]>;
   openDm(userId: string): Promise<string>;
   /** Oldest first. */
@@ -138,7 +138,7 @@ export function createSlackClient(token: string, fetchImpl: typeof fetch = fetch
     async authTest() {
       const { body, headers } = await call("auth.test");
       const scopes = (headers.get("x-oauth-scopes") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-      return { userId: String(body.user_id), scopes };
+      return { userId: String(body.user_id), teamId: String(body.team_id ?? ""), scopes };
     },
     async listUsers() {
       const members = await pages("users.list", { limit: "200" }, "members");

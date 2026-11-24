@@ -1,0 +1,237 @@
+/**
+ * The host's side of a support request: whether it opens by itself, waits for
+ * the host, or is answered with why not. Nothing a model can call reaches it.
+ */
+
+import { SUPPORT_TTL_MS } from "../../packages/rt-client/src/support.ts";
+import type { GateQuestion, GateRow } from "../../packages/rt-client/src/commands.ts";
+import { sendMilestone } from "../slack/milestones.ts";
+import { approveSlackOpen, SLACK_OPEN_KIND, slackOpenMarker, type SlackOpenDeps } from "../slack/request.ts";
+import { agentHasPosted, conversationById, conversationForSlackUser, listOpenConversations } from "../state/slack-conversation-store.ts";
+import { getRequest, listRequests, moveRequest, queueStatus, stoppedSince, type SupportRequest, type SupportState } from "../state/support-store.ts";
+import type { Chain } from "./chain.ts";
+import type { SupportConfig } from "./config.ts";
+import type { StatusBody } from "./sync.ts";
+
+export const SUPPORT_MAX_OPEN = 2;
+export const SUPPORT_STOP_HOLD_MS = 24 * 60 * 60_000;
+const OLD_REQUEST_MS = 24 * 60 * 60_000;
+/** An opening request with no chat by now was cut off by a restart. */
+const LOST_OPEN_MS = 3 * 60_000;
+const REASON_MAX = 300;
+const SLACK_ID = /^[UW][A-Z0-9]*[0-9][A-Z0-9]*$/;
+
+const NO_ACCOUNT = "the host's Slack workspace has no active account for you";
+const NEVER_REACHED = "the support agent never reached the chat";
+
+export interface HostDeps extends SlackOpenDeps {
+  config(): SupportConfig | null;
+  /** The wire identity of the repo the support agent runs in, null when none is set; throws when the setting cannot be read. */
+  defaultRepo(): string | null;
+  notifyOpening(r: SupportRequest, room: string): void;
+  /** The request was posted to the chat's room. */
+  posted(room: string, messageId: number): void;
+  /** A link a teammate opens their DM with the host by. */
+  dmLink(): Promise<string | null>;
+  gate(id: string): GateRow | null;
+  chain: Chain;
+}
+
+export type SlackSupportMeta = {
+  action: "support";
+  requestId: string;
+  peer: string;
+  person: string;
+  personName: string;
+  why: "cap" | "stopped";
+  expiresAt: number;
+};
+
+/** The text, then each part as "<label>: <value>". */
+export function renderRequest(r: Pick<SupportRequest, "text" | "parts">): string {
+  const parts = r.parts.map((p) => `${p.label}: ${p.value}`).join("\n");
+  return parts ? `${r.text}\n\n${parts}` : r.text;
+}
+
+/** Moves the request and queues the status its sender reads, as one write. False when the request had already moved on. */
+function settle(
+  deps: HostDeps,
+  r: SupportRequest,
+  from: SupportState[],
+  state: SupportState,
+  extra: { reason?: string; dmLink?: string | null; conversationId?: number | null; gateId?: string | null } = {},
+): boolean {
+  const reason = extra.reason?.slice(0, REASON_MAX);
+  return deps.db.transaction(() => {
+    const patch = { ...extra, state, ...(reason !== undefined ? { reason } : {}) };
+    if (!moveRequest(r, from, patch, deps.now(), deps.db)) return false;
+    const body: StatusBody = { requestId: r.id, state, ...(reason !== undefined ? { reason } : {}), ...(extra.dmLink ? { dmLink: extra.dmLink } : {}) };
+    queueStatus({ id: `${r.id}:${state}`, to: r.peer, body: JSON.stringify(body) }, deps.now(), deps.db);
+    return true;
+  })();
+}
+
+async function tellHost(deps: HostDeps, person: string, reason: string): Promise<void> {
+  try {
+    await sendMilestone(deps.milestones, { handle: null, session: null }, { kind: "open-failed", person, reason });
+  } catch (err) {
+    deps.log.warn({ err }, "support: the host could not be told of a failed request");
+  }
+}
+
+async function dmLink(deps: HostDeps): Promise<string | null> {
+  try {
+    return await deps.dmLink();
+  } catch (err) {
+    deps.log.warn({ err }, "support: the link to the DM could not be made");
+    return null;
+  }
+}
+
+async function settleAlreadyOpen(deps: HostDeps, r: SupportRequest, from: SupportState[]): Promise<void> {
+  settle(deps, r, from, "already-open", { dmLink: await dmLink(deps), gateId: null });
+}
+
+/** Leaves the request where it was when the gate cannot open, for the next tick to take again. */
+async function raiseGate(deps: HostDeps, r: SupportRequest, personName: string, why: SlackSupportMeta["why"]): Promise<void> {
+  const gateId = crypto.randomUUID();
+  const question: GateQuestion = { id: "decision", label: `Open a Slack support chat with ${personName}? ${slackOpenMarker(gateId)}`, multi: false, options: ["approve", "decline"] };
+  const meta: SlackSupportMeta = { action: "support", requestId: r.id, peer: r.peer, person: r.slackUserId, personName, why, expiresAt: r.receivedAt + SUPPORT_TTL_MS };
+  const opened = await deps.gates.open({
+    id: gateId,
+    subject: `support:${r.peer}:${r.id}`,
+    kind: SLACK_OPEN_KIND,
+    questions: [question],
+    context: `Person: ${personName}\n\nMessage:\n${renderRequest(r)}`,
+    meta,
+  });
+  if (!opened.ok) {
+    deps.log.warn({ error: opened.error, id: r.id }, "support: a request that needs the host's OK could not be put to them");
+    moveRequest(r, ["opening"], { state: "received" }, deps.now(), deps.db);
+    return;
+  }
+  if (!settle(deps, r, ["received", "opening"], "waiting", { gateId: opened.id })) await deps.gates.close(opened.id);
+}
+
+/** Opens the chat for a request in `from`; a lost race for the last place puts it to the host instead. */
+async function openChat(deps: HostDeps, r: SupportRequest, personName: string, from: "received" | "waiting", maxOpen: number | null): Promise<void> {
+  const { db } = deps;
+  let repo: string | null;
+  try {
+    repo = deps.defaultRepo();
+  } catch (err) {
+    deps.log.warn({ err }, "support: the repo setting could not be read");
+    repo = null;
+  }
+  if (repo === null || deps.repoPath(repo) === null) {
+    const reason = repo === null ? "the chat.slackSupport.defaultRepo setting names no repo for the support agent" : "the folder for the chat.slackSupport.defaultRepo repo is not known to rt";
+    if (settle(deps, r, [from], "failed", { reason: "the host's Mac is not set up for support yet" })) await tellHost(deps, personName, reason);
+    return;
+  }
+  const claimed = db.transaction(() => {
+    if (!moveRequest(r, [from], { state: "opening", gateId: null }, deps.now(), db)) return false;
+    queueStatus({ id: `${r.id}:received`, to: r.peer, body: JSON.stringify({ requestId: r.id, state: "received" } satisfies StatusBody) }, deps.now(), db);
+    return true;
+  })();
+  if (!claimed) return;
+
+  const old = deps.now() - r.receivedAt > OLD_REQUEST_MS ? " It was sent over a day ago, so ask whether they still need help." : "";
+  let room = "";
+  let messageId = 0;
+  const opened = await approveSlackOpen(
+    deps,
+    {
+      person: r.slackUserId,
+      personName,
+      brief: `${personName} asked for help from mattstack at ${new Date(r.receivedAt).toISOString()}. Their message arrives first.${old}`,
+      requesterSession: null,
+      requesterHandle: null,
+      requesterPane: null,
+      repo,
+    },
+    {
+      firstItem: renderRequest(r),
+      maxOpen,
+      record(conversation, message) {
+        room = conversation.room;
+        messageId = message;
+        moveRequest(r, ["opening"], { conversationId: conversation.id }, deps.now(), db);
+      },
+    },
+  );
+  if (opened.ok) {
+    for (const tell of [() => deps.posted(room, messageId), () => deps.notifyOpening(r, room)]) {
+      try {
+        tell();
+      } catch (err) {
+        deps.log.warn({ err, id: r.id }, "support: a notice of an opened chat threw");
+      }
+    }
+    return;
+  }
+  if (opened.code === "cap") return raiseGate(deps, r, personName, "cap");
+  if (opened.code === "busy") return settleAlreadyOpen(deps, r, ["opening"]);
+  settle(deps, r, ["opening"], "failed", { reason: opened.reason });
+}
+
+async function takeNow(deps: HostDeps, stale: SupportRequest): Promise<void> {
+  const { db } = deps;
+  const r = getRequest("in", stale.peer, stale.id, db);
+  if (r?.state !== "received") return;
+  const from: SupportState[] = ["received"];
+  if (!deps.config()?.acceptHere) return void settle(deps, r, from, "not-accepting");
+  if (deps.now() - r.receivedAt >= SUPPORT_TTL_MS) return void settle(deps, r, from, "expired");
+
+  const found = SLACK_ID.test(r.slackUserId) ? await deps.findPerson(r.slackUserId) : null;
+  if (found && !found.ok && !found.refused) {
+    if (found.error !== undefined) return;
+    if (settle(deps, r, from, "failed", { reason: "the host's Mac cannot reach Slack" })) await tellHost(deps, r.peer, found.reason);
+    return;
+  }
+  if (!found?.ok || found.person.id !== r.slackUserId) {
+    if (settle(deps, r, from, "failed", { reason: NO_ACCOUNT })) await tellHost(deps, r.peer, "their Slack account is not an active person in your workspace");
+    return;
+  }
+  const personName = found.person.displayName;
+
+  if (conversationForSlackUser(r.slackUserId, db)) return settleAlreadyOpen(deps, r, from);
+  const others = listRequests("in", ["waiting", "opening"], db).filter((o) => o.slackUserId === r.slackUserId || o.peer === r.peer);
+  if (others.length > 0) return void settle(deps, r, from, "already-waiting");
+  if (stoppedSince(r.slackUserId, deps.now() - SUPPORT_STOP_HOLD_MS, db)) return raiseGate(deps, r, personName, "stopped");
+  if (listOpenConversations(db).length >= SUPPORT_MAX_OPEN) return raiseGate(deps, r, personName, "cap");
+  await openChat(deps, r, personName, "received", SUPPORT_MAX_OPEN);
+}
+
+async function followOpening(deps: HostDeps, r: SupportRequest): Promise<void> {
+  const { db } = deps;
+  if (r.conversationId === null) {
+    if (deps.now() - r.updatedAt < LOST_OPEN_MS) return;
+    if (settle(deps, r, ["opening"], "failed", { reason: "the host's Mac stopped while opening the chat" })) await tellHost(deps, r.peer, "rt stopped while opening their chat");
+    return;
+  }
+  const conversation = conversationById(r.conversationId, db);
+  if (conversation && agentHasPosted(conversation, db)) settle(deps, r, ["opening"], "opened", { dmLink: await dmLink(deps) });
+  else if (!conversation || conversation.closedAt !== null) settle(deps, r, ["opening"], "failed", { reason: NEVER_REACHED });
+}
+
+async function each(deps: HostDeps, states: SupportState[], f: (r: SupportRequest) => Promise<void>): Promise<void> {
+  for (const r of listRequests("in", states, deps.db)) {
+    try {
+      await f(r);
+    } catch (err) {
+      deps.log.warn({ err, id: r.id, state: r.state }, "support: a request could not be moved on");
+    }
+  }
+}
+
+/** Serialized, so requests open in the order they arrived; the count inside the open's transaction is what holds the cap. */
+export function takeRequest(deps: HostDeps, r: SupportRequest): Promise<void> {
+  return deps.chain.run(() => takeNow(deps, r));
+}
+
+export function tickRequests(deps: HostDeps): Promise<void> {
+  return deps.chain.run(async () => {
+    await each(deps, ["opening"], (r) => followOpening(deps, r));
+    await each(deps, ["received"], (r) => takeNow(deps, r));
+  });
+}
