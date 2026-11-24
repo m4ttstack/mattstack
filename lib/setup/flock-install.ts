@@ -134,7 +134,7 @@ export async function installedFlock(p: Probes): Promise<InstalledFlock | null> 
 async function verifyFlock(p: Probes, app: string): Promise<"ok" | "bad" | "timeout"> {
   const checks: [() => Promise<ExecResult | null>, (r: ExecResult) => boolean][] = [
     [() => plutilRead(p, join(app, "Contents", "Info.plist"), "CFBundleIdentifier"), (r) => r.stdout.trim() === FLOCK_BUNDLE_ID],
-    [() => p.exec(["/usr/bin/codesign", "--verify", "--deep", "--strict", app], { timeoutMs: VERIFY_TIMEOUT_MS }), () => true],
+    [() => p.exec(["/usr/bin/codesign", "--verify", "--deep", "--strict", `-R=anchor apple generic and certificate leaf[subject.OU] = "${FLOCK_TEAM_ID}" and notarized`, app], { timeoutMs: VERIFY_TIMEOUT_MS }), () => true],
     [() => p.exec(["/usr/bin/codesign", "-dv", app], { timeoutMs: PROBE_TIMEOUT_MS }), (r) => new RegExp(`^TeamIdentifier=${FLOCK_TEAM_ID}$`, "m").test(r.stderr)],
     [() => p.exec(["/usr/sbin/spctl", "--assess", "--type", "execute", app], { timeoutMs: VERIFY_TIMEOUT_MS }), () => true],
   ];

@@ -261,6 +261,19 @@ describe("installFlock", () => {
     expect(p.calls.renames).toEqual([]);
   });
 
+  test("codesign itself pins the Developer ID team and notarization", async () => {
+    const p = setup();
+    await installFlock(p);
+    expect(p.calls.exec).toContainEqual([
+      "/usr/bin/codesign",
+      "--verify",
+      "--deep",
+      "--strict",
+      '-R=anchor apple generic and certificate leaf[subject.OU] = "5BF66B3X4V" and notarized',
+      APP,
+    ]);
+  });
+
   test("refuses an app with another bundle id", async () => {
     const p = setup({ ids: { [APP]: "dev.mattstack.Flock.dev" } });
     expect((await installFlock(p)).ok).toBe(false);
