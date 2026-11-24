@@ -4,8 +4,9 @@ import { addWheel, bandAbovePrompt, hotkeyChoices, isEngaged, isPlaced, paneMess
 
 import type { BoardGate, Form, GateFormAskResult, LegacyForm } from '../types'
 import { bellArgs } from './gate/bell'
+import { clearArgs, raiseArgs } from './gate/blocker'
 import { NO_ADDRESS, addBoardGate, boardAddress, boardText, boardUrl, kindTitle, readBoardOnly } from './gate/board'
-import { addForm, currentForm, fitForm, fromLegacy, knownForms, openCount, patchForm } from './gate/forms'
+import { addForm, currentForm, fitForm, fromLegacy, knownForms, openCount, patchForm, waitingTitle } from './gate/forms'
 import { PLUGIN_QUESTION, agentFields, answerOutcome, boardFields, formFromRow, gateForm, listedGates, pluginForm, readKitResult, savedResult, spillPaths, spilledGate, toForm, type GateCall } from './gate/parse'
 import { BOARD_INSTRUCTION, BOARD_TOAST, GATE_ANSWERED, GATE_ASIDE, GATE_INSTRUCTION, agentReply, type Outcome } from './gate/reply'
 import { RT_OVERRAN, RT_TIMEOUT_MS, rtError, runRt, settingIsOn } from './gate/rt'
@@ -43,6 +44,11 @@ const WAIT_RETRY_MS = [1_000, 5_000, 15_000]
 const answering = new Set<string>()
 // The board's local address as deck last gave it; null when deck has none.
 const deck: { address?: string | null } = {}
+// What herdr was last told for this pane (the message, null once cleared, undefined while unknown) and what the
+// latest write wants it to show. Runs go through one chain, each sending the latest target when it runs.
+const blocker: { shown?: string | null; target?: string | null; chain: Promise<void> } = { chain: Promise.resolve() }
+// session.end's whole chain shares one short bound, so the clear leaves room for the hooks after it.
+const END_MARGIN_MS = 250
 
 // `$.gateForm` asks this load issued, by form id, until `wait` collects the outcome; a reload forgets them all.
 type Asked = { outcome?: GateFormAskResult; wakes: (() => void)[]; timer?: Timer }
@@ -69,19 +75,42 @@ async function writeForms($: EngineInterface, change: (list: Form[]) => Form[]):
   let written: Form[] = []
   await update($, formsAtom, stored => {
     const list = knownForms(stored)
-    return (written = change(list.length > 0 || legacy.length === 0 ? list : legacy))
+    written = change(list.length > 0 || legacy.length === 0 ? list : legacy)
+    // Set as the list is written, so a later write's target is never overwritten by this one's.
+    blocker.target = waitingTitle(written)
+    return written
   })
+  void syncBlocker($)
   if (legacy.length > 0) await update($, legacyAtom, () => null)
   return written
+}
+
+async function herdrPane($: EngineInterface): Promise<string | undefined> {
+  if ((await $.env.get('HERDR_ENV')) !== '1') return undefined
+  return (await $.env.get('HERDR_PANE_ID')) || undefined
+}
+
+// herdr shows the pane as blocked while a form waits. A herdr without the verb fails the run, which changes nothing.
+function syncBlocker($: EngineInterface, target: () => string | null | undefined = () => blocker.target): Promise<void> {
+  blocker.chain = blocker.chain.then(() => tellHerdr($, target())).catch(() => undefined)
+  return blocker.chain
+}
+
+// A failed clear is tried again by the next run; a failed raise is not, so an old herdr is not called on every write.
+async function tellHerdr($: EngineInterface, target: string | null | undefined): Promise<void> {
+  if (target === undefined || target === blocker.shown) return
+  blocker.shown = target
+  const pane = await herdrPane($)
+  if (!pane) return
+  const ran = await $.process.run(target === null ? clearArgs(pane) : raiseArgs(pane, target), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => undefined)
+  if (target === null && ran?.exitCode !== 0) blocker.shown = undefined
 }
 
 // A form closed before it was answered waits above the prompt, with a way back to it.
 async function waitingForm($: EngineInterface): Promise<Waiting | undefined> {
   const forms = await readForms($)
-  const form = currentForm(forms)
-  if (!form || form.status !== 'open') return undefined
-  const more = openCount(forms) - 1
-  return { formId: form.id, title: more > 0 ? `${form.title}, ${more} more waiting` : form.title }
+  const title = waitingTitle(forms)
+  return title === null ? undefined : { formId: currentForm(forms)!.id, title }
 }
 
 async function setKeysInForm($: EngineInterface, value: boolean): Promise<void> {
@@ -243,9 +272,13 @@ async function endAsk($: EngineInterface, id: string, outcome: GateFormAskResult
     return
   }
   const status: Form['status'] = 'value' in outcome ? 'answered' : 'cancelled'
-  const forms = await writeForms($, list => patchForm(list, id, { status, ...(note && { note }) }))
+  // One write ends this form and opens the next, so herdr's blocker never drops between them.
   const next = queued.shift()
-  if (next) await openAsk($, next)
+  const forms = await writeForms($, list => {
+    const ended = patchForm(list, id, { status, ...(note && { note }) })
+    return next ? addForm(ended, next) : ended
+  })
+  if (next) await revealForm($, forms, next).catch(() => undefined)
   else await showCurrent($, forms)
 }
 
@@ -272,16 +305,18 @@ async function closeOrphans($: EngineInterface): Promise<void> {
 }
 
 async function openForm($: EngineInterface, form: Form, supersededId?: string | null): Promise<void> {
-  await writeForms($, list => addForm(list, form, supersededId))
-  const shown = currentForm(await readForms($))
-  const title = shown?.title ?? form.title
+  await revealForm($, await writeForms($, list => addForm(list, form, supersededId)), form)
+}
+
+async function revealForm($: EngineInterface, forms: Form[], form: Form): Promise<void> {
+  const title = currentForm(forms)?.title ?? form.title
   // Opened from a tool, not by the person: on a narrow terminal it waits for the band's Show.
   if (!(await showPane($, GATE_PANE, title))) $.ui.toast(`${title} is waiting: press Show above the prompt`)
 }
 
 // The AskUserQuestion hook that rings herdr's bell never fires for a kit form, so opening one rings it. Outside herdr nothing rings.
 async function ringBell($: EngineInterface, form: Form): Promise<void> {
-  if ((await $.env.get('HERDR_ENV')) !== '1' || !(await $.env.get('HERDR_PANE_ID'))) return
+  if (!(await herdrPane($))) return
   await $.process.run(bellArgs(await $.session.cwd(), form.questions), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => undefined)
 }
 
@@ -597,6 +632,26 @@ export function register(on: On): void {
     setting.reading = readSetting($)
     void setting.reading.then(() => (setting.isOn ? turnOn($) : undefined)).catch(() => undefined)
     await closeOrphans($).catch(() => undefined)
+    // A load starts not knowing what herdr shows, so with nothing open this clears a blocker an earlier load left.
+    // A write landing while the forms are read is newer than them.
+    void readForms($)
+      .then(forms => {
+        if (blocker.target === undefined) blocker.target = waitingTitle(forms)
+        return syncBlocker($)
+      })
+      .catch(() => undefined)
+    return next(e)
+  })
+
+  // /clear ends the session with no start after it, and the process lives on: a clear that outlasts the bound still runs.
+  on('session.end', async ($, e, next) => {
+    const cleared = syncBlocker($, () => null)
+    const boundMs = Math.min(QUICK_TIMEOUT_MS, next.budget.remainingMs - END_MARGIN_MS)
+    if (boundMs > 0) {
+      const stop = new AbortController()
+      await Promise.race([cleared, $.clock.sleep(boundMs, { signal: stop.signal }).catch(() => undefined)])
+      stop.abort()
+    }
     return next(e)
   })
 

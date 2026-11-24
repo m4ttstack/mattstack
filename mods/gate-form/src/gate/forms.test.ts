@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 
 import type { Form, LegacyForm } from '../../types'
-import { addForm, currentForm, fitForm, fromLegacy, knownForms, markGate, openCount, patchForm } from './forms'
+import { addForm, currentForm, fitForm, fromLegacy, knownForms, markGate, openCount, patchForm, waitingTitle } from './forms'
 
 const form = (id: string, over: Partial<Form> = {}): Form => ({ id, title: id, questions: [], status: 'open', source: 'gate', gateId: `g-${id}`, ...over })
 
@@ -27,6 +27,13 @@ test('closed forms are dropped when a new one opens; with none open, the last on
   expect(currentForm(answered)?.id).toBe('a')
   expect(openCount(answered)).toBe(0)
   expect(addForm(answered, form('b')).map(f => f.id)).toEqual(['b'])
+})
+
+test('waitingTitle is null with no open form, the current title alone, and counts the rest', () => {
+  expect(waitingTitle([])).toBeNull()
+  expect(waitingTitle([form('a')])).toBe('a')
+  expect(waitingTitle([form('a'), form('b')])).toBe('a, 1 more waiting')
+  expect(waitingTitle([form('a', { status: 'answered' }), form('b', { status: 'cancelled' })])).toBeNull()
 })
 
 test('markGate patches only that gate’s form', () => {

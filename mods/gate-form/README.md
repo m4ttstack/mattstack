@@ -29,6 +29,10 @@ The mod reads the setting when the session starts. After you change it, run `/re
 
 To turn the form off again, set the value to `false` and run `/reload-plugins`.
 
+## In herdr
+
+In a herdr pane, the pane shows as blocked while a form is open, with the form's title as the reason. It goes back to normal once the last open form is answered or closed. A herdr too old to show it leaves the pane as it was, and the form works the same.
+
 ## Asking from another plugin
 
 A plugin that depends on `gate-form` can ask a one-pick question in the same form, with the setting on or off:
