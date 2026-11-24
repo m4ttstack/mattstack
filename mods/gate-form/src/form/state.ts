@@ -98,19 +98,19 @@ export const isSinglePage = (form: Form) => form.source === 'plugin'
 export const isConfirm = (form: Form) => form.confirm === true
 
 // A gate or ask with one question submits from its own page, with no review page after it.
-// A gate with run controls keeps its review page, which is where Pause run and Go back to stage live.
-export const isOneQuestion = (form: Form) => !isSinglePage(form) && form.questions.length === 1 && menuRows(form).length === 0
+export const isOneQuestion = (form: Form) => !isSinglePage(form) && form.questions.length === 1
 
 export const isReview = (form: Form, s: State) => !isSinglePage(form) && s.page === form.questions.length
+// The page that ends in Submit, which also carries the run controls: the review page, or the only question.
+export const isSubmitPage = (form: Form, s: State) => isReview(form, s) || (isOneQuestion(form) && s.page === 0)
 export const isOnNav = (form: Form, s: State) => s.onNav === true || isReview(form, s)
 
-// The nav row's buttons the keyboard can rest on: a disabled Back is skipped, while a disabled Submit stays, as Enter on it does nothing.
+// The nav row's buttons the keyboard can rest on, in the order they are drawn: a disabled Back is skipped, while a disabled Submit stays, as Enter on it does nothing.
 // The review page has no Back: ← pages back there, as on every page.
 export function navIds(form: Form, s: State): NavId[] {
-  const ids: NavId[] = s.page > firstPage(s) && !isReview(form, s) ? ['back', 'next'] : ['next']
-  if (isReview(form, s) && menuRows(form).length > 0) ids.push('more')
-  if (canChat(form)) ids.push('chat')
-  return ids
+  const hasBack = s.page > firstPage(s) && !isReview(form, s)
+  const more: NavId[] = isSubmitPage(form, s) && menuRows(form).length > 0 ? ['more'] : []
+  return [...(hasBack ? ['back' as const, 'next' as const, ...more] : [...more, 'next' as const]), ...(canChat(form) ? ['chat' as const] : [])]
 }
 
 // The nav row's button the keyboard is on, or `next` when its own has gone.
@@ -185,13 +185,16 @@ export function goTo(form: Form, s: State, page: number): State {
 export const firstPage = (s: State) => (s.contextPaged ? -1 : 0)
 export const isContextPage = (s: State) => s.page < 0
 
-// The Next (or Review) button: a deliberate act, so it accepts the page's picks, defaults or not, then moves on.
-export function advance(form: Form, s: State): State {
+// The page's picks taken as its answer, defaults or not.
+export function accepted(form: Form, s: State): State {
   const i = s.page
   const q = form.questions[i]
   const accepts = q !== undefined && (q.multi ? s.picked[i]!.length > 0 : s.chosen[i] !== undefined)
-  return goTo(form, accepts ? { ...s, answered: markAnswered(s, i) } : s, i + 1)
+  return accepts ? { ...s, answered: markAnswered(s, i) } : s
 }
+
+// The Next (or Review) button: a deliberate act, so it accepts the page's picks, then moves on.
+export const advance = (form: Form, s: State): State => goTo(form, accepted(form, s), s.page + 1)
 
 export function moveCursor(form: Form, s: State, by: number): State {
   const q = form.questions[s.page]

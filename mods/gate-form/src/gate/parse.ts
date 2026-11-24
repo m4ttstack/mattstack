@@ -271,7 +271,7 @@ export function spilledGate(stdout: string, session: string, known: string[], ca
   return mine.sort((a, b) => Number(b.openedAt ?? 0) - Number(a.openedAt ?? 0))[0]
 }
 
-// A listed gate carries the run controls its kit form opened with in meta.kitControls; a gate without them gets no More actions.
+// A listed gate carries the run controls its kit form opened with in meta.kitControls; a gate without them gets no More menu.
 export function formFromRow(row: GateRow): Form | string {
   const controls = isObject(row.meta) ? row.meta.kitControls : undefined
   return gateFormOf(row.id, isText(row.kind) ? row.kind : DEFAULT_TITLE, row.context, row.questions, controls)

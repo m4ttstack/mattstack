@@ -1,10 +1,10 @@
-import { DIM, DONE, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, cellWidth, chunkCells, clipLine, fitToRows, hang, markButtonAt, maxScroll, menu, revealOffset, scrollBar, reviewList as reviewItems, selectList, sp, textCursor, widthOf, type Button, type Drawn, type Line, type Span } from '@mattstack/mod-kit'
+import { DIM, DONE, ICON, SYMBOL, WARN, brandBar, buttonRow, cellWidth, chunkCells, clipLine, fitToRows, hang, markButtonAt, maxScroll, menu, revealOffset, scrollBar, reviewList as reviewItems, selectList, sp, textCursor, widthOf, type Button, type Drawn, type Line, type Span } from '@mattstack/mod-kit'
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
-import { canChat, canSubmit, choicesOf, firstPage, isConfirm, isContextPage, isOneQuestion, isOnNav, isReview, isPicked, isSinglePage, menuRows, navAtOf, unansweredCount, WRITE_IN, type NavId, type State } from './state'
+import { accepted, canChat, canSubmit, choicesOf, firstPage, isConfirm, isContextPage, isOneQuestion, isOnNav, isReview, isPicked, isSinglePage, isSubmitPage, menuRows, navAtOf, unansweredCount, WRITE_IN, type NavId, type State } from './state'
 
-// `pressing`: a key's activation is showing, on whatever the keys are on (a choice, a nav button, a More actions row).
+// `pressing`: a key's activation is showing, on whatever the keys are on (a choice, a nav button, a More row).
 export type View = { width: number; focused: boolean; pressing?: boolean }
 
 type L = Line<Action>
@@ -247,6 +247,8 @@ function progress(form: Form, s: State, view: View): L {
   return room >= 2 ? [...line, sp(' '.repeat(room)), left] : line
 }
 
+// As wide as `← Back`, whose place it takes, so Submit sits where Next and Review were and the pointer need not move.
+const MORE_LABEL = 'More ▾'
 const MORE: Action = { type: 'menu', hit: { type: 'toggle' } }
 
 // Where each nav button's span sits in buttonRow's line: the indent, then each left button and its gap, the right button last.
@@ -254,19 +256,25 @@ function spanAt(id: NavId, left: NavId[], line: L): number {
   return id === 'chat' ? line.length - 1 : 1 + 2 * left.indexOf(id)
 }
 
-// The nav row, and under it the More actions rows while that menu is open (the review page only).
+// The nav row, and under it the More rows while that menu is open (the page with Submit only).
+// The review page has no Back; without run controls a blank of Back's width holds Submit in Next's place.
 function navRows(form: Form, s: State, view: View): L[] {
   const n = form.questions.length
   const page = s.page
   const back: Button<Action> = { label: '← Back', action: { type: 'page', page: page - 1 }, tone: 'secondary', disabled: page === firstPage(s) }
   const forward = (label: string): Button<Action> => ({ label, action: { type: 'advance' }, tone: 'secondary' })
-  const submit: Button<Action> = { label: unansweredCount(s) === 0 || form.source === 'gate' ? 'Submit' : 'Submit anyway', action: { type: 'send' }, tone: 'brand', disabled: !canSubmit(form, s) }
-  const next = isOneQuestion(form) || page === n ? submit : page < n - 1 ? forward('Next →') : forward('Review →')
+  const taken = accepted(form, s)
+  const submit: Button<Action> = { label: unansweredCount(taken) === 0 || form.source === 'gate' ? 'Submit' : 'Submit anyway', action: isReview(form, s) ? { type: 'send' } : { type: 'advance' }, tone: 'brand', disabled: !canSubmit(form, taken) }
+  const next = isSubmitPage(form, s) ? submit : page < n - 1 ? forward('Next →') : forward('Review →')
   const aside = chatButton(form, s)
-  const rows = page === n ? menuRows(form) : []
-  const more: Button<Action> = { label: MORE_ACTIONS, action: MORE, tone: 'quiet' }
-  const left: [NavId, Button<Action>][] = [...(page === n || (isOneQuestion(form) && !s.contextPaged) ? [] : [['back', back] as [NavId, Button<Action>]]), ['next', next], ...(rows.length === 0 ? [] : [['more', more] as [NavId, Button<Action>]])]
-  const line = buttonRow(left.map(([, button]) => button), aside, view.width, 2)
+  const rows = isSubmitPage(form, s) ? menuRows(form) : []
+  const more: Button<Action> = { label: MORE_LABEL, action: MORE, tone: 'quiet' }
+  const mores: [NavId, Button<Action>][] = rows.length === 0 ? [] : [['more', more]]
+  const isBlankBack = isReview(form, s) && rows.length === 0
+  const hasBack = isBlankBack || (!isReview(form, s) && (!isOneQuestion(form) || s.contextPaged === true))
+  const left: [NavId, Button<Action>][] = hasBack ? [['back', back], ['next', next], ...mores] : [...mores, ['next', next]]
+  const drawn = buttonRow(left.map(([, button]) => button), aside, view.width, 2)
+  const line: L = isBlankBack ? drawn.map((span, i) => (i === 1 ? sp(' '.repeat(cellWidth(span.t))) : span)) : drawn
   const marked = (row: L): L => {
     if (!view.focused || !isOnNav(form, s)) return row
     const at = spanAt(navAtOf(form, s), left.map(([id]) => id), row)
@@ -276,7 +284,7 @@ function navRows(form: Form, s: State, view: View): L[] {
 
   const at = line.findIndex(span => span.action === MORE)
   const indent = widthOf(line.slice(0, at))
-  const hung = menu<Action>({ ...s.menu, label: MORE_ACTIONS, rows, width: view.width, indent, pressing: view.pressing === true, actionFor: hit => ({ type: 'menu', hit }) })
+  const hung = menu<Action>({ ...s.menu, label: MORE_LABEL, rows, width: view.width, indent, pressing: view.pressing === true, actionFor: hit => ({ type: 'menu', hit }) })
   return [marked(line), ...hung.slice(1)]
 }
 
