@@ -19,6 +19,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
 
     // ── Daemon communication ────────────────────────────────────────────────
     private let daemonClient = DaemonClient()
+    @MainActor private lazy var helpModel = HelpRequestModel(daemon: SupportDaemon())
+    @MainActor private lazy var helpWindow = HelpWindow(model: helpModel)
+    private var askMenuItems: (ask: NSMenuItem, line: NSMenuItem)?
+    private var helpTimer: Timer?
     private let notificationManager = NotificationManager()
     private let daemonLifecycle = DaemonLifecycle()
     private let spawnHealLatch = SpawnHealLatch()
@@ -799,6 +803,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         windowItem.submenu = windowMenu
         let helpItem = NSMenuItem(); main.addItem(helpItem)
         let help = NSMenu(title: "Help")
+        help.autoenablesItems = false
+        let ask = help.addItem(withTitle: "Ask Maude…", action: #selector(showHelpRequest), keyEquivalent: "")
+        ask.setAccessibilityIdentifier(AXID.menuHelpAsk)
+        let askLine = NSMenuItem.separator()
+        help.addItem(askLine)
+        askMenuItems = (ask, askLine)
+        MainActor.assumeIsolated { applyHelpAvailability() }
+        help.delegate = self
         help.addItem(withTitle: "mattstack Help", action: #selector(openDocsSite),
                      keyEquivalent: "?").setAccessibilityIdentifier(AXID.menuHelpDocs)
         help.addItem(withTitle: "View Logs…", action: #selector(viewDaemonLogs),
@@ -809,6 +821,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         NSApp.mainMenu = main
         NSApp.helpMenu = help
     }
+
+    /// Hidden with no one to ask, greyed with the reason while something is missing.
+    @MainActor
+    private func applyHelpAvailability() {
+        guard let (ask, line) = askMenuItems else { return }
+        let a = helpModel.availability
+        ask.title = "Ask \(a.bot)…"
+        ask.isHidden = !a.isOffered
+        line.isHidden = !a.isOffered
+        ask.isEnabled = a.isReady
+        ask.toolTip = a.reason
+    }
+
+    /// The menu that asked shows the last answer; this one is for the next time it opens.
+    @MainActor
+    private func refreshHelpAvailability() {
+        Task { @MainActor in
+            await helpModel.refreshAvailability()
+            applyHelpAvailability()
+        }
+    }
+
+    @objc private func showHelpRequest() { MainActor.assumeIsolated { helpWindow.show() } }
 
     @objc private func openDocsSite() {
         NSWorkspace.shared.open(DocsSite.home)
@@ -1058,6 +1093,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         worktreesMenuItem = worktrees
         refreshTriageCount()
         menu.addItem(.separator())
+        if helpModel.availability.isOffered {
+            let ask = ActionMenuItem("Ask \(helpModel.availability.bot)…", axid: AXID.trayAsk) { [weak self] in
+                MainActor.assumeIsolated { self?.showHelpRequest() }
+            }
+            ask.isEnabled = helpModel.availability.isReady
+            ask.toolTip = helpModel.availability.reason
+            menu.addItem(ask)
+        }
+        refreshHelpAvailability()
         menu.addItem(ActionMenuItem("Settings…", axid: AXID.traySettings) {
             NotificationCenter.default.post(name: .rtShowSettings, object: nil)
         })
@@ -1967,6 +2011,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             Task { await self?.refreshDeck() }
         }
 
+        // Off until the first answer, so one lost to a daemon still starting is asked for again soon.
+        helpTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshHelpAvailability() }
+        }
+        MainActor.assumeIsolated { refreshHelpAvailability() }
+
         notificationTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { await self?.drainPendingNotifications() }
         }
@@ -2220,7 +2270,9 @@ extension AppDelegate: NSMenuDelegate {
     /// way `menuWillOpen` would, just earlier in the show sequence.
     func menuNeedsUpdate(_ menu: NSMenu) {
         // AppKit delivers menu-delegate callbacks on the main thread.
-        MainActor.assumeIsolated { rebuildTrayMenu(menu) }
+        MainActor.assumeIsolated {
+            if menu === NSApp.helpMenu { refreshHelpAvailability() } else { rebuildTrayMenu(menu) }
+        }
     }
 }
 

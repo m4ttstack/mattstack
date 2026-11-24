@@ -7,7 +7,7 @@ export type SupportRequests = Commands['support:mine']['data']['requests'];
 
 export interface SupportRead {
   availability: SupportAvailability;
-  /** What the host's bot calls itself. */
+  /** What the org's support agent goes by. */
   persona: string;
   /** Opens a Slack DM with the host, when the board knows their account. */
   hostDm: string | null;
@@ -20,7 +20,6 @@ export interface SupportRouteDeps {
   fromPage: (req: Request) => boolean;
   requireJson: (req: Request) => Response | null;
   boardVersion: string;
-  persona: () => string;
   hostDm: () => string | null;
   availability: () => Promise<RtResponse<SupportAvailability>>;
   mine: () => Promise<RtResponse<{ requests: SupportRequests }>>;
@@ -64,7 +63,8 @@ export async function supportRoute(
     if (!res.ok || !res.data) return refusal(res);
     return json({
       availability: res.data,
-      persona: deps.persona(),
+      persona:
+        'persona' in res.data && res.data.persona ? res.data.persona : 'Maude',
       hostDm: deps.hostDm(),
     } satisfies SupportRead);
   }

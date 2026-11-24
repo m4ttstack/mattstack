@@ -5,14 +5,24 @@ import type { HelpMr, HelpRequest } from './support-model.ts';
 export const NOW = 1_795_500_000_000;
 
 export const READY: SupportRead = {
-  availability: { state: 'ready', host: 'Alex Moreau', away: false },
+  availability: {
+    state: 'ready',
+    host: 'Alex Moreau',
+    away: false,
+    persona: 'Maude',
+  },
   persona: 'Maude',
   hostDm: 'https://slack.com/app_redirect?channel=U0ALEX',
 };
 
 export const AWAY: SupportRead = {
   ...READY,
-  availability: { state: 'ready', host: 'Alex Moreau', away: true },
+  availability: {
+    state: 'ready',
+    host: 'Alex Moreau',
+    away: true,
+    persona: 'Maude',
+  },
 };
 
 export const NO_SLACK: SupportRead = {
@@ -21,6 +31,7 @@ export const NO_SLACK: SupportRead = {
     state: 'disabled',
     reason: 'Connect Slack first',
     host: 'Alex Moreau',
+    persona: 'Maude',
   },
 };
 

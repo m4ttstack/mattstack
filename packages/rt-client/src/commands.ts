@@ -921,7 +921,7 @@ export interface Commands {
   "chat:slack-resume": { payload: { conversation: number; requesterSession?: string; requesterHandle?: string; approved?: boolean }; data: { gateId: string; question: SlackOpenForm } | { conversation: number; agent: "same" | "fresh" } };
   "chat:slack-expire": { payload: Record<string, never>; data: { expired: number } };
   /** Whether this person can ask their org's support host for help; `hidden` shows nothing at all. */
-  "support:availability": { payload: Record<string, never>; data: { state: "hidden" } | { state: "disabled"; reason: string; host: string } | { state: "ready"; host: string; away: boolean } };
+  "support:availability": { payload: Record<string, never>; data: { state: "hidden" } | { state: "disabled"; reason: string; host: string; persona: string } | { state: "ready"; host: string; away: boolean; persona: string } };
   /** What a request can attach, for a form to show before it is sent. */
   "support:context": { payload: { mr?: { url: string; state: string }; board?: string; app?: string }; data: { parts: SupportPart[] } };
   /** A person's alone, from a form that showed every part. A retry reuses `id`; changed words need a new one. */

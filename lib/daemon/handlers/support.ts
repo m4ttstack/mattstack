@@ -195,7 +195,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
       const cfg = deps.config();
       if (!cfg?.enabled || cfg.host === null || cfg.isHost) return hidden;
       const host = hostName(cfg);
-      const disabled = (reason: string) => ({ ok: true as const, data: { state: "disabled" as const, reason, host } });
+      const disabled = (reason: string) => ({ ok: true as const, data: { state: "disabled" as const, reason, host, persona: deps.persona() } });
       if (cfg.me === null) return disabled("Connect your forge account first");
       const relay = await deps.relay();
       if (!relay) return disabled("Connect your board first");
@@ -205,7 +205,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
       if (slack === null) return disabled("Connect Slack first");
       if (!(await deps.keys())) return disabled(noKey());
       const away = status.lastSeenAt === null || deps.now() - status.lastSeenAt > SUPPORT_AWAY_MS;
-      return { ok: true, data: { state: "ready", host, away } };
+      return { ok: true, data: { state: "ready", host, away, persona: deps.persona() } };
     },
 
     "support:context": async (rawPayload: unknown): Promise<CommandResult<"support:context">> => {

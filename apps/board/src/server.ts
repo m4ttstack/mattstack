@@ -2563,9 +2563,6 @@ const httpServer = Bun.serve({
         fromPage: fromOperatorPage,
         requireJson: requireJsonBody,
         boardVersion: pkg.version,
-        persona: () =>
-          getSetting<{ name?: string }>('agent.persona').value?.name?.trim() ||
-          'Maude',
         hostDm: () => {
           const host = getSetting<string>('support.host').value;
           const id = host && slackMatch.ids.get(canonicalUsername(host));
