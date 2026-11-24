@@ -25,6 +25,8 @@ export interface SlackChat {
   agentName?: string;
   /** The teammate's chat name, as the room's pair reads it. */
   name?: string;
+  /** The teammate's name in Slack. */
+  displayName?: string;
   openedAt?: number;
   /** Set once the chat has ended. */
   closedAt?: number;

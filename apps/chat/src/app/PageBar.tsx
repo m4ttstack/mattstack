@@ -13,6 +13,7 @@ import type { RoomSummary } from '@mattstack/rt-client';
 import { dmPairLabel } from './display-name';
 import { DmPairTitle } from './DmPairTitle';
 import { RoomMembers, type MemberBuddy } from './RoomMembers';
+import { SlackStop } from './SlackStop';
 import {
   isOpening,
   useLiveSlackRoom,
@@ -35,8 +36,7 @@ export interface PageBarProps {
   buddies: PageBarBuddy[];
   /** The room's member list is still on its way: the pill holds its place. */
   membersLoading?: boolean;
-  /** Closes the room. A live Slack chat has no button: closing one says
-      goodbye to a teammate, so it stays a choice made from its row. */
+  /** Closes the room. A live Slack chat offers Stop in its place. */
   onArchive?: (room: string) => void;
   /** The room's members with their presence: the bar counts who is in THIS
       room, the roster counts the fleet. */
@@ -152,20 +152,32 @@ export function PageBar({
           Opening
         </Badge>
       )}
-      {onArchive && !isLive(room.room) && (
-        <Tooltip label={label}>
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            size={28}
-            aria-label={label}
-            onClick={() => onArchive(room.room)}
-            style={{ marginLeft: 'auto', flex: 'none' }}
-          >
-            <Icon name="archive" size={16} />
-          </ActionIcon>
-        </Tooltip>
-      )}
+      <Group
+        gap="xs"
+        wrap="nowrap"
+        style={{ marginLeft: 'auto', flex: 'none', minWidth: 0 }}
+      >
+        {slack && (
+          <SlackStop
+            key={slack.id ?? room.room}
+            chat={slack}
+            live={isLive(room.room)}
+          />
+        )}
+        {onArchive && !isLive(room.room) && (
+          <Tooltip label={label}>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size={28}
+              aria-label={label}
+              onClick={() => onArchive(room.room)}
+            >
+              <Icon name="archive" size={16} />
+            </ActionIcon>
+          </Tooltip>
+        )}
+      </Group>
     </Group>
   );
 }

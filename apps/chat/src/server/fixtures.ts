@@ -404,6 +404,7 @@ export function fixtureSlackStatus() {
         id: 1,
         room: FIXTURE_DM,
         name: 'alex',
+        displayName: 'Alex Moreau',
         agentName: 'max',
         openedAt: now - 12 * 60_000,
         lastActiveAt: now - 2 * 60_000,
