@@ -71,16 +71,25 @@ function flockExec(script: Script) {
 
 function setup(script: Script = {}, extra: FakeProbesOpts = {}, opts: { fetchStatus?: number; body?: string } = {}) {
   const status = opts.fetchStatus ?? 200;
-  return fakeProbes({
+  const answer = flockExec(script);
+  const p = fakeProbes({
     home: HOME,
     env: { TMPDIR: TMP },
-    exec: flockExec(script),
+    exec: (argv) => {
+      const res = answer(argv);
+      if (argv[0] === "ditto" && argv[1] === APP && res.code === 0) {
+        p.mkdirp(`${argv[2]}/Contents`);
+        p.writeFile(plistOf(argv[2]!), "plist");
+      }
+      return res;
+    },
     fetch: async () => ({ status, body: status === 200 ? (opts.body ?? APPCAST) : "Not Found", headers: {} }),
     statPaths: { "/Applications": { isDirectory: true, writable: true } },
-    dirs: { [APP]: [] },
     files: { [plistOf(APP)]: "plist" },
     ...extra,
+    dirs: { "/Applications": [], ...(extra.dirs ?? { [APP]: [] }) },
   });
+  return p;
 }
 
 const copies = (p: ReturnType<typeof setup>) => p.calls.exec.filter((a) => a[0] === "ditto" && a[1] !== "-x");
@@ -201,6 +210,7 @@ describe("installFlock", () => {
     expect(p.calls.exec).toContainEqual(["ditto", "-x", "-k", ZIP, UNPACKED]);
     expect(p.calls.exec).toContainEqual(["ditto", APP, stagedIn("/Applications")]);
     expect(p.calls.renames).toEqual([[stagedIn("/Applications"), SYSTEM]]);
+    expect([p.exists(plistOf(SYSTEM)), p.exists(stagedIn("/Applications"))]).toEqual([true, false]);
     expect(result).toEqual({ via: "download", ok: true, placed: true, detail: "Installed Flock 0.12.2 in /Applications" });
     expect(p.calls.removed).toContain(WORK);
     expect(p.calls.removed).not.toContain(SYSTEM);
@@ -212,6 +222,7 @@ describe("installFlock", () => {
     const userDir = join(HOME, "Applications");
     expect(p.calls.exec).toContainEqual(["ditto", APP, stagedIn(userDir)]);
     expect(p.calls.renames).toEqual([[stagedIn(userDir), USER]]);
+    expect([p.exists(plistOf(USER)), p.exists(stagedIn(userDir))]).toEqual([true, false]);
     expect(p.exists(userDir)).toBe(true);
     expect(result.detail).toBe("Installed Flock 0.12.2 in ~/Applications");
   });
