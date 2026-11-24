@@ -4,23 +4,16 @@ export type Outcome = { status: 'answered'; answers: Record<string, unknown> } |
 
 export const REPLY_TAG = '[gate-form] '
 
-const json = (value: unknown) => `\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\``
+// On one line: the transcript draws this message whole, since a mod's render hooks never run on a prompt it sent.
+const json = (value: unknown) => `\`\`\`json\n${JSON.stringify(value)}\n\`\`\``
 
 export function agentReply(form: Form, outcome: Outcome): string {
-  const total = form.questions.length
   if (outcome.status === 'answered') {
     const count = Object.keys(outcome.answers).length
-    return [
-      `${REPLY_TAG}The user answered "${form.title}" (${count} of ${total} questions).`,
-      `Form ${form.id}. Answers by question id; an unanswered question is left out:`,
-      json(outcome.answers),
-    ].join('\n')
+    return [`${REPLY_TAG}The user answered "${form.title}" (form ${form.id}, ${count} of ${form.questions.length} questions):`, json(outcome.answers)].join('\n')
   }
-  return [
-    `${REPLY_TAG}The user set "${form.title}" aside to chat about it first.`,
-    `Form ${form.id} is closed; any gate it stands for stays open. Talk it through with them, then ask again. What they had answered so far:`,
-    json(outcome.draft),
-  ].join('\n')
+  const aside = `${REPLY_TAG}The user set "${form.title}" aside to chat about it first. Form ${form.id} is closed; any gate it stands for stays open. Talk it through with them, then ask again.`
+  return Object.keys(outcome.draft).length === 0 ? aside : [`${aside} Answered so far:`, json(outcome.draft)].join('\n')
 }
 
 // The agent's result for a gate the kit form took over; the compiled gate-protocol skill reads the answer as its next input.

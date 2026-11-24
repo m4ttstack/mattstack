@@ -724,24 +724,16 @@ function deleteChar(s) {
 // mods/gate-form/src/gate/reply.ts
 var REPLY_TAG = "[gate-form] ";
 var json = (value) => `\`\`\`json
-${JSON.stringify(value, null, 2)}
+${JSON.stringify(value)}
 \`\`\``;
 function agentReply(form, outcome) {
-  const total = form.questions.length;
   if (outcome.status === "answered") {
     const count = Object.keys(outcome.answers).length;
-    return [
-      `${REPLY_TAG}The user answered "${form.title}" (${count} of ${total} questions).`,
-      `Form ${form.id}. Answers by question id; an unanswered question is left out:`,
-      json(outcome.answers)
-    ].join(`
+    return [`${REPLY_TAG}The user answered "${form.title}" (form ${form.id}, ${count} of ${form.questions.length} questions):`, json(outcome.answers)].join(`
 `);
   }
-  return [
-    `${REPLY_TAG}The user set "${form.title}" aside to chat about it first.`,
-    `Form ${form.id} is closed; any gate it stands for stays open. Talk it through with them, then ask again. What they had answered so far:`,
-    json(outcome.draft)
-  ].join(`
+  const aside = `${REPLY_TAG}The user set "${form.title}" aside to chat about it first. Form ${form.id} is closed; any gate it stands for stays open. Talk it through with them, then ask again.`;
+  return Object.keys(outcome.draft).length === 0 ? aside : [`${aside} Answered so far:`, json(outcome.draft)].join(`
 `);
 }
 var GATE_INSTRUCTION = (gateId) => `The gate is open in the kit form. Open any boards first (per \`boards_to_open\`), then end your turn holding at gate \`${gateId}\`. The answer arrives as your next input.`;
@@ -1815,7 +1807,7 @@ function register(on) {
       return { deny: form };
     await openForm($, form);
     return {
-      result: `Form ${form.id} is open in the pane with ${form.questions.length} questions. End your turn now: the user's answers arrive as your next input, as JSON keyed by question id.`
+      result: `Form ${form.id} is open in the pane with ${form.questions.length} questions. End your turn now: the user's answers arrive as your next input, as JSON keyed by question id; an unanswered question is left out.`
     };
   });
   on("tool.call", { tool: "mcp__plugin_mattstack_mattstack__gate_ask" }, ($, e, next) => takeGate($, e, next)).catch(($, e, next) => next(e));

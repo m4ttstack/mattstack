@@ -757,7 +757,7 @@ export function register(on: On): void {
     if (typeof form === 'string') return { deny: form }
     await openForm($, form)
     return {
-      result: `Form ${form.id} is open in the pane with ${form.questions.length} questions. End your turn now: the user's answers arrive as your next input, as JSON keyed by question id.`,
+      result: `Form ${form.id} is open in the pane with ${form.questions.length} questions. End your turn now: the user's answers arrive as your next input, as JSON keyed by question id; an unanswered question is left out.`,
     }
   })
 
