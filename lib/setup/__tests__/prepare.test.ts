@@ -116,14 +116,18 @@ describe("runPrepare", () => {
     expect(seen).not.toContain("flock-app");
   });
 
-  test("a required team command named flock is prepared as itself and never brings back a removed Flock", async () => {
-    const p = fakeProbes({ home: HOME, exec: machine() });
-    updateSetupState(p, (s) => ({ ...s, flockInstalledAt: "2026-11-01T00:00:00.000Z" }));
+  test("a required team command named flock is prepared beside Flock.app, and alone once the member removed Flock", async () => {
     const pin = { url: "https://downloads.example.com/flock", sha256: "a".repeat(64), extract: "" };
     const teamFlock: PackRequirements[] = [{ pack: "widgets", integrations: [], tools: [{ name: "flock", why: "file locks", install: { download: { arm64: pin, x86_64: pin } } }] }];
-    const seen: string[] = [];
-    await runPrepare(p, "accounts", { reqs: teamFlock, install: fakeInstall(seen), alive, pid: OWN_PID });
-    expect(seen).toEqual(["claude", "herdr", "flock"]);
+    const prepared = async (p: ReturnType<typeof fakeProbes>) => {
+      const seen: string[] = [];
+      await runPrepare(p, "accounts", { reqs: teamFlock, install: fakeInstall(seen), alive, pid: OWN_PID });
+      return seen;
+    };
+    expect(await prepared(fakeProbes({ home: HOME, exec: machine() }))).toEqual(["claude", "herdr", "flock-app", "flock"]);
+    const removed = fakeProbes({ home: HOME, exec: machine() });
+    updateSetupState(removed, (s) => ({ ...s, flockInstalledAt: "2026-11-01T00:00:00.000Z" }));
+    expect(await prepared(removed)).toEqual(["claude", "herdr", "flock"]);
   });
 
   test("accounts installs Claude Code whenever ~/.local/bin/claude is missing, even with a claude elsewhere on PATH", async () => {
