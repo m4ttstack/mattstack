@@ -751,11 +751,37 @@ var LIVE_LINES_LOCAL = 15;
 var LIVE_LINES_HERDR = 3;
 var LINE_MAX = 300;
 var TAIL_MAX = 8 * 1024;
+var UNSEEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
+var UNSEEN_IN_PROSE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/u;
+var EMOJI2 = /\p{Extended_Pictographic}[\u{FE0F}\p{Emoji_Modifier}]?(?:\u{200D}\p{Extended_Pictographic}[\u{FE0F}\p{Emoji_Modifier}]?)*/gu;
+var isUnseenPath = (path) => UNSEEN.test(path.replace(EMOJI2, ""));
+function unseenField(input) {
+  if (UNSEEN.test((input.script ?? "").replace(/[\n\t]/g, "")))
+    return "script";
+  if (isUnseenPath(input.cwd ?? ""))
+    return "cwd";
+  if (UNSEEN.test(input.url ?? ""))
+    return "url";
+  if (Array.isArray(input.paths) && input.paths.some((p) => isUnseenPath(String(p))))
+    return "paths";
+  if (UNSEEN_IN_PROSE.test(input.title))
+    return "title";
+  if (UNSEEN_IN_PROSE.test((input.detail ?? "").replace(/[\n\t]/g, "")))
+    return "detail";
+  if (UNSEEN_IN_PROSE.test(input.doneLabel ?? ""))
+    return "doneLabel";
+  return;
+}
 function checkKind(input) {
   if (!KINDS.includes(input.kind))
     return `kind ${String(input.kind)} is not one of ${KINDS.join(", ")}.`;
   if ((input.kind === "run" || input.kind === "terminal") && !input.script?.trim())
     return `kind ${input.kind} needs a script.`;
+  const unseen = unseenField(input);
+  if (unseen)
+    return `${unseen} has characters the user cannot see (control, direction or zero-width); leave them out.`;
+  if (input.kind === "run" && input.cwd?.trim() && !input.cwd.startsWith("/"))
+    return "cwd must be an absolute path; leave it out to run in the session's folder.";
   if (input.kind === "link" && !/^https?:\/\//.test(input.url ?? ""))
     return "kind link needs an http(s) url.";
   if (input.kind === "image") {
@@ -866,14 +892,16 @@ function describe(list) {
     return "No to-dos.";
   return list.map((t) => {
     const script = t.script ? `
-    script: ${t.script}` : "";
+    script: ${t.script.replaceAll(`
+`, `
+      `)}` : "";
     const images = t.paths?.length ? `
     images: ${t.paths.join(", ")}` : "";
-    return `#${t.id} [${t.status}] ${t.title}${script}${images}`;
+    return `#${t.id} [${t.status}] ${JSON.stringify(t.title)}${script}${images}`;
   }).join(`
 `);
 }
-var IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "svg"];
+var IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp"];
 function isImageName(path) {
   const name = fileName(path);
   const dot = name.lastIndexOf(".");
@@ -969,7 +997,9 @@ function paneModel(input) {
   }
   for (const todo of actionable) {
     const first = rows.length;
-    const script = todo.script ? hardWrap(`$ ${todo.script}`, width) : [];
+    const script = todo.script ? hardWrap(`$ ${todo.script}`.split(`
+`).map(cleanLine).join(`
+`), width) : [];
     const isConfirming = todo.status === "confirming";
     const isOpen = expanded.includes(todo.id) || isConfirming;
     const shown = isOpen ? script : script.slice(0, SCRIPT_ROWS);
@@ -988,7 +1018,8 @@ function paneModel(input) {
       rows.push({ kind: "buttons", buttons: [more], ...!isOpen && { lead: { text: `… +${hidden} more`, tone: "dim" } } });
     }
     if (todo.kind === "run" && todo.cwd)
-      rows.push({ kind: "text", text: `in ${todo.cwd}`, tone: "dim", indent: true });
+      for (const row of hardWrap(`in ${todo.cwd}`, width))
+        rows.push({ kind: "text", text: row, tone: "dim", indent: true });
     if (todo.url)
       lines(todo.url, width, "link", true);
     if (todo.paths?.length)

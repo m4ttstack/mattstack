@@ -18,8 +18,8 @@ const PANE = {
 
 const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'run', title: 'T', script: 'make', status: 'open', ...over })
 
-const wrapperFor = (token: string, script: string) =>
-  `zsh -c 'trap : INT; zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?' todo '${script.replace(/'/g, `'\\''`)}'`
+const wrapperFor = (token: string, script: string, cwd = '/work') =>
+  `zsh -c 'trap : INT; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?' todo '${script.replace(/'/g, `'\\''`)}' '${cwd}'`
 
 // `gitDir` is what git answers for the session folder's shared git dir; left out, the folder is not in a git repo.
 // `servers` are the herdr sessions running beside the visible one (mattstack's background server by default).
@@ -194,7 +194,7 @@ test('quotes, a dollar, a backslash and a newline in a script survive the wrappe
   expect(typed).toBe(wrapperFor(tokenOf('1'), script))
   const [shell, flag, inline, name, given] = words(typed)
   expect([shell, flag, name]).toEqual(['zsh', '-c', 'todo'])
-  expect(inline).toBe(`trap : INT; zsh -lc "$1"; printf "\\n__todo_exit_${tokenOf('1')} %s\\n" $?`)
+  expect(inline).toBe(`trap : INT; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${tokenOf('1')} %s\\n" $?`)
   expect(given).toBe(script)
 })
 
@@ -239,6 +239,17 @@ test('a non-zero exit fails the item', async ($, on) => {
 
   expect(item('1')).toMatchObject({ status: 'failed', exitCode: 3 })
   expect(sent[0]).toContain('exit 3')
+})
+
+test('a reused tab runs the script in the folder Confirm showed, whatever folder its shell is in', async ($, on) => {
+  const { run1, fake, item, tokenOf, clock, pane: ui } = await seeded($, on, [todo({ script: 'make', cwd: '/shown' })])
+  await run1('1')
+  const pane = item('1')?.paneId ?? ''
+  await press(ui, '1', 'stop')
+  await clock.advance(1000)
+  await run1('1')
+  expect(item('1')?.paneId).toBe(pane)
+  expect(fake.panes.get(pane)?.typed).toBe(wrapperFor(tokenOf('1'), 'make', '/shown'))
 })
 
 test('a rerun reuses its tab and ignores the marker of the run before', async ($, on) => {

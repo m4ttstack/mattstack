@@ -2,7 +2,7 @@ import { mock } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 type On = Parameters<typeof mock.clock>[0]
-type Options = { entries?: Record<string, unknown>; now?: number; prefix?: string }
+type Options = { entries?: Record<string, unknown>; now?: number; prefix?: string; cwd?: string }
 type Registered = { name: string; description: string; inputSchema?: Record<string, unknown>; isDeferred?: unknown }
 
 export const SESSION = 'sess-1'
@@ -52,7 +52,7 @@ function timed(on: On, now: number) {
 }
 
 // Stands for the engine beneath the plugin. The store is a plain map so a test can read what was saved.
-export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__human-todos__' }: Options = {}) {
+export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__human-todos__', cwd = '/work' }: Options = {}) {
   const store = new Map<string, unknown>(Object.entries(entries))
   const registered: Registered[] = []
   const opened: string[] = []
@@ -64,7 +64,7 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
   let sessionId = SESSION
   let isPlaced = true
   on('session.id', () => ({ value: sessionId }))
-  on('session.cwd', () => ({ value: '/work' }))
+  on('session.cwd', () => ({ value: cwd }))
   on('store.get', (_, e) => ({ value: store.get(e.key) }))
   on('store.set', (_, e) => {
     if (fail.save) throw new Error('store full')

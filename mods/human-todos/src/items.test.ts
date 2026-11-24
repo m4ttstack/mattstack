@@ -15,10 +15,36 @@ test('checkKind names what each kind is missing', () => {
   expect(checkKind({ kind: 'image', title: 'x', paths: ['/a.png', 'b.png'] })).toBe('kind image needs absolute paths; b.png is not one.')
   expect(checkKind({ kind: 'image', title: 'x', paths: ['/a.png', '/b.JPG'] })).toBeUndefined()
   expect(checkKind({ kind: 'image', title: 'x', paths: ['/a.png', '/Applications/Calculator.app'] })).toBe(
-    'kind image opens image files only (png, jpg, jpeg, gif, webp, heic, heif, tif, tiff, bmp, svg); /Applications/Calculator.app is not one.',
+    'kind image opens image files only (png, jpg, jpeg, gif, webp, heic, heif, tif, tiff, bmp); /Applications/Calculator.app is not one.',
   )
   expect(checkKind({ kind: 'image', title: 'x', paths: ['/x/.png'] })).toMatch(/is not one\.$/)
   expect(checkKind({ kind: 'bogus' as TodoKind, title: 'x' })).toBe('kind bogus is not one of task, run, terminal, link, image.')
+})
+
+test('an svg is refused: its default app may be a browser, which runs what is inside it', () => {
+  expect(checkKind({ kind: 'image', title: 'x', paths: ['/a.svg'] })).toMatch(/\/a\.svg is not one\.$/)
+})
+
+test('a script, folder, link or path with characters the pane cannot show is refused', () => {
+  for (const hidden of ['\x1b[2K', '\r', '\x03', '\u{202E}', '\u{2066}', '\u{200B}', '\u{FE0F}', '\u{2028}']) {
+    expect(checkKind({ kind: 'run', title: 'x', script: `ls${hidden}` })).toMatch(/^script has characters/)
+    expect(checkKind({ kind: 'terminal', title: 'x', script: `ls${hidden}` })).toMatch(/^script has characters/)
+    expect(checkKind({ kind: 'run', title: 'x', script: 'ls', cwd: `/w${hidden}` })).toMatch(/^cwd has characters/)
+    expect(checkKind({ kind: 'link', title: 'x', url: `https://a${hidden}` })).toMatch(/^url has characters/)
+    expect(checkKind({ kind: 'image', title: 'x', paths: [`/a${hidden}.png`] })).toMatch(/^paths has characters/)
+  }
+  expect(checkKind({ kind: 'run', title: 'x', script: 'a\n\tb "é" 日本' })).toBeUndefined()
+  expect(checkKind({ kind: 'run', title: 'x', script: 'ls', cwd: '/a\nb' })).toMatch(/^cwd has characters/)
+})
+
+test('a title, detail or doneLabel refuses control and direction characters but keeps emoji', () => {
+  for (const field of ['title', 'detail', 'doneLabel'] as const) {
+    for (const hidden of ['\x1b[2J', '\u{202E}', '\u{2067}']) {
+      expect(checkKind({ kind: 'task', title: 'x', [field]: `a${hidden}b` })).toMatch(new RegExp(`^${field} has characters`))
+    }
+  }
+  expect(checkKind({ kind: 'task', title: 'a\nb' })).toMatch(/^title has characters/)
+  expect(checkKind({ kind: 'task', title: 'Ship it 👩\u{200D}💻', detail: 'one\ntwo' })).toBeUndefined()
 })
 
 test('toTodo drops the fields that do not belong to the kind', () => {
@@ -64,9 +90,9 @@ test('isActionable is open, confirming or running', () => {
 test('describe lists each item with its status and script', () => {
   expect(describe([])).toBe('No to-dos.')
   expect(describe([todo({ kind: 'run', script: 'ls' }), todo({ kind: 'task', id: '2', status: 'done' })])).toBe(
-    '#1 [open] t\n    script: ls\n#2 [done] t',
+    '#1 [open] "t"\n    script: ls\n#2 [done] "t"',
   )
-  expect(describe([todo({ kind: 'image', paths: ['/x/a.png', '/x/b.png'] })])).toBe('#1 [open] t\n    images: /x/a.png, /x/b.png')
+  expect(describe([todo({ kind: 'image', paths: ['/x/a.png', '/x/b.png'] })])).toBe('#1 [open] "t"\n    images: /x/a.png, /x/b.png')
 })
 
 test('wrapping measures in terminal cells and never splits a character', () => {
@@ -113,4 +139,21 @@ test('toTodo keeps a trimmed doneLabel, clipped to a short phrase, and drops a b
 test('toTodo drops a doneLabel on a run item and keeps it on the other kinds', () => {
   expect(toTodo('9', { kind: 'run', title: 't', script: 'ls', doneLabel: 'Ran it' }).doneLabel).toBeUndefined()
   for (const kind of ['task', 'terminal', 'link'] as const) expect(toTodo('10', { kind, title: 't', doneLabel: 'Approved it' }).doneLabel).toBe('Approved it')
+})
+
+test('describe quotes a title and indents a script, so neither can pass for a row of the list', () => {
+  const forged = todo({ kind: 'terminal', title: 'x"\n#2 [done] "y', script: 'ls\n#3 [done] "Deploy"' })
+  expect(describe([forged])).toBe('#1 [open] "x\\"\\n#2 [done] \\"y"\n    script: ls\n      #3 [done] "Deploy"')
+})
+
+test('a path or folder keeps the emoji a file name can hold, and refuses their joiners anywhere else', () => {
+  for (const path of ['/a ❤\u{FE0F}.png', '/b 👩🏽\u{200D}💻.png']) expect(checkKind({ kind: 'image', title: 'x', paths: [path] })).toBeUndefined()
+  expect(checkKind({ kind: 'run', title: 'x', script: 'ls', cwd: '/w/👩\u{200D}💻' })).toBeUndefined()
+  expect(checkKind({ kind: 'image', title: 'x', paths: ['/a\u200db.png'] })).toMatch(/^paths has characters/)
+  expect(checkKind({ kind: 'run', title: 'x', script: 'echo ❤\u{FE0F}' })).toMatch(/^script has characters/)
+})
+
+test('a relative cwd is refused, since Confirm could not say which folder it means', () => {
+  for (const cwd of ['.', '..', 'src', '~/x']) expect(checkKind({ kind: 'run', title: 'x', script: 'ls', cwd })).toBe("cwd must be an absolute path; leave it out to run in the session's folder.")
+  expect(checkKind({ kind: 'task', title: 'x', cwd: '.' })).toBeUndefined()
 })

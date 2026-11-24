@@ -2,7 +2,7 @@ import type { EngineInterface, On } from 'claude-code'
 
 import { busyTasks, type TaskLike } from './busy'
 import { beginChat, cancelChat, completeChat } from './chat'
-import { ledgerMessage, type Carry } from './carry'
+import { ledgerMessage, nextStep, thenPrompt, type Carry } from './carry'
 
 const CARRY = { plugin: 'fresh-context', key: 'carry' } as const
 
@@ -49,13 +49,6 @@ function notice($: EngineInterface, text: string): void {
   })
 }
 
-// The host refuses a prompt from a mod that starts with /, so a slash command goes through the command API.
-async function submit($: EngineInterface, text: string): Promise<void> {
-  const slash = /^\/([\w:-]+)(?:\s+([\s\S]*))?$/.exec(text)
-  if (slash?.[1]) await $.command.run({ command: slash[1], ...(slash[2] ? { args: slash[2].trim() } : {}) })
-  else await $.prompt.submit({ text: text.startsWith('/') ? `Next step from before the reset: ${text}` : text })
-}
-
 async function abandon($: EngineInterface, carry: Carry, why: string): Promise<void> {
   await drop($)
   if (carry.chatHandle) await cancelChat($, carry.oldSessionId, await $.session.id())
@@ -73,6 +66,12 @@ async function hold($: EngineInterface, text: string): Promise<void> {
   if (!appended || appended.deny !== undefined) await $.prompt.submit({ text })
 }
 
+// A refused prompt leaves the next step in the fresh context as a note, so it is never lost without a word.
+async function startOn($: EngineInterface, then: string): Promise<void> {
+  const sent = await $.prompt.submit({ text: thenPrompt(then) }).catch(() => undefined)
+  if (sent === undefined || sent.drop !== undefined) await hold($, nextStep(then)).catch(() => undefined)
+}
+
 async function handOver($: EngineInterface, carry: Carry, sessionId: string): Promise<void> {
   // One hand-over per carry, whichever cue arrives first.
   if (pending !== carry) return
@@ -84,7 +83,7 @@ async function handOver($: EngineInterface, carry: Carry, sessionId: string): Pr
     if (welcome === null) await cancelChat($, carry.oldSessionId, sessionId)
     else if (welcome) await hold($, welcome)
   }
-  if (carry.then) await submit($, carry.then)
+  if (carry.then) await startOn($, carry.then)
 }
 
 async function runReset($: EngineInterface, queued: Carry): Promise<void> {

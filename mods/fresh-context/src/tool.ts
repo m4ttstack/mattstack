@@ -1,6 +1,7 @@
 import type { EngineInterface, On } from 'claude-code'
 
 import type { Carry, Mode } from './carry'
+import { skillIn } from './carry'
 import { busyNow, claim, queue, release } from './reset'
 
 export const TOOL = 'mcp__fresh-context__fresh_context'
@@ -8,7 +9,7 @@ export const TOOL = 'mcp__fresh-context__fresh_context'
 const DESCRIPTION = `Clear or compact this session and pick up where it left off.
 Write your ledger first: the one your current skill keeps, or a short note of the goal, where things are, what is done, what is next and what you are waiting on.
 mode "clear" starts a brand-new conversation holding only the ledger; "compact" runs compaction steered by the ledger.
-then (optional) is the instruction the fresh context starts on, submitted on its own (a slash command works). Leave it out to let a pending wakeup or a chat message start the next turn.
+then (optional) is the instruction the fresh context starts on, submitted on its own; a plugin skill can be named as /plugin:skill, no other slash command can. Leave it out to let a pending wakeup or a chat message start the next turn.
 The reset runs right after this turn ends; end your turn after calling it. A clear is refused while a subagent, background shell, monitor or workflow is running.`
 
 export async function registerToolDef($: EngineInterface): Promise<void> {
@@ -28,6 +29,11 @@ export async function registerToolDef($: EngineInterface): Promise<void> {
     })
 }
 
+// A command a mod registers is a plugin's too, but only a skill's name holds a colon.
+async function isPluginSkill($: EngineInterface, name: string): Promise<boolean> {
+  return name.includes(':') && (await $.command.list()).some(c => c.name === name && c.source === 'plugin')
+}
+
 export function registerTool(on: On): void {
   on('tool.check', { tool: TOOL }, () => ({ decision: 'allow' as const }))
 
@@ -40,11 +46,14 @@ export function registerTool(on: On): void {
 
   on('tool.call', { tool: TOOL }, async ($, e) => {
     if (e.agentId) return { deny: 'Only the main session can reset itself; a subagent cannot.' }
-    const { mode, ledger, then } = e as unknown as { mode?: unknown; ledger?: unknown; then?: unknown }
+    const { mode, ledger, then: asked } = e as unknown as { mode?: unknown; ledger?: unknown; then?: unknown }
     if (mode !== 'clear' && mode !== 'compact') return { deny: 'mode must be "clear" or "compact".' }
     if (typeof ledger !== 'string' || ledger.trim() === '') return { deny: 'Write a ledger first: the reset carries nothing else.' }
-    if (then !== undefined && typeof then !== 'string') return { deny: 'then must be text.' }
-    // Claimed before the first await, so a second call in the same message is refused.
+    if (asked !== undefined && typeof asked !== 'string') return { deny: 'then must be text.' }
+    const then = asked?.trim()
+    const skill = then ? skillIn(then) : undefined
+    if (skill && !(await isPluginSkill($, skill.name))) return { deny: `then cannot start /${skill.name}: only a plugin skill can be named there.` }
+    // Claimed before the queue's first await, so a second call in the same message is refused.
     if (!claim()) return { deny: 'A reset is already queued for the end of this turn.' }
     try {
       if (mode === 'clear') {

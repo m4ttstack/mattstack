@@ -116,7 +116,7 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
 
   for (const todo of actionable) {
     const first = rows.length
-    const script = todo.script ? hardWrap(`$ ${todo.script}`, width) : []
+    const script = todo.script ? hardWrap(`$ ${todo.script}`.split('\n').map(cleanLine).join('\n'), width) : []
     const isConfirming = todo.status === 'confirming'
     const isOpen = expanded.includes(todo.id) || isConfirming
     const shown = isOpen ? script : script.slice(0, SCRIPT_ROWS)
@@ -139,7 +139,7 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
       const more: PaneButton = { id: 'more', label: isOpen ? 'Show less' : 'Show all', tone: 'quiet', todoId: todo.id }
       rows.push({ kind: 'buttons', buttons: [more], ...(!isOpen && { lead: { text: `… +${hidden} more`, tone: 'dim' as const } }) })
     }
-    if (todo.kind === 'run' && todo.cwd) rows.push({ kind: 'text', text: `in ${todo.cwd}`, tone: 'dim', indent: true })
+    if (todo.kind === 'run' && todo.cwd) for (const row of hardWrap(`in ${todo.cwd}`, width)) rows.push({ kind: 'text', text: row, tone: 'dim', indent: true })
     if (todo.url) lines(todo.url, width, 'link', true)
     if (todo.paths?.length) lines(todo.paths.map(fileName).join(', '), width, 'link', true)
     if (isRunning) {

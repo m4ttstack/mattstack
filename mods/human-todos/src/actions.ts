@@ -2,7 +2,7 @@ import type { EngineInterface, On, RenderSurface } from 'claude-code'
 
 import type { Todo } from '../types'
 import type { ButtonId } from './items'
-import { fileName, isImageName } from './items'
+import { fileName, isImageName, unseenField } from './items'
 import { report } from './report'
 import { cleanupHerdr, herdrSession, releaseHerdr } from './herdr'
 import { releaseLocal } from './local'
@@ -103,13 +103,28 @@ async function openImages($: EngineInterface, todo: Todo): Promise<void> {
   if (opened.exitCode !== 0) $.ui.toast(`Could not open the images for #${todo.id}`)
 }
 
+// The buttons that run, copy or open what the item holds.
+const USES = new Set<ButtonId>(['run', 'confirm', 'copy', 'open'])
+
+// Confirm shows the folder the script runs in, so the item has an absolute one before it asks.
+async function askFirst($: EngineInterface, todo: Todo): Promise<void> {
+  const cwd = todo.cwd?.trim() ? todo.cwd : await $.session.cwd()
+  if (!cwd.startsWith('/')) return $.ui.toast(`#${todo.id} has no absolute folder to run in, so it cannot be run`)
+  if (unseenField({ ...todo, cwd })) return $.ui.toast(`#${todo.id} has hidden characters in its cwd, so it cannot be used`)
+  await patchTodo($, todo.id, { status: 'confirming', cwd })
+}
+
 export async function press($: EngineInterface, todo: Todo, button: ButtonId, surface: RenderSurface): Promise<void> {
   const current = (await listTodos($)).find(t => t.id === todo.id)
   if (!current) return
 
+  // A list saved by an older version can hold what add now refuses.
+  const unseen = USES.has(button) ? unseenField(current) : undefined
+  if (unseen) return $.ui.toast(`#${current.id} has hidden characters in its ${unseen}, so it cannot be used`)
+
   switch (button) {
     case 'run':
-      if (current.status === 'open') await patchTodo($, current.id, { status: 'confirming' })
+      if (current.status === 'open') await askFirst($, current)
       return
     case 'cancel':
       if (current.status === 'confirming') await patchTodo($, current.id, { status: 'open' })

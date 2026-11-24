@@ -127,9 +127,29 @@ test('a report prunes spills a day stale, and keeps fresh ones and the live logs
     return { value: [entry('sess-0-1-old.spill', 1_000_000 - 2 * DAY), entry('sess-0-2-new.spill', 1_000_000 - 60_000), entry('sess-0-3-old.log', 1_000_000 - 2 * DAY)] }
   })
   const { run1, ran, clock } = await seeded($, on, [todo({})], { script: () => exits([pid(9), out('x\n')]) })
+  ran.length = 0
   await run1('1')
   await clock.settle()
   expect(ran.filter(argv => argv[0] === 'rm' && argv.some(a => a.startsWith(`${root}/sess-0-`)))).toEqual([['rm', '-f', '--', `${root}/sess-0-1-old.spill`]])
+})
+
+test('a report removes live logs and run logs older than a saved list is kept, and no newer ones', async ($, on) => {
+  const root = '/home/u/Library/Caches/human-todos'
+  const DAY = 24 * 60 * 60 * 1000
+  const entry = (name: string, days: number) => ({ name, kind: 'file' as const, size: 1, mtimeMs: 1_000_000 - days * DAY, isLink: false })
+  on('fs.list', (_, e) => ({ value: e.path === root ? [entry('sess-0-1-old.log', 31), entry('sess-0-2-new.log', 29), entry('notes.txt', 31)] : [entry('sess-0-1.log', 31), entry('sess-0-2.log', 29)] }))
+  const { run1, ran, clock } = await seeded($, on, [todo({})], { script: () => exits([pid(9), out('x\n')]) })
+  ran.length = 0
+  await run1('1')
+  await clock.settle()
+  expect(ran.filter(argv => argv[0] === 'rm' && argv.some(a => a.includes('/sess-0-')))).toEqual([['rm', '-f', '--', `${root}/runs/sess-0-1.log`, `${root}/sess-0-1-old.log`]])
+})
+
+test('a session start removes old logs, with no run needed', async ($, on) => {
+  const root = '/home/u/Library/Caches/human-todos'
+  on('fs.list', (_, e) => ({ value: e.path === root ? [{ name: 'sess-0-1-old.log', kind: 'file' as const, size: 1, mtimeMs: 1_000_000 - 31 * 24 * 60 * 60 * 1000, isLink: false }] : [] }))
+  const { ran } = await seeded($, on, [], { script: () => exits([]) })
+  expect(ran).toEqual([['rm', '-f', '--', `${root}/sess-0-1-old.log`]])
 })
 
 test('a session switch while the report saves its output leaves the new session\'s item of the same number alone', async ($, on) => {
@@ -158,6 +178,7 @@ test('the report folder keeps the newest 20 logs and removes the rest', async ($
     return { value: Array.from({ length: 23 }, (_, n) => ({ name: `old-${String(n).padStart(2, '0')}.log`, kind: 'file' as const, size: 1, mtimeMs: 1000 + n, isLink: false })) }
   })
   const { run1, ran, clock } = await seeded($, on, [todo({})], { script: () => exits([pid(9), out('x\n')]) })
+  ran.length = 0
   await run1('1')
   await clock.settle()
   const removal = ran.find(argv => argv[0] === 'rm' && argv.some(a => a.startsWith(`${folder}/`)))

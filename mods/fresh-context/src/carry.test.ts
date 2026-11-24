@@ -1,21 +1,25 @@
 import { expect, test } from 'bun:test'
 
-import { ledgerMessage, parseCarry, type Carry } from './carry.ts'
+import { ledgerMessage, skillIn, thenPrompt } from './carry.ts'
 
-test('parseCarry round-trips a carry', () => {
-  const carry: Carry = { mode: 'clear', ledger: 'Goal: ship it', then: '/mattstack:pr-usher', oldSessionId: 's-old', chatHandle: 'pansy.ab12', createdAt: 1 }
-  expect(parseCarry(JSON.stringify(carry))).toEqual(carry)
-  const bare: Carry = { mode: 'compact', ledger: 'x', oldSessionId: 's', createdAt: 2 }
-  expect(parseCarry(JSON.stringify(bare))).toEqual(bare)
+test('skillIn reads a named skill and what follows it, and leaves text and paths alone', () => {
+  expect(skillIn('/mattstack:pr-usher tick now')).toEqual({ name: 'mattstack:pr-usher', args: 'tick now' })
+  expect(skillIn('/clear')).toEqual({ name: 'clear', args: '' })
+  expect(skillIn('/tmp/notes.md has the plan')).toBeUndefined()
+  expect(skillIn('carry on')).toBeUndefined()
 })
 
-test('parseCarry rejects bad JSON and a carry missing its fields', () => {
-  expect(parseCarry('{}')).toBeNull()
-  expect(parseCarry('not json')).toBeNull()
-  expect(parseCarry(JSON.stringify({ mode: 'wipe', ledger: 'x', oldSessionId: 's', createdAt: 1 }))).toBeNull()
-  expect(parseCarry(JSON.stringify({ mode: 'clear', ledger: 'x', oldSessionId: 's', createdAt: 1, then: 3 }))).toBeNull()
+test('thenPrompt never starts with a slash, so it cannot run a command', () => {
+  expect(thenPrompt('/mattstack:pr-usher tick')).toBe('Use the mattstack:pr-usher skill with: tick')
+  expect(thenPrompt('/mattstack:pr-usher')).toBe('Use the mattstack:pr-usher skill')
+  expect(thenPrompt('/tmp/notes.md has the plan')).toBe('Next step from before the reset: /tmp/notes.md has the plan')
+  expect(thenPrompt('carry on')).toBe('carry on')
+  for (const space of [' ', '\n', '\u00a0']) {
+    expect(thenPrompt(`${space}/clear`)).toBe('Use the clear skill')
+    expect(skillIn(`${space}/clear`)).toEqual({ name: 'clear', args: '' })
+  }
 })
 
-test('ledgerMessage wraps the ledger in its fixed header', () => {
-  expect(ledgerMessage('x')).toBe('Ledger carried from before the reset:\n\nx')
+test('ledgerMessage says where the text came from', () => {
+  expect(ledgerMessage('Goal: x')).toBe('Ledger carried from before the reset:\n\nGoal: x')
 })

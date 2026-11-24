@@ -34,7 +34,7 @@ test('add, list and withdraw work the list', async ($, on) => {
   expect(added.result).toMatch(/^Added #1 /)
 
   const listed = await $.tool.call({ tool: LIST })
-  expect(listed.result).toBe('#1 [open] Sign in\n    script: gcloud auth login')
+  expect(listed.result).toBe('#1 [open] "Sign in"\n    script: gcloud auth login')
 
   const withdrawn = await $.tool.call({ tool: WITHDRAW, id: '1' })
   expect(withdrawn.result).toBe('Withdrew #1.')
@@ -54,7 +54,7 @@ test('add keeps an image item\'s paths and lists them', async ($, on) => {
 
   const added = await $.tool.call({ tool: ADD, kind: 'image', title: 'Look at the header', paths: ['/shots/light.png', '/shots/dark.png'] })
   expect(added.result).toMatch(/^Added #1 /)
-  expect((await $.tool.call({ tool: LIST })).result).toBe('#1 [open] Look at the header\n    images: /shots/light.png, /shots/dark.png')
+  expect((await $.tool.call({ tool: LIST })).result).toBe('#1 [open] "Look at the header"\n    images: /shots/light.png, /shots/dark.png')
 })
 
 test('the three tools are allowed without a prompt; other tools pass through', async ($, on) => {
@@ -128,4 +128,22 @@ test('the add row shows the kind and title alone, and ctrl+o the whole call', as
       await ui.unmount()
     }
   }
+})
+
+test('a run item with no cwd keeps the folder the session is in, so Confirm shows where it runs', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.tool.call({ tool: ADD, kind: 'run', title: 'x', script: 'ls' })
+  await $.tool.call({ tool: ADD, kind: 'run', title: 'y', script: 'ls', cwd: '/elsewhere' })
+  await $.tool.call({ tool: ADD, kind: 'task', title: 'z' })
+  await $.tool.call({ tool: ADD, kind: 'run', title: 'w', script: 'ls', cwd: ' ' })
+  const saved = w.store.get('list:sess-1') as { todos: { cwd?: string }[] }
+  expect(saved.todos.map(t => t.cwd)).toEqual(['/work', '/elsewhere', undefined, '/work'])
+})
+
+test('add refuses a run item whose session folder has hidden characters', async ($, on) => {
+  world(on, { cwd: '/w\u{202E}' })
+  await startSession($)
+  expect(await $.tool.call({ tool: ADD, kind: 'run', title: 'x', script: 'ls' })).toMatchObject({ deny: expect.stringMatching(/^cwd has characters/) })
+  expect((await $.tool.call({ tool: LIST })).result).toBe('No to-dos.')
 })

@@ -46,7 +46,7 @@ test('session.start restores the saved list and settles unfinished items', async
   await startSession($)
 
   expect((await $.tool.call({ tool: LIST })).result).toBe(
-    ['#1 [open] t\n    script: ls', '#2 [open] t\n    script: ls', '#3 [running] t\n    script: ls', '#4 [done] t'].join('\n'),
+    ['#1 [open] "t"\n    script: ls', '#2 [open] "t"\n    script: ls', '#3 [running] "t"\n    script: ls', '#4 [done] "t"'].join('\n'),
   )
 
   const added = await $.tool.call({ tool: ADD, kind: 'task', title: 'next' })
@@ -64,7 +64,7 @@ test('a herdr run saved with no server settles to open, since its tab is on the 
   world(on, { entries: { 'list:sess-1': savedList(list, 2) } })
   await startSession($)
 
-  expect((await $.tool.call({ tool: LIST })).result).toMatch(/^#1 \[open\] t/)
+  expect((await $.tool.call({ tool: LIST })).result).toMatch(/^#1 \[open\] "t"/)
 })
 
 test('a list saved by 0.1.3 loads in full: every field survives, a local run settles to open', async ($, on) => {
@@ -76,9 +76,9 @@ test('a list saved by 0.1.3 loads in full: every field survives, a local run set
 
   expect((await $.tool.call({ tool: LIST })).result).toBe(
     [
-      '#1 [open] Open the console',
-      '#2 [open] Sign in\n    script: gcloud auth login',
-      '#3 [done] Approve the invite',
+      '#1 [open] "Open the console"',
+      '#2 [open] "Sign in"\n    script: gcloud auth login',
+      '#3 [done] "Approve the invite"',
     ].join('\n'),
   )
   await $.tool.call({ tool: ADD, kind: 'task', title: 'next' })
@@ -129,7 +129,7 @@ test('a new session id starts empty even after items existed, and the old list s
 
   setSession('sess-1')
   await startSession($)
-  expect((await $.tool.call({ tool: LIST })).result).toBe('#1 [open] a\n#2 [open] b')
+  expect((await $.tool.call({ tool: LIST })).result).toBe('#1 [open] "a"\n#2 [open] "b"')
 })
 
 test('/clear empties the list at once and leaves the old list saved', async ($, on) => {
@@ -226,6 +226,6 @@ test('a store that refuses writes keeps the list working and toasts once', async
 
   expect((await $.tool.call({ tool: ADD, kind: 'task', title: 'a' })).result).toMatch(/^Added #1 /)
   expect((await $.tool.call({ tool: ADD, kind: 'task', title: 'b' })).result).toMatch(/^Added #2 /)
-  expect((await $.tool.call({ tool: LIST })).result).toBe('#1 [open] a\n#2 [open] b')
+  expect((await $.tool.call({ tool: LIST })).result).toBe('#1 [open] "a"\n#2 [open] "b"')
   expect(toasts).toEqual(['Could not save the to-do list; it will not survive a restart'])
 })

@@ -1,3 +1,23 @@
+// mods/fresh-context/src/carry.ts
+function skillIn(then) {
+  const slash = /^\/([\w:-]+)(?:\s+([\s\S]*))?$/.exec(then.trim());
+  return slash?.[1] ? { name: slash[1], args: (slash[2] ?? "").trim() } : undefined;
+}
+function nextStep(then) {
+  return `Next step from before the reset: ${then.trim()}`;
+}
+function thenPrompt(then) {
+  const skill = skillIn(then);
+  if (skill)
+    return `Use the ${skill.name} skill${skill.args ? ` with: ${skill.args}` : ""}`;
+  return then.trimStart().startsWith("/") ? nextStep(then) : then;
+}
+function ledgerMessage(ledger) {
+  return `Ledger carried from before the reset:
+
+${ledger}`;
+}
+
 // mods/fresh-context/src/busy.ts
 var BLOCKING_TYPES = new Set(["shell", "monitor", "subagent", "workflow"]);
 var ACTIVE = new Set(["running", "pending"]);
@@ -57,13 +77,6 @@ async function cancelChat($, fromSessionId, sessionId, opts = {}) {
   await handoff($, sessionId, ["cancel", "--from", fromSessionId], opts.onExit ? EXIT_RT_MS : RT_MS);
 }
 
-// mods/fresh-context/src/carry.ts
-function ledgerMessage(ledger) {
-  return `Ledger carried from before the reset:
-
-${ledger}`;
-}
-
 // mods/fresh-context/src/reset.ts
 var CARRY = { plugin: "fresh-context", key: "carry" };
 var pending = null;
@@ -98,13 +111,6 @@ function notice($, text) {
     $.prompt.submit({ text });
   });
 }
-async function submit($, text) {
-  const slash = /^\/([\w:-]+)(?:\s+([\s\S]*))?$/.exec(text);
-  if (slash?.[1])
-    await $.command.run({ command: slash[1], ...slash[2] ? { args: slash[2].trim() } : {} });
-  else
-    await $.prompt.submit({ text: text.startsWith("/") ? `Next step from before the reset: ${text}` : text });
-}
 async function abandon($, carry, why) {
   await drop($);
   if (carry.chatHandle)
@@ -121,6 +127,15 @@ async function hold($, text) {
   if (!appended || appended.deny !== undefined)
     await $.prompt.submit({ text });
 }
+async function startOn($, then) {
+  const sent = await $.prompt.submit({ text: thenPrompt(then) }).catch(() => {
+    return;
+  });
+  if (sent === undefined || sent.drop !== undefined)
+    await hold($, nextStep(then)).catch(() => {
+      return;
+    });
+}
 async function handOver($, carry, sessionId) {
   if (pending !== carry)
     return;
@@ -135,7 +150,7 @@ async function handOver($, carry, sessionId) {
       await hold($, welcome);
   }
   if (carry.then)
-    await submit($, carry.then);
+    await startOn($, carry.then);
 }
 async function runReset($, queued) {
   let carry = queued;
@@ -248,7 +263,7 @@ var TOOL = "mcp__fresh-context__fresh_context";
 var DESCRIPTION = `Clear or compact this session and pick up where it left off.
 Write your ledger first: the one your current skill keeps, or a short note of the goal, where things are, what is done, what is next and what you are waiting on.
 mode "clear" starts a brand-new conversation holding only the ledger; "compact" runs compaction steered by the ledger.
-then (optional) is the instruction the fresh context starts on, submitted on its own (a slash command works). Leave it out to let a pending wakeup or a chat message start the next turn.
+then (optional) is the instruction the fresh context starts on, submitted on its own; a plugin skill can be named as /plugin:skill, no other slash command can. Leave it out to let a pending wakeup or a chat message start the next turn.
 The reset runs right after this turn ends; end your turn after calling it. A clear is refused while a subagent, background shell, monitor or workflow is running.`;
 async function registerToolDef($) {
   await $.tool.register({
@@ -266,6 +281,9 @@ async function registerToolDef($) {
     }
   });
 }
+async function isPluginSkill($, name) {
+  return name.includes(":") && (await $.command.list()).some((c) => c.name === name && c.source === "plugin");
+}
 function registerTool(on) {
   on("tool.check", { tool: "mcp__fresh-context__fresh_context" }, () => ({ decision: "allow" }));
   on("ui.render", { component: "ToolUse", props: { tool: "mcp__fresh-context__fresh_context" } }, ($, e, next) => {
@@ -277,13 +295,17 @@ function registerTool(on) {
   on("tool.call", { tool: "mcp__fresh-context__fresh_context" }, async ($, e) => {
     if (e.agentId)
       return { deny: "Only the main session can reset itself; a subagent cannot." };
-    const { mode, ledger, then } = e;
+    const { mode, ledger, then: asked } = e;
     if (mode !== "clear" && mode !== "compact")
       return { deny: 'mode must be "clear" or "compact".' };
     if (typeof ledger !== "string" || ledger.trim() === "")
       return { deny: "Write a ledger first: the reset carries nothing else." };
-    if (then !== undefined && typeof then !== "string")
+    if (asked !== undefined && typeof asked !== "string")
       return { deny: "then must be text." };
+    const then = asked?.trim();
+    const skill = then ? skillIn(then) : undefined;
+    if (skill && !await isPluginSkill($, skill.name))
+      return { deny: `then cannot start /${skill.name}: only a plugin skill can be named there.` };
     if (!claim())
       return { deny: "A reset is already queued for the end of this turn." };
     try {

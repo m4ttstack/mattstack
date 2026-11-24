@@ -86,7 +86,7 @@ test('after the clear, complete runs and the ledger is appended before then is s
   expect(w.submitted).toEqual(['carry on'])
 })
 
-test('a then starting with / runs as a command', async ($, on) => {
+test('a then naming a plugin skill asks the fresh context to use it, and runs no command', async ($, on) => {
   const w = world(on)
   await startSession($)
 
@@ -96,8 +96,46 @@ test('a then starting with / runs as a command', async ($, on) => {
   w.state.sessionId = NEW
   await $.classic.SessionStart({ source: 'clear', session_id: NEW })
   await w.clock.settle()
-  expect(w.commands).toEqual(['clear', 'mattstack:pr-usher tick'])
-  expect(w.submitted).toEqual([])
+  expect(w.commands).toEqual(['clear'])
+  expect(w.submitted).toEqual(['Use the mattstack:pr-usher skill with: tick'])
+})
+
+test('space before a named command does not get it past the check', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  for (const space of [' ', '\n', '\u00a0']) {
+    const refused = await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x', then: `${space}/clear` })
+    expect(refused).toMatchObject({ deny: 'then cannot start /clear: only a plugin skill can be named there.' })
+  }
+  await stop($)
+  await w.clock.settle()
+  expect(w.commands).toEqual([])
+})
+
+for (const failure of ['submitFails', 'submitDrops'] as const) test(`a then whose prompt is refused (${failure}) still reaches the fresh context, as a note`, async ($, on) => {
+  const w = world(on, { signedIn: false })
+  await startSession($)
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'Goal: x', then: 'carry on' })
+  await stop($)
+  await w.clock.settle()
+  w.state[failure] = true
+  w.state.sessionId = NEW
+  await $.classic.SessionStart({ source: 'clear', session_id: NEW })
+  await w.clock.settle()
+  expect(w.appended()).toEqual(['Ledger carried from before the reset:\n\nGoal: x', 'Next step from before the reset: carry on'])
+})
+
+test('a then naming any other command is refused and queues nothing', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  for (const name of ['permissions', 'mine', 'server:prompt', 'nowhere', 'fresh']) {
+    const refused = await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x', then: `/${name} now` })
+    expect(refused).toMatchObject({ deny: `then cannot start /${name}: only a plugin skill can be named there.` })
+  }
+  await stop($)
+  await w.clock.settle()
+  expect(w.commands).toEqual([])
+  expect((await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'x' })).result).toBe('Reset queued: clear after this turn.')
 })
 
 test('no then: the ledger is appended and no turn is started', async ($, on) => {
@@ -287,15 +325,16 @@ test('a refused ledger append still reaches the fresh context, as a prompt', asy
   expect(w.submitted).toEqual(['Ledger carried from before the reset:\n\nGoal: x'])
 })
 
-test('a reset restored after a reload runs a slash-command then outside the session-start hook', async ($, on) => {
+test('a reset restored after a reload submits its skill then outside the session-start hook', async ($, on) => {
   const w = world(on, { signedIn: false })
   await startSession($)
-  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'Goal: x', then: '/review now' })
+  await $.tool.call({ tool: TOOL, mode: 'clear', ledger: 'Goal: x', then: '/mattstack:pr-usher now' })
   w.state.sessionId = NEW
   await startSession($)
   await w.clock.settle()
   expect(w.appended()).toEqual(['Ledger carried from before the reset:\n\nGoal: x'])
-  expect(w.commands).toEqual(['review now'])
+  expect(w.commands).toEqual([])
+  expect(w.submitted).toEqual(['Use the mattstack:pr-usher skill with: now'])
 })
 
 test('a subagent cannot reset the main session', async ($, on) => {

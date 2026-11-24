@@ -139,7 +139,7 @@ test('pressing a button hands the press to the actions and leaves the pane drawn
 
   await pane.press({ key: 'done-1' })
   expect(await pane.find({ key: 'close' })).toBeDefined()
-  expect((await $.tool.call({ tool: 'mcp__human-todos__list' })).result).toBe('#1 [done] Do it\n    script: ls')
+  expect((await $.tool.call({ tool: 'mcp__human-todos__list' })).result).toBe('#1 [done] "Do it"\n    script: ls')
   await pane.unmount()
 })
 
@@ -193,7 +193,7 @@ test('finished items draw a mark and a dimmed title, then Clear finished removes
   expect(await buttons(pane)).toContain('clear')
 
   await pane.press({ key: 'clear' })
-  expect((await $.tool.call({ tool: 'mcp__human-todos__list' })).result).toBe('#5 [open] Still open')
+  expect((await $.tool.call({ tool: 'mcp__human-todos__list' })).result).toBe('#5 [open] "Still open"')
   expect(await pane.find({ key: 'clear' })).toBeUndefined()
   await pane.unmount()
 })

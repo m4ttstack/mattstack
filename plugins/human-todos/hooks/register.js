@@ -841,11 +841,37 @@ var LIVE_LINES_LOCAL = 15;
 var LIVE_LINES_HERDR = 3;
 var LINE_MAX = 300;
 var TAIL_MAX = 8 * 1024;
+var UNSEEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
+var UNSEEN_IN_PROSE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/u;
+var EMOJI2 = /\p{Extended_Pictographic}[\u{FE0F}\p{Emoji_Modifier}]?(?:\u{200D}\p{Extended_Pictographic}[\u{FE0F}\p{Emoji_Modifier}]?)*/gu;
+var isUnseenPath = (path) => UNSEEN.test(path.replace(EMOJI2, ""));
+function unseenField(input) {
+  if (UNSEEN.test((input.script ?? "").replace(/[\n\t]/g, "")))
+    return "script";
+  if (isUnseenPath(input.cwd ?? ""))
+    return "cwd";
+  if (UNSEEN.test(input.url ?? ""))
+    return "url";
+  if (Array.isArray(input.paths) && input.paths.some((p) => isUnseenPath(String(p))))
+    return "paths";
+  if (UNSEEN_IN_PROSE.test(input.title))
+    return "title";
+  if (UNSEEN_IN_PROSE.test((input.detail ?? "").replace(/[\n\t]/g, "")))
+    return "detail";
+  if (UNSEEN_IN_PROSE.test(input.doneLabel ?? ""))
+    return "doneLabel";
+  return;
+}
 function checkKind(input) {
   if (!KINDS.includes(input.kind))
     return `kind ${String(input.kind)} is not one of ${KINDS.join(", ")}.`;
   if ((input.kind === "run" || input.kind === "terminal") && !input.script?.trim())
     return `kind ${input.kind} needs a script.`;
+  const unseen = unseenField(input);
+  if (unseen)
+    return `${unseen} has characters the user cannot see (control, direction or zero-width); leave them out.`;
+  if (input.kind === "run" && input.cwd?.trim() && !input.cwd.startsWith("/"))
+    return "cwd must be an absolute path; leave it out to run in the session's folder.";
   if (input.kind === "link" && !/^https?:\/\//.test(input.url ?? ""))
     return "kind link needs an http(s) url.";
   if (input.kind === "image") {
@@ -956,14 +982,16 @@ function describe(list) {
     return "No to-dos.";
   return list.map((t) => {
     const script = t.script ? `
-    script: ${t.script}` : "";
+    script: ${t.script.replaceAll(`
+`, `
+      `)}` : "";
     const images = t.paths?.length ? `
     images: ${t.paths.join(", ")}` : "";
-    return `#${t.id} [${t.status}] ${t.title}${script}${images}`;
+    return `#${t.id} [${t.status}] ${JSON.stringify(t.title)}${script}${images}`;
   }).join(`
 `);
 }
-var IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "svg"];
+var IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp"];
 function isImageName(path) {
   const name = fileName(path);
   const dot = name.lastIndexOf(".");
@@ -988,6 +1016,7 @@ async function logFolder($) {
 }
 var KEPT_RUN_LOGS = 20;
 var STALE_SPILL_MS = 24 * 60 * 60 * 1000;
+var STALE_LOG_MS = 30 * 24 * 60 * 60 * 1000;
 var DROPPED = `[earlier output was dropped]
 `;
 var JOIN_TIMEOUT_MS = 120000;
@@ -1010,17 +1039,23 @@ async function writeRunLog($, todoId, output, spill) {
   if (typeof spill !== "string" || !await joinSpill($, spill, text, path)) {
     await $.fs.write(path, spill === undefined ? text : `${DROPPED}${text}`);
   }
+  await pruneLogs($);
+  return path;
+}
+async function pruneLogs($) {
   try {
-    const logs = (await $.fs.list(folder)).filter((entry) => entry.kind === "file" && entry.name.endsWith(".log"));
-    const old = [...logs].sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name)).slice(KEPT_RUN_LOGS);
     const root = await logFolder($);
+    const folder = `${root}/runs`;
+    const logs = (await $.fs.list(folder).catch(() => [])).filter((entry) => entry.kind === "file" && entry.name.endsWith(".log"));
     const now = await $.clock.now();
-    const spills = (await $.fs.list(root)).filter((entry) => entry.kind === "file" && entry.name.endsWith(".spill") && now - entry.mtimeMs > STALE_SPILL_MS);
-    const gone = [...old.map((entry) => `${folder}/${entry.name}`), ...spills.map((entry) => `${root}/${entry.name}`)];
+    const newest = [...logs].sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name));
+    const old = newest.filter((entry, n) => n >= KEPT_RUN_LOGS || now - entry.mtimeMs > STALE_LOG_MS);
+    const maxAge = (name) => name.endsWith(".spill") ? STALE_SPILL_MS : name.endsWith(".log") ? STALE_LOG_MS : Number.POSITIVE_INFINITY;
+    const stale = (await $.fs.list(root)).filter((entry) => entry.kind === "file" && now - entry.mtimeMs > maxAge(entry.name));
+    const gone = [...old.map((entry) => `${folder}/${entry.name}`), ...stale.map((entry) => `${root}/${entry.name}`)];
     if (gone.length > 0)
       await $.process.run(["rm", "-f", "--", ...gone]);
   } catch {}
-  return path;
 }
 
 // mods/human-todos/src/store.ts
@@ -1242,7 +1277,8 @@ async function startHerdr($, todo) {
   const run = { id: todo.id, isGone: false, isBusy: false, idlePolls: 0, unreadPolls: 0, output: [] };
   runs.set(token, run);
   try {
-    const placed = await placeTab($, session, todo, todo.cwd ?? await $.session.cwd());
+    const cwd = todo.cwd ?? await $.session.cwd();
+    const placed = await placeTab($, session, todo, cwd);
     if (!placed)
       throw new Error("herdr made no tab");
     const still = run.isGone ? undefined : (await listTodos($)).find((t) => t.id === todo.id);
@@ -1253,8 +1289,8 @@ async function startHerdr($, todo) {
       return end(token);
     }
     await patchTodo($, todo.id, { token, paneId: placed.paneId, tabId: placed.tabId, herdrSession: session, liveTail: [], isStopping: false });
-    const wrapper = `trap : INT; zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`;
-    const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(`zsh -c ${quote(wrapper)} todo ${quote(todo.script ?? "")}`)}`);
+    const wrapper = `trap : INT; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`;
+    const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(`zsh -c ${quote(wrapper)} todo ${quote(todo.script ?? "")} ${quote(cwd)}`)}`);
     if (typed.exitCode !== 0)
       throw new Error("herdr would not run the script");
   } catch (err) {
@@ -1559,11 +1595,11 @@ async function syncSpinner($) {
 var SETTLED = { liveTail: undefined, isStopping: false };
 var outputLine = (log) => log === undefined ? "(no output)" : log ?? "(the output could not be saved)";
 function settle(todo, outcome, log) {
-  const who = `#${todo.id} "${todo.title}"`;
+  const who = `#${todo.id} ${JSON.stringify(todo.title)}`;
   const output = `Output: ${outputLine(log)}`;
   switch (outcome.kind) {
     case "done":
-      return { patch: { status: "done" }, text: todo.kind !== "run" && todo.doneLabel ? `${who}: the user pressed "${todo.doneLabel}" (done).` : `${who}: the user marked it done.` };
+      return { patch: { status: "done" }, text: todo.kind !== "run" && todo.doneLabel ? `${who}: the user pressed ${JSON.stringify(todo.doneLabel)} (done).` : `${who}: the user marked it done.` };
     case "skipped":
       return { patch: { status: "skipped" }, text: `${who}: the user dismissed it.` };
     case "message":
@@ -2012,14 +2048,26 @@ async function openImages($, todo) {
   if (opened.exitCode !== 0)
     $.ui.toast(`Could not open the images for #${todo.id}`);
 }
+var USES = new Set(["run", "confirm", "copy", "open"]);
+async function askFirst($, todo) {
+  const cwd = todo.cwd?.trim() ? todo.cwd : await $.session.cwd();
+  if (!cwd.startsWith("/"))
+    return $.ui.toast(`#${todo.id} has no absolute folder to run in, so it cannot be run`);
+  if (unseenField({ ...todo, cwd }))
+    return $.ui.toast(`#${todo.id} has hidden characters in its cwd, so it cannot be used`);
+  await patchTodo($, todo.id, { status: "confirming", cwd });
+}
 async function press($, todo, button, surface) {
   const current = (await listTodos($)).find((t) => t.id === todo.id);
   if (!current)
     return;
+  const unseen = USES.has(button) ? unseenField(current) : undefined;
+  if (unseen)
+    return $.ui.toast(`#${current.id} has hidden characters in its ${unseen}, so it cannot be used`);
   switch (button) {
     case "run":
       if (current.status === "open")
-        await patchTodo($, current.id, { status: "confirming" });
+        await askFirst($, current);
       return;
     case "cancel":
       if (current.status === "confirming")
@@ -2195,7 +2243,9 @@ function paneModel(input) {
   }
   for (const todo of actionable) {
     const first = rows.length;
-    const script = todo.script ? hardWrap(`$ ${todo.script}`, width) : [];
+    const script = todo.script ? hardWrap(`$ ${todo.script}`.split(`
+`).map(cleanLine).join(`
+`), width) : [];
     const isConfirming = todo.status === "confirming";
     const isOpen = expanded.includes(todo.id) || isConfirming;
     const shown = isOpen ? script : script.slice(0, SCRIPT_ROWS);
@@ -2214,7 +2264,8 @@ function paneModel(input) {
       rows.push({ kind: "buttons", buttons: [more], ...!isOpen && { lead: { text: `… +${hidden} more`, tone: "dim" } } });
     }
     if (todo.kind === "run" && todo.cwd)
-      rows.push({ kind: "text", text: `in ${todo.cwd}`, tone: "dim", indent: true });
+      for (const row of hardWrap(`in ${todo.cwd}`, width))
+        rows.push({ kind: "text", text: row, tone: "dim", indent: true });
     if (todo.url)
       lines(todo.url, width, "link", true);
     if (todo.paths?.length)
@@ -2772,11 +2823,11 @@ function sendDraft($, id, done, surface) {
 // mods/human-todos/src/contract.ts
 var PREFIX = "mcp__human-todos__";
 function addDescription(paneTitle) {
-  return `Add a step only the user can do to their "${paneTitle}" pane, which stays beside the transcript while replies scroll away. Use it whenever you need the user to act: a command you cannot run (denied, needs sudo, a TTY, a login or a credential), a step in a browser or another app, or an account or physical action. Add the step as soon as you hit the wall, instead of only writing it in your reply, and keep working on anything else meanwhile. Pick the kind: task (by hand), run (a command the pane runs for them and reports back), terminal (needs their terminal: sudo, password or login prompts), link (a web page), image (screenshots or other images for them to look at, opened in their default image app). You get a message when they finish, stop or run it, or write to you about it from the pane, and a dismissal comes with the next message, so never ask them to type "done".`;
+  return `Add a step only the user can do to their "${paneTitle}" pane, which stays beside the transcript while replies scroll away. Use it whenever you need the user to act: a command that needs sudo, a TTY, a login or a credential, a step in a browser or another app, or an account or physical action. Add the step as soon as you hit the wall, instead of only writing it in your reply, and keep working on anything else meanwhile. Never use it to get a refused command run: if a permission or policy refused a command, say so in your reply instead. Pick the kind: task (by hand), run (a command the pane runs for them and reports back), terminal (needs their terminal: sudo, password or login prompts), link (a web page), image (screenshots or other images for them to look at, opened in their default image app). You get a message when they finish, stop or run it, or write to you about it from the pane, and a dismissal comes with the next message, so never ask them to type "done".`;
 }
 function guidance(names) {
   return `# To-dos for the user
-When you need the user to do something you cannot do yourself (a command that needs their terminal, sudo, an interactive login or a credential; a step in a browser or another app; a physical or account action), add it with ${names.add} instead of only writing it in your reply. Long replies scroll away; the list stays in a "${TITLE}" pane beside the transcript.
+When you need the user to do something you cannot do yourself (a command that needs their terminal, sudo, an interactive login or a credential; a step in a browser or another app; a physical or account action), add it with ${names.add} instead of only writing it in your reply. Long replies scroll away; the list stays in a "${TITLE}" pane beside the transcript. Never use it to get a refused command run: if a permission or policy refused a command, say so in your reply instead.
 - Every item has a \`kind\`, which decides the buttons the user gets:
   - \`task\`: something they do by hand (an account setting, a physical step, a decision). Done or Dismiss.
   - \`run\`: a shell command that runs without a TTY. Give \`script\`; the pane offers Run and sends you the exit code and output.
@@ -2809,9 +2860,9 @@ function registerContract(on) {
           paths: {
             type: "array",
             items: { type: "string" },
-            description: "For kind image: one absolute path per image file (png, jpg, gif, webp, heic, tiff, bmp, svg); Open opens them all in the default image app"
+            description: "For kind image: one absolute path per image file (png, jpg, gif, webp, heic, tiff, bmp); Open opens them all in the default image app"
           },
-          cwd: { type: "string", description: "For kind run: directory to run in; defaults to the session cwd" },
+          cwd: { type: "string", description: "For kind run: absolute path of the directory to run in; defaults to the session cwd" },
           doneLabel: {
             type: "string",
             description: `Optional words for the Done button, saying what finishing this step means, e.g. "I've signed in" or "Approved it". Two to four words; plain Done when left out. Ignored for kind run, whose Done always reads "Done without running".`
@@ -2844,6 +2895,7 @@ function registerContract(on) {
     });
     const started = await next(e);
     await restoreList($);
+    await pruneLogs($);
     await resumeWatching($);
     await syncSpinner($);
     return started;
@@ -2879,7 +2931,8 @@ function registerContract(on) {
     return next({ ...e, props: { ...e.props, input: { kind, title } } });
   });
   on("tool.call", { tool: "mcp__human-todos__add" }, async ($, e) => {
-    const input = e;
+    const asked = e;
+    const input = asked.kind === "run" && !asked.cwd?.trim() ? { ...asked, cwd: await $.session.cwd() } : asked;
     const missing = checkKind(input);
     if (missing)
       return { deny: missing };
