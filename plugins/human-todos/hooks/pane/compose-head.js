@@ -993,7 +993,8 @@ function paneModel(input) {
       rows.push({ kind: "buttons", buttons: [more], ...!isOpen && { lead: { text: `… +${hidden} more`, tone: "dim" } } });
     }
     if (todo.kind === "run" && todo.cwd)
-      rows.push({ kind: "text", text: `in ${todo.cwd}`, tone: "dim", indent: true });
+      for (const row of hardWrap(`in ${todo.cwd}`, width))
+        rows.push({ kind: "text", text: row, tone: "dim", indent: true });
     if (todo.url)
       lines(todo.url, width, "link", true);
     if (todo.paths?.length)

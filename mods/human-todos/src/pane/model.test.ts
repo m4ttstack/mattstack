@@ -262,3 +262,8 @@ test('a tab in a script is drawn as spaces, so the row measures what it shows', 
   const { rows } = build([todo({ kind: 'run', script: 'if x\n\tmake', status: 'confirming' })], [], 60)
   expect(rows.filter(r => r.kind === 'text' && r.tone === 'script')).toEqual([text('$ if x', 'script', true), text('        make', 'script', true)])
 })
+
+test('a folder longer than the pane wraps in full, starting on the row that says in', () => {
+  const { rows } = build([todo({ kind: 'run', script: 'ls', cwd: '/work/a-long-folder/inside-another' })], [], 20)
+  expect(rows.filter(r => r.kind === 'text' && r.tone === 'dim')).toEqual([text('in /work/a-long-fold', 'dim', true), text('er/inside-another', 'dim', true)])
+})
