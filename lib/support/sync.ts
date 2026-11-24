@@ -96,14 +96,14 @@ const HOST_STATES: readonly string[] = [
 const SENDER_OPEN: readonly SupportState[] = ["sent", "received", "waiting"];
 
 export function signDraft(
-  cfg: Pick<SupportConfig, "orgPath" | "me">,
+  cfg: Pick<SupportConfig, "me">,
   keys: SupportKeys,
   m: { id: string; to: string; kind: SupportKind; body: string },
   now: number,
 ): SupportDraft {
   if (cfg.me === null) throw new Error("support: this Mac does not know its own username");
   const to = canonicalHandle(m.to);
-  const mac = supportMac(keys.current, { ...m, to, org: cfg.orgPath, from: cfg.me, sentAt: now });
+  const mac = supportMac(keys.current, { ...m, to, from: cfg.me, sentAt: now });
   return { id: m.id, to, kind: m.kind, sentAt: now, body: m.body, mac };
 }
 
@@ -154,7 +154,7 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
   /** Whether the message may be believed: `wait` leaves it on the relay for now. */
   function judge(m: SupportMessage, cfg: SupportConfig, keys: string[]): "proved" | "wait" | "drop" {
     const named = onRoster(cfg, m.from);
-    const signed = verifySupportMac(keys, { ...m, to: cfg.me ?? "", org: cfg.orgPath }, m.mac);
+    const signed = verifySupportMac(keys, { ...m, to: cfg.me ?? "" }, m.mac);
     const key = `${m.from} ${m.id}`;
     if (named && signed) {
       unproved.delete(key);
@@ -188,7 +188,7 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
       id: m.id,
       direction: "in" as const,
       peer: m.from,
-      org: cfg.orgPath,
+      org: cfg.orgRemote,
       ...body,
       state: "received" as const,
       reason: null,

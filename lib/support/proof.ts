@@ -1,4 +1,4 @@
-/** Proof that a support message comes from someone in the org. Relay usernames carry no org or forge, so a name alone proves nothing. */
+/** Proof that a support message comes from someone in the org: the key is that org's alone, so a relay username, which carries no org or forge, is not trusted by itself. */
 import { createHmac, timingSafeEqual } from "crypto";
 import type { SupportKind } from "../../packages/rt-client/src/support.ts";
 import { canonicalHandle } from "../team/board-peers.ts";
@@ -6,8 +6,6 @@ import { canonicalHandle } from "../team/board-peers.ts";
 export interface ProofInput {
   kind: SupportKind;
   id: string;
-  /** The org clone's normalized remote: a folder rename keeps it. */
-  org: string;
   from: string;
   to: string;
   sentAt: number;
@@ -15,7 +13,7 @@ export interface ProofInput {
 }
 
 function digest(key: string, input: ProofInput): Buffer {
-  const fields = ["support-v1", input.kind, input.id, input.org, canonicalHandle(input.from), canonicalHandle(input.to), input.sentAt, input.body];
+  const fields = ["support-v1", input.kind, input.id, canonicalHandle(input.from), canonicalHandle(input.to), input.sentAt, input.body];
   return createHmac("sha256", Buffer.from(key, "base64")).update(JSON.stringify(fields)).digest();
 }
 

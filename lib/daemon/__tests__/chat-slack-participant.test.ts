@@ -68,6 +68,7 @@ function harness(post: (p: Post) => Promise<{ ts: string }> = async () => ({ ts:
       return post({ channel, text });
     },
   } as SlackClient;
+  const hooks: { onClient?: () => void } = {};
   const deliveryChains = new Map<string, Promise<void>>();
   const handlers = createChatHandlers({
     db,
@@ -76,7 +77,10 @@ function harness(post: (p: Post) => Promise<{ ts: string }> = async () => ({ ts:
     log,
     deliveryChains,
     retryDelayMs: 0,
-    slackClient: async () => (connected ? client : null),
+    slackClient: async () => {
+      hooks.onClient?.();
+      return connected ? client : null;
+    },
     slackPersona: persona,
     slackSleep: async (ms) => {
       slept.push(ms);
@@ -89,7 +93,7 @@ function harness(post: (p: Post) => Promise<{ ts: string }> = async () => ({ ts:
   const sweep = createChatDeliverySweep({ db, deliveryChains, inboxDeps, registryDeps, log, retryDelayMs: 0 });
   const fromSlack = (room: string, handle: string, body: string) =>
     postAndNotify(db, () => 0, { room, handle, body, fromSlack: true }, inboxDeps, herdrRequest, deliveryChains, log, 0);
-  return { db, handlers, client, posts, pushed, slept, notices, sweep, fromSlack };
+  return { db, hooks, handlers, client, posts, pushed, slept, notices, sweep, fromSlack };
 }
 
 type Harness = ReturnType<typeof harness>;
@@ -380,6 +384,20 @@ test("a chat stopped while a reply waits out a 429 does not get the reply", asyn
   if (res.ok) throw new Error("unreachable");
   expect(res.error).toContain("This Slack chat is closed");
   expect(h.posts).toHaveLength(1);
+  expect(messages(h, room)).toEqual([]);
+});
+
+test("a chat stopped while Slack's client is being made does not get the reply", async () => {
+  const h = harness();
+  const { agent, room, conversation } = await openChat(h);
+  h.hooks.onClient = () => void closeConversation(conversation.id, "operator", 2000, h.db);
+
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "hello", sessionId: PANE_SESSION });
+
+  expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.error).toContain("This Slack chat is closed");
+  expect(h.posts).toEqual([]);
   expect(messages(h, room)).toEqual([]);
 });
 

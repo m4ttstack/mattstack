@@ -30,7 +30,7 @@ export function supportHost() {
     now: Date.now(),
     config: {
       org: "acme",
-      orgPath: ORG,
+      orgRemote: ORG,
       enabled: true,
       host: "alex",
       me: "alex",

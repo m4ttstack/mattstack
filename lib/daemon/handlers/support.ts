@@ -136,7 +136,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
       return same ? { ok: true, data: { request: already } } : refuse(...CHANGED);
     }
     expireSent(db, deps.now());
-    if (listRequests("out", OPEN, db).some((r) => r.peer === to && r.org === cfg.orgPath)) return refuse("already-waiting", "You already have a request waiting.");
+    if (listRequests("out", OPEN, db).some((r) => r.peer === to && r.org === cfg.orgRemote)) return refuse("already-waiting", "You already have a request waiting.");
 
     const relay = await deps.relay();
     if (!relay) return refuse("no-board", "Connect your board first.");
@@ -161,7 +161,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
     if (result !== "ok" && result !== "changed") return refuse(...SEND_REFUSALS[result](hostName(cfg)));
 
     const request = {
-      id, direction: "out" as const, peer: to, org: cfg.orgPath, text, parts, slackUserId, state: "sent" as const,
+      id, direction: "out" as const, peer: to, org: cfg.orgRemote, text, parts, slackUserId, state: "sent" as const,
       reason: null, persona: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt, receivedAt: sentAt,
     };
     insertRequest(request, db);

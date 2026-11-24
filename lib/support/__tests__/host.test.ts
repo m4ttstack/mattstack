@@ -245,7 +245,7 @@ describe("a request that does not open", () => {
   test("a stored request from someone no longer on the roster, or for another org, ends with no reply", async () => {
     for (const set of [
       (h: Host) => void (h.state.config = { ...h.state.config!, roster: [{ username: "alex" }] }),
-      (h: Host) => void (h.state.config = { ...h.state.config!, org: "other", orgPath: "other/mattstack" }),
+      (h: Host) => void (h.state.config = { ...h.state.config!, org: "other", orgRemote: "git.example.com/other/mattstack" }),
     ]) {
       const h = supportHost();
       set(h);

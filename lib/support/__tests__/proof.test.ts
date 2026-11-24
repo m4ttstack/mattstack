@@ -7,7 +7,6 @@ const OTHER = Buffer.alloc(32, 2).toString("base64");
 const input: ProofInput = {
   kind: "request",
   id: "r1",
-  org: "git.example.com/acme/mattstack",
   from: "ada",
   to: "alex",
   sentAt: 1000,
@@ -22,7 +21,6 @@ describe("support proof", () => {
     const changed: ProofInput[] = [
       { ...input, kind: "status" },
       { ...input, id: "r2" },
-      { ...input, org: "git.example.com/other/mattstack" },
       { ...input, from: "bo" },
       { ...input, to: "bo" },
       { ...input, sentAt: 1001 },
@@ -32,8 +30,8 @@ describe("support proof", () => {
   });
 
   test("a MAC does not depend on how field boundaries fall", () => {
-    const a = supportMac(KEY, { ...input, id: "ab", org: "c" });
-    const b = supportMac(KEY, { ...input, id: "a", org: "bc" });
+    const a = supportMac(KEY, { ...input, id: "ab", from: "c" });
+    const b = supportMac(KEY, { ...input, id: "a", from: "bc" });
     expect(a).not.toBe(b);
   });
 

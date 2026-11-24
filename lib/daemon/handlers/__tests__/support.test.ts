@@ -21,7 +21,7 @@ function harness() {
   const state = {
     now: 1_800_000_000_000,
     config: {
-      org: "acme", orgPath: ORG, enabled: true, host: "Alex", me: "ada", isHost: false, accepts: false, acceptHere: false,
+      org: "acme", orgRemote: ORG, enabled: true, host: "Alex", me: "ada", isHost: false, accepts: false, acceptHere: false,
       roster: [{ username: "Alex", name: "Alex Doe" }, { username: "ada" }],
     } as SupportConfig | null,
     keys: true,
@@ -210,7 +210,7 @@ describe("support:send", () => {
     expect(r).toMatchObject({ ok: true, data: { request: { id: "r1", peer: "alex", state: "sent", text: ASK.text, parts: ASK.parts } } });
     const d = h.sent[0]!;
     expect(d).toMatchObject({ id: "r1", to: "alex", kind: "request", sentAt: h.state.now });
-    expect(d.mac).toBe(supportMac(KEY, { ...d, org: ORG, from: "ada" }));
+    expect(d.mac).toBe(supportMac(KEY, { ...d, from: "ada" }));
     expect(JSON.parse(d.body)).toEqual({ text: ASK.text, parts: ASK.parts, slackUserId: "U0ADA" });
     expect(getRequest("out", "alex", "r1", h.db)).toMatchObject({ org: ORG, sentAt: h.state.now });
     expect(h.events).toEqual(["poke"]);

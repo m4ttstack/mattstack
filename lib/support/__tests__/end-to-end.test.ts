@@ -64,7 +64,7 @@ function world() {
   const org = { enabled: true, host: "alex" as string | null, roster: [{ username: "alex", name: "Alex" }, { username: "ada" }, { username: "bo" }] };
   const configFor = (me: string, accepts: boolean): SupportConfig => {
     const isHost = org.host === me;
-    return { org: "acme", orgPath: ORG, me, isHost, accepts, acceptHere: org.enabled && isHost && accepts, ...org };
+    return { org: "acme", orgRemote: ORG, me, isHost, accepts, acceptHere: org.enabled && isHost && accepts, ...org };
   };
 
   const slack: { channel: string; text: string }[] = [];
@@ -188,7 +188,7 @@ describe("support, end to end", () => {
     expect(await host.agentWrites(0, "Hi Ada, the board will not load for you. What do you see?")).toMatchObject({ ok: true });
     await host.service.tick();
     await until("the sender reads opened", () => ada.state("r1") === "opened");
-    expect(getRequest("out", "alex", "r1", ada.db)!.dmLink).toBe("slack://user?team=T1&id=U0HOST");
+    expect(getRequest("out", "alex", "r1", ada.db)).toMatchObject({ dmLink: "slack://user?team=T1&id=U0HOST", persona: "Maude" });
     expect(ada.desk).toEqual(["Alex's Mac has it and Maude is starting", "Maude messaged you in Slack"]);
 
     expect(await host.agentFilesTicket(0)).toMatchObject({ ok: true });

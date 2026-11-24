@@ -30,7 +30,7 @@ let onRequestHook: (r: SupportRequest) => void;
 
 const host: SupportConfig = {
   org: "acme",
-  orgPath: ORG,
+  orgRemote: ORG,
   enabled: true,
   host: "alex",
   me: "alex",
@@ -92,14 +92,14 @@ function sync(over: Partial<SyncDeps> = {}) {
 
 const body: RequestBody = { text: "the board will not load", parts: [{ key: "versions", label: "Versions", value: "rt 1.2.3" }], slackUserId: "U0ADA" };
 
-function arrive(over: { id?: string; from?: string; to?: string; kind?: SupportKind; body?: string; key?: string; org?: string; age?: number } = {}): void {
+function arrive(over: { id?: string; from?: string; to?: string; kind?: SupportKind; body?: string; key?: string; age?: number } = {}): void {
   const kind = over.kind ?? "request";
   const from = over.from ?? "ada";
   const id = over.id ?? "r1";
   const to = over.to ?? "alex";
   const text = over.body ?? JSON.stringify(body);
   const receivedAt = clock - (over.age ?? 0);
-  const mac = supportMac(over.key ?? KEY, { kind, id, org: over.org ?? ORG, from, to, sentAt: receivedAt, body: text });
+  const mac = supportMac(over.key ?? KEY, { kind, id, from, to, sentAt: receivedAt, body: text });
   inbox.push({ id, to, from, kind, sentAt: receivedAt, body: text, mac, receivedAt });
 }
 
@@ -148,7 +148,6 @@ describe("pulling requests", () => {
 
   test("a bad MAC, another org's key, or a sender off the roster is acked, logged and never stored or answered", async () => {
     arrive({ id: "forged", key: FOREIGN });
-    arrive({ id: "other-org", org: "other/mattstack" });
     arrive({ id: "off-roster", from: "zed" });
     arrive({ id: "stranger", from: "zed", key: FOREIGN });
     const s = sync();
@@ -157,7 +156,7 @@ describe("pulling requests", () => {
     await awake(s, STRANGER_SETTLE_MS);
     expect(acked).toEqual(["zed stranger"]);
     await awake(s, PROOF_SETTLE_MS);
-    expect(acked.sort()).toEqual(["ada forged", "ada other-org", "zed off-roster", "zed stranger"]);
+    expect(acked.sort()).toEqual(["ada forged", "zed off-roster", "zed stranger"]);
     expect(listRequests("in", undefined, db)).toEqual([]);
     expect(pendingStatuses(db)).toEqual([]);
     expect(sent).toEqual([]);
@@ -173,6 +172,13 @@ describe("pulling requests", () => {
     config = { ...host, roster: [...host.roster, { username: "zed" }] };
     await s.pull("request");
     expect(listRequests("in", undefined, db)).toHaveLength(2);
+  });
+
+  test("a sender whose clone spells the remote another way is believed", async () => {
+    arrive();
+    config = { ...host, orgRemote: "ssh.git.example.com/renamed/mattstack" };
+    await sync().pull("request");
+    expect(getRequest("in", "ada", "r1", db)).not.toBeNull();
   });
 
   test("a new member whose key and roster entry this Mac both lacks is taken once the org syncs", async () => {
@@ -497,7 +503,7 @@ describe("flushing statuses", () => {
     keys = { current: FOREIGN, retired: [{ key: KEY, retiredAt: clock }] };
     await sync().flush();
     const d = sent[0]!;
-    expect(d.mac).toBe(supportMac(FOREIGN, { ...d, org: ORG, from: "alex" }));
+    expect(d.mac).toBe(supportMac(FOREIGN, { ...d, from: "alex" }));
   });
 
   test("an unreachable relay stops the flush, and a full queue does not hold up someone else's", async () => {

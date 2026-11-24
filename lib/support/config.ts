@@ -10,8 +10,8 @@ import { readTeamLocal } from "../team/team-local.ts";
 
 export interface SupportConfig {
   org: string;
-  /** The path of the org clone's remote (`acme/mattstack`): what a message's proof names the org by. */
-  orgPath: string;
+  /** The org clone's remote as `host/path`, compared only with what this Mac stored: another Mac's clone may spell it another way. */
+  orgRemote: string;
   enabled: boolean;
   /** Null when no one is named, or the one named is not on the roster. */
   host: string | null;
@@ -29,8 +29,8 @@ export function supportConfig(p: Probes = createRealProbes()): SupportConfig | n
   const org = currentOrg();
   if (org === null) return null;
   const remote = teamRemote(p, org);
-  const orgPath = remote === null ? null : remotePath(remote);
-  if (orgPath === null) return null;
+  const orgRemote = remote === null ? null : canonicalRemote(remote);
+  if (orgRemote === null) return null;
 
   const roster = readOrgRoster(org).map((e) => ({ username: e.username, ...(typeof e.name === "string" ? { name: e.name } : {}) }));
   const enabled = getSetting<boolean>("support.enabled").value === true;
@@ -39,14 +39,15 @@ export function supportConfig(p: Probes = createRealProbes()): SupportConfig | n
   const me = readTeamLocal(p, org).forgeUsername ?? null;
   const isHost = host !== null && me !== null && canonicalHandle(host) === canonicalHandle(me);
   const accepts = getSetting<boolean>("support.acceptRequests").value === true;
-  return { org, orgPath, enabled, host, me, isHost, accepts, acceptHere: enabled && isHost && accepts, roster };
+  return { org, orgRemote, enabled, host, me, isHost, accepts, acceptHere: enabled && isHost && accepts, roster };
 }
 
-/** Two Macs reach one org through an ssh alias, port 443 or https, so the host is left out: the org's own key is what tells two orgs apart. */
-function remotePath(remote: string): string | null {
+function canonicalRemote(remote: string): string | null {
   const normalized = normalizeRemote(remote);
   if (normalized === null) return null;
-  return normalized.slice(normalized.indexOf("/") + 1).replace(/\.git$/, "").toLowerCase();
+  const slash = normalized.indexOf("/");
+  const host = normalized.slice(0, slash).replace(/:\d+$/, "");
+  return `${host}${normalized.slice(slash).replace(/\.git$/, "")}`.toLowerCase();
 }
 
 function listed(roster: SupportConfig["roster"], username: string): boolean {

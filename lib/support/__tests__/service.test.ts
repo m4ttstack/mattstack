@@ -76,7 +76,7 @@ function harness(me: "alex" | "ada" = "alex") {
   function arrive(kind: "request" | "status", from: string, to: string, id: string, body: object) {
     const text = JSON.stringify(body);
     const at = h.state.now;
-    inbox.push({ id, to, from, kind, sentAt: at, receivedAt: at, body: text, mac: supportMac(KEY, { kind, id, org: ORG, from, to, sentAt: at, body: text }) });
+    inbox.push({ id, to, from, kind, sentAt: at, receivedAt: at, body: text, mac: supportMac(KEY, { kind, id, from, to, sentAt: at, body: text }) });
   }
   return { h, state, events, sent, relay, options, service, restart, arrive, left: () => inbox.length };
 }
@@ -136,7 +136,7 @@ describe("the accepting flag", () => {
     expect(await t.service.handlers["support:host"]({})).toMatchObject({ data: { accepting: false } });
 
     const other = harness();
-    other.state.config = { ...other.state.config!, org: "other", orgPath: "other/mattstack" };
+    other.state.config = { ...other.state.config!, org: "other", orgRemote: "other.example.com/acme/mattstack" };
     await other.service.tick();
     expect(other.events.filter((e) => e.startsWith("setHost"))).toEqual([]);
   });
@@ -173,7 +173,18 @@ describe("the accepting flag", () => {
     await t.service.tick();
     t.h.operatorChat("U0ADA");
     await t.service.handlers["support:accept"]({ on: false });
-    expect(t.events).toContain("notify 1 Slack chat is still open on this Mac, so stop it before another of your Macs accepts");
+    const one = "notify 1 Slack chat is still open here, where your other Macs cannot see it. Stop it if another Mac answers";
+    expect(t.events.filter((e) => e === one)).toHaveLength(1);
+
+    const outside = harness();
+    await outside.service.tick();
+    outside.h.operatorChat("U0ADA");
+    outside.state.config = { ...outside.state.config!, accepts: false, acceptHere: false };
+    outside.h.state.now += 2 * MINUTE;
+    await outside.service.tick();
+    outside.h.state.now += 2 * MINUTE;
+    await outside.service.tick();
+    expect(outside.events.filter((e) => e === one)).toHaveLength(1);
 
     const lost = harness();
     await lost.service.tick();
@@ -182,7 +193,22 @@ describe("the accepting flag", () => {
     lost.state.setHost = "other-machine";
     lost.h.state.now += 2 * MINUTE;
     await lost.service.tick();
-    expect(lost.events).toContain("notify 2 Slack chats are still open on this Mac, so stop them before another of your Macs accepts");
+    expect(lost.events).toContain("notify 2 Slack chats are still open here, where your other Macs cannot see them. Stop them if another Mac answers");
+  });
+
+  test("a notice that throws does not turn accepting back on", async () => {
+    const t = harness();
+    t.options.notify = () => {
+      throw new Error("no desk");
+    };
+    const service = t.restart();
+    await service.tick();
+    t.h.operatorChat("U0ADA");
+    expect(await service.handlers["support:accept"]({ on: false })).toMatchObject({ ok: true });
+    expect(t.events).toContain("setting false");
+    t.h.state.now += 2 * MINUTE;
+    await service.tick();
+    expect(t.events.filter((e) => e === "setHost true")).toHaveLength(1);
   });
 
   test("a claim that did not land is tried again a minute later", async () => {

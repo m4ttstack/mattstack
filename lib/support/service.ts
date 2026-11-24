@@ -186,10 +186,10 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
   const readConfig = o.seams?.config ?? (() => supportConfig());
   /** The org a person tapped accept for on this Mac. The setting alone can be written by anything, so it counts only with this. */
   const tappedFor = () => getKvValue<string | null>(KV_NS, "accepted", null, db);
-  const setTapped = (orgPath: string | null) => setKvValue(KV_NS, "accepted", orgPath, db);
+  const setTapped = (orgRemote: string | null) => setKvValue(KV_NS, "accepted", orgRemote, db);
   const config = (): SupportConfig | null => {
     const cfg = readConfig();
-    return cfg && cfg.accepts && tappedFor() !== cfg.orgPath ? { ...cfg, accepts: false, acceptHere: false } : cfg;
+    return cfg && cfg.accepts && tappedFor() !== cfg.orgRemote ? { ...cfg, accepts: false, acceptHere: false } : cfg;
   };
   const writeSetting = o.seams?.setAccepting ?? ((on: boolean) => setSetting("support.acceptRequests", on, "machine"));
   const keysFor = o.seams?.keys ?? orgKeys(log, now);
@@ -238,10 +238,21 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
 
   /** The limits on open chats are this Mac's own, so a chat left open here is one another Mac could open again. */
   function noticeOpenChats(): void {
-    const open = listOpenConversations(db).length;
-    if (open === 0) return;
-    const [are, them] = open === 1 ? ["1 Slack chat is", "it"] : [`${open} Slack chats are`, "them"];
-    o.notify("Help requests", `${are} still open on this Mac, so stop ${them} before another of your Macs accepts`);
+    try {
+      const open = listOpenConversations(db).length;
+      if (open === 0) return;
+      const [are, them] = open === 1 ? ["1 Slack chat is", "it"] : [`${open} Slack chats are`, "them"];
+      o.notify("Help requests", `${are} still open here, where your other Macs cannot see ${them}. Stop ${them} if another Mac answers`);
+    } catch (err) {
+      log.warn({ err }, "support: the host could not be told of the chats still open");
+    }
+  }
+
+  /** The relay holds the role for this Mac, or stopped holding it. */
+  function setPublished(on: boolean): void {
+    const had = flag("published");
+    setFlag("published", on);
+    if (had && !on) noticeOpenChats();
   }
 
   const takes = createChain();
@@ -310,12 +321,11 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     },
     readiness: () => (o.seams?.readiness ?? readiness)(readinessDeps),
     setAccepting(on) {
-      if (!on && readConfig()?.accepts) noticeOpenChats();
       writeSetting(on);
-      setTapped(on ? (readConfig()?.orgPath ?? null) : null);
+      setTapped(on ? (readConfig()?.orgRemote ?? null) : null);
       if (on) setFlag("draining", false);
     },
-    published: (on) => setFlag("published", on),
+    published: setPublished,
     holdsRole: () => flag("published"),
     drain,
     poke: () => loops.forEach((l) => l.poke()),
@@ -338,17 +348,16 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     const result = await (await relay())?.setHost(cfg.acceptHere);
     if (!result || result === "failed") return;
     if (!cfg.acceptHere) {
-      setFlag("published", false);
+      setPublished(false);
       if (result === "ok") setFlag("draining", true);
       return;
     }
-    if (result === "ok") return setFlag("published", true);
+    if (result === "ok") return setPublished(true);
     // The newest tap wins: kept, this Mac would take the role back the moment the other was turned off.
-    setFlag("published", false);
     setTapped(null);
     writeSetting(false);
     o.notify("Help requests", "Another of your Macs answers help requests now, so this one stopped");
-    noticeOpenChats();
+    setPublished(false);
   }
 
   let drainedAt = Number.NEGATIVE_INFINITY;

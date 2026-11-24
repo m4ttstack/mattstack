@@ -48,10 +48,12 @@ const RUNS_GATE_ANSWER = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}${OPTIONS
 const APPROVING_SURFACE = /--by(?:\s+|=)["']?(?:slack-mod|console)(?![\w-])/
 // Sending a help request, accepting them and stopping a chat are a person's to do. This catches the plain shell
 // spellings of those daemon verbs, not a determined one: the daemon takes any caller on its socket.
-const RUNS_SOCKET_TOOL = new RegExp(`${COMMAND_START}${WRAPPERS}(?:\\S*/)?(?:curl|wget|nc|ncat|socat)(?=\\s|$)`)
-const RUNS_INLINE_CODE = new RegExp(`${COMMAND_START}${WRAPPERS}(?:\\S*/)?(?:bun|node|deno|python3?|ruby|perl)\\s+(?:-\\S+\\s+)*(?:-[ecp]|--eval|--print|eval)(?=[\\s="']|$)`)
+const SOCKET_TOOL = String.raw`(?:curl|wget|nc|ncat|socat)`
+const RUNS_SOCKET_TOOL = new RegExp(`${COMMAND_START}${WRAPPERS}(?:\\\\?(?:\\S*/)?${SOCKET_TOOL}|"${SOCKET_TOOL}"|'${SOCKET_TOOL}')(?=\\s|$)`)
+// The code itself is captured, so a verb elsewhere on the line is not read as part of it.
+const INLINE_CODE = new RegExp(`${COMMAND_START}${WRAPPERS}(?:\\S*/)?(?:bun|node|deno|python3?|ruby|perl)\\s+(?:-\\S+\\s+)*(?:-[ecp]|--eval|--print|eval)(?:\\s+|=)?("(?:[^"\\\\]|\\\\[\\s\\S])*"|'[^']*')`, 'g')
 const SUPPORT_CALL = /\bsupport(?:Send|Accept|Stop)\b/
-const SUPPORT_VERB = /support(?::|%3a)(?:send|accept|stop)(?![\w-])|support\.acceptRequests/i
+const SUPPORT_VERB = /support["']?(?::|%3a)["']?(?:send|accept|stop)(?![\w-])|support\.acceptRequests/i
 const SETS_ACCEPT = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}${OPTIONS}\\s+settings\\s+set${OPTIONS}\\s+["']?support\\.acceptRequests(?![\\w-])`)
 const SLASH_COMMAND = /(?<![\w.-])\/slack-support(?![\w.-])/
 
@@ -181,15 +183,14 @@ export function isRefusalLine(raw: string): boolean {
 }
 
 export function touchesSlackSupport(command: string): boolean {
-  // The shell drops quotes and backslashes inside a word, so `c\url` and `"support:"send` reach the same place.
-  const bare = command.replace(/["'\\]/g, '')
-  const runs = (tool: RegExp) => tool.test(command) || tool.test(bare)
+  const code = [...command.matchAll(INLINE_CODE)].map((m) => m[1] ?? '').join('\n')
   return (
     RUNS_HIDDEN_VERB.test(command) ||
     (RUNS_TYPING_TOOL.test(command) && SLASH_COMMAND.test(command)) ||
     (RUNS_GATE_ANSWER.test(command) && APPROVING_SURFACE.test(command)) ||
-    (runs(RUNS_SOCKET_TOOL) && SUPPORT_VERB.test(bare)) ||
-    (runs(RUNS_INLINE_CODE) && (SUPPORT_VERB.test(bare) || SUPPORT_CALL.test(bare))) ||
+    (RUNS_SOCKET_TOOL.test(command) && SUPPORT_VERB.test(command)) ||
+    SUPPORT_VERB.test(code) ||
+    SUPPORT_CALL.test(code) ||
     SETS_ACCEPT.test(command)
   )
 }
