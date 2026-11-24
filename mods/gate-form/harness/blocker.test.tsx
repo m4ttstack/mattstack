@@ -182,21 +182,53 @@ test('session end clears a raised blocker', async ($, on) => {
 
 test('session end waits for a raise under way, then clears', async ($, on) => {
   let raising = false
-  const slowRaise = async (argv: readonly string[]) => {
+  let release!: () => void
+  const held = new Promise<void>(resolve => (release = resolve))
+  const holdRaise = async (argv: readonly string[]) => {
     if (argv[2] === 'report-blocker') {
       raising = true
-      await new Promise(resolve => setTimeout(resolve, 20))
+      await held
     }
     return ok('')
   }
-  const w = world(on, { env: HERDR, herdr: slowRaise })
+  const w = world(on, { env: HERDR, herdr: holdRaise })
   await startInHerdr($, w)
   await ask($)
   expect(await eventually(() => raising)).toBe(true)
-  await $.session.end({ reason: 'clear', sessionId: SESSION, resume: { id: SESSION } } as never)
-  expect(await eventually(() => w.blockers.length === 2)).toBe(true)
+  let ended = false
+  const ending = $.session.end({ reason: 'clear', sessionId: SESSION, resume: { id: SESSION } } as never).then(() => (ended = true))
   await settled()
+  expect(ended).toBe(false)
+  expect(w.blockers).toEqual([])
+  release()
+  await ending
   expect(w.blockers).toEqual([raiseArgs('p-1', 'plan-review'), clearArgs('p-1')])
+})
+
+// The form-3 value comes from beneath the plugin, as in patterns.test.tsx. The session start's write moves it into
+// the list, and its cleanup lands at once but answers late, so the ask and the answer write meanwhile.
+test('writes made while an earlier write clears the legacy form leave the last write\'s target', async ($, on) => {
+  const old = { id: 'f-old', title: 'Old', questions: QUESTIONS, status: 'open', replyTo: 'agent' }
+  let cleared = false
+  let release!: () => void
+  const held = new Promise<void>(resolve => (release = resolve))
+  on('state.get', (_, e, next) => (e.key === 'form' && !cleared ? { value: { value: { shape: 'form-3', value: old }, version: 1 } } : next(e)))
+  on('state.set', async (_, e, next) => {
+    if (e.key !== 'form') return next(e)
+    cleared = true
+    await held
+    return next(e)
+  })
+  const w = world(on, { env: HERDR })
+  await drawOn($, 'terminal')
+  expect(await eventually(() => w.blockers.length === 1)).toBe(true)
+  expect(w.blockers.splice(0)).toEqual([raiseArgs('p-1', 'Old')])
+  expect(await eventually(() => cleared)).toBe(true)
+  await $.tool.call({ tool: 'mcp__gate-form__ask', title: 'Pick one', questions: QUESTIONS } as never)
+  await answer($)
+  release()
+  await settled()
+  expect(w.blockers).toEqual([raiseArgs('p-1', 'Pick one'), clearArgs('p-1')])
 })
 
 test('a failed clear is tried again at the next session start', async ($, on) => {

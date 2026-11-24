@@ -75,11 +75,13 @@ async function writeForms($: EngineInterface, change: (list: Form[]) => Form[]):
   let written: Form[] = []
   await update($, formsAtom, stored => {
     const list = knownForms(stored)
-    return (written = change(list.length > 0 || legacy.length === 0 ? list : legacy))
+    written = change(list.length > 0 || legacy.length === 0 ? list : legacy)
+    // Set as the list is written, so a later write's target is never overwritten by this one's.
+    blocker.target = waitingTitle(written)
+    return written
   })
-  if (legacy.length > 0) await update($, legacyAtom, () => null)
-  blocker.target = waitingTitle(written)
   void syncBlocker($)
+  if (legacy.length > 0) await update($, legacyAtom, () => null)
   return written
 }
 

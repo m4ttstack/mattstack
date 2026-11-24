@@ -1121,12 +1121,13 @@ async function writeForms($, change) {
   let written = [];
   await update($, formsAtom, (stored) => {
     const list = knownForms(stored);
-    return written = change(list.length > 0 || legacy.length === 0 ? list : legacy);
+    written = change(list.length > 0 || legacy.length === 0 ? list : legacy);
+    blocker.target = waitingTitle(written);
+    return written;
   });
+  syncBlocker($);
   if (legacy.length > 0)
     await update($, legacyAtom, () => null);
-  blocker.target = waitingTitle(written);
-  syncBlocker($);
   return written;
 }
 async function herdrPane($) {
