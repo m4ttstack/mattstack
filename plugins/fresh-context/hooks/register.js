@@ -268,7 +268,7 @@ async function registerToolDef($) {
 }
 function registerTool(on) {
   on("tool.check", { tool: "mcp__fresh-context__fresh_context" }, () => ({ decision: "allow" }));
-  on("ui.render", { component: "ToolUse", props: { tool: TOOL } }, ($, e, next) => {
+  on("ui.render", { component: "ToolUse", props: { tool: "mcp__fresh-context__fresh_context" } }, ($, e, next) => {
     const { mode } = e.props.input ?? {};
     if (e.props.isExpanded || typeof mode !== "string")
       return next(e);

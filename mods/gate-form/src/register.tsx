@@ -18,7 +18,6 @@ import { endNote, isSelf, rowEnd, waitFor, type GateEnd } from './gate/watch'
 
 const PANE = 'gate-form'
 const TOOL = 'ask'
-const ROW_TOOLS = ['mcp__gate-form__ask', 'mcp__plugin_mattstack_mattstack__gate_ask', 'mcp__plugin_mattstack_mattstack__gate_open']
 const GATE_TITLE = 'Decision gate'
 // Under the engine's 100,000-character cap on a Client's props, with room for the props beside the form.
 const FORM_BUDGET = 95_000
@@ -683,8 +682,6 @@ function boardBand($: EngineInterface, e: Parameters<EngineInterface['ui']['reso
 }
 
 async function turnOn($: EngineInterface): Promise<void> {
-  // A resumed transcript's rows were drawn before the setting was read.
-  $.ui.invalidate('ui.render')
   // Gates still restore when the tool can't be listed.
   await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false }).catch(() => undefined)
   await restore($)
@@ -768,12 +765,12 @@ export function register(on: On): void {
   on('tool.call', { tool: 'mcp__plugin_mattstack_mattstack__herd_gate_present' }, ($, e, next) => takeGate($, e, next, true)).catch(($, e, next) => next(e))
 
   // The engine's row draws a call's whole input, which the pane already shows. ctrl+o still has it all.
-  for (const tool of ROW_TOOLS) {
-    on('ui.render', { component: 'ToolUse', props: { tool } }, ($, e, next) => {
-      if (!setting.isOn || e.props.isExpanded || !drawsForm(e.surface)) return next(e)
-      return next({ ...e, props: { ...e.props, input: rowInput(e.props.input) } })
-    })
-  }
+  on('ui.render', { component: 'ToolUse', props: { tool: ['mcp__gate-form__ask', 'mcp__plugin_mattstack_mattstack__gate_ask', 'mcp__plugin_mattstack_mattstack__gate_open'] } }, ($, e, next) => {
+    const { input, isExpanded } = e.props
+    const isHandBack = (input as { handBack?: unknown } | null | undefined)?.handBack === true
+    if (!setting.isOn || isExpanded || isHandBack || !drawsForm(e.surface)) return next(e)
+    return next({ ...e, props: { ...e.props, input: rowInput(input) } })
+  })
 
   on('prompt.edit', async ($, e, next) => {
     await setKeysInForm($, false)
