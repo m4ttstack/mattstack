@@ -1,4 +1,6 @@
 .block {
+  --code-line: 20px;
+
   display: flex;
   align-items: flex-start;
 }
@@ -8,22 +10,45 @@
   min-width: 0;
   margin: 0;
   padding: 7px 4px 7px 12px;
+  overflow-x: auto;
   font-family: var(--mantine-font-family-monospace);
   font-size: var(--mantine-font-size-sm);
-  line-height: 20px;
+  line-height: var(--code-line);
+  white-space: pre;
+}
+
+.pre[data-wrap] {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
+/* Sized boxes rather than overlay scrollbars, so the bar takes its own row
+   and never sits on a line. */
+.pre::-webkit-scrollbar {
+  height: 8px;
+}
+
+.pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pre::-webkit-scrollbar-thumb {
+  background-color: var(--tk-border);
+  border-radius: 4px;
+}
+
 .pre code {
+  display: block;
   font: inherit;
 }
 
 /* Centred on a 34px one-line block, and on the first line of a taller one;
    it stays in view while a block taller than the screen scrolls past. */
-.copy {
+.controls {
   position: sticky;
   top: 6px;
+  display: flex;
   flex: none;
+  gap: 2px;
   margin: 6px;
 }

@@ -1,4 +1,11 @@
-import { CopyActionIcon, Paper } from '@mattstack/app-kit/core';
+import { useLayoutEffect, useRef, useState } from 'react';
+import {
+  ActionIcon,
+  CopyActionIcon,
+  Paper,
+  Tooltip,
+} from '@mattstack/app-kit/core';
+import { Icon } from '@mattstack/app-kit/icons';
 
 import classes from './code-block.module.css';
 
@@ -6,9 +13,36 @@ export interface CodeBlockProps {
   code: string;
 }
 
-/** A fence in a message: long lines wrap, so nothing scrolls sideways, and
-    the copy control sits in its own column, so it never covers code. */
+/** Whether a line is wider than the block: wrapped, it takes more rows than
+    the code has lines; unwrapped, it scrolls sideways. Showing the toggle only
+    narrows the code, so it never makes the answer flip back. */
+function hasLongLine(pre: HTMLElement, code: string, wrap: boolean): boolean {
+  if (!wrap) return pre.scrollWidth > pre.clientWidth;
+  const rows =
+    (pre.firstElementChild as HTMLElement).offsetHeight /
+    parseFloat(getComputedStyle(pre).lineHeight);
+  return Math.round(rows) > code.split('\n').length;
+}
+
+/** A fence in a message. Long lines wrap until the reader turns that off for
+    the block, and the controls sit in their own column, so they never cover
+    code. */
 export function CodeBlock({ code }: CodeBlockProps) {
+  const [wrap, setWrap] = useState(true);
+  const [longLine, setLongLine] = useState(false);
+  const preRef = useRef<HTMLPreElement>(null);
+
+  useLayoutEffect(() => {
+    const pre = preRef.current;
+    if (!pre) return;
+    const measure = () => setLongLine(hasLongLine(pre, code, wrap));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(pre);
+    return () => observer.disconnect();
+  }, [code, wrap]);
+
+  const wrapTip = wrap ? "Don't wrap lines" : 'Wrap lines';
   return (
     <Paper
       withBorder
@@ -16,17 +50,37 @@ export function CodeBlock({ code }: CodeBlockProps) {
       className={classes.block}
       data-testid="code-block"
     >
-      <pre className={classes.pre}>
+      <pre
+        ref={preRef}
+        className={classes.pre}
+        data-wrap={wrap || undefined}
+        tabIndex={wrap ? undefined : 0}
+      >
         <code>{code}</code>
       </pre>
-      <CopyActionIcon
-        className={classes.copy}
-        value={code}
-        label="Copy code"
-        tooltipPosition="top"
-        size="sm"
-        iconSize={14}
-      />
+      <div className={classes.controls}>
+        {longLine && (
+          <Tooltip label={wrapTip} position="top" withArrow>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="sm"
+              aria-label="Wrap lines"
+              aria-pressed={wrap}
+              onClick={() => setWrap(!wrap)}
+            >
+              <Icon name="wrapText" size={14} />
+            </ActionIcon>
+          </Tooltip>
+        )}
+        <CopyActionIcon
+          value={code}
+          label="Copy code"
+          tooltipPosition="top"
+          size="sm"
+          iconSize={14}
+        />
+      </div>
     </Paper>
   );
 }
