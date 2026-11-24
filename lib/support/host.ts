@@ -227,10 +227,10 @@ async function takeNow(deps: HostDeps, stale: SupportRequest): Promise<void> {
   const r = getRequest("in", stale.peer, stale.id, db);
   if (r?.state !== "received") return;
   const from: SupportState[] = ["received"];
-  if (deps.now() - r.receivedAt >= SUPPORT_TTL_MS) return void settle(deps, r, from, "expired");
   const stands = standing(deps, r);
-  if (stands === "unknown") return;
   if (stands === "stranger") return dropStranger(deps, r);
+  if (deps.now() - r.receivedAt >= SUPPORT_TTL_MS) return void settle(deps, r, from, "expired");
+  if (stands === "unknown") return;
   if (stands === "not-accepting") return void settle(deps, r, from, "not-accepting");
 
   const found = SLACK_ID.test(r.slackUserId) ? await deps.findPerson(r.slackUserId) : null;
@@ -274,15 +274,15 @@ async function followWaiting(deps: HostDeps, stale: SupportRequest): Promise<voi
   const end = async (state: SupportState, extra: { dmLink?: string | null } = {}) => {
     if (settle(deps, r, from, state, { ...extra, gateId: null })) await closeGate(deps, r.gateId);
   };
-  if (deps.now() - r.receivedAt >= SUPPORT_TTL_MS) return end("expired");
   const stands = standing(deps, r);
-  if (stands === "unknown") return;
   if (stands === "stranger") {
     dropStranger(deps, r);
     return closeGate(deps, r.gateId);
   }
+  if (deps.now() - r.receivedAt >= SUPPORT_TTL_MS) return end("expired");
+  if (stands === "unknown") return;
   if (stands === "not-accepting") return end("not-accepting");
-  if (conversationForSlackUser(r.slackUserId, db)) return end("already-open", { dmLink: await dmLink(deps) });
+  if (claimedAccounts(deps, r).some((id) => conversationForSlackUser(id, db))) return end("already-open", { dmLink: await dmLink(deps) });
 
   const gate = r.gateId === null ? null : deps.gate(r.gateId);
   const meta = gate ? slackSupportMeta(gate) : null;

@@ -36,6 +36,11 @@ import { createSlackChatHandlers, createSlackOpenDeps } from "./handlers/slack-c
 import { realMilestoneDeps } from "./handlers/slack-milestones.ts";
 import { slackOpenSeams } from "./handlers/slack-open-seams.ts";
 import { slackDeskNotify } from "./slack-lifecycle.ts";
+import { slackRoomPoster } from "./handlers/chat.ts";
+import { createSupportService, type SupportService } from "../support/service.ts";
+import { slackClientFromSecrets } from "../slack/daemon-client.ts";
+import { realHerdrRunnerFor } from "../slack/support-pane.ts";
+import { CHAT_NOTIFICATION_CATEGORY, notify } from "../notifier.ts";
 import { answerSlackOpen, type SlackOpenDeps } from "../slack/request.ts";
 import { createAgentHandlers } from "./handlers/agent.ts";
 import { createHerdrHandlers } from "./handlers/herdr.ts";
@@ -120,6 +125,8 @@ export function buildRoutedHandlers(opts: {
   gatesStore: GatesStore;
   /** Hands the daemon the Slack support deps the router built, so its own sweeps can open a `slack-open` gate, which no public verb may. */
   onSlackOpenDeps?: (deps: SlackOpenDeps) => void;
+  /** Hands the daemon the support service, so its sweeps tick it and its shutdown stops its relay loops. */
+  onSupport?: (service: SupportService) => void;
   /** Pane push + subscription fan-out for gate:open/gate:answer (BOARD-20/21). */
   gatePush: GatePush;
   /** Answer-time executor guarantee seams (spec "Answer-time executor
@@ -247,8 +254,27 @@ export function buildRoutedHandlers(opts: {
     }),
   );
   opts.onSlackOpenDeps?.(slackOpen);
+  const support = createSupportService({
+    db: opts.stateDb,
+    log: ctx.log,
+    slackOpen,
+    slackClient: slackClientFromSecrets,
+    stop: {
+      db: opts.stateDb,
+      client: slackClientFromSecrets,
+      notify: slackDeskNotify,
+      post: slackRoomPoster(opts.stateDb, emitEvent, ctx.log),
+      now: Date.now,
+      milestones: slackOpen.milestones,
+      herdrRunnerFor: realHerdrRunnerFor,
+    },
+    emitEvent,
+    gate: (id) => opts.gatesStore.get(id) ?? null,
+    notify: (title, message, url) => notify(title, message, url, CHAT_NOTIFICATION_CATEGORY),
+  });
+  opts.onSupport?.(support);
   const { openSlackGate, ...gateHandlers } = createGateHandlers(opts.gatesStore, opts.eventsBus, broadcast, {
-    slackOpenAnswered: (row) => answerSlackOpen(slackOpen, row),
+    slackOpenAnswered: (row) => answerSlackOpen(slackOpen, row, support.answerGate),
     push: opts.gatePush,
     log: ctx.log,
     runSpawnedBy: (runId) => findRun(runId)?.run.spawned_by ?? null,
@@ -352,6 +378,7 @@ export function buildRoutedHandlers(opts: {
     ...bgHandlers,
     ...chatHandlers,
     ...createSlackChatHandlers({ db: opts.stateDb, emitEvent, log: ctx.log, open: slackOpen, milestones: slackOpen.milestones }),
+    ...support.handlers,
     ...agentHandlers,
     ...paneHandlers,
     ...createEndpointHandlers({ log: ctx.log, repoIndex: ctx.repoIndex }),

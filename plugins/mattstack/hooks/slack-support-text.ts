@@ -46,6 +46,10 @@ const RUNS_HIDDEN_VERB = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}${OPTIONS
 // Only the console and this mod may answer a slack-open gate.
 const RUNS_GATE_ANSWER = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}${OPTIONS}\\s+gate\\s+answer(?![\\w-])`)
 const APPROVING_SURFACE = /--by(?:\s+|=)["']?(?:slack-mod|console)(?![\w-])/
+// A person sends a help request, accepts them and stops a chat, so no shell line may reach those daemon verbs.
+const RUNS_SOCKET_TOOL = new RegExp(`${COMMAND_START}${WRAPPERS}(?:\\S*/)?(?:curl|wget|nc|ncat|socat)(?=\\s|$)`)
+const SUPPORT_VERB = /support(?::|%3a|\/)(?:send|accept|stop)(?![\w-])/i
+const SETS_ACCEPT = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}${OPTIONS}\\s+settings\\s+set${OPTIONS}\\s+["']?support\\.acceptRequests(?![\\w-])`)
 const SLASH_COMMAND = /(?<![\w.-])\/slack-support(?![\w.-])/
 
 export function supportRules({ name, operator }: { name: string; operator: string }): string {
@@ -177,6 +181,8 @@ export function touchesSlackSupport(command: string): boolean {
   return (
     RUNS_HIDDEN_VERB.test(command) ||
     (RUNS_TYPING_TOOL.test(command) && SLASH_COMMAND.test(command)) ||
-    (RUNS_GATE_ANSWER.test(command) && APPROVING_SURFACE.test(command))
+    (RUNS_GATE_ANSWER.test(command) && APPROVING_SURFACE.test(command)) ||
+    (RUNS_SOCKET_TOOL.test(command) && SUPPORT_VERB.test(command)) ||
+    SETS_ACCEPT.test(command)
   )
 }

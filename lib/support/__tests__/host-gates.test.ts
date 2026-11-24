@@ -233,6 +233,14 @@ describe("while it waits", () => {
     expect(approved.h.started).toEqual([]);
   });
 
+  test("a chat open with the person's other account settles their waiting request", async () => {
+    const { h, r } = await waiting();
+    h.db.query("UPDATE support_requests SET state = 'opened' WHERE id = ?").run(h.request({ ...ADA, slackUserId: "U0BO" }).id);
+    h.operatorChat("U0BO");
+    await tickRequests(h.deps);
+    expect(row(h, r).state).toBe("already-open");
+  });
+
   test("a parked gate is put to the host again, since the console does not list it", async () => {
     const { h, r, gateId } = await waiting();
     Object.assign(h.deps.gate(gateId)!, { status: "parked" });

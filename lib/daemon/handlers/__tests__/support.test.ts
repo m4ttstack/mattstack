@@ -1,0 +1,466 @@
+import { tmpdir } from "os";
+import { join } from "path";
+import { readdirSync, readFileSync, statSync } from "fs";
+import { describe, expect, test } from "bun:test";
+import { SUPPORT_AWAY_MS, SUPPORT_TTL_MS, type SupportDraft, type SupportHostState } from "../../../../packages/rt-client/src/support.ts";
+import { openStateDb } from "../../../state/db.ts";
+import { getRequest, insertRequest, listRequests, type SupportRequest, type SupportState } from "../../../state/support-store.ts";
+import type { SupportConfig } from "../../../support/config.ts";
+import type { SupportSend } from "../../../support/relay.ts";
+import { supportMac } from "../../../support/proof.ts";
+import { createSupportHandlers, type SupportHandlerDeps } from "../support.ts";
+import type { HandlerContext } from "../types.ts";
+
+const KEY = Buffer.alloc(32, 1).toString("base64");
+const ORG = "git.example.com/acme/mattstack";
+const DAY = 24 * 60 * 60_000;
+let n = 0;
+
+function harness() {
+  const db = openStateDb(join(tmpdir(), `support-handlers-${process.pid}-${n++}-${Date.now()}.db`));
+  const state = {
+    now: 1_800_000_000_000,
+    config: {
+      org: "acme", orgRemote: ORG, enabled: true, host: "Alex", me: "ada", isHost: false, accepts: false, acceptHere: false,
+      roster: [{ username: "Alex", name: "Alex Doe" }, { username: "ada" }],
+    } as SupportConfig | null,
+    keys: true,
+    relay: true,
+    host: { accepting: true, lastSeenAt: 1_800_000_000_000 } as SupportHostState | null,
+    send: "ok" as SupportSend,
+    slackUserId: "U0ADA" as string | null | Error,
+    missing: [] as string[],
+    setHost: "ok" as "ok" | "other-machine" | "failed",
+    setup: ["account.slack-support"] as string[] | null,
+    stop: { ok: true, told: true } as { ok: true; told: boolean } | { ok: false; reason: string },
+  };
+  const sent: SupportDraft[] = [];
+  const events: string[] = [];
+  const deps: SupportHandlerDeps = {
+    db,
+    now: () => state.now,
+    log: { warn() {}, info() {}, debug() {}, error() {} } as unknown as HandlerContext["log"],
+    config: () => state.config,
+    keys: async () => (state.keys ? { current: KEY, retired: [] } : null),
+    relay: async () =>
+      state.relay
+        ? {
+            send: async (d) => {
+              sent.push(d);
+              return state.send;
+            },
+            list: async () => [],
+            wait: async () => null,
+            ack: async () => true,
+            setHost: async (on) => {
+              events.push(`setHost ${on}`);
+              return state.setHost;
+            },
+            host: async () => state.host,
+          }
+        : null,
+    slackUserId: async () => {
+      if (state.slackUserId instanceof Error) throw state.slackUserId;
+      return state.slackUserId;
+    },
+    readiness: async () => state.missing,
+    setAccepting: (on) => void events.push(`setting ${on}`),
+    published: (on) => void events.push(`published ${on}`),
+    drain: async () => void events.push("drain"),
+    poke: () => void events.push("poke"),
+    stop: async (id) => {
+      events.push(`stop ${id}`);
+      return state.stop;
+    },
+    versions: async () => ({ rt: "1.2.3", app: "4.5.6", macos: "15.1" }),
+    unreadySetupRows: async () => state.setup,
+  };
+  const handlers = createSupportHandlers(deps);
+  const request = (over: Partial<SupportRequest> = {}) =>
+    insertRequest(
+      { id: "old", direction: "out", peer: "alex", org: "acme", text: "help", parts: [], slackUserId: "U0ADA", state: "sent", reason: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: state.now, receivedAt: state.now, ...over },
+      db,
+    );
+  return { db, state, deps, sent, events, handlers, request };
+}
+
+const ASK = { id: "r1", text: "the board will not load", parts: [{ key: "versions" as const, label: "Versions", value: "rt 1.2.3" }] };
+
+describe("support:availability", () => {
+  const availability = async (h: ReturnType<typeof harness>) => {
+    const r = await h.handlers["support:availability"]({});
+    if (!r.ok) throw new Error(r.error);
+    return r.data;
+  };
+
+  test("ready, and says who answers", async () => {
+    expect(await availability(harness())).toEqual({ state: "ready", host: "Alex Doe", away: false });
+  });
+
+  test("hidden: no org, support off, no host, host not accepting, or this person is the host", async () => {
+    for (const set of [
+      (h: ReturnType<typeof harness>) => void (h.state.config = null),
+      (h: ReturnType<typeof harness>) => void (h.state.config = { ...h.state.config!, enabled: false }),
+      (h: ReturnType<typeof harness>) => void (h.state.config = { ...h.state.config!, host: null }),
+      (h: ReturnType<typeof harness>) => void (h.state.host = { accepting: false, lastSeenAt: null }),
+      (h: ReturnType<typeof harness>) => void (h.state.config = { ...h.state.config!, me: "alex", isHost: true }),
+    ]) {
+      const h = harness();
+      set(h);
+      expect(await availability(h)).toEqual({ state: "hidden" });
+    }
+  });
+
+  test("disabled with its reason: no board token, no Slack connection, support key unreadable, or no username", async () => {
+    const cases: [(h: ReturnType<typeof harness>) => void, string][] = [
+      [(h) => void (h.state.relay = false), "Connect your board first"],
+      [(h) => void (h.state.slackUserId = null), "Connect Slack first"],
+      [(h) => void (h.state.keys = false), "This Mac cannot open the org's secrets"],
+      [(h) => void (h.state.config = { ...h.state.config!, me: null }), "Connect your forge account first"],
+    ];
+    for (const [set, reason] of cases) {
+      const h = harness();
+      set(h);
+      expect(await availability(h)).toEqual({ state: "disabled", reason, host: "Alex Doe" });
+    }
+  });
+
+  test("a relay that does not answer is hidden, never an error", async () => {
+    const h = harness();
+    h.state.host = null;
+    expect(await availability(h)).toEqual({ state: "hidden" });
+  });
+
+  test("a Slack that does not answer does not hide the button", async () => {
+    const h = harness();
+    h.state.slackUserId = new Error("ratelimited");
+    expect(await availability(h)).toMatchObject({ state: "ready" });
+  });
+
+  test("away when the host's Mac has not polled for 2 minutes, or never has", async () => {
+    const h = harness();
+    h.state.host = { accepting: true, lastSeenAt: h.state.now - SUPPORT_AWAY_MS };
+    expect(await availability(h)).toMatchObject({ away: false });
+    h.state.host = { accepting: true, lastSeenAt: h.state.now - SUPPORT_AWAY_MS - 1 };
+    expect(await availability(h)).toMatchObject({ away: true });
+    h.state.host = { accepting: true, lastSeenAt: null };
+    expect(await availability(h)).toMatchObject({ away: true });
+  });
+});
+
+describe("support:context", () => {
+  const context = (h: ReturnType<typeof harness>, payload: object = {}) => h.handlers["support:context"](payload);
+
+  test("context holds versions and unready row ids only; the mr part only when asked", async () => {
+    const h = harness();
+    expect(await context(h, { board: "0.9", app: "4.5.7" })).toEqual({
+      ok: true,
+      data: {
+        parts: [
+          { key: "versions", label: "Versions", value: "rt 1.2.3, app 4.5.7, board 0.9, macOS 15.1" },
+          { key: "setup", label: "Setup rows that need attention", value: "account.slack-support" },
+        ],
+      },
+    });
+    const withMr = await context(h, { mr: { url: "https://git.example.com/acme/app/-/merge_requests/7", state: "review running" } });
+    expect(withMr.ok && withMr.data.parts.at(-1)).toEqual({ key: "mr", label: "MR", value: "https://git.example.com/acme/app/-/merge_requests/7 (review running)" });
+  });
+
+  test("a version it cannot read and a setup status that failed are left out", async () => {
+    const h = harness();
+    h.deps.versions = async () => ({ rt: "1.2.3", app: null, macos: null });
+    for (const setup of [null, []]) {
+      h.state.setup = setup;
+      const r = await createSupportHandlers(h.deps)["support:context"]({});
+      expect(r.ok && r.data.parts).toEqual([{ key: "versions", label: "Versions", value: "rt 1.2.3" }]);
+    }
+  });
+
+  test("context refuses an mr url that is not https, or that carries credentials", async () => {
+    const h = harness();
+    for (const url of ["http://git.example.com/x", "file:///etc/passwd", "javascript:alert(1)", "https://user:pw@git.example.com/x", "https://tok@git.example.com/x", "nope", `https://git.example.com/${"x".repeat(2000)}`]) {
+      expect((await context(h, { mr: { url, state: "open" } })).ok).toBe(false);
+    }
+    expect((await context(h, { mr: { url: "https://git.example.com/x", state: 4 } })).ok).toBe(false);
+  });
+
+  test("a value never breaks its line or runs long", async () => {
+    const h = harness();
+    const r = await context(h, { board: "0.9\nInjected: yes", mr: { url: "https://git.example.com/x?private_token=abc#frag", state: `open\n${"y".repeat(5000)}` } });
+    if (!r.ok) throw new Error(r.error);
+    for (const p of r.data.parts) {
+      expect(p.value).not.toContain("\n");
+      expect(p.value.length).toBeLessThanOrEqual(2000);
+    }
+    expect(JSON.stringify(r.data.parts)).not.toContain("private_token");
+  });
+});
+
+describe("support:send", () => {
+  const send = (h: ReturnType<typeof harness>, over: object = {}) => h.handlers["support:send"]({ ...ASK, ...over } as never);
+
+  test("a request is signed, sent and kept as sent", async () => {
+    const h = harness();
+    const r = await send(h);
+    expect(r).toMatchObject({ ok: true, data: { request: { id: "r1", peer: "alex", state: "sent", text: ASK.text, parts: ASK.parts } } });
+    const d = h.sent[0]!;
+    expect(d).toMatchObject({ id: "r1", to: "alex", kind: "request", sentAt: h.state.now });
+    expect(d.mac).toBe(supportMac(KEY, { ...d, org: ORG, from: "ada" }));
+    expect(JSON.parse(d.body)).toEqual({ text: ASK.text, parts: ASK.parts, slackUserId: "U0ADA" });
+    expect(getRequest("out", "alex", "r1", h.db)).toMatchObject({ org: "acme", sentAt: h.state.now });
+    expect(h.events).toEqual(["poke"]);
+  });
+
+  test("send refuses unknown part keys, 13 parts, and text of 8001 characters or only spaces", async () => {
+    const part = ASK.parts[0]!;
+    const bad: object[] = [
+      { parts: [{ ...part, key: "logs" }] },
+      { parts: Array.from({ length: 13 }, () => part) },
+      { parts: [{ ...part, value: "x".repeat(2001) }] },
+      { parts: [{ ...part, label: "x".repeat(101) }] },
+      { parts: [{ ...part, value: 4 }] },
+      { parts: "none" },
+      { text: "x".repeat(8001) },
+      { text: "  \n " },
+      { text: 4 },
+      { id: "" },
+      { id: "x".repeat(129) },
+      { id: "has space" },
+    ];
+    for (const over of bad) {
+      const h = harness();
+      expect((await send(h, over)).ok).toBe(false);
+      expect(h.sent).toEqual([]);
+      expect(listRequests("out", undefined, h.db)).toEqual([]);
+    }
+  });
+
+  test("send takes 8000 characters of any script, or says it is too long to send", async () => {
+    const h = harness();
+    expect((await send(h, { text: "x".repeat(8000) })).ok).toBe(true);
+    const wide = harness();
+    const r = await send(wide, { text: "界".repeat(8000), parts: Array.from({ length: 12 }, () => ({ ...ASK.parts[0]!, value: "界".repeat(2000) })) });
+    expect(r).toMatchObject({ ok: false, failure: { code: "support-too-long" } });
+    expect(wide.sent).toEqual([]);
+  });
+
+  test("send reads the Slack id from this Mac's own token, never from the payload", async () => {
+    const h = harness();
+    await send(h, { slackUserId: "U0SOMEONE" });
+    expect(JSON.parse(h.sent[0]!.body).slackUserId).toBe("U0ADA");
+    for (const id of [null, new Error("ratelimited")]) {
+      const none = harness();
+      none.state.slackUserId = id;
+      expect((await send(none)).ok).toBe(false);
+      expect(none.sent).toEqual([]);
+    }
+  });
+
+  test("send stores nothing when the relay is unreachable, and a retry with the same id sends once", async () => {
+    const h = harness();
+    h.state.send = "unreachable";
+    expect(await send(h)).toMatchObject({ ok: false, failure: { code: "support-unreachable" } });
+    expect(listRequests("out", undefined, h.db)).toEqual([]);
+    h.state.send = "ok";
+    expect((await send(h)).ok).toBe(true);
+    expect((await send(h)).ok).toBe(true);
+    expect(h.sent).toHaveLength(2);
+    expect(listRequests("out", undefined, h.db)).toHaveLength(1);
+  });
+
+  test("two sends of one id at once reach the relay once", async () => {
+    const h = harness();
+    await Promise.all([send(h), send(h)]);
+    expect(h.sent).toHaveLength(1);
+  });
+
+  test("a relay that already holds an earlier version keeps the request and says so", async () => {
+    const h = harness();
+    h.state.send = "changed";
+    expect(await send(h)).toMatchObject({ ok: false, failure: { code: "support-changed" } });
+    expect(getRequest("out", "alex", "r1", h.db)).toMatchObject({ state: "sent" });
+  });
+
+  test("every other refusal says what to do and stores nothing", async () => {
+    for (const result of ["unknown-recipient", "full", "unauthorized", "rejected"] as const) {
+      const h = harness();
+      h.state.send = result;
+      const r = await send(h);
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.failure?.message).toBeTruthy();
+      expect(listRequests("out", undefined, h.db)).toEqual([]);
+    }
+  });
+
+  test("send refuses with support off, no host, no username, no token, no key, or as the host", async () => {
+    for (const set of [
+      (h: ReturnType<typeof harness>) => void (h.state.config = null),
+      (h: ReturnType<typeof harness>) => void (h.state.config = { ...h.state.config!, enabled: false }),
+      (h: ReturnType<typeof harness>) => void (h.state.config = { ...h.state.config!, host: null }),
+      (h: ReturnType<typeof harness>) => void (h.state.config = { ...h.state.config!, me: null }),
+      (h: ReturnType<typeof harness>) => void (h.state.config = { ...h.state.config!, isHost: true }),
+      (h: ReturnType<typeof harness>) => void (h.state.relay = false),
+      (h: ReturnType<typeof harness>) => void (h.state.keys = false),
+    ]) {
+      const h = harness();
+      set(h);
+      expect((await send(h)).ok).toBe(false);
+      expect(h.sent).toEqual([]);
+    }
+  });
+
+  test("send refuses while the sender has a request in sent, received, opening or waiting", async () => {
+    for (const state of ["sent", "received", "opening", "waiting"] as SupportState[]) {
+      const h = harness();
+      h.request({ state });
+      expect(await send(h)).toMatchObject({ ok: false, failure: { code: "support-already-waiting" } });
+      expect(h.sent).toEqual([]);
+    }
+    const h = harness();
+    h.request({ state: "opened" });
+    expect((await send(h)).ok).toBe(true);
+  });
+
+  test("a request past 7 days does not hold up the next one", async () => {
+    const h = harness();
+    h.request({ state: "received", sentAt: h.state.now - SUPPORT_TTL_MS });
+    expect((await send(h)).ok).toBe(true);
+  });
+});
+
+describe("support:mine", () => {
+  const mine = async (h: ReturnType<typeof harness>) => {
+    const r = await h.handlers["support:mine"]({});
+    if (!r.ok) throw new Error(r.error);
+    return r.data.requests;
+  };
+
+  test("mine reads away after 2 minutes and expired after 7 days", async () => {
+    const h = harness();
+    h.request();
+    expect(await mine(h)).toMatchObject([{ id: "old", state: "sent", away: false }]);
+    h.state.now += SUPPORT_AWAY_MS + 1;
+    expect(await mine(h)).toMatchObject([{ away: true }]);
+    h.state.now += SUPPORT_TTL_MS;
+    expect(await mine(h)).toMatchObject([{ state: "expired", away: false }]);
+  });
+
+  test("a request the host answered is never away", async () => {
+    const h = harness();
+    h.request({ state: "received", sentAt: h.state.now - DAY });
+    expect(await mine(h)).toMatchObject([{ state: "received", away: false }]);
+  });
+
+  test("newest first, and only what this Mac sent", async () => {
+    const h = harness();
+    h.request({ id: "a", receivedAt: 1, state: "opened" });
+    h.request({ id: "b", receivedAt: 2, state: "failed" });
+    h.request({ id: "c", direction: "in" });
+    expect((await mine(h)).map((r) => r.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("support:host and support:accept", () => {
+  const asHost = (h: ReturnType<typeof harness>, accepting = false) =>
+    void (h.state.config = { ...h.state.config!, me: "alex", isHost: true, accepts: accepting, acceptHere: accepting });
+
+  test("the host reads what is missing; nobody else is asked", async () => {
+    const h = harness();
+    h.state.missing = ["Set your chat name"];
+    expect(await h.handlers["support:host"]({})).toEqual({ ok: true, data: { isHost: false, accepting: false, missing: [] } });
+    asHost(h, true);
+    expect(await h.handlers["support:host"]({})).toEqual({ ok: true, data: { isHost: true, accepting: true, missing: ["Set your chat name"] } });
+  });
+
+  test("accept refuses for anyone but the host", async () => {
+    const h = harness();
+    expect((await h.handlers["support:accept"]({ on: true })).ok).toBe(false);
+    asHost(h);
+    h.state.config = { ...h.state.config!, enabled: false };
+    expect((await h.handlers["support:accept"]({ on: true })).ok).toBe(false);
+    expect((await h.handlers["support:accept"]({ on: "yes" } as never)).ok).toBe(false);
+    expect(h.events).toEqual([]);
+  });
+
+  test("accept refuses with each missing piece named", async () => {
+    const h = harness();
+    asHost(h);
+    h.state.missing = ["Set your chat name", "Slack did not answer"];
+    const r = await h.handlers["support:accept"]({ on: true });
+    expect(!r.ok && r.failure?.message).toBe("Set your chat name. Slack did not answer.");
+    expect(h.events).toEqual([]);
+  });
+
+  test("accept on claims the role before it is kept, and refuses a second Mac", async () => {
+    const h = harness();
+    asHost(h);
+    expect(await h.handlers["support:accept"]({ on: true })).toEqual({ ok: true, data: { accepting: true } });
+    expect(h.events).toEqual(["setHost true", "published true", "setting true", "poke"]);
+    for (const [result, message] of [["other-machine", "Another of your Macs is already accepting"], ["failed", "The relay did not answer"]] as const) {
+      const other = harness();
+      asHost(other);
+      other.state.setHost = result;
+      const r = await other.handlers["support:accept"]({ on: true });
+      expect(!r.ok && r.failure?.message).toContain(message);
+      expect(other.events).toEqual(["setHost true"]);
+    }
+  });
+
+  test("accept off publishes the flag and answers queued requests not-accepting", async () => {
+    const h = harness();
+    asHost(h, true);
+    expect(await h.handlers["support:accept"]({ on: false })).toEqual({ ok: true, data: { accepting: false } });
+    expect(h.events).toEqual(["setHost false", "published false", "setting false", "drain"]);
+  });
+
+  test("accept off always turns this Mac off, even with no relay", async () => {
+    for (const set of [(h: ReturnType<typeof harness>) => void (h.state.relay = false), (h: ReturnType<typeof harness>) => void (h.state.setHost = "failed")]) {
+      const h = harness();
+      asHost(h, true);
+      set(h);
+      expect((await h.handlers["support:accept"]({ on: false })).ok).toBe(true);
+      expect(h.events).toContain("setting false");
+      expect(h.events).not.toContain("published false");
+    }
+  });
+
+  test("someone who is no longer the host can still turn their Mac off", async () => {
+    const h = harness();
+    h.state.config = { ...h.state.config!, accepts: true };
+    expect((await h.handlers["support:accept"]({ on: false })).ok).toBe(true);
+    expect(h.events).toContain("setting false");
+  });
+});
+
+describe("support:stop", () => {
+  test("stop says whether the teammate was told", async () => {
+    const h = harness();
+    expect(await h.handlers["support:stop"]({ conversation: 5 })).toEqual({ ok: true, data: { told: true } });
+    expect(h.events).toEqual(["stop 5"]);
+  });
+
+  test("stop refuses an unknown or closed conversation", async () => {
+    const h = harness();
+    h.state.stop = { ok: false, reason: "that chat is already closed" };
+    expect(await h.handlers["support:stop"]({ conversation: 5 })).toMatchObject({ ok: false, failure: { message: "that chat is already closed" } });
+    for (const conversation of [0, 1.5, "5", undefined]) expect((await h.handlers["support:stop"]({ conversation } as never)).ok).toBe(false);
+    expect(h.events).toEqual(["stop 5"]);
+  });
+});
+
+describe("what a person alone may do", () => {
+  function sources(dir: string): string[] {
+    return readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name);
+      if (name === "__tests__" || name === "node_modules") return [];
+      return statSync(path).isDirectory() ? sources(path) : /\.(ts|mts)$/.test(name) ? [path] : [];
+    });
+  }
+
+  test("no command tree verb or MCP tool names support:send, support:accept or support:stop", () => {
+    const root = join(import.meta.dir, "..", "..", "..", "..");
+    const files = [...sources(join(root, "commands")), ...sources(join(root, "lib", "mcp")), join(root, "lib", "command-tree-def.ts"), join(root, "lib", "module-registry.ts")];
+    const named = files.filter((f) => /support:(send|accept|stop)|support(Send|Accept|Stop)\b/.test(readFileSync(f, "utf8").replace(/teamSupport\w+/g, "")));
+    expect(named).toEqual([]);
+  });
+});

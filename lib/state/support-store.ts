@@ -4,22 +4,11 @@
  */
 
 import type { Database } from "bun:sqlite";
+import type { SupportDirection, SupportPart, SupportRequest, SupportState } from "../../packages/rt-client/src/support.ts";
 import { CHAT_RETENTION_MS } from "./chat-store.ts";
 import { getStateDb } from "./db.ts";
 
-export type SupportDirection = "in" | "out";
-export type SupportState =
-  | "sent"
-  | "received"
-  | "opening"
-  | "opened"
-  | "waiting"
-  | "already-waiting"
-  | "already-open"
-  | "declined"
-  | "not-accepting"
-  | "failed"
-  | "expired";
+export type { SupportDirection, SupportPart, SupportRequest, SupportState };
 
 export const SUPPORT_TERMINAL_STATES = [
   "opened",
@@ -30,33 +19,6 @@ export const SUPPORT_TERMINAL_STATES = [
   "failed",
   "expired",
 ] as const satisfies readonly SupportState[];
-
-export interface SupportPart {
-  key: "versions" | "setup" | "mr";
-  label: string;
-  value: string;
-}
-
-/** `in` is a request this Mac answers, `out` one it sent; `peer` is the other person's forge username. */
-export interface SupportRequest {
-  id: string;
-  direction: SupportDirection;
-  peer: string;
-  org: string;
-  text: string;
-  parts: SupportPart[];
-  slackUserId: string;
-  state: SupportState;
-  reason: string | null;
-  dmLink: string | null;
-  conversationId: number | null;
-  gateId: string | null;
-  /** The time on the last status sent about it (in) or believed (out), so an older one never overwrites a newer. */
-  statusAt: number;
-  sentAt: number;
-  receivedAt: number;
-  updatedAt: number;
-}
 
 interface RequestRow {
   id: string;

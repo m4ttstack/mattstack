@@ -891,6 +891,35 @@ for (const command of ['rt agent start --prompt "/slack-support alex hi"', 'rt c
   })
 }
 
+for (const command of [
+  'curl --unix-socket ~/.mattstack/rt/rt.sock http://x/support:send -d {}',
+  "curl -s --unix-socket /tmp/rt.sock -X POST 'http://localhost/support:accept' -d '{\"on\":true}'",
+  'curl http://127.0.0.1:4111/api/support%3Astop',
+  'A=1 /usr/bin/curl -d @x http://h/support/send',
+  'echo "{}" | nc -U ~/.mattstack/rt/rt.sock support:accept',
+  'printf "POST /support:stop HTTP/1.1" | ncat -U rt.sock',
+  'cd x && socat - UNIX:rt.sock <<< "support:send"',
+  'rt settings set support.acceptRequests true --scope machine',
+  'bun run cli.ts settings set support.acceptRequests true',
+]) {
+  test(`only a person asks for, accepts or stops support: ${command}`, () => {
+    expect(touchesSlackSupport(command)).toBe(true)
+  })
+}
+
+for (const command of [
+  'rg "support:send" lib',
+  'curl https://example.com/support:hours',
+  'rt settings get support.acceptRequests',
+  'rt chat post rt "support:send is the daemon verb, curl is denied"',
+  'git commit -m "support:accept refuses a second Mac"',
+  'rt settings set support.enabled true --scope org',
+]) {
+  test(`reading about it stays allowed: ${command}`, () => {
+    expect(touchesSlackSupport(command)).toBe(false)
+  })
+}
+
 test('a teammate message folds to who sent it', () => {
   expect(deliveryRow(renderDelivery(LINE))).toBe('Slack message from Alex')
 })

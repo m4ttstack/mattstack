@@ -501,6 +501,34 @@ export function chatSlackRequest(a: Commands["chat:slack-request"]["payload"], o
   return rtCommand<Commands["chat:slack-request"]["data"]>("chat:slack-request", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
 }
 
+export function supportAvailability(o: RtClientOptions = {}): Promise<RtResponse<Commands["support:availability"]["data"]>> {
+  return rtCommand<Commands["support:availability"]["data"]>("support:availability", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
+}
+
+export function supportContext(a: Commands["support:context"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["support:context"]["data"]>> {
+  return rtCommand<Commands["support:context"]["data"]>("support:context", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
+}
+
+export function supportSend(a: Commands["support:send"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["support:send"]["data"]>> {
+  return rtCommand<Commands["support:send"]["data"]>("support:send", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
+}
+
+export function supportMine(o: RtClientOptions = {}): Promise<RtResponse<Commands["support:mine"]["data"]>> {
+  return rtCommand<Commands["support:mine"]["data"]>("support:mine", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs });
+}
+
+export function supportHost(o: RtClientOptions = {}): Promise<RtResponse<Commands["support:host"]["data"]>> {
+  return rtCommand<Commands["support:host"]["data"]>("support:host", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
+}
+
+export function supportAccept(a: Commands["support:accept"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["support:accept"]["data"]>> {
+  return rtCommand<Commands["support:accept"]["data"]>("support:accept", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 120_000 });
+}
+
+export function supportStop(a: Commands["support:stop"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["support:stop"]["data"]>> {
+  return rtCommand<Commands["support:stop"]["data"]>("support:stop", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
+}
+
 export function chatSlackStart(a: Commands["chat:slack-start"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-start"]["data"]>> {
   return rtCommand<Commands["chat:slack-start"]["data"]>("chat:slack-start", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 120_000 });
 }

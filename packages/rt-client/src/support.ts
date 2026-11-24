@@ -23,6 +23,47 @@ export interface SupportHostState {
   lastSeenAt: number | null;
 }
 
+export type SupportDirection = "in" | "out";
+export type SupportState =
+  | "sent"
+  | "received"
+  | "opening"
+  | "opened"
+  | "waiting"
+  | "already-waiting"
+  | "already-open"
+  | "declined"
+  | "not-accepting"
+  | "failed"
+  | "expired";
+
+export interface SupportPart {
+  key: "versions" | "setup" | "mr";
+  label: string;
+  value: string;
+}
+
+/** `in` is a request this Mac answers, `out` one it sent; `peer` is the other person's forge username. */
+export interface SupportRequest {
+  id: string;
+  direction: SupportDirection;
+  peer: string;
+  org: string;
+  text: string;
+  parts: SupportPart[];
+  slackUserId: string;
+  state: SupportState;
+  reason: string | null;
+  dmLink: string | null;
+  conversationId: number | null;
+  gateId: string | null;
+  /** The time on the last status sent about it (in) or believed (out), so an older one never overwrites a newer. */
+  statusAt: number;
+  sentAt: number;
+  receivedAt: number;
+  updatedAt: number;
+}
+
 export const SUPPORT_BODY_MAX_BYTES = 64 * 1024;
 /** The body is JSON inside the request's JSON, so every quote in it can double. */
 export const SUPPORT_REQUEST_MAX_BYTES = 2 * SUPPORT_BODY_MAX_BYTES + 4 * 1024;

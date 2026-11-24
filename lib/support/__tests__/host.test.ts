@@ -257,6 +257,16 @@ describe("a request that does not open", () => {
     }
   });
 
+  test("a person no longer on the roster hears nothing, even past 7 days", async () => {
+    const h = supportHost();
+    const r = h.request();
+    h.state.config = { ...h.state.config!, roster: [{ username: "alex" }] };
+    h.state.now = r.receivedAt + SUPPORT_TTL_MS;
+    await tickRequests(h.deps);
+    expect(row(h, r).state).toBe("failed");
+    expect(h.statuses()).toEqual([]);
+  });
+
   test("a Slack id that is missing, deleted, a bot or the host itself sends failed and opens nothing", async () => {
     for (const slackUserId of ["", "ada", "Ada Example", "U0GONE1", "U0HOST"]) {
       const h = supportHost();
