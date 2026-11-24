@@ -44,6 +44,7 @@ import { scrub } from "./redact.ts";
 import { assertMayWrite, roleFor, rolesFor } from "./roles.ts";
 import { orgOwnersAsk, writeRefusalFor } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { followRosterChange } from "./admin-secrets.ts";
+import { rotateSupportKey } from "../support/org-key.ts";
 import * as out from "../ui/out.ts";
 import { assertTeamFolders } from "./team-names.ts";
 import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
@@ -519,6 +520,15 @@ export async function membersRemove(
     reencrypted = [...new Set([...reencrypted, ...result.reencrypted])];
   }
 
+  // After the recipients change: a key written before it would still be one the removed member can open.
+  const supportSteps: string[] = [];
+  try {
+    await rotateSupportKey(slug, secrets, Date.now());
+  } catch (err) {
+    warnLine("team", `support key after removing ${handle}: ${scrub(err instanceof Error ? err.message : String(err))}`);
+    supportSteps.push(`rt could not change the org's support key. Retry with rt team members remove ${handle}`);
+  }
+
   // The roster no longer carries their key, so the admins rule loses it even while the admins list still names them.
   const admin = await followRosterChange(p, slug, seams.readTeamStore(slug), secrets);
   reencrypted = [...new Set([...reencrypted, ...admin.reencrypted])];
@@ -528,7 +538,7 @@ export async function membersRemove(
   return {
     forgeAccess: revoke.access,
     boardPeering,
-    manualSteps: [...revoke.manualSteps, ...boardSteps, ...adminSteps],
+    manualSteps: [...revoke.manualSteps, ...boardSteps, ...supportSteps, ...adminSteps],
     reencrypted,
     rosterRemoved,
     residueNote: RESIDUE_NOTE,

@@ -16,6 +16,7 @@ import { orgsDir } from "../../rt-paths.ts";
 import { seal, sealReply } from "../invite-crypto.ts";
 import { upsertInviteRecord, type InviteRecord } from "../invite-records.ts";
 import { membersRemove, membersSync, MembersSyncAbortedError, type MembersSeams } from "../members.ts";
+import { ensureSupportKey, readSupportKeys } from "../../support/org-key.ts";
 import { teamLocalPath } from "../team-local.ts";
 import type { RelayClient } from "../relay-client.ts";
 
@@ -775,6 +776,53 @@ describe("membersRemove", () => {
     // reaching here at all already proves no mint was attempted — asserted
     // explicitly too, and pinned to exactly one lookup (no retry-as-mint).
     expect(absentAgeKeySeam.calls).toEqual([["security", "find-generic-password", "-a", "mattstack", "-s", "mattstack-age-key", "-w"]]);
+  });
+
+  test("removing a member rotates the support key", async () => {
+    const p = fakeProbes({ home: HOME });
+    const { secrets } = seamsWithClone();
+    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
+    await ensureSupportKey(SLUG, secrets);
+    const before = (await readSupportKeys(SLUG, secrets))!;
+    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": [{ username: "alice", agePublicKey: ALICE_PUBLIC_KEY }] }) });
+
+    const result = await membersRemove(p, secrets, SLUG, "alice", undefined, seams);
+
+    const after = (await readSupportKeys(SLUG, secrets))!;
+    expect(after.current).not.toBe(before.current);
+    expect(after.previous).toBe(before.current);
+    expect(result.manualSteps.join(" ")).not.toContain("support key");
+  });
+
+  test("the support key changes only once the removed member's age key can no longer open it", async () => {
+    const p = fakeProbes({ home: HOME });
+    const { execSeam, secrets } = seamsWithClone();
+    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
+    await ensureSupportKey(SLUG, secrets);
+    execSeam.calls.length = 0;
+    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": [{ username: "alice", agePublicKey: ALICE_PUBLIC_KEY }] }) });
+
+    await membersRemove(p, secrets, SLUG, "alice", undefined, seams);
+
+    const verbs = execSeam.calls.filter((c) => c.cmd[0] === "sops").map((c) => c.cmd[1]);
+    expect(verbs.indexOf("updatekeys")).toBeGreaterThanOrEqual(0);
+    expect(verbs.indexOf("-e")).toBeGreaterThan(verbs.indexOf("updatekeys"));
+  });
+
+  test("a rotation that fails warns and leaves the removal done", async () => {
+    const p = fakeProbes({ home: HOME });
+    const { execSeam, secrets } = seamsWithClone();
+    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
+    await ensureSupportKey(SLUG, secrets);
+    const run = execSeam.run.bind(execSeam);
+    execSeam.run = async (cmd, opts) => (cmd[0] === "sops" && cmd[1] === "-e" ? { code: 1, stdout: "", stderr: "sops: boom" } : run(cmd, opts));
+    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": [{ username: "alice", agePublicKey: ALICE_PUBLIC_KEY }] }) });
+
+    const result = await membersRemove(p, secrets, SLUG, "alice", undefined, seams);
+
+    expect(result.rosterRemoved).toBe(true);
+    expect(readTeamRecipients(SLUG, secrets)).toEqual([OWNER_PUBLIC_KEY]);
+    expect(result.manualSteps).toEqual(expect.arrayContaining(["rt could not change the org's support key. Retry with rt team members remove alice"]));
   });
 
   describe("refusing to remove the operator's own key", () => {
