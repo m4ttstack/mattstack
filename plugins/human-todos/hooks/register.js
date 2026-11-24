@@ -834,6 +834,7 @@ var Row = kitComponent("Row", (props, ctx) => [
   })
 ]);
 // mods/human-todos/src/items.ts
+var PLUGIN = "human-todos";
 var TITLE = "Human Todos";
 var KINDS = ["task", "run", "terminal", "link", "image"];
 var LIVE_LINES_LOCAL = 15;
@@ -2648,6 +2649,24 @@ function registerPane(on) {
       label: "Open",
       onPress: () => openPane($)
     }));
+  });
+  on("ui.render", { component: "UserMessage", props: { origin: { kind: "plugin" } } }, async ($, e, next) => {
+    const origin = e.props.origin;
+    if (e.props.isExpanded || origin.name !== PLUGIN)
+      return next(e);
+    const { Box, Text } = $.ui.resolve(e);
+    const [first, ...rest] = e.props.text.split(`
+`);
+    const extra = rest.filter((line) => line.trim() !== "" && !line.startsWith("```")).length;
+    const summary = (first ?? "").replace(`[${TITLE}] `, "");
+    return /* @__PURE__ */ h(Box, {
+      flexDirection: "row"
+    }, /* @__PURE__ */ h(Text, {
+      color: "suggestion"
+    }, `${TITLE} `), /* @__PURE__ */ h(Text, {
+      dimColor: true,
+      wrap: "truncate-end"
+    }, summary, extra > 0 ? `  (+${extra} ${extra === 1 ? "line" : "lines"}, ctrl+o)` : ""));
   });
   on("ui.render", { component: "Pane", requestId: "human-todos" }, async ($, e) => {
     const pane = await readPane2($);
