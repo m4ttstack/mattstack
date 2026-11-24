@@ -59,7 +59,7 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         let policy = self.policy
         installer = HeldUpdateInstaller(silent: { policy.silent }, setupRunning: isBusy, windowsOpen: {
             NSApp.windows.filter {
-                UpdatePolicy.windowHoldsUpdate(isVisible: $0.isVisible, isMiniaturized: $0.isMiniaturized, canBecomeKey: $0.canBecomeKey)
+                UpdatePolicy.windowHoldsUpdate(isVisible: $0.isVisibleOrAppHidden, isMiniaturized: $0.isMiniaturized, canBecomeKey: $0.canBecomeKey)
             }.count
         }, daemonBusy: { policy.daemonBusy })
         let info = Bundle.main.infoDictionary

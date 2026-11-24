@@ -14,13 +14,37 @@ let appMenuChecks: [Check] = [
     Check("mattstack Help opens the mattstack docs site") { c in
         c.expectEqual(DocsSite.home.absoluteString, "https://docs.mattstack.dev/")
     },
-    Check("the app menu lists About, updates, Settings, Setup status and Quit, in that order") { c in
+    Check("the app menu lists About, updates, Settings, Setup status, the hide items and Quit, in that order") { c in
         let body = try installMainMenuBody()
         try c.require(!body.isEmpty, "installMainMenu not found in AppDelegate.swift")
-        let titles = ["\"About mattstack\"", "\"Check for Updates…\"", "\"Settings…\"", "\"Setup status…\"", "\"Quit mattstack\""]
+        let titles = ["\"About mattstack\"", "\"Check for Updates…\"", "\"Settings…\"", "\"Setup status…\"",
+                      "\"Hide mattstack\"", "\"Hide Others\"", "\"Show All\"", "\"Quit mattstack\""]
         let positions = titles.compactMap { body.range(of: $0)?.lowerBound }
         try c.requireEqual(positions.count, titles.count)
         c.expect(positions == positions.sorted(), "app menu items are out of order")
+    },
+    Check("⌘H hides the app and ⌥⌘H hides the others") { c in
+        let body = try installMainMenuBody()
+        c.expectEqual(body.components(separatedBy: "keyEquivalent: \"h\"").count - 1, 2)
+        for code in ["#selector(NSApplication.hide(_:))", "#selector(NSApplication.hideOtherApplications(_:))",
+                     "hideOthers.keyEquivalentModifierMask = [.command, .option]",
+                     "#selector(NSApplication.unhideAllApplications(_:))"] {
+            c.expect(body.contains(code), "installMainMenu does not use \(code)")
+        }
+    },
+    /// A hidden app's windows report isVisible false, so these would take a
+    /// hidden window for a closed one: quit for real, or update and not reopen it.
+    Check("open-window checks count the windows of a hidden app") { c in
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../Sources").standardized
+        for (file, code) in [("AppDelegate.swift", "(window?.isVisibleOrAppHidden ?? false) || (window?.isMiniaturized"),
+                             ("AppDelegate.swift", "$0.isVisibleOrAppHidden || $0.isMiniaturized"),
+                             ("Setup/SetupCoordinator.swift", "w.isVisibleOrAppHidden || w.isMiniaturized"),
+                             ("Updates/UpdaterController.swift", "isVisible: $0.isVisibleOrAppHidden"),
+                             ("AppDelegate.swift", "HiddenAppWindows.shared.start()")] {
+            let text = try String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
+            c.expect(text.contains(code), "\(file) does not use \(code)")
+        }
     },
     Check("the app and Help menus reuse the tray menu's selectors") { c in
         let body = try installMainMenuBody()

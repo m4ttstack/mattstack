@@ -71,7 +71,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
     }
     required init?(coder: NSCoder) { fatalError("not supported") }
 
-    var isVisible: Bool { window?.isVisible == true }
+    var isVisible: Bool { window?.isVisibleOrAppHidden == true }
     /// A banner is for a person who is not looking at this window.
     var isInFront: Bool { NSApp.isActive && window?.isKeyWindow == true }
 

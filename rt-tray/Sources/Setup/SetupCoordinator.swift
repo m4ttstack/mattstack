@@ -593,7 +593,7 @@ final class SetupCoordinator {
 
     var isSettingsWindowOpen: Bool {
         guard let w = settingsWindow?.window else { return false }
-        return w.isVisible || w.isMiniaturized
+        return w.isVisibleOrAppHidden || w.isMiniaturized
     }
 
     func showSettings(pane: SettingsPane? = nil) {

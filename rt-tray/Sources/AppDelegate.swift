@@ -185,6 +185,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private func startNormalOperation() {
         buildServices()
         hotkey = HotkeyManager { [weak self] in Task { @MainActor in self?.windowModel?.toggleVisibility() } }
+        HiddenAppWindows.shared.start()
         installMainMenu()
         setupMenuBar()
         setupNotifications()
@@ -571,7 +572,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         let senderBundleIdentifier = senderPID > 0
             ? NSRunningApplication(processIdentifier: senderPID)?.bundleIdentifier : nil
         let window = mattstackWindow?.window
-        let windowOnScreen = (window?.isVisible ?? false) || (window?.isMiniaturized ?? false)
+        let windowOnScreen = (window?.isVisibleOrAppHidden ?? false) || (window?.isMiniaturized ?? false)
         let terminate = QuitReason.shouldTerminate(quitConfirmed: quitConfirmed, sessionEnding: systemSessionEnding,
                                                    updateInstalling: updateInstalling,
                                                    senderBundleIdentifier: senderBundleIdentifier,
@@ -750,9 +751,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
 
     /// AppKit routes a key equivalent only when a menu item claims it, so an
-    /// LSUIElement app's menu has to carry them itself: ⌘, for Settings, and
-    /// ⌘W / ⌘M for the key window, which otherwise do nothing at all, and
-    /// ⌘[ / ⌘] for the showing tab's back and forward.
+    /// LSUIElement app's menu has to carry them itself: ⌘, for Settings,
+    /// ⌘H / ⌥⌘H to hide, ⌘W / ⌘M for the key window, which otherwise do
+    /// nothing at all, and ⌘[ / ⌘] for the showing tab's back and forward.
     private func installMainMenu() {
         let main = NSMenu()
         let appItem = NSMenuItem(); main.addItem(appItem)
@@ -766,6 +767,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                         keyEquivalent: ",").setAccessibilityIdentifier(AXID.menuAppSettings)
         appMenu.addItem(withTitle: "Setup status…", action: #selector(showSetupStatus),
                         keyEquivalent: "").setAccessibilityIdentifier(AXID.menuAppSetupStatus)
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Hide mattstack", action: #selector(NSApplication.hide(_:)),
+                        keyEquivalent: "h").setAccessibilityIdentifier(AXID.menuAppHide)
+        let hideOthers = appMenu.addItem(withTitle: "Hide Others",
+                                         action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        hideOthers.setAccessibilityIdentifier(AXID.menuAppHideOthers)
+        appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)),
+                        keyEquivalent: "").setAccessibilityIdentifier(AXID.menuAppShowAll)
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit mattstack", action: #selector(NSApplication.terminate(_:)),
                         keyEquivalent: "q").setAccessibilityIdentifier(AXID.menuAppQuit)
@@ -1915,7 +1925,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
 
     @MainActor
     private func restorableWindowsOpen() -> Set<RestorableWindow> {
-        func open(_ w: NSWindow?) -> Bool { w.map { $0.isVisible || $0.isMiniaturized } ?? false }
+        func open(_ w: NSWindow?) -> Bool { w.map { $0.isVisibleOrAppHidden || $0.isMiniaturized } ?? false }
         var windows = Set<RestorableWindow>()
         if open(mattstackWindow?.window) { windows.insert(.main) }
         if coordinator?.isSettingsWindowOpen == true { windows.insert(.settings) }
