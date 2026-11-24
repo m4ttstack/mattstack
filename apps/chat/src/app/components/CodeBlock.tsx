@@ -14,8 +14,7 @@ export interface CodeBlockProps {
 }
 
 /** Whether a line is wider than the block: wrapped, it takes more rows than
-    the code has lines; unwrapped, it scrolls sideways. Showing the toggle only
-    narrows the code, so it never makes the answer flip back. */
+    the code has lines; unwrapped, it scrolls sideways. */
 function hasLongLine(pre: HTMLElement, code: string, wrap: boolean): boolean {
   if (!wrap) return pre.scrollWidth > pre.clientWidth;
   const rows =
@@ -25,8 +24,7 @@ function hasLongLine(pre: HTMLElement, code: string, wrap: boolean): boolean {
 }
 
 /** A fence in a message. Long lines wrap until the reader turns that off for
-    the block, and the controls sit in their own column, so they never cover
-    code. */
+    the block. The controls ride the top border, clear of the code. */
 export function CodeBlock({ code }: CodeBlockProps) {
   const [wrap, setWrap] = useState(true);
   const [longLine, setLongLine] = useState(false);
@@ -58,18 +56,18 @@ export function CodeBlock({ code }: CodeBlockProps) {
       >
         <code>{code}</code>
       </pre>
-      <div className={classes.controls}>
+      <Paper withBorder bg="var(--tk-card)" className={classes.controls}>
         {longLine && (
           <Tooltip label={wrapTip} position="top" withArrow>
             <ActionIcon
               variant="subtle"
               color="gray"
-              size="sm"
+              size="xs"
               aria-label="Wrap lines"
               aria-pressed={wrap}
               onClick={() => setWrap(!wrap)}
             >
-              <Icon name="wrapText" size={14} />
+              <Icon name="wrapText" size={12} />
             </ActionIcon>
           </Tooltip>
         )}
@@ -77,10 +75,10 @@ export function CodeBlock({ code }: CodeBlockProps) {
           value={code}
           label="Copy code"
           tooltipPosition="top"
-          size="sm"
-          iconSize={14}
+          size="xs"
+          iconSize={12}
         />
-      </div>
+      </Paper>
     </Paper>
   );
 }

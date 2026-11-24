@@ -1,16 +1,14 @@
 .block {
   --code-line: 20px;
 
-  display: flex;
-  align-items: flex-start;
+  position: relative;
 }
 
 .pre {
-  flex: 1;
-  min-width: 0;
   margin: 0;
-  padding: 7px 4px 7px 12px;
+  padding: 8px 12px;
   overflow-x: auto;
+  border-radius: inherit;
   font-family: var(--mantine-font-family-monospace);
   font-size: var(--mantine-font-size-sm);
   line-height: var(--code-line);
@@ -42,13 +40,12 @@
   font: inherit;
 }
 
-/* Centred on a 34px one-line block, and on the first line of a taller one;
-   it stays in view while a block taller than the screen scrolls past. */
+/* 20px tall, so half of it fits the 8px gap above the block and half the
+   slack above the first line's letters: it never touches text either side. */
 .controls {
-  position: sticky;
-  top: 6px;
+  position: absolute;
+  top: 0;
+  right: 10px;
   display: flex;
-  flex: none;
-  gap: 2px;
-  margin: 6px;
+  transform: translateY(-50%);
 }
