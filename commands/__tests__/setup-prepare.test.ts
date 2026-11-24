@@ -53,7 +53,7 @@ describe("rt setup prepare", () => {
     const t = deps();
     expect(await exitCode(() => setupPrepare(["accounts", "--json"], {}, t.d))).toBeUndefined();
     expect(t.lines).toHaveLength(1);
-    expect(JSON.parse(t.lines[0]!)).toEqual({ contract: 1, at: "2026-01-01T00:00:00.000Z", stage: "accounts", installed: ["claude", "herdr"], failed: [] });
+    expect(JSON.parse(t.lines[0]!)).toEqual({ contract: 1, at: "2026-01-01T00:00:00.000Z", stage: "accounts", installed: ["claude", "herdr", "flock"], failed: [] });
   });
 
   test("an unknown stage is a usage error", async () => {
@@ -73,7 +73,7 @@ describe("rt setup prepare", () => {
       if (calls === 1) throw Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
     });
     expect(await exitCode(() => setupPrepare(["accounts", "--json"], {}, t.d))).toBeUndefined();
-    expect(t.installed).toEqual(["claude", "herdr"]);
+    expect(t.installed).toEqual(["claude", "herdr", "flock"]);
     expect(calls).toBe(1);
   });
 
@@ -94,7 +94,7 @@ describe("rt setup prepare", () => {
     const t = deps();
     await setupPrepare(["accounts"], {}, t.d);
     const lines = quiet.stdout().trim().split("\n");
-    expect(lines).toHaveLength(2);
+    expect(lines).toHaveLength(3);
     expect(lines[0]).toContain("Installed claude");
   });
 });
