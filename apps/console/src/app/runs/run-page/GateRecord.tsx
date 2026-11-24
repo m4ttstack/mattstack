@@ -155,9 +155,7 @@ function Summary({ text, escalation }: { text: string; escalation: boolean }) {
       </Text>
       <div className={classes.grow}>
         {rest ? (
-          <Text fz="md" lh="normal">
-            {plainText(first)}
-          </Text>
+          <Text fz="md">{plainText(first)}</Text>
         ) : (
           <GateContext text={first} />
         )}
@@ -290,7 +288,7 @@ function Form({ record }: { record: FormRecord }) {
       transitionDuration={0}
       classNames={{
         item: classes.item,
-        control: classes.row,
+        control: `${classes.row} ${classes.control}`,
         label: classes.rowLabel,
         chevron: classes.chevron,
         content: `${accordion.content} ${classes.rowPanel}`,
