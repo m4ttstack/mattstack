@@ -41,13 +41,11 @@
   padding: 10px 0;
 }
 
-.control.control {
-  --wash-bleed: 10px;
-
-  width: calc(100% + 2 * var(--wash-bleed));
-  margin-inline: calc(-1 * var(--wash-bleed));
-  padding-inline: var(--wash-bleed);
-  border-radius: 6px;
+/* A form's rows hold their text in from the hover wash, and its heading
+   lines up with them. */
+.item .row.row,
+.gate[data-shape='form'] .gateHead {
+  padding-inline: 12px;
 }
 
 /* Mantine's own hover is the panel's colour in one scheme and the card's in
@@ -76,11 +74,11 @@
   align-items: flex-start;
 }
 
-/* Lines a panel up under the answers: the question column and its gap. A
-   height reveal slices each line as its edge passes, so the panel fades in
-   at full height instead. */
+/* Lines a panel up under the answers: the row's own inset, the question
+   column and its gap. A height reveal slices each line as its edge passes, so
+   the panel fades in at full height instead. */
 .rowPanel.rowPanel {
-  padding-inline: 230px 0;
+  padding-inline: 242px 12px;
   animation: row-panel-in 160ms ease-out;
 }
 
