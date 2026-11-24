@@ -279,7 +279,7 @@ describe("toolRows — tool.herdr against the fork's build list", () => {
   }
 
   const herdrRowOf = (p: ReturnType<typeof fakeProbes>) => pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
-  const UPGRADE = { type: "install", label: "Upgrade", tool: "herdr", via: "download" };
+  const UPGRADE: Action = { type: "install", label: "Upgrade", tool: "herdr", via: "download" };
 
   test("newest fork build with the integration reads ready", async () => {
     const p = herdrProbes({ version: "0.9.5-ms.2" });
