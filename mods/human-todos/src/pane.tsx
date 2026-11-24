@@ -3,7 +3,7 @@ import type { EngineInterface, On, RenderSurface } from 'claude-code'
 import { CURSOR_ROW, bandAbovePrompt, cellWidth, wrapKeeping, isEngaged, isPlaced, paneMessage, paneRows, registerPaneRedraw, type HideablePane, type Waiting } from '@mattstack/mod-kit'
 
 import type { Todo } from '../types'
-import { PLUGIN, TITLE } from './items'
+import { TITLE } from './items'
 import { act } from './pane/act'
 import { kitLayout, kitView, maxOffset, modelWidth } from './pane/kit-layout'
 import { composeHeadRows } from './pane/compose-head'
@@ -13,7 +13,7 @@ import type { PaneMessage, PaneModel } from './pane/model'
 import { submitWithNotices } from './report'
 import { drafts, peekTodos, readPane } from './store'
 
-// A literal on purpose: the engine's matcher scan reads a string literal, not the imported PLUGIN.
+// A literal on purpose: the engine's matcher scan reads a string literal, not an imported constant.
 const PANE = 'human-todos'
 const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const TODO_PANE: HideablePane = { id: PANE, label: 'Human Todos waiting' }
@@ -117,24 +117,6 @@ export function registerPane(on: On): void {
       <Box flexDirection="row" gap={2}>
         <Text color="warning">{`○ ${waiting} ${waiting === 1 ? TITLE.replace(/s$/, '') : TITLE}`}</Text>
         <Button key="open-pane" label="Open" onPress={() => openPane($)} />
-      </Box>
-    )
-  })
-
-  on('ui.render', { component: 'UserMessage', props: { origin: { kind: 'plugin' } } }, async ($, e, next) => {
-    const origin = e.props.origin as { kind: string; name?: string }
-    if (e.props.isExpanded || origin.name !== PLUGIN) return next(e)
-    const { Box, Text } = $.ui.resolve(e)
-    const [first, ...rest] = e.props.text.split('\n')
-    const extra = rest.filter(line => line.trim() !== '' && !line.startsWith('```')).length
-    const summary = (first ?? '').replace(`[${TITLE}] `, '')
-    return (
-      <Box flexDirection="row">
-        <Text color="suggestion">{`${TITLE} `}</Text>
-        <Text dimColor wrap="truncate-end">
-          {summary}
-          {extra > 0 ? `  (+${extra} ${extra === 1 ? 'line' : 'lines'}, ctrl+o)` : ''}
-        </Text>
       </Box>
     )
   })

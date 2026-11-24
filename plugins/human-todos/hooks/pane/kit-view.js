@@ -744,7 +744,6 @@ var Row = kitComponent("Row", (props, ctx) => [
   })
 ]);
 // mods/human-todos/src/items.ts
-var PLUGIN = "human-todos";
 var TITLE = "Human Todos";
 var KINDS = ["task", "run", "terminal", "link", "image"];
 var LIVE_LINES_LOCAL = 15;

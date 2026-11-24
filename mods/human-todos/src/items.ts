@@ -2,7 +2,6 @@ import { cellWidth, chunkCells } from '@mattstack/mod-kit'
 
 import type { AddInput, Todo } from '../types'
 
-export const PLUGIN = 'human-todos'
 export const TITLE = 'Human Todos'
 
 // `message` opens the item's message row; `send`, `sendDone` and `cancelMessage` are that row's buttons (kit drawer only).

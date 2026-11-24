@@ -19,13 +19,6 @@ const BAND = {
   props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: 80, scroll: { offset: 0, bodyRows: 10 } },
 } as const
 
-const MESSAGE = (text: string, over: Record<string, unknown> = {}) =>
-  ({
-    plugin: 'human-todos',
-    component: 'UserMessage',
-    props: { text, origin: { kind: 'plugin', name: 'human-todos' }, isExpanded: false, ...over },
-  }) as const
-
 const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'task', title: 'Do it', status: 'open', ...over })
 
 async function seeded($: Engine, on: Parameters<typeof world>[0], list: Todo[]) {
@@ -227,33 +220,6 @@ test('a band with only finished or running items draws nothing', async ($, on) =
   await band.unmount()
 })
 
-test('a plugin row from this plugin draws one compact line; expanded and other rows pass', async ($, on) => {
-  await seeded($, on, [])
-  const row = await $.ui.mount({
-    ...MESSAGE('[Human Todos] The user marked #1 done.\nsecond\nthird'),
-    surface: 'terminal',
-  })
-  expect(await texts(row)).toEqual(['Human Todos ', 'The user marked #1 done.  (+2 lines, ctrl+o)'])
-  expect((await row.find({ type: 'Text', text: 'Human Todos ' }))?.props.color).toBe('suggestion')
-  await row.unmount()
-
-  const one = await $.ui.mount({ ...MESSAGE('[Human Todos] The user skipped #2.'), surface: 'terminal' })
-  expect(await texts(one)).toEqual(['Human Todos ', 'The user skipped #2.'])
-  await one.unmount()
-
-  const fenced = await $.ui.mount({ ...MESSAGE('[Human Todos] Ran #3: exit 0.\n```\nout\n```'), surface: 'terminal' })
-  expect(await texts(fenced)).toEqual(['Human Todos ', 'Ran #3: exit 0.  (+1 line, ctrl+o)'])
-  await fenced.unmount()
-
-  const expanded = await $.ui.mount({ ...MESSAGE('[Human Todos] x\ny', { isExpanded: true }), surface: 'terminal' })
-  expect(await expanded.find({ type: 'Text', text: 'Human Todos ' })).toBeUndefined()
-  await expanded.unmount()
-
-  const other = await $.ui.mount({ ...MESSAGE('[Human Todos] x\ny', { origin: { kind: 'plugin', name: 'other' } }), surface: 'terminal' })
-  expect(await other.find({ type: 'Text', text: 'Human Todos ' })).toBeUndefined()
-  await other.unmount()
-})
-
 test('/todos opens the pane', async ($, on) => {
   const { opened } = world(on)
   await startSession($)
@@ -299,8 +265,6 @@ test('drawing after the session id changed writes nothing and shows the loaded l
   expect(await texts(pane)).toContain('☐ Old')
   const band = await $.ui.mount({ ...BAND, surface: 'vscode' })
   expect((await band.find({ type: 'Text', text: /Human Todo/ }))?.text).toBe('○ 1 Human Todo')
-  const message = await $.ui.mount({ ...MESSAGE('[Human Todos] x'), surface: 'terminal' })
-  await message.unmount()
   await pane.unmount()
   await band.unmount()
 })
