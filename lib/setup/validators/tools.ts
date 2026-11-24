@@ -37,7 +37,7 @@ import { mattstackFloor } from "../mattstack-floor.ts";
 import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
 import { fetchHerdrBuilds, HERDR_MIN_BUILD, herdrVerdict, parseHerdrVersion } from "../herdr-builds.ts";
 import { shellQuote } from "../../herdr-launch.ts";
-import { homebrewHerdrs, homebrewUninstallCommands, staleHerdrSessions } from "../herdr-install.ts";
+import { homebrewHerdrs, homebrewUninstallCommands, isHomebrewHerdr, staleHerdrSessions } from "../herdr-install.ts";
 import { VENDOR_INSTALLERS, vendorBinPath } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
 import { writingStyleRowFor } from "./writing-style.ts";
@@ -116,7 +116,7 @@ function parseHerdrClaudeState(stdout: string): { known: boolean; installed: boo
   return { known: true, installed: state.toLowerCase().startsWith("current"), state };
 }
 
-/** The first herdr on PATH ahead of ~/.local/bin that is neither a link to it nor a fork build; Homebrew's copy is the Homebrew row's. */
+/** The first herdr on PATH ahead of ~/.local/bin that runs something else: not a link to it, which ends the scan, nor a fork build at or past the minimum. Homebrew's copy is the Homebrew row's. */
 async function shadowingHerdr(p: Probes): Promise<string | null> {
   const own = vendorBinPath(p.home, "herdr");
   for (const dir of (p.env.PATH ?? "").split(":").filter((d) => d.length > 0)) {
@@ -124,9 +124,10 @@ async function shadowingHerdr(p: Probes): Promise<string | null> {
     if (candidate === own) return null;
     if (!p.exists(candidate)) continue;
     const target = p.readlink(candidate);
-    if (target !== null && (resolve(dir, target) === own || target.includes("/Cellar/herdr/"))) continue;
+    if (target !== null && resolve(dir, target) === own) return null;
+    if (target?.includes("/Cellar/herdr/")) continue;
     const reported = await exec(p, [candidate, "--version"]);
-    if (reported.code === 0 && parseHerdrVersion(reported.stdout).fork !== null) continue;
+    if (reported.code === 0 && herdrVerdict(parseHerdrVersion(reported.stdout), null).kind === "current") continue;
     return candidate;
   }
   return null;
@@ -148,7 +149,7 @@ async function herdrRow(p: Probes, seams: ToolsSeams): Promise<Row> {
   const version = verdict.version;
 
   const brews = homebrewHerdrs(p);
-  if (brews.length > 0 && verdict.kind === "current") {
+  if (brews.length > 0 && verdict.kind === "current" && !isHomebrewHerdr(herdr, brews)) {
     return row({
       ...base,
       status: "invalid",
@@ -186,7 +187,14 @@ async function herdrRow(p: Probes, seams: ToolsSeams): Promise<Row> {
     });
   }
 
-  if ((await staleHerdrSessions(p, herdr, version, list)).length > 0) {
+  const integrationRes = await exec(p, [...herdr, "integration", "status"]);
+  if (integrationRes.code === 124) return row({ ...base, status: "error", detail: "herdr's integration check did not answer in time" });
+  if (integrationRes.code !== 0) return row({ ...base, status: "error", detail: `Could not check herdr's Claude integration (exit ${integrationRes.code})` });
+
+  const claude = parseHerdrClaudeState(integrationRes.stdout);
+  if (!claude.known) return row({ ...base, status: "error", detail: "Could not tell whether herdr's Claude integration is installed" });
+  const unchecked = verdict.checked ? "" : " (rt could not check for a newer build)";
+  if (claude.installed && ((await staleHerdrSessions(p, herdr, version, list)) ?? []).length > 0) {
     return row({
       ...base,
       required: false,
@@ -196,14 +204,6 @@ async function herdrRow(p: Probes, seams: ToolsSeams): Promise<Row> {
       action: { type: "run", label: "Restart herdr", verb: ["tools", "restart", "herdr"] },
     });
   }
-
-  const integrationRes = await exec(p, [...herdr, "integration", "status"]);
-  if (integrationRes.code === 124) return row({ ...base, status: "error", detail: "herdr's integration check did not answer in time" });
-  if (integrationRes.code !== 0) return row({ ...base, status: "error", detail: `Could not check herdr's Claude integration (exit ${integrationRes.code})` });
-
-  const claude = parseHerdrClaudeState(integrationRes.stdout);
-  if (!claude.known) return row({ ...base, status: "error", detail: "Could not tell whether herdr's Claude integration is installed" });
-  const unchecked = verdict.checked ? "" : " (rt could not check for a newer build)";
   if (claude.installed) return row({ ...base, status: "ready", detail: `${named("herdr", version)}, Claude integration installed${unchecked}` });
   // Install's own herdr.integration step adds this; only the binary gates Install.
   return row({

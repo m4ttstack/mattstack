@@ -269,12 +269,13 @@ describe("toolRows — tool.herdr against the fork's build list", () => {
     /** A version per binary path, for a herdr other than the one setup runs. */
     versions?: Record<string, string>;
     sessions?: { name: string; socket: string; version: string }[];
+    integration?: string;
   }
 
   function herdrExec(script: HerdrScript): ExecScript {
     return (argv, opts) => {
       if (argv[1] === "--version") return ok(`herdr ${script.versions?.[argv[0]!] ?? script.version}\n`);
-      if (argv[1] === "integration") return ok(INTEGRATED);
+      if (argv[1] === "integration") return ok(script.integration ?? INTEGRATED);
       if (argv[1] === "session" && argv[2] === "list") {
         return ok(JSON.stringify({ sessions: (script.sessions ?? []).map((s) => ({ name: s.name, running: true, socket_path: s.socket })) }));
       }
@@ -383,6 +384,36 @@ describe("toolRows — tool.herdr against the fork's build list", () => {
   test("a link to ~/.local/bin/herdr earlier on PATH is no shadow", async () => {
     const p = herdrProbes({ version: "0.9.5-ms.2" }, { env: { PATH: `/Users/x/bin:${HOME}/.local/bin` }, links: { "/Users/x/bin/herdr": LOCAL }, files: { [LOCAL]: "bin" } });
     expect((await herdrRowOf(p)).status).toBe("ready");
+  });
+
+  test("a link to ~/.local/bin/herdr ends the scan, so a stock copy after it is no shadow", async () => {
+    const stock = "/Users/x/.cargo/bin/herdr";
+    const p = herdrProbes(
+      { version: "0.9.5-ms.2", versions: { [stock]: "0.9.5" } },
+      { env: { PATH: `/Users/x/bin:/Users/x/.cargo/bin:${HOME}/.local/bin` }, links: { "/Users/x/bin/herdr": LOCAL }, files: { [stock]: "bin", [LOCAL]: "bin" } },
+    );
+    expect((await herdrRowOf(p)).status).toBe("ready");
+  });
+
+  test("a fork build below the minimum earlier on PATH is a shadow", async () => {
+    const old = "/Users/x/.cargo/bin/herdr";
+    const p = herdrProbes({ version: "0.9.5-ms.2", versions: { [old]: "0.9.4-ms.3" } }, { env: { PATH: `/Users/x/.cargo/bin:${HOME}/.local/bin` }, files: { [old]: "bin", [LOCAL]: "bin" } });
+    const r = await herdrRowOf(p);
+    expect(r.status).toBe("invalid");
+    expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: [`rm ${old}`] });
+  });
+
+  test("a current build that only Homebrew has offers Upgrade, never a bare uninstall", async () => {
+    const brew = "/opt/homebrew/bin/herdr";
+    const r = await herdrRowOf(herdrProbes({ version: "0.9.5-ms.2" }, { links: { [brew]: "../Cellar/herdr/0.9.5/bin/herdr" } }), resolvedTo(brew));
+    expect(r.status).toBe("invalid");
+    expect(r.action).toEqual(UPGRADE);
+  });
+
+  test("a missing Claude integration is named before a stale server", async () => {
+    const r = await herdrRowOf(herdrProbes({ version: "0.9.5-ms.2", integration: "claude: not installed (/x)\n", sessions: [{ name: "work", socket: "/s/work.sock", version: "0.9.5-ms.1" }] }));
+    expect(r.detail).toBe("herdr 0.9.5-ms.2, Claude integration not installed");
+    expect(r.action).toEqual({ type: "run", label: "Install integration", verb: ["tools", "setup", "herdr"] });
   });
 
   test("a herdr after ~/.local/bin on PATH is no shadow", async () => {

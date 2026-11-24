@@ -40,11 +40,12 @@ function parseJson(text: string): unknown {
   }
 }
 
-export async function herdrSessions(p: Probes, herdr: string[]): Promise<HerdrSession[]> {
+/** Null when herdr could not list its sessions, which is not the same as having none. */
+export async function herdrSessions(p: Probes, herdr: string[]): Promise<HerdrSession[] | null> {
   const res = await p.exec([...herdr, "session", "list", "--json"], { timeoutMs: PROBE_TIMEOUT_MS }).catch(() => null);
-  if (!res || res.code !== 0) return [];
+  if (!res || res.code !== 0) return null;
   const parsed = parseJson(res.stdout) as { sessions?: unknown } | null;
-  if (!parsed || !Array.isArray(parsed.sessions)) return [];
+  if (!parsed || !Array.isArray(parsed.sessions)) return null;
   const sessions: HerdrSession[] = [];
   for (const s of parsed.sessions as Record<string, unknown>[]) {
     if (typeof s?.name !== "string" || typeof s.socket_path !== "string") continue;
@@ -61,9 +62,11 @@ export async function serverVersion(p: Probes, herdr: string[], socket: string):
   return parsed.version;
 }
 
-/** Running sessions whose server must move onto `version` (`serverNeedsMove`), and every one whose server version cannot be read, since nothing says it already runs `version`. */
-export async function staleHerdrSessions(p: Probes, herdr: string[], version: string, list: HerdrBuilds | null): Promise<HerdrSession[]> {
-  const running = (await herdrSessions(p, herdr)).filter((s) => s.running);
+/** Running sessions whose server must move onto `version` (`serverNeedsMove`), and every one whose server version cannot be read, since nothing says it already runs `version`. Null when the sessions cannot be listed. */
+export async function staleHerdrSessions(p: Probes, herdr: string[], version: string, list: HerdrBuilds | null): Promise<HerdrSession[] | null> {
+  const sessions = await herdrSessions(p, herdr);
+  if (!sessions) return null;
+  const running = sessions.filter((s) => s.running);
   const versions = await Promise.all(running.map((s) => serverVersion(p, herdr, s.socket)));
   return running.filter((_, i) => versions[i] === null || serverNeedsMove(versions[i]!, version, list));
 }
@@ -75,6 +78,10 @@ export interface HomebrewHerdr {
 
 export function homebrewHerdrs(p: Probes): HomebrewHerdr[] {
   return HOMEBREW_BIN_DIRS.map((dir) => ({ herdr: join(dir, "herdr"), brew: join(dir, "brew") })).filter((b) => p.readlink(b.herdr)?.includes("/Cellar/herdr/"));
+}
+
+export function isHomebrewHerdr(herdr: readonly string[], brews: readonly HomebrewHerdr[]): boolean {
+  return brews.some((b) => b.herdr === herdr[0]);
 }
 
 export function homebrewUninstallCommands(brews: readonly HomebrewHerdr[]): string[] {
@@ -93,10 +100,10 @@ async function uninstallHomebrewHerdr(p: Probes, brews: readonly HomebrewHerdr[]
   return { ok: false, note: `Homebrew's herdr is still installed (brew uninstall exit ${left[0]!.code}). Remove it in a terminal: ${commands}`, remedy: `Run ${commands} in a terminal` };
 }
 
-/** Whether the herdr setup runs is already a current fork build, so only Homebrew's copy is left to remove. */
-async function runsCurrentBuild(p: Probes, list: HerdrBuilds | null): Promise<boolean> {
+/** Whether the herdr setup runs is already a current fork build outside Homebrew, so removing Homebrew's copy still leaves one. */
+async function runsCurrentBuild(p: Probes, list: HerdrBuilds | null, brews: readonly HomebrewHerdr[]): Promise<boolean> {
   const herdr = resolveTool(p, "herdr").exec;
-  if (!herdr) return false;
+  if (!herdr || isHomebrewHerdr(herdr, brews)) return false;
   const res = await p.exec([...herdr, "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
   return res.code === 0 && herdrVerdict(parseHerdrVersion(res.stdout), list).kind === "current";
 }
@@ -124,10 +131,22 @@ async function handOff(p: Probes, herdr: string, session: HerdrSession, version:
   return res.code === 0 && `${res.stdout}\n${res.stderr}`.includes("live handoff complete");
 }
 
+/**
+ * Whether `work` was created here. Under a shared /tmp another user can make
+ * the directory first and swap the download after its sha256 check, so one
+ * that outlives the cleanup is refused, never reused.
+ */
+async function createWorkDir(p: Probes, work: string): Promise<boolean> {
+  await p.exec(["rm", "-rf", work], { timeoutMs: PROBE_TIMEOUT_MS });
+  try {
+    return p.mkdirExclusive(work);
+  } catch {
+    return false;
+  }
+}
+
 /** Downloads, verifies and swaps the build into ~/.local/bin/herdr; a failure's copy, or null once the binary is in place. */
 async function placeBuild(p: Probes, work: string, asset: HerdrBuildAsset, version: string): Promise<string | null> {
-  await p.exec(["rm", "-rf", work], { timeoutMs: PROBE_TIMEOUT_MS });
-  p.mkdirp(work);
   const file = join(work, "herdr");
   const fetched = await p.exec(["curl", "-fsSL", asset.url, "-o", file], { timeoutMs: DOWNLOAD_TIMEOUT_MS });
   if (fetched.code === 124) return "Downloading herdr did not finish in time";
@@ -166,7 +185,7 @@ export async function installHerdrBuild(p: Probes, arch: HostArch): Promise<Inst
 
   const list = await fetchHerdrBuilds(p);
   const brews = homebrewHerdrs(p);
-  if (brews.length > 0 && (await runsCurrentBuild(p, list))) {
+  if (brews.length > 0 && (await runsCurrentBuild(p, list, brews))) {
     const removed = await uninstallHomebrewHerdr(p, brews);
     return { via: "download", ok: removed.ok, detail: capitalize(removed.note), ...(removed.remedy ? { remedy: removed.remedy } : {}) };
   }
@@ -176,6 +195,7 @@ export async function installHerdrBuild(p: Probes, arch: HostArch): Promise<Inst
   if (!asset) return fail(`The newest herdr build has no download for this Mac's processor (${arch})`);
 
   const work = join(p.env.TMPDIR || "/tmp", `rt-herdr-install-${process.pid}`);
+  if (!(await createWorkDir(p, work))) return fail(`rt could not create ${work} for herdr's download, so nothing was installed`);
   try {
     const placed = await placeBuild(p, work, asset, build.version);
     if (placed) return fail(placed);
@@ -191,7 +211,7 @@ export async function installHerdrBuild(p: Probes, arch: HostArch): Promise<Inst
 
   let moved = 0;
   let refused = 0;
-  for (const session of await staleHerdrSessions(p, [dest], build.version, list)) {
+  for (const session of (await staleHerdrSessions(p, [dest], build.version, list)) ?? []) {
     if (await handOff(p, dest, session, build.version)) moved++;
     else refused++;
   }
@@ -202,13 +222,14 @@ export async function installHerdrBuild(p: Probes, arch: HostArch): Promise<Inst
   return { via: "download", ok: removed?.ok ?? true, detail: [`Installed herdr ${build.version}`, ...notes].join("; "), ...(removed?.remedy ? { remedy: removed.remedy } : {}) };
 }
 
-/** `error` is set when ~/.local/bin/herdr itself does not run, so nothing was checked or stopped. */
+/** `error` is set when ~/.local/bin/herdr does not run or cannot list its sessions, so nothing was checked or stopped. */
 export async function restartStaleHerdrServers(p: Probes): Promise<{ stopped: string[]; failed: string[]; error?: string }> {
   const herdr = vendorBinPath(p.home, "herdr");
   const reported = await p.exec([herdr, "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
   if (reported.code !== 0) return { stopped: [], failed: [], error: `~/.local/bin/herdr does not run (exit ${reported.code}), so rt stopped nothing` };
   const { version } = parseHerdrVersion(reported.stdout);
   const stale = await staleHerdrSessions(p, [herdr], version, await fetchHerdrBuilds(p));
+  if (!stale) return { stopped: [], failed: [], error: "herdr could not list its sessions, so rt stopped nothing" };
   const results = await Promise.all(stale.map((s) => p.exec([herdr, "server", "stop"], { env: { HERDR_SOCKET_PATH: s.socket }, timeoutMs: PROBE_TIMEOUT_MS })));
   return {
     stopped: stale.filter((_, i) => results[i]!.code === 0).map((s) => s.name),

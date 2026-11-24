@@ -40,12 +40,12 @@ describe("rt tools restart", () => {
     { name: "fresh", socket: "/s/fresh.sock", version: "0.9.5-ms.2" },
   ];
 
-  function herdrProbes(opts: { stuck?: string[]; broken?: boolean } = {}) {
+  function herdrProbes(opts: { stuck?: string[]; broken?: boolean; unlisted?: boolean } = {}) {
     return fakeProbes({
       home,
       exec: (argv, o) => {
         if (argv[1] === "--version") return opts.broken ? { code: 127, stdout: "", stderr: "" } : ok("herdr 0.9.5-ms.2\n");
-        if (argv[1] === "session") return ok(JSON.stringify({ sessions: sessions.map((s) => ({ name: s.name, running: true, socket_path: s.socket })) }));
+        if (argv[1] === "session") return opts.unlisted ? { code: 124, stdout: "", stderr: "" } : ok(JSON.stringify({ sessions: sessions.map((s) => ({ name: s.name, running: true, socket_path: s.socket })) }));
         if (argv[1] === "status") {
           const s = sessions.find((x) => x.socket === o?.env?.HERDR_SOCKET_PATH);
           return ok(JSON.stringify({ running: true, version: s?.version }));
@@ -77,6 +77,27 @@ describe("rt tools restart", () => {
     const body = JSON.parse(io.stdout());
     expect(body.stopped).toEqual(["work"]);
     expect(body.failed).toEqual(["review"]);
+    expect(body.error).toEqual({ code: "herdr-restart-failed", message: "herdr did not stop: review" });
+    expect(io.stderr()).toBe("");
+  });
+
+  test("--json carries why nothing was stopped", async () => {
+    await expect(toolsRestart(["herdr", "--json"], {}, herdrProbes({ broken: true }))).rejects.toThrow("exit 1");
+    const body = JSON.parse(io.stdout());
+    expect(body.stopped).toEqual([]);
+    expect(body.error.message).toContain("does not run");
+    expect(io.stderr()).toBe("");
+  });
+
+  test("--json has no error when every stale server stopped", async () => {
+    await toolsRestart(["herdr", "--json"], {}, herdrProbes());
+    expect(JSON.parse(io.stdout())).not.toHaveProperty("error");
+  });
+
+  test("sessions herdr cannot list are a failure, never No server needed a restart", async () => {
+    await expect(toolsRestart(["herdr"], {}, herdrProbes({ unlisted: true }))).rejects.toThrow("exit 1");
+    expect(io.stderr()).toContain("herdr could not list its sessions");
+    expect(io.stdout()).toBe("");
   });
 
   test("a server that would not stop is named in a failure, exit 1", async () => {

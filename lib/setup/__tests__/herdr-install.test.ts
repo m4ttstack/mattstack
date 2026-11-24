@@ -274,6 +274,34 @@ describe("installHerdrBuild", () => {
     expect(result.ok).toBe(true);
   });
 
+  test("a current build that only Homebrew has is installed outside it before Homebrew's copy is removed", async () => {
+    const brew = "/opt/homebrew/bin/herdr";
+    const { p, seen } = setup({}, { links: BREW_ARM, env: { TMPDIR: TMP, PATH: "/opt/homebrew/bin" }, files: { [brew]: "brew herdr" } });
+    const exec = p.exec;
+    p.exec = async (argv, opts) => (argv[0] === brew && argv[1] === "--version" ? ok("herdr 0.9.5-ms.2\n") : exec(argv, opts));
+    const result = await installHerdrBuild(p, "arm64");
+    expect(p.calls.renames).toEqual([[STAGED, DEST]]);
+    expect(uninstalls(seen)).toEqual([["/opt/homebrew/bin/brew", "uninstall", "herdr"]]);
+    expect(result.detail).toBe("Installed herdr 0.9.5-ms.2; removed Homebrew's herdr");
+  });
+
+  test("a work directory that outlives the cleanup installs nothing and is not removed", async () => {
+    const { p } = setup({}, { dirs: { [WORK]: [] } });
+    const result = await installHerdrBuild(p, "arm64");
+    expect(result).toEqual({ via: "download", ok: false, detail: `rt could not create ${WORK} for herdr's download, so nothing was installed` });
+    expect(p.calls.exec.some((argv) => argv[0] === "curl")).toBe(false);
+    expect(p.calls.removed).not.toContain(WORK);
+  });
+
+  test("a work directory that cannot be made installs nothing", async () => {
+    const { p } = setup();
+    p.mkdirExclusive = () => {
+      throw new Error("ENOENT: no such file or directory");
+    };
+    expect((await installHerdrBuild(p, "arm64")).ok).toBe(false);
+    expect(p.calls.exec.some((argv) => argv[0] === "curl")).toBe(false);
+  });
+
   test("a Homebrew uninstall that fails is a failed install naming the command to run", async () => {
     const { p } = setup({ brewUninstall: { code: 1, stdout: "", stderr: "Error: permission denied" } }, { links: BREW_ARM });
     expect(await installHerdrBuild(p, "arm64")).toEqual({
@@ -395,9 +423,17 @@ describe("herdr helpers", () => {
     expect(await restartStaleHerdrServers(p)).toEqual({ stopped: ["stock"], failed: [] });
   });
 
-  test("staleHerdrSessions is empty when herdr cannot list sessions", async () => {
-    const p = fakeProbes({ exec: () => ({ code: 127, stdout: "", stderr: "ENOENT" }) });
-    expect(await staleHerdrSessions(p, [DEST], "0.9.5-ms.2", null)).toEqual([]);
+  test("staleHerdrSessions is null when herdr cannot list sessions, and empty when it lists none", async () => {
+    const answers: ExecResult[] = [{ code: 127, stdout: "", stderr: "ENOENT" }, { code: 124, stdout: "", stderr: "" }, ok("not json"), ok("{}")];
+    for (const answer of answers) {
+      expect(await staleHerdrSessions(fakeProbes({ exec: () => answer }), [DEST], "0.9.5-ms.2", null)).toBeNull();
+    }
+    expect(await staleHerdrSessions(fakeProbes({ exec: () => ok('{"sessions":[]}') }), [DEST], "0.9.5-ms.2", null)).toEqual([]);
+  });
+
+  test("restartStaleHerdrServers says so when herdr cannot list its sessions", async () => {
+    const p = fakeProbes({ home: HOME, exec: (argv) => (argv[1] === "--version" ? ok("herdr 0.9.5-ms.2\n") : { code: 124, stdout: "", stderr: "" }) });
+    expect(await restartStaleHerdrServers(p)).toEqual({ stopped: [], failed: [], error: "herdr could not list its sessions, so rt stopped nothing" });
   });
 
   test("homebrewHerdrs finds an Intel Homebrew copy and ignores a non-Cellar link", () => {

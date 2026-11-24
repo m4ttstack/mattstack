@@ -174,11 +174,9 @@ export async function toolsRestart(args: string[], _ctx: CommandContext = {}, p:
   const result = await restartStaleHerdrServers(p);
   const failed = result.error !== undefined || result.failed.length > 0;
   if (json) {
-    out.json(envelope({ stopped: result.stopped, failed: result.failed }));
-    if (failed) {
-      out.fail({ title: result.error ?? `herdr did not stop: ${result.failed.join(", ")}` });
-      process.exit(1);
-    }
+    const message = result.error ?? `herdr did not stop: ${result.failed.join(", ")}`;
+    out.json(envelope({ stopped: result.stopped, failed: result.failed, ...(failed ? { error: { code: "herdr-restart-failed", message } } : {}) }));
+    if (failed) process.exit(1);
     return;
   }
   if (result.error !== undefined) {
