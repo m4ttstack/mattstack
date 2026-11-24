@@ -5,7 +5,7 @@ import { addWheel, bandAbovePrompt, hotkeyChoices, isEngaged, isPlaced, paneMess
 import type { BoardGate, Form, GateFormAskResult, LegacyForm } from '../types'
 import { bellArgs } from './gate/bell'
 import { NO_ADDRESS, addBoardGate, boardAddress, boardText, boardUrl, kindTitle, readBoardOnly } from './gate/board'
-import { addForm, currentForm, fitForm, fromLegacy, knownForms, openCount, patchForm } from './gate/forms'
+import { addForm, currentForm, fitForm, fromLegacy, knownForms, openCount, patchForm, waitingTitle } from './gate/forms'
 import { PLUGIN_QUESTION, agentFields, answerOutcome, boardFields, formFromRow, gateForm, listedGates, pluginForm, readKitResult, savedResult, spillPaths, spilledGate, toForm, type GateCall } from './gate/parse'
 import { BOARD_INSTRUCTION, BOARD_TOAST, GATE_ANSWERED, GATE_ASIDE, GATE_INSTRUCTION, agentReply, type Outcome } from './gate/reply'
 import { RT_OVERRAN, RT_TIMEOUT_MS, rtError, runRt, settingIsOn } from './gate/rt'
@@ -78,10 +78,8 @@ async function writeForms($: EngineInterface, change: (list: Form[]) => Form[]):
 // A form closed before it was answered waits above the prompt, with a way back to it.
 async function waitingForm($: EngineInterface): Promise<Waiting | undefined> {
   const forms = await readForms($)
-  const form = currentForm(forms)
-  if (!form || form.status !== 'open') return undefined
-  const more = openCount(forms) - 1
-  return { formId: form.id, title: more > 0 ? `${form.title}, ${more} more waiting` : form.title }
+  const title = waitingTitle(forms)
+  return title === null ? undefined : { formId: currentForm(forms)!.id, title }
 }
 
 async function setKeysInForm($: EngineInterface, value: boolean): Promise<void> {

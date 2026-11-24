@@ -445,6 +445,13 @@ function currentForm(list) {
   return list.find((f) => f.status === "open") ?? list.at(-1);
 }
 var openCount = (list) => list.filter((f) => f.status === "open").length;
+function waitingTitle(list) {
+  const form = currentForm(list);
+  if (form?.status !== "open")
+    return null;
+  const more = openCount(list) - 1;
+  return more > 0 ? `${form.title}, ${more} more waiting` : form.title;
+}
 function addForm(list, form, supersededId) {
   const replaces = (f) => f.gateId === undefined ? form.gateId === undefined && f.source === form.source : f.gateId === form.gateId || f.gateId === supersededId;
   const at = list.findIndex(replaces);
@@ -1111,11 +1118,8 @@ async function writeForms($, change) {
 }
 async function waitingForm($) {
   const forms = await readForms($);
-  const form = currentForm(forms);
-  if (!form || form.status !== "open")
-    return;
-  const more = openCount(forms) - 1;
-  return { formId: form.id, title: more > 0 ? `${form.title}, ${more} more waiting` : form.title };
+  const title = waitingTitle(forms);
+  return title === null ? undefined : { formId: currentForm(forms).id, title };
 }
 async function setKeysInForm($, value) {
   if (await read($, keysAtom) !== value)
