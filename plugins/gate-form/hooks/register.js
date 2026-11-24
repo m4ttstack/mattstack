@@ -980,6 +980,29 @@ function answerOutcome(stdout, session, by = "pane") {
   return answer.by === by && answer.session === session ? "recorded" : "elsewhere";
 }
 
+// mods/gate-form/src/gate/row.ts
+var TEXT_MAX = 80;
+function oneLine(text) {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > TEXT_MAX ? `${line.slice(0, TEXT_MAX - 1)}…` : line;
+}
+function rowInput(input) {
+  if (typeof input !== "object" || input === null || Array.isArray(input))
+    return input;
+  const row = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (key === "context")
+      continue;
+    if (key === "questions" && Array.isArray(value))
+      row[key] = value.length;
+    else if (typeof value === "string")
+      row[key] = oneLine(value);
+    else if (typeof value === "number" || typeof value === "boolean")
+      row[key] = value;
+  }
+  return row;
+}
+
 // mods/gate-form/src/gate/rt.ts
 var RT_TIMEOUT_MS = 15000;
 async function runRt($, args, timeoutMs = RT_TIMEOUT_MS) {
@@ -1109,6 +1132,7 @@ async function waitFor($, gateId) {
 // mods/gate-form/src/register.tsx
 var PANE = "gate-form";
 var TOOL = "ask";
+var ROW_TOOLS = ["mcp__gate-form__ask", "mcp__plugin_mattstack_mattstack__gate_ask", "mcp__plugin_mattstack_mattstack__gate_open"];
 var GATE_TITLE = "Decision gate";
 var FORM_BUDGET = 95000;
 var formsAtom = atom({ plugin: "gate-form", key: "forms" }, [], { shape: "forms-1" });
@@ -1591,10 +1615,10 @@ async function restore($) {
 function canDraw(e) {
   if (!setting.isOn)
     return false;
-  const surface = drawn.surface;
   const args = e;
-  return e.agentId === undefined && args.handBack !== true && (surface === "terminal" || surface === "desktop");
+  return e.agentId === undefined && args.handBack !== true && drawsForm(drawn.surface);
 }
+var drawsForm = (surface) => surface === "terminal" || surface === "desktop";
 var textOf = (out) => {
   if (typeof out.text === "string")
     return out.text;
@@ -1722,6 +1746,7 @@ function boardBand($, e, rest, board) {
   }, band, rest);
 }
 async function turnOn($) {
+  $.ui.invalidate("ui.render");
   await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false }).catch(() => {
     return;
   });
@@ -1793,6 +1818,13 @@ function register(on) {
   on("tool.call", { tool: "mcp__plugin_mattstack_mattstack__gate_ask" }, ($, e, next) => takeGate($, e, next)).catch(($, e, next) => next(e));
   on("tool.call", { tool: "mcp__plugin_mattstack_mattstack__gate_open" }, ($, e, next) => takeGate($, e, next)).catch(($, e, next) => next(e));
   on("tool.call", { tool: "mcp__plugin_mattstack_mattstack__herd_gate_present" }, ($, e, next) => takeGate($, e, next, true)).catch(($, e, next) => next(e));
+  for (const tool of ROW_TOOLS) {
+    on("ui.render", { component: "ToolUse", props: { tool } }, ($, e, next) => {
+      if (!setting.isOn || e.props.isExpanded || !drawsForm(e.surface))
+        return next(e);
+      return next({ ...e, props: { ...e.props, input: rowInput(e.props.input) } });
+    });
+  }
   on("prompt.edit", async ($, e, next) => {
     await setKeysInForm($, false);
     return next(e);

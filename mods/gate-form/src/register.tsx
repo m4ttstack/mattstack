@@ -10,6 +10,7 @@ import { addForm, currentForm, fitForm, fromLegacy, knownForms, openCount, patch
 import { runHerdr } from './gate/herdr'
 import { PLUGIN_QUESTION, agentFields, answerOutcome, boardFields, formFromRow, gateForm, listedGates, pluginForm, readKitResult, savedResult, spillPaths, spilledGate, toForm, type GateCall } from './gate/parse'
 import { BOARD_INSTRUCTION, BOARD_TOAST, GATE_ANSWERED, GATE_ASIDE, GATE_INSTRUCTION, agentReply, type Outcome } from './gate/reply'
+import { rowInput } from './gate/row'
 import { RT_TIMEOUT_MS, rtError, runRt, settingIsOn } from './gate/rt'
 import { Overran } from './gate/run'
 import { INPUT_SCHEMA, TOOL_DESCRIPTION } from './gate/schema'
@@ -17,6 +18,7 @@ import { endNote, isSelf, rowEnd, waitFor, type GateEnd } from './gate/watch'
 
 const PANE = 'gate-form'
 const TOOL = 'ask'
+const ROW_TOOLS = ['mcp__gate-form__ask', 'mcp__plugin_mattstack_mattstack__gate_ask', 'mcp__plugin_mattstack_mattstack__gate_open']
 const GATE_TITLE = 'Decision gate'
 // Under the engine's 100,000-character cap on a Client's props, with room for the props beside the form.
 const FORM_BUDGET = 95_000
@@ -550,10 +552,11 @@ async function restore($: EngineInterface): Promise<void> {
 // Only a main-loop call on a surface that draws the form takes it; a hand-back opens nothing to draw.
 function canDraw(e: ToolCallInput): boolean {
   if (!setting.isOn) return false
-  const surface = drawn.surface
   const args = e as unknown as { handBack?: unknown }
-  return e.agentId === undefined && args.handBack !== true && (surface === 'terminal' || surface === 'desktop')
+  return e.agentId === undefined && args.handBack !== true && drawsForm(drawn.surface)
 }
+
+const drawsForm = (surface?: RenderSurface) => surface === 'terminal' || surface === 'desktop'
 
 const textOf = (out: ToolCallResult): string => {
   if (typeof out.text === 'string') return out.text
@@ -680,6 +683,8 @@ function boardBand($: EngineInterface, e: Parameters<EngineInterface['ui']['reso
 }
 
 async function turnOn($: EngineInterface): Promise<void> {
+  // A resumed transcript's rows were drawn before the setting was read.
+  $.ui.invalidate('ui.render')
   // Gates still restore when the tool can't be listed.
   await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false }).catch(() => undefined)
   await restore($)
@@ -761,6 +766,14 @@ export function register(on: On): void {
   on('tool.call', { tool: 'mcp__plugin_mattstack_mattstack__gate_ask' }, ($, e, next) => takeGate($, e, next)).catch(($, e, next) => next(e))
   on('tool.call', { tool: 'mcp__plugin_mattstack_mattstack__gate_open' }, ($, e, next) => takeGate($, e, next)).catch(($, e, next) => next(e))
   on('tool.call', { tool: 'mcp__plugin_mattstack_mattstack__herd_gate_present' }, ($, e, next) => takeGate($, e, next, true)).catch(($, e, next) => next(e))
+
+  // The engine's row draws a call's whole input, which the pane already shows. ctrl+o still has it all.
+  for (const tool of ROW_TOOLS) {
+    on('ui.render', { component: 'ToolUse', props: { tool } }, ($, e, next) => {
+      if (!setting.isOn || e.props.isExpanded || !drawsForm(e.surface)) return next(e)
+      return next({ ...e, props: { ...e.props, input: rowInput(e.props.input) } })
+    })
+  }
 
   on('prompt.edit', async ($, e, next) => {
     await setKeysInForm($, false)
