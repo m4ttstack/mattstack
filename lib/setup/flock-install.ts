@@ -7,12 +7,16 @@
 
 import { join } from "path";
 import type { InstallResult } from "./install-result.ts";
+import { readMacosVersion } from "./macos-version.ts";
 import type { ExecResult, Probes } from "./probes.ts";
 
 export const FLOCK_APPCAST_URL = "https://github.com/m4ttstack/flock/releases/latest/download/appcast.xml";
 export const FLOCK_DOWNLOAD_PREFIX = "https://github.com/m4ttstack/flock/releases/download/";
 export const FLOCK_BUNDLE_ID = "dev.mattstack.Flock";
 export const FLOCK_TEAM_ID = "5BF66B3X4V";
+export const FLOCK_MIN_MACOS = 15;
+
+export const flockNeedsMacos = (major: number = FLOCK_MIN_MACOS): string => `Flock needs macOS ${major} or newer`;
 
 const FEED_TIMEOUT_MS = 10_000;
 const PROBE_TIMEOUT_MS = 5000;
@@ -37,9 +41,29 @@ function tag(block: string, name: string): string | null {
   return block.match(new RegExp(`<${name}>\\s*([^<]*?)\\s*</${name}>`))?.[1] ?? null;
 }
 
-/** The item with the highest `sparkle:version` whose enclosure is a zip under the m4ttstack/flock release downloads. */
-export function parseFlockAppcast(xml: string): FlockRelease | null {
-  let best: FlockRelease | null = null;
+/** Dotted numbers compared part by part, so 15.10 is newer than 15.4. */
+function versionAtLeast(have: string, min: string): boolean {
+  const a = have.split(".").map(Number);
+  const b = min.split(".").map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return true;
+}
+
+export interface FlockFeed {
+  /** The highest build that fits this Mac; null when none does. */
+  release: FlockRelease | null;
+  /** The lowest macOS any usable item asks for, so a feed with nothing that fits can say what would. */
+  lowestMinimum: string | null;
+}
+
+/** Items are zips under the m4ttstack/flock release downloads; `macos` null or absent keeps every item in play. */
+export function readFlockFeed(xml: string, macos?: string | null): FlockFeed {
+  let release: FlockRelease | null = null;
+  let lowestMinimum: string | null = null;
   for (const item of xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/g)) {
     const block = item[1]!;
     const build = tag(block, "sparkle:version");
@@ -47,18 +71,35 @@ export function parseFlockAppcast(xml: string): FlockRelease | null {
     const url = block.match(/<enclosure\b[^>]*?\burl="([^"]+)"/)?.[1];
     if (!build || !/^\d+$/.test(build) || !version || !url) continue;
     if (!url.startsWith(FLOCK_DOWNLOAD_PREFIX) || !url.endsWith(".zip") || url.includes("..")) continue;
-    if (!best || Number(build) > best.build) best = { version, build: Number(build), url };
+    const minimum = tag(block, "sparkle:minimumSystemVersion");
+    if (minimum && (!lowestMinimum || versionAtLeast(lowestMinimum, minimum))) lowestMinimum = minimum;
+    if (macos && minimum && !versionAtLeast(macos, minimum)) continue;
+    if (!release || Number(build) > release.build) release = { version, build: Number(build), url };
   }
-  return best;
+  return { release, lowestMinimum };
 }
 
-export async function fetchFlockRelease(p: Pick<Probes, "fetch">): Promise<FlockRelease | null> {
+export function parseFlockAppcast(xml: string, macos?: string | null): FlockRelease | null {
+  return readFlockFeed(xml, macos).release;
+}
+
+async function fetchFlockFeed(p: Pick<Probes, "fetch">, macos?: string | null): Promise<FlockFeed | null> {
   try {
     const res = await p.fetch(FLOCK_APPCAST_URL, { timeoutMs: FEED_TIMEOUT_MS });
-    return res.status === 200 ? parseFlockAppcast(res.body) : null;
+    return res.status === 200 ? readFlockFeed(res.body, macos) : null;
   } catch {
     return null;
   }
+}
+
+export async function fetchFlockRelease(p: Pick<Probes, "fetch">, macos?: string | null): Promise<FlockRelease | null> {
+  return (await fetchFlockFeed(p, macos))?.release ?? null;
+}
+
+/** True only on a Mac whose version could be read and is below the floor. */
+export async function flockBelowFloor(p: Pick<Probes, "exec">): Promise<boolean> {
+  const macos = await readMacosVersion(p);
+  return macos !== null && macos.major < FLOCK_MIN_MACOS;
 }
 
 export interface InstalledFlock {
@@ -116,7 +157,12 @@ export async function installFlock(p: Probes): Promise<InstallResult> {
     const present = await installedFlock(p);
     if (present) return already(present);
 
-    const release = await fetchFlockRelease(p);
+    const macos = await readMacosVersion(p);
+    if (macos && macos.major < FLOCK_MIN_MACOS) return fail(flockNeedsMacos());
+
+    const feed = await fetchFlockFeed(p, macos?.version);
+    if (feed?.lowestMinimum && !feed.release) return fail(flockNeedsMacos(Number.parseInt(feed.lowestMinimum, 10)));
+    const release = feed?.release;
     if (!release) return fail("rt could not read Flock's release feed from m4ttstack/flock");
 
     await p.exec(["rm", "-rf", work], { timeoutMs: PROBE_TIMEOUT_MS });

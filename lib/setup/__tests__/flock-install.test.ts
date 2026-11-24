@@ -16,9 +16,9 @@ const SYSTEM = "/Applications/Flock.app";
 const USER = join(HOME, "Applications", "Flock.app");
 const stagedIn = (dir: string) => join(dir, `.Flock-${process.pid}.new`);
 
-const item = (build: number, version: string, url: string) => `
+const item = (build: number, version: string, url: string, minimum?: string) => `
     <item>
-      <title>Version ${version}</title>
+      <title>Version ${version}</title>${minimum ? `\n      <sparkle:minimumSystemVersion>${minimum}</sparkle:minimumSystemVersion>` : ""}
       <sparkle:version>${build}</sparkle:version>
       <sparkle:shortVersionString>${version}</sparkle:shortVersionString>
       <enclosure url="${url}" length="1" type="application/octet-stream" />
@@ -42,6 +42,8 @@ interface Script {
   codesignDetails?: ExecResult;
   spctl?: ExecResult;
   copy?: ExecResult;
+  /** What `sw_vers -productVersion` prints; an empty answer reads as unreadable. */
+  macos?: ExecResult;
 }
 
 function flockExec(script: Script) {
@@ -53,6 +55,7 @@ function flockExec(script: Script) {
       if (argv[2] === "CFBundleIdentifier") return ids[app] ? ok(`${ids[app]}\n`) : { code: 1, stdout: "", stderr: "no plist" };
       return ok(`${script.versions?.[app] ?? "0.12.2"}\n`);
     }
+    if (argv[0] === "sw_vers") return script.macos ?? ok();
     if (argv[0] === "curl") {
       script.onCurl?.();
       return script.curl ?? ok();
@@ -103,6 +106,30 @@ describe("parseFlockAppcast", () => {
   });
 });
 
+describe("parseFlockAppcast and the Mac's macOS", () => {
+  const needs15 = item(1171, "0.12.1", URL_0_12_1, "15.0");
+  const needs16 = item(1173, "0.12.2", URL_0_12_2, "16.0");
+
+  test("takes the highest build that fits this Mac", () => {
+    expect(parseFlockAppcast(feed(needs15, needs16), "15.2")?.version).toBe("0.12.1");
+    expect(parseFlockAppcast(feed(needs15, needs16), "16.0")?.version).toBe("0.12.2");
+  });
+
+  test("compares dotted numbers, not just the major", () => {
+    const x = feed(item(1173, "0.12.2", URL_0_12_2, "15.4"));
+    expect(parseFlockAppcast(x, "15.3.9")).toBeNull();
+    expect(parseFlockAppcast(x, "15.4")?.version).toBe("0.12.2");
+    expect(parseFlockAppcast(x, "15.4.1")?.version).toBe("0.12.2");
+    expect(parseFlockAppcast(x, "15.10")?.version).toBe("0.12.2");
+  });
+
+  test("an item with no minimum fits, and so does an unknown macOS", () => {
+    expect(parseFlockAppcast(feed(item(1171, "0.12.1", URL_0_12_1), needs16), "14.0")?.version).toBe("0.12.1");
+    expect(parseFlockAppcast(feed(needs16), null)?.version).toBe("0.12.2");
+    expect(parseFlockAppcast(feed(needs16))?.version).toBe("0.12.2");
+  });
+});
+
 describe("fetchFlockRelease", () => {
   test("reads the latest feed and returns null on 404", async () => {
     const p = setup();
@@ -114,6 +141,42 @@ describe("fetchFlockRelease", () => {
   test("a throwing fetch is null", async () => {
     const p = setup({}, { fetch: async () => { throw new Error("offline"); } });
     expect(await fetchFlockRelease(p)).toBeNull();
+  });
+});
+
+describe("Flock's macOS floor", () => {
+  const tooNew = (min: string) => feed(item(1173, "0.12.2", URL_0_12_2, min));
+
+  test("a Mac below macOS 15 is refused without a fetch", async () => {
+    const p = setup({ macos: ok("14.7.1\n") });
+    expect(await installFlock(p)).toEqual({ via: "download", ok: false, detail: "Flock needs macOS 15 or newer" });
+    expect(p.calls.fetch).toEqual([]);
+    expect(p.calls.exec.some((a) => a[0] === "curl")).toBe(false);
+  });
+
+  test("an installed Flock is reported installed on any macOS", async () => {
+    const p = setup({ macos: ok("14.7.1\n"), ids: { [SYSTEM]: FLOCK_BUNDLE_ID } }, { files: { [plistOf(SYSTEM)]: "plist" } });
+    expect(await installFlock(p)).toMatchObject({ ok: true, detail: "Flock 0.12.2 is already installed" });
+  });
+
+  test("macOS 15 installs the newest build that fits", async () => {
+    const p = setup({ macos: ok("15.1\n") }, {}, { body: feed(item(1171, "0.12.1", URL_0_12_1, "15.0"), item(1173, "0.12.2", URL_0_12_2, "16.0")) });
+    expect((await installFlock(p)).detail).toBe("Installed Flock 0.12.1 in /Applications");
+    expect(p.calls.exec).toContainEqual(["curl", "-fsSL", URL_0_12_1, "-o", ZIP]);
+  });
+
+  test("a feed where nothing fits names the lowest minimum on offer", async () => {
+    const p = setup({ macos: ok("15.1\n") }, {}, { body: feed(item(1171, "0.12.1", URL_0_12_1, "16.0"), item(1173, "0.12.2", URL_0_12_2, "17.0")) });
+    expect(await installFlock(p)).toEqual({ via: "download", ok: false, detail: "Flock needs macOS 16 or newer" });
+    expect(p.calls.exec.some((a) => a[0] === "curl")).toBe(false);
+    expect((await installFlock(setup({ macos: ok("15.1\n") }, {}, { body: tooNew("16.2") }))).detail).toBe("Flock needs macOS 16 or newer");
+  });
+
+  test("a version that cannot be read does not count as too old", async () => {
+    for (const macos of [ok(""), { code: 1, stdout: "", stderr: "boom" }]) {
+      const p = setup({ macos });
+      expect((await installFlock(p)).ok).toBe(true);
+    }
   });
 });
 
