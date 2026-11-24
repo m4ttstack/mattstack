@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "path";
 import { HERDR_ASSET_PREFIX } from "../herdr-builds.ts";
-import { homebrewHerdrs, installHerdrBuild, removeHerdrBackups, restartStaleHerdrServers, staleHerdrSessions } from "../herdr-install.ts";
+import { homebrewHerdrs, installHerdrBuild, isHomebrewHerdr, removeHerdrBackups, restartStaleHerdrServers, staleHerdrSessions } from "../herdr-install.ts";
 import type { ExecOpts, ExecResult } from "../probes.ts";
 import { fakeProbes, ok, type FakeProbesOpts } from "./fakes.ts";
 
@@ -285,6 +285,23 @@ describe("installHerdrBuild", () => {
     expect(result.detail).toBe("Installed herdr 0.9.5-ms.2; removed Homebrew's herdr");
   });
 
+  test("a link to Homebrew's current build is not a build of its own: the fork build replaces it first", async () => {
+    const brew = "/opt/homebrew/bin/herdr";
+    const { p } = setup({}, { links: { ...BREW_ARM, [DEST]: brew }, files: { [brew]: "brew herdr" } });
+    const result = await installHerdrBuild(p, "arm64");
+    expect(p.calls.renames).toEqual([[STAGED, DEST]]);
+    expect(result.detail).toBe("Installed herdr 0.9.5-ms.2; removed Homebrew's herdr");
+  });
+
+  test("sessions that cannot be listed after an install say to restart", async () => {
+    const { p } = setup();
+    const exec = p.exec;
+    p.exec = async (argv, opts) => (argv[1] === "session" ? { code: 124, stdout: "", stderr: "" } : exec(argv, opts));
+    const result = await installHerdrBuild(p, "arm64");
+    expect(result.ok).toBe(true);
+    expect(result.detail).toBe("Installed herdr 0.9.5-ms.2; rt could not list herdr's sessions, so restart herdr when your agents are done");
+  });
+
   test("a work directory that outlives the cleanup installs nothing and is not removed", async () => {
     const { p } = setup({}, { dirs: { [WORK]: [] } });
     const result = await installHerdrBuild(p, "arm64");
@@ -439,6 +456,16 @@ describe("herdr helpers", () => {
   test("homebrewHerdrs finds an Intel Homebrew copy and ignores a non-Cellar link", () => {
     expect(homebrewHerdrs(fakeProbes({ links: { "/usr/local/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr" } }))).toEqual([{ herdr: "/usr/local/bin/herdr", brew: "/usr/local/bin/brew" }]);
     expect(homebrewHerdrs(fakeProbes({ links: { "/opt/homebrew/bin/herdr": "/Users/x/.cargo/bin/herdr" } }))).toEqual([]);
+  });
+
+  test("isHomebrewHerdr follows links and knows Homebrew's own folders", () => {
+    const links = { "/opt/homebrew/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr", [DEST]: "/opt/homebrew/bin/herdr", "/Users/x/a/herdr": "/Users/x/b/herdr", "/Users/x/b/herdr": "/Users/x/a/herdr" };
+    const p = fakeProbes({ links });
+    const brews = homebrewHerdrs(p);
+    for (const path of ["/opt/homebrew/bin/herdr", DEST, "/opt/homebrew/opt/herdr/bin/herdr", "/opt/homebrew/Cellar/herdr/0.9.5/bin/herdr"]) {
+      expect({ path, brew: isHomebrewHerdr(p, [path], brews) }).toEqual({ path, brew: true });
+    }
+    for (const path of ["/Users/x/.cargo/bin/herdr", "/Users/x/a/herdr"]) expect({ path, brew: isHomebrewHerdr(p, [path], brews) }).toEqual({ path, brew: false });
   });
 
   test("homebrewHerdrs finds both Homebrew prefixes", () => {

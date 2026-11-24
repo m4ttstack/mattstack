@@ -50,6 +50,7 @@ describe("installTool — tool.herdr (the fork's build list)", () => {
       if (argv[0] === "brew" && argv[1] === "--version") return ok("4.0.0");
       if (argv[0] === "shasum") return ok(`${sha}  ${argv[3]}\n`);
       if (argv[1] === "--version") return ok("herdr 0.9.5-ms.2\n");
+      if (argv[1] === "session") return ok('{"sessions":[]}');
       return ok();
     };
     const p = fakeProbes({ exec, fetch: async () => ({ status: 200, body, headers: {} }) });

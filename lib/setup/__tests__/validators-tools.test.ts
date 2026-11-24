@@ -175,6 +175,7 @@ describe("toolRows — tool.herdr", () => {
       if (argv[0] === "herdr" && argv[1] === "integration" && argv[2] === "status") {
         return ok("claude: current (v7) (/Users/x/.claude/hooks/herdr-agent-state.sh)\ncodex: current (v7) (/Users/x/.codex/herdr-agent-state.sh)\n");
       }
+      if (argv[1] === "session") return ok('{"sessions":[]}');
       return ok();
     };
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
@@ -393,6 +394,29 @@ describe("toolRows — tool.herdr against the fork's build list", () => {
       { env: { PATH: `/Users/x/bin:/Users/x/.cargo/bin:${HOME}/.local/bin` }, links: { "/Users/x/bin/herdr": LOCAL }, files: { [stock]: "bin", [LOCAL]: "bin" } },
     );
     expect((await herdrRowOf(p)).status).toBe("ready");
+  });
+
+  test("a fork build earlier on PATH ends the scan, so a stock copy after it is no shadow", async () => {
+    const [fork, stock] = ["/Users/x/a/herdr", "/Users/x/.cargo/bin/herdr"];
+    const p = herdrProbes(
+      { version: "0.9.5-ms.2", versions: { [stock]: "0.9.5" } },
+      { env: { PATH: `/Users/x/a:/Users/x/.cargo/bin:${HOME}/.local/bin` }, files: { [fork]: "bin", [stock]: "bin", [LOCAL]: "bin" } },
+    );
+    expect((await herdrRowOf(p)).status).toBe("ready");
+  });
+
+  test("a link to Homebrew's current build offers Upgrade, never a bare uninstall", async () => {
+    const links = { "/opt/homebrew/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr", [LOCAL]: "/opt/homebrew/bin/herdr" };
+    expect((await herdrRowOf(herdrProbes({ version: "0.9.5-ms.2" }, { links }))).action).toEqual(UPGRADE);
+  });
+
+  test("sessions that cannot be listed read ready, and say the servers were not checked", async () => {
+    const p = herdrProbes({ version: "0.9.5-ms.2" });
+    const exec = p.exec;
+    p.exec = async (argv, opts) => (argv[1] === "session" ? { code: 124, stdout: "", stderr: "" } : exec(argv, opts));
+    const r = await herdrRowOf(p);
+    expect(r.status).toBe("ready");
+    expect(r.detail).toBe("herdr 0.9.5-ms.2, Claude integration installed (rt could not check its running servers)");
   });
 
   test("a fork build below the minimum earlier on PATH is a shadow", async () => {

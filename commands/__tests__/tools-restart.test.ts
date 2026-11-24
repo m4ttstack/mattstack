@@ -73,7 +73,7 @@ describe("rt tools restart", () => {
 
   test("--json is the stopped and failed lists", async () => {
     const p = herdrProbes({ stuck: ["review"] });
-    await expect(toolsRestart(["herdr", "--json"], {}, p)).rejects.toThrow("exit 1");
+    await expect(toolsRestart(["herdr", "--json"], {}, p)).rejects.toThrow("exit 2");
     const body = JSON.parse(io.stdout());
     expect(body.stopped).toEqual(["work"]);
     expect(body.failed).toEqual(["review"]);
@@ -82,7 +82,7 @@ describe("rt tools restart", () => {
   });
 
   test("--json carries why nothing was stopped", async () => {
-    await expect(toolsRestart(["herdr", "--json"], {}, herdrProbes({ broken: true }))).rejects.toThrow("exit 1");
+    await expect(toolsRestart(["herdr", "--json"], {}, herdrProbes({ broken: true }))).rejects.toThrow("exit 2");
     const body = JSON.parse(io.stdout());
     expect(body.stopped).toEqual([]);
     expect(body.error.message).toContain("does not run");

@@ -176,7 +176,8 @@ export async function toolsRestart(args: string[], _ctx: CommandContext = {}, p:
   if (json) {
     const message = result.error ?? `herdr did not stop: ${result.failed.join(", ")}`;
     out.json(envelope({ stopped: result.stopped, failed: result.failed, ...(failed ? { error: { code: "herdr-restart-failed", message } } : {}) }));
-    if (failed) process.exit(1);
+    // The app reads an envelope's error only on exit 2.
+    if (failed) process.exit(2);
     return;
   }
   if (result.error !== undefined) {

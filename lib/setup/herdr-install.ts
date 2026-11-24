@@ -7,7 +7,7 @@
  * here ever ends a pane.
  */
 
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 import { resolveTool } from "../deps/resolve.ts";
 import { shellQuote } from "../herdr-launch.ts";
 import { fetchHerdrBuilds, herdrVerdict, newestBuild, parseHerdrVersion, serverNeedsMove, type HerdrBuildAsset, type HerdrBuilds } from "./herdr-builds.ts";
@@ -20,6 +20,7 @@ export const HERDR_BACKUP_FILES = ["herdr.pre-mouse-backup"];
 const PROBE_TIMEOUT_MS = 5000;
 const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
 const HANDOFF_TIMEOUT_MS = 5 * 60_000;
+const MAX_LINK_HOPS = 8;
 const HOMEBREW_BIN_DIRS = ["/opt/homebrew/bin", "/usr/local/bin"];
 
 export interface HerdrSession {
@@ -80,8 +81,16 @@ export function homebrewHerdrs(p: Probes): HomebrewHerdr[] {
   return HOMEBREW_BIN_DIRS.map((dir) => ({ herdr: join(dir, "herdr"), brew: join(dir, "brew") })).filter((b) => p.readlink(b.herdr)?.includes("/Cellar/herdr/"));
 }
 
-export function isHomebrewHerdr(herdr: readonly string[], brews: readonly HomebrewHerdr[]): boolean {
-  return brews.some((b) => b.herdr === herdr[0]);
+/** Whether running `herdr` runs Homebrew's copy, directly or through links: uninstalling Homebrew's would leave none. */
+export function isHomebrewHerdr(p: Probes, herdr: readonly string[], brews: readonly HomebrewHerdr[]): boolean {
+  let path = herdr[0] ?? "";
+  for (let hop = 0; hop <= MAX_LINK_HOPS; hop++) {
+    if (brews.some((b) => b.herdr === path) || path.includes("/Cellar/herdr/") || path.includes("/opt/herdr/")) return true;
+    const target = p.readlink(path);
+    if (target === null) return false;
+    path = resolve(dirname(path), target);
+  }
+  return false;
 }
 
 export function homebrewUninstallCommands(brews: readonly HomebrewHerdr[]): string[] {
@@ -103,7 +112,7 @@ async function uninstallHomebrewHerdr(p: Probes, brews: readonly HomebrewHerdr[]
 /** Whether the herdr setup runs is already a current fork build outside Homebrew, so removing Homebrew's copy still leaves one. */
 async function runsCurrentBuild(p: Probes, list: HerdrBuilds | null, brews: readonly HomebrewHerdr[]): Promise<boolean> {
   const herdr = resolveTool(p, "herdr").exec;
-  if (!herdr || isHomebrewHerdr(herdr, brews)) return false;
+  if (!herdr || isHomebrewHerdr(p, herdr, brews)) return false;
   const res = await p.exec([...herdr, "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
   return res.code === 0 && herdrVerdict(parseHerdrVersion(res.stdout), list).kind === "current";
 }
@@ -211,11 +220,13 @@ export async function installHerdrBuild(p: Probes, arch: HostArch): Promise<Inst
 
   let moved = 0;
   let refused = 0;
-  for (const session of (await staleHerdrSessions(p, [dest], build.version, list)) ?? []) {
+  const stale = await staleHerdrSessions(p, [dest], build.version, list);
+  for (const session of stale ?? []) {
     if (await handOff(p, dest, session, build.version)) moved++;
     else refused++;
   }
   if (moved > 0) notes.push(`moved ${moved} running herdr ${moved === 1 ? "server" : "servers"} onto it`);
+  if (!stale) notes.push("rt could not list herdr's sessions, so restart herdr when your agents are done");
   if (refused > 0) notes.push("restart herdr when your agents are done");
   if (removed) notes.push(removed.note);
 
