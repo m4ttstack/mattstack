@@ -1,38 +1,43 @@
-The board shows a review that stops on purpose as held instead of failed, and the PR usher clears its own context between ticks with fresh-context. rt chat's welcome lands without starting a turn, and a run waiting at a board gate ends its turn cleanly.
+mattstack now installs its own updates. With the new org setting `mattstack.autoUpdate` on (the default), the app downloads and installs each new release without a prompt, waiting while setup runs or the daemon is busy, and dev Macs update themselves every hour. A daemon restart no longer fails agents' calls.
 
-### Board
+### Automatic updates
 
-- a review that stops on purpose, for example because the author is closing the MR, shows as **review held** instead of failed; it stays out of Needs me and groups as not reviewed again once the MR moves (#1247)
-- abandoning a run settles its gates (#1241)
+- the app installs a new release silently when `mattstack.autoUpdate` is on; it holds while setup runs or the daemon is busy and retries each minute, then reopens the windows that were open, without taking focus unless mattstack was in front (#1256)
+- the app checks hourly, or every six hours with the setting off; the "Check for updates automatically" switch is gone, and a Mac that turned checking off has it switched back on (#1256)
+- with the setting off, the update prompt returns and the status reads `orgOff`; an update that cannot install silently (one needing an admin password) still opens Sparkle's window (#1256)
+- dev Macs: the daemon runs `rt dev update --auto` each hour, which checks the clone, the daemon and the pinned tools before it fast-forwards, installs, builds and swaps the app; a hold sends one notification per version and reason (#1256)
+- the telemetry page names every hold and shows an org-off Mac as off (#1256)
 
-### Chat
+### Daemon
 
-- rt chat's welcome, and the note that a session was signed out from its pane, arrive without starting a turn (#1248)
+- a daemon restart, from an app update or by hand, no longer fails agents' calls: the daemon answers "starting" and "stopping" while it boots and drains, and clients retry for up to 20 seconds without resending a request (#1255)
+- `rt daemon restart` reports success once the new daemon serves, `rt daemon start` leaves a booting daemon alone, `rt agent` and `rt sync all` wait through a restart, and `rt state restore` refuses during one (#1255)
 
-### Skills
+### Console
 
-- the PR usher clears its own context with fresh-context after each tick, carrying a ledger of its PRs at `~/.mattstack/pr-usher/<repo>.md`; it keeps its context while it waits on a PR author's answer or a background review runs (#1249)
+- the settings repo picker offers every registered repo, grouped by owner; a per-project row opens with no project picked, and the pick stays in the page's link (#1253)
+- a slow settings read or team push no longer drops at Bun's 10 second idle timeout: the app server now allows 255 seconds (#1259, #1260)
 
-### Herd and gates
+### Endpoint
 
-- a run waiting at a board gate ends its turn cleanly: the Stop hook counts any open or parked gate filed against the run as waiting, and `rt gate list` gains `--run` (#1245)
-- the herd watchdog backs off its reminders about a human gate nobody has answered yet (#1240)
-
-### Setup
-
-- a git that fails on the remote check no longer reads as having no remote: the home backup row says it could not tell instead of **Local only**, and the daemon retries the push next cycle (#1242)
+- rt merges its keys into a dev script's existing doppler `--preserve-env` list instead of skipping its own inject, and warns when it cannot find where to inject (#1254)
 
 ### Human Todos
 
-- paste works in the message card (#1243)
+- the Skip button is now **Dismiss**, and a dismissal no longer starts a turn: the agent hears about it with your next prompt (#1252)
+- a second Send while a busy turn still holds the first one no longer sends the item twice (#1257)
 
-### Tests and tooling
+### Skills
 
-- gitq's unit tests stop mocking node builtins (#1244)
-- the release skill treats a locked Mac's unreadable notary profile as expected in an unattended run, not as a missing profile
+- the PR usher clears its context only at the end of a scheduled tick, so a chat message no longer swallows its next wakeup (#1250)
+- the compact-before-plan rule compacts with `fresh_context`, falling back to the pane route when a chat message started the turn (#1251)
 
 ### Held pins
 
-- bun stays at 1.4.4 (1.4.5 is out), and Sparkle at 2.10.0 (2.10.1 is out): a Sparkle bump gets its own tested release, and bun moves only with the artifacts it regenerates.
+- bun stays at 1.4.4 (1.4.5 is out), cloudflared at 2026.11.1 (2026.11.2 is out), and Sparkle at 2.10.0 (2.10.1 is out): a Sparkle bump gets its own tested release.
 
-**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.36.0...v2.36.1
+### Known issues
+
+- the silent install path first runs on the release after this one, once Macs are on v2.37.0; its live checks (a silent install with a window open behind another app, a busy hold during a provision, the org-off prompt, and the dev auto-update surviving a daemon restart) happen then
+
+**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.36.1...v2.37.0

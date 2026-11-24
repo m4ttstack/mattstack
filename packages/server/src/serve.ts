@@ -79,6 +79,9 @@ export async function serveMattstackApp(
     hostname: opts.hostname ?? '127.0.0.1',
     fetch: app.fetch,
     websocket,
+    // Bun's 10s default resets a slow rt read or a team push mid-request;
+    // 255 is Bun's ceiling.
+    idleTimeout: 255,
   });
   const stopRelays = startRelays(relays, (topic, data) =>
     server.publish(topic, data)
