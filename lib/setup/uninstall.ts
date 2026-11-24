@@ -549,19 +549,22 @@ export async function runUninstall(ctx: ApplyContext, actions: UninstallAction[]
  * emptied. `lastApplyOk` goes with it, or setup would reopen at Done;
  * `lastUpdate`, or a reinstall of the same version would skip its update run;
  * `installRanAt`, or the reopened checklist would ask for rows only Install
- * can set up; and `run`, or the reinstalled app's form would read the last
- * run's ok as this setup's and finish it.
+ * can set up; `flockInstalledAt`, or a reinstalled app's update runs would
+ * leave a missing Flock alone as one the member removed; and `run`, or the
+ * reinstalled app's form would read the last run's ok as this setup's and
+ * finish it.
  */
 function clearFinish(ctx: ApplyContext, lastId: UninstallActionId | undefined): void {
   try {
     const state = readSetupState(ctx.p);
-    if (!isSetupFinished(state) && state.lastApplyOk === undefined && state.lastUpdate === undefined && state.installRanAt === undefined && state.run === undefined) return;
+    if (!isSetupFinished(state) && state.lastApplyOk === undefined && state.lastUpdate === undefined && state.installRanAt === undefined && state.flockInstalledAt === undefined && state.run === undefined) return;
     updateSetupState(ctx.p, (s) => {
       const next = { ...s };
       delete next.finishedAt;
       delete next.lastApplyOk;
       delete next.lastUpdate;
       delete next.installRanAt;
+      delete next.flockInstalledAt;
       delete next.run;
       return next;
     });
