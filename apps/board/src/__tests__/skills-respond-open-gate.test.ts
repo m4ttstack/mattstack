@@ -45,14 +45,26 @@ exit "\${STUB_EXIT:-0}"
 chmodSync(statusBin, 0o755);
 
 let n = 0;
-const run = (open: Open | string, env: Record<string, string> = {}) => {
+const run = (
+  open: Open | string,
+  env: Record<string, string> = {},
+  flags: string[] = []
+) => {
   n += 1;
   const file = join(dir, `open-${n}.json`);
   const calls = join(dir, `calls-${n}.jsonl`);
   writeFileSync(file, typeof open === 'string' ? open : JSON.stringify(open));
   writeFileSync(calls, '');
   const proc = Bun.spawnSync(
-    ['sh', script, statusBin, '/board/respond/7.json', 'respond-plan', file],
+    [
+      'sh',
+      script,
+      statusBin,
+      '/board/respond/7.json',
+      'respond-plan',
+      file,
+      ...flags,
+    ],
     { env: { ...process.env, CALLS: calls, ...env } }
   );
   const argv = readFileSync(calls, 'utf8')
@@ -118,6 +130,18 @@ describe('open-gate.sh', () => {
     ]);
     expect(argv).toHaveLength(7);
     expect(r.sent).toEqual(open);
+  });
+
+  test('passes flags after the open file to gate open unchanged', () => {
+    const r = run({ questions: [thread(1, 'prose')] }, {}, [
+      '--no-run-reason',
+      'run_enter: refused, twice',
+    ]);
+    expect(r.exitCode).toBe(0);
+    expect(r.argv[0]!.slice(7)).toEqual([
+      '--no-run-reason',
+      'run_enter: refused, twice',
+    ]);
   });
 
   test('drops the pane-only next question and nothing else', () => {

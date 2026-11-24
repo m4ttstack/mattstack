@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import type { Database } from 'bun:sqlite';
@@ -9,8 +9,10 @@ import {
   type Commands,
   type GateRow,
   type RtResponse,
+  type RunDetail,
 } from '@mattstack/rt-client';
 import type { DoctorState } from '../doctor-state.ts';
+import { GateRefused } from '../gates/review-post-check.ts';
 import {
   gateAnswer,
   gateOpen,
@@ -80,6 +82,7 @@ interface FakeIoCalls {
   gateAsk: Array<Commands['gate:ask']['payload']>;
   gateWait: Array<Commands['gate:wait']['payload']>;
   gateAnswer: Array<Commands['gate:answer']['payload']>;
+  getRun: string[];
 }
 
 function fakeIo(
@@ -87,16 +90,26 @@ function fakeIo(
     openResult?: RtResponse<Commands['gate:ask']['data']>;
     waitResults?: Array<RtResponse<Commands['gate:wait']['data']>>;
     answerResult?: RtResponse<Commands['gate:answer']['data']>;
+    runResult?: RtResponse<RunDetail>;
     /** Advances the fake clock by this much per gateWait call (0 = frozen). */
     msPerWait?: number;
   } = {}
 ): { io: GateVerbIo; calls: FakeIoCalls } {
-  const calls: FakeIoCalls = { gateAsk: [], gateWait: [], gateAnswer: [] };
+  const calls: FakeIoCalls = {
+    gateAsk: [],
+    gateWait: [],
+    gateAnswer: [],
+    getRun: [],
+  };
   const waitResults = overrides.waitResults ?? [];
   let waitIdx = 0;
   let clock = 0;
   const io: GateVerbIo = {
     now: () => clock,
+    getRun: async runId => {
+      calls.getRun.push(runId);
+      return overrides.runResult ?? { ok: true, data: {} as RunDetail };
+    },
     gateAsk: async payload => {
       calls.gateAsk.push(payload);
       return (
@@ -356,6 +369,345 @@ describe('gateOpen', () => {
     expect(row.reportReady).toBe(true);
     const { readReviewReport } = await import('../review-state.ts');
     expect(readReviewReport(MR_URL, db)).toContain('lgtm');
+  });
+});
+
+describe('gateOpen: a plain review gate over a structured report', () => {
+  const FINDING = {
+    id: 'f1',
+    tier: 'Minor',
+    title: 'Comment names the wrong helper',
+    body: 'The comment still names the old helper.',
+  };
+  const REPORT = {
+    version: 3,
+    summary: { readiness: 'with-fixes', reasoning: 'One note.' },
+    findings: [FINDING],
+  };
+  const OUTCOME = {
+    id: 'outcome',
+    label: 'Verdict',
+    multi: false,
+    options: ['approve', 'comment'],
+  };
+  const PLAIN = [
+    {
+      id: 'findings-1',
+      label: 'Post which findings?',
+      multi: true,
+      options: [
+        { value: 'f1', label: '[Minor] Comment names the wrong helper' },
+      ],
+    },
+    OUTCOME,
+  ];
+  const FITTED = [
+    {
+      ...PLAIN[0],
+      context: JSON.stringify({
+        'gate-ctx': 'findings@1',
+        findings: [
+          {
+            id: 'f1',
+            severity: 'minor',
+            title: FINDING.title,
+            body: FINDING.body,
+          },
+        ],
+      }),
+    },
+    OUTCOME,
+  ];
+  const reviewCtx = (extra: object = {}) =>
+    JSON.stringify({
+      'gate-ctx': 'review@1',
+      readiness: 'with-fixes',
+      summary: 'One note.',
+      findings: { minor: 1 },
+      ...extra,
+    });
+  const RUN_START = 1_700_000_000_000;
+
+  /** The report json sits at the handle's own path (see readReviewReportJson). */
+  function writeReport(report: unknown, writtenAt = RUN_START + 60_000): void {
+    mkdirSync(dirname(statePath), { recursive: true });
+    writeFileSync(
+      statePath,
+      typeof report === 'string' ? report : JSON.stringify(report)
+    );
+    utimesSync(statePath, writtenAt / 1000, writtenAt / 1000);
+  }
+
+  function writeMarkdown(text: string): void {
+    mkdirSync(dirname(statePath), { recursive: true });
+    writeFileSync(reportPathForHandle(statePath), text);
+  }
+
+  beforeEach(() => {
+    db.run('DELETE FROM agent_states');
+    writeState({ runStartedAt: RUN_START });
+    writeMarkdown('# review\n\nreview-run: run-1\n');
+  });
+
+  interface Extras {
+    context?: string;
+    plainReason?: string;
+    noRunReason?: string;
+  }
+
+  async function refused(
+    questions: unknown,
+    extras: Extras = {},
+    run: RtResponse<RunDetail> = { ok: true, data: {} as RunDetail }
+  ): Promise<string> {
+    const { io, calls } = fakeIo({ runResult: run });
+    const err = await gateOpen(
+      statePath,
+      'review-post',
+      JSON.stringify(questions),
+      io,
+      extras
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GateRefused);
+    expect(calls.gateAsk).toEqual([]);
+    expect(readState().gateId).toBeUndefined();
+    return (err as Error).message;
+  }
+
+  async function opened(
+    questions: unknown,
+    extras: Extras = {},
+    kind = 'review-post',
+    run?: RtResponse<RunDetail>
+  ): Promise<Commands['gate:ask']['payload']> {
+    const { io, calls } = fakeIo({ runResult: run });
+    await gateOpen(statePath, kind, JSON.stringify(questions), io, extras);
+    return calls.gateAsk[0]!;
+  }
+
+  test('hand-built questions are refused, naming the skipped step and the flag', async () => {
+    writeReport(REPORT);
+    const message = await refused(PLAIN, { context: 'Ready with fixes' });
+    expect(message).toContain('review-source.sh');
+    expect(message).toContain('gate_open');
+    expect(message).toContain('handBack');
+    expect(message).toContain('--plain-reason');
+  });
+
+  test('tier questions over a structured report are refused too', async () => {
+    writeReport(REPORT);
+    await refused(QUESTIONS);
+  });
+
+  test('a clean structured report still needs its review@1 context', async () => {
+    writeReport({ ...REPORT, findings: [] });
+    await refused([OUTCOME], { context: 'Ready to merge' });
+  });
+
+  test('review@1 over a findings question with no findings@1 is refused', async () => {
+    writeReport(REPORT);
+    await refused(PLAIN, { context: reviewCtx() });
+  });
+
+  test('review@1 with the findings questions left out is refused', async () => {
+    writeReport(REPORT);
+    await refused([OUTCOME], { context: reviewCtx() });
+  });
+
+  test('a fitted open goes through as it is', async () => {
+    writeReport(REPORT);
+    const context = reviewCtx();
+    const payload = await opened(FITTED, { context });
+    expect(payload.context).toBe(context);
+    expect(payload.questions).toEqual(FITTED as never);
+  });
+
+  test('a clean fitted open goes through', async () => {
+    writeReport({ ...REPORT, findings: [] });
+    await opened([OUTCOME], { context: reviewCtx({ findings: {} }) });
+  });
+
+  test('a re-review whose fitted open carries only threads goes through', async () => {
+    writeReport({ ...REPORT, findings: [], threads: [{ discussionId: 'd1' }] });
+    const thread = {
+      id: 'thread-1',
+      label: 'a.ts:1',
+      multi: true,
+      context: JSON.stringify({ 'gate-ctx': 'carryover@1', thread: 'd1' }),
+      options: ['post:d1', 'resolve:d1'],
+    };
+    await opened([thread, OUTCOME], {
+      context: reviewCtx({ findings: {}, re_review: true, round: 2 }),
+    });
+  });
+
+  test('a stated reason opens the plain gate and heads its context', async () => {
+    writeReport(REPORT);
+    const payload = await opened(PLAIN, {
+      context: 'Ready with fixes',
+      plainReason: ' review-source.sh exit 2: cannot read extras ',
+    });
+    expect(payload.context).toBe(
+      'Plain gate: review-source.sh exit 2: cannot read extras\n\nReady with fixes'
+    );
+  });
+
+  test('a stated reason stands alone when the gate has no context', async () => {
+    writeReport(REPORT);
+    const payload = await opened(PLAIN, { plainReason: 'gate_open refused' });
+    expect(payload.context).toBe('Plain gate: gate_open refused');
+  });
+
+  test('a blank reason is no reason', async () => {
+    writeReport(REPORT);
+    await refused(PLAIN, { plainReason: '  ' });
+  });
+
+  test('a reason never touches a fitted open', async () => {
+    writeReport(REPORT);
+    const context = reviewCtx();
+    const payload = await opened(FITTED, { context, plainReason: 'unneeded' });
+    expect(payload.context).toBe(context);
+  });
+
+  test.each<[string, unknown]>([
+    ['no report json', null],
+    ['unparseable json', '{ nope'],
+    ['a legacy report with no version', { ...REPORT, version: undefined }],
+  ])('%s still opens a plain gate', async (_name, report) => {
+    if (report !== null) writeReport(report);
+    await opened(PLAIN);
+  });
+
+  test('a versioned report with malformed findings still needs the fitted context and the run', async () => {
+    writeReport({ ...REPORT, findings: 'x' });
+    writeMarkdown('# review\n');
+    const message = await refused(QUESTIONS);
+    expect(message).toContain('review-source.sh');
+    expect(message).toContain('run_enter');
+  });
+
+  test('a stated reason opens the plain gate over malformed findings', async () => {
+    writeReport({ ...REPORT, findings: 'x' });
+    const payload = await opened(QUESTIONS, {
+      plainReason: 'review-source.sh exit 1: findings: required array',
+    });
+    expect(payload.context).toBe(
+      'Plain gate: review-source.sh exit 1: findings: required array'
+    );
+  });
+
+  test('a reason over a partly fitted gate flattens its review@1 context to prose', async () => {
+    writeReport(REPORT);
+    const payload = await opened(PLAIN, {
+      context: reviewCtx(),
+      plainReason: 'gate_open refused',
+    });
+    expect(payload.context).toStartWith('Plain gate: gate_open refused\n\n');
+    expect(payload.context).toContain('One note.');
+    expect(payload.context).not.toContain('gate-ctx');
+  });
+
+  test('a report json from before this run is stale, as on the generic path', async () => {
+    writeReport(REPORT, RUN_START - 60_000);
+    await opened(QUESTIONS);
+  });
+
+  test('other review gates are left alone', async () => {
+    writeReport(REPORT);
+    await opened([OUTCOME], {}, 'review-escalation');
+  });
+
+  describe('the run the review recorded', () => {
+    const NOT_FOUND: RtResponse<RunDetail> = {
+      ok: false,
+      error: 'run not found',
+    };
+
+    test('a fitted open with no review-run line is refused, naming run_enter', async () => {
+      writeReport(REPORT);
+      writeMarkdown('# review\n');
+      const message = await refused(FITTED, { context: reviewCtx() });
+      expect(message).toContain('run_enter');
+      expect(message).toContain('review-run:');
+      expect(message).toContain('--no-run-reason');
+      expect(message).not.toContain('review-source.sh');
+    });
+
+    test('a missing report markdown has no run either', async () => {
+      writeReport(REPORT);
+      rmSync(reportPathForHandle(statePath));
+      await refused(FITTED, { context: reviewCtx() });
+    });
+
+    test('a review-run line naming no known run is refused', async () => {
+      writeReport(REPORT);
+      const message = await refused(
+        FITTED,
+        { context: reviewCtx() },
+        NOT_FOUND
+      );
+      expect(message).toContain('run_enter');
+    });
+
+    test('the last review-run line is the one that is checked', async () => {
+      writeReport(REPORT);
+      writeMarkdown('review-run: run-old\n\nreview-run: run-2\n');
+      const { io, calls } = fakeIo();
+      await gateOpen(statePath, 'review-post', JSON.stringify(FITTED), io, {
+        context: reviewCtx(),
+      });
+      expect(calls.getRun).toEqual(['run-2']);
+    });
+
+    test('a daemon that cannot answer is not taken for a missing run', async () => {
+      writeReport(REPORT);
+      await opened(FITTED, { context: reviewCtx() }, 'review-post', {
+        ok: false,
+        error: 'timeout',
+      });
+    });
+
+    test('a plain gate with no run names both missing pieces at once', async () => {
+      writeReport(REPORT);
+      writeMarkdown('# review\n');
+      const message = await refused(PLAIN);
+      expect(message).toContain('review-source.sh');
+      expect(message).toContain('run_enter');
+    });
+
+    test('each piece needs its own reason', async () => {
+      writeReport(REPORT);
+      writeMarkdown('# review\n');
+      expect(await refused(PLAIN, { plainReason: 'exit 2' })).not.toContain(
+        'review-source.sh'
+      );
+      expect(await refused(PLAIN, { noRunReason: 'refused' })).not.toContain(
+        'run_enter'
+      );
+    });
+
+    test('a stated reason opens a fitted gate with its context untouched', async () => {
+      writeReport(REPORT);
+      writeMarkdown('# review\n');
+      const context = reviewCtx();
+      const payload = await opened(FITTED, {
+        context,
+        noRunReason: 'run_enter: flags refused',
+      });
+      expect(payload.context).toBe(context);
+    });
+
+    test('a blank reason is no reason', async () => {
+      writeReport(REPORT);
+      writeMarkdown('# review\n');
+      await refused(FITTED, { context: reviewCtx(), noRunReason: ' ' });
+    });
+
+    test('a review with no structured report needs no run', async () => {
+      writeMarkdown('# review\n');
+      await opened(QUESTIONS);
+    });
   });
 });
 
@@ -1178,9 +1530,15 @@ describe('presentation parity (BOARD-31)', () => {
     io: GateVerbIo;
     calls: FakeIoCalls;
   } {
-    const calls: FakeIoCalls = { gateAsk: [], gateWait: [], gateAnswer: [] };
+    const calls: FakeIoCalls = {
+      gateAsk: [],
+      gateWait: [],
+      gateAnswer: [],
+      getRun: [],
+    };
     const io: GateVerbIo = {
       now: () => 0,
+      getRun: async () => ({ ok: true, data: {} as RunDetail }),
       gateAsk: async payload => {
         calls.gateAsk.push(payload);
         return {

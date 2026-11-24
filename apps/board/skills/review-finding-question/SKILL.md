@@ -120,7 +120,7 @@ it, report again in the same shape, and ask again.
    say so, and carry on as step 2 does. Any other failure: take the
    **restore path** below.
 7. Run the same `open-gate.sh <status-bin> <state> review-post
-   <open-file>`. The new gate supersedes the old one, a parked one too. If
+   <open-file>`, with any flag the first open carried. The new gate supersedes the old one, a parked one too. If
    it exits non-zero, take the **restore path** below.
 8. Delete both copies. If a background wait loop is still running on the
    old gate, stop it with TaskStop (load it with ToolSearch when it is

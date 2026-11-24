@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 
 import {
@@ -81,4 +81,87 @@ test('gate open against a daemon that answers 413 exits 1 with a clear error, no
   expect(stderr).toContain('request too large');
   expect(stderr).not.toContain('TypeError');
   expect(stderr).not.toContain('res.ok');
+});
+
+test('gate open refuses a plain review gate with exit 3, apart from a daemon failure', async () => {
+  const sock = join(dir, 'fake.sock');
+  server = Bun.serve({
+    unix: sock,
+    fetch: () => new Response('null', { status: 413 }),
+  } as never);
+  const db = openStateDb(dbPathForRoot(dir), 'cli');
+  const statePath = mintHandle('review', MR_URL, dir);
+  insertAgentState(
+    'review',
+    MR_URL,
+    4821,
+    {
+      mrUrl: MR_URL,
+      iid: 4821,
+      status: 'reviewing',
+      startedAt: 1,
+      updatedAt: 1,
+    },
+    statePath,
+    db
+  );
+  mkdirSync(dirname(statePath), { recursive: true });
+  writeFileSync(
+    statePath,
+    JSON.stringify({
+      version: 3,
+      summary: { readiness: 'yes', reasoning: 'Fine.' },
+      findings: [],
+    })
+  );
+
+  const run = async (...flags: string[]) => {
+    const proc = Bun.spawn(
+      [
+        process.execPath,
+        join(import.meta.dir, '../../bin/gate.ts'),
+        'open',
+        statePath,
+        '--kind',
+        'review-post',
+        '--questions',
+        JSON.stringify([
+          { id: 'outcome', label: 'Verdict', multi: false, options: ['a'] },
+        ]),
+        ...flags,
+      ],
+      {
+        env: {
+          HOME: dir,
+          PATH: process.env.PATH ?? '',
+          RT_DAEMON_SOCK: sock,
+        },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      }
+    );
+    const [stderr, code] = await Promise.all([
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    return { stderr, code };
+  };
+
+  const plain = await run();
+  expect(plain.code).toBe(3);
+  expect(plain.stderr).toContain('review-source.sh');
+  expect(plain.stderr).toContain('run_enter');
+
+  const reasoned = await run('--plain-reason', 'review-source.sh exit 2');
+  expect(reasoned.code).toBe(3);
+  expect(reasoned.stderr).not.toContain('review-source.sh');
+
+  const both = await run(
+    '--plain-reason',
+    'review-source.sh exit 2',
+    '--no-run-reason',
+    'run_enter refused'
+  );
+  expect(both.code).toBe(1);
+  expect(both.stderr).not.toContain('run_enter');
 });
