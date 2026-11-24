@@ -4,7 +4,7 @@ export type Outcome = { status: 'answered'; answers: Record<string, unknown> } |
 
 export const REPLY_TAG = '[gate-form] '
 
-// On one line: the transcript draws this message whole, since a mod's render hooks never run on a prompt it sent.
+// On one line: the terminal draws this message whole, since it does not run a mod's render hooks on a prompt that mod sent.
 const json = (value: unknown) => `\`\`\`json\n${JSON.stringify(value)}\n\`\`\``
 
 export function agentReply(form: Form, outcome: Outcome): string {
