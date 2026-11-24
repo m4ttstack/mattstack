@@ -36,7 +36,7 @@ import { chromeInstalled } from "../chrome.ts";
 import { mattstackFloor } from "../mattstack-floor.ts";
 import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
 import { fetchHerdrBuilds, HERDR_MIN_BUILD, herdrVerdict, parseHerdrVersion } from "../herdr-builds.ts";
-import { homebrewHerdr, staleHerdrSessions } from "../herdr-install.ts";
+import { homebrewHerdrs, homebrewUninstallCommands, staleHerdrSessions } from "../herdr-install.ts";
 import { VENDOR_INSTALLERS, vendorBinPath } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
 import { writingStyleRowFor } from "./writing-style.ts";
@@ -140,11 +140,20 @@ async function herdrRow(p: Probes, seams: ToolsSeams): Promise<Row> {
   if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run herdr (exit ${versionRes.code})` });
 
   const upgrade = provisionedInstallAction("herdr", "Upgrade");
-  if (homebrewHerdr(p)) return row({ ...base, status: "invalid", detail: "Homebrew's herdr would run instead of the mattstack build. Upgrade removes it", action: upgrade });
-
   const list = await fetchHerdrBuilds(p);
   const verdict = herdrVerdict(parseHerdrVersion(versionRes.stdout), list);
   const version = verdict.version;
+
+  const brews = homebrewHerdrs(p);
+  if (brews.length > 0 && verdict.kind === "current") {
+    return row({
+      ...base,
+      status: "invalid",
+      detail: "Homebrew's herdr is still installed beside the mattstack build. Remove it in a terminal",
+      action: { type: "steps", label: "Show steps…", steps: homebrewUninstallCommands(brews) },
+    });
+  }
+  if (brews.length > 0) return row({ ...base, status: "invalid", detail: "Homebrew's herdr would run instead of the mattstack build. Upgrade removes it", action: upgrade });
   if (verdict.kind === "stock") {
     const which = /^[0-9]/.test(version) ? named("herdr", version) : "herdr";
     return row({ ...base, status: "invalid", detail: `${which} is not the mattstack build. Upgrade installs ${verdict.target}`, action: upgrade });

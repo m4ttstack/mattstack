@@ -6,6 +6,8 @@ export interface InstallResult {
   via: InstallVia;
   ok: boolean;
   detail: string;
+  /** A setup step's remedy for a failure no retry of the install clears, excluded from the JSON envelope. */
+  remedy?: string;
   /** Internal bundled-link classification, excluded from the JSON envelope. */
   reason?: Extract<LinkOutcome, { ok: false }>["reason"];
 }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "path";
 import { HERDR_ASSET_PREFIX } from "../herdr-builds.ts";
-import { homebrewHerdr, installHerdrBuild, removeHerdrBackups, restartStaleHerdrServers, staleHerdrSessions } from "../herdr-install.ts";
+import { homebrewHerdrs, installHerdrBuild, removeHerdrBackups, restartStaleHerdrServers, staleHerdrSessions } from "../herdr-install.ts";
 import type { ExecOpts, ExecResult } from "../probes.ts";
 import { fakeProbes, ok, type FakeProbesOpts } from "./fakes.ts";
 
@@ -229,20 +229,67 @@ describe("installHerdrBuild", () => {
     expect(absent.p.calls.removed).not.toContain(backup);
   });
 
-  test("uninstalls Homebrew herdr", async () => {
-    const { p } = setup({}, { links: { "/opt/homebrew/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr" } });
+  const BREW_ARM = { "/opt/homebrew/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr" };
+  const BREW_BOTH = { ...BREW_ARM, "/usr/local/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr" };
+  const uninstalls = (seen: Seen[]) => seen.filter((c) => c.argv[1] === "uninstall").map((c) => c.argv);
+
+  test("a stock herdr beside Homebrew's gets the build, then Homebrew's copy is removed", async () => {
+    const { p, seen } = setup({ installedVersion: "0.9.5" }, { links: BREW_ARM });
     const result = await installHerdrBuild(p, "arm64");
-    expect(p.calls.exec).toContainEqual(["/opt/homebrew/bin/brew", "uninstall", "herdr"]);
-    expect(result.ok).toBe(true);
-    expect(result.detail).toContain("removed Homebrew's herdr");
+    expect(p.calls.renames).toEqual([[STAGED, DEST]]);
+    expect(uninstalls(seen)).toEqual([["/opt/homebrew/bin/brew", "uninstall", "herdr"]]);
+    expect(result).toEqual({ via: "download", ok: true, detail: "Installed herdr 0.9.5-ms.2; removed Homebrew's herdr" });
   });
 
-  test("a Homebrew uninstall that fails is noted, not a failed install", async () => {
-    const { p } = setup({ brewUninstall: { code: 1, stdout: "", stderr: "Error: permission denied" } }, { links: { "/opt/homebrew/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr" } });
+  test("every Homebrew prefix is uninstalled in one press", async () => {
+    const { p, seen } = setup({ installedVersion: "0.9.5" }, { links: BREW_BOTH });
     const result = await installHerdrBuild(p, "arm64");
+    expect(uninstalls(seen)).toEqual([
+      ["/opt/homebrew/bin/brew", "uninstall", "herdr"],
+      ["/usr/local/bin/brew", "uninstall", "herdr"],
+    ]);
     expect(result.ok).toBe(true);
-    expect(result.detail).toContain("Homebrew");
-    expect(result.detail).not.toContain("removed Homebrew's herdr");
+  });
+
+  test("Homebrew's herdr beside a current build is only uninstalled, never downloaded over", async () => {
+    const { p, seen } = setup({}, { links: BREW_ARM });
+    const result = await installHerdrBuild(p, "arm64");
+    expect(p.calls.exec.some((argv) => argv[0] === "curl")).toBe(false);
+    expect(p.calls.renames).toEqual([]);
+    expect(uninstalls(seen)).toEqual([["/opt/homebrew/bin/brew", "uninstall", "herdr"]]);
+    expect(result).toEqual({ via: "download", ok: true, detail: "Removed Homebrew's herdr" });
+  });
+
+  test("a dev build newer than the list's newest is never downgraded to remove Homebrew's herdr", async () => {
+    const { p } = setup({ installedVersion: "0.9.5-ms.9" }, { links: BREW_ARM });
+    await installHerdrBuild(p, "arm64");
+    expect(p.calls.exec.some((argv) => argv[0] === "curl")).toBe(false);
+    expect(p.calls.renames).toEqual([]);
+  });
+
+  test("Homebrew's herdr beside a current build is removed with the build list unreachable", async () => {
+    const { p, seen } = setup({}, { links: BREW_ARM }, { fetchStatus: 404 });
+    const result = await installHerdrBuild(p, "arm64");
+    expect(uninstalls(seen)).toHaveLength(1);
+    expect(result.ok).toBe(true);
+  });
+
+  test("a Homebrew uninstall that fails is a failed install naming the command to run", async () => {
+    const { p } = setup({ brewUninstall: { code: 1, stdout: "", stderr: "Error: permission denied" } }, { links: BREW_ARM });
+    expect(await installHerdrBuild(p, "arm64")).toEqual({
+      via: "download",
+      ok: false,
+      detail: "Homebrew's herdr is still installed (brew uninstall exit 1). Remove it in a terminal: /opt/homebrew/bin/brew uninstall herdr",
+      remedy: "Run /opt/homebrew/bin/brew uninstall herdr in a terminal",
+    });
+  });
+
+  test("a Homebrew uninstall that fails after a download keeps the build and still fails", async () => {
+    const { p } = setup({ installedVersion: "0.9.5", brewUninstall: { code: 1, stdout: "", stderr: "Error" } }, { links: BREW_ARM });
+    const result = await installHerdrBuild(p, "arm64");
+    expect(p.calls.renames).toEqual([[STAGED, DEST]]);
+    expect(result.ok).toBe(false);
+    expect(result.detail).toBe("Installed herdr 0.9.5-ms.2; Homebrew's herdr is still installed (brew uninstall exit 1). Remove it in a terminal: /opt/homebrew/bin/brew uninstall herdr");
   });
 
   test("hands off each stale running session", async () => {
@@ -328,9 +375,14 @@ describe("herdr helpers", () => {
     expect(await staleHerdrSessions(p, [DEST], "0.9.5-ms.2", null)).toEqual([]);
   });
 
-  test("homebrewHerdr finds an Intel Homebrew copy and ignores a non-Cellar link", () => {
-    expect(homebrewHerdr(fakeProbes({ links: { "/usr/local/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr" } }))).toEqual({ herdr: "/usr/local/bin/herdr", brew: "/usr/local/bin/brew" });
-    expect(homebrewHerdr(fakeProbes({ links: { "/opt/homebrew/bin/herdr": "/Users/x/.cargo/bin/herdr" } }))).toBeNull();
+  test("homebrewHerdrs finds an Intel Homebrew copy and ignores a non-Cellar link", () => {
+    expect(homebrewHerdrs(fakeProbes({ links: { "/usr/local/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr" } }))).toEqual([{ herdr: "/usr/local/bin/herdr", brew: "/usr/local/bin/brew" }]);
+    expect(homebrewHerdrs(fakeProbes({ links: { "/opt/homebrew/bin/herdr": "/Users/x/.cargo/bin/herdr" } }))).toEqual([]);
+  });
+
+  test("homebrewHerdrs finds both Homebrew prefixes", () => {
+    const links = { "/opt/homebrew/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr", "/usr/local/bin/herdr": "../Cellar/herdr/0.9.4/bin/herdr" };
+    expect(homebrewHerdrs(fakeProbes({ links })).map((b) => b.brew)).toEqual(["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]);
   });
 
   test("removeHerdrBackups names what it removed", () => {

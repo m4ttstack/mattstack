@@ -8,7 +8,9 @@
  */
 
 import { dirname, join } from "path";
-import { fetchHerdrBuilds, newestBuild, parseHerdrVersion, serverNeedsMove, type HerdrBuildAsset, type HerdrBuilds } from "./herdr-builds.ts";
+import { resolveTool } from "../deps/resolve.ts";
+import { shellQuote } from "../herdr-launch.ts";
+import { fetchHerdrBuilds, herdrVerdict, newestBuild, parseHerdrVersion, serverNeedsMove, type HerdrBuildAsset, type HerdrBuilds } from "./herdr-builds.ts";
 import { vendorBinPath, type InstallResult } from "./install-result.ts";
 import type { Probes } from "./probes.ts";
 import type { HostArch } from "./requirements.ts";
@@ -66,12 +68,41 @@ export async function staleHerdrSessions(p: Probes, herdr: string[], version: st
   return running.filter((_, i) => versions[i] !== null && serverNeedsMove(versions[i]!, version, list));
 }
 
-export function homebrewHerdr(p: Probes): { herdr: string; brew: string } | null {
-  for (const dir of HOMEBREW_BIN_DIRS) {
-    const herdr = join(dir, "herdr");
-    if (p.readlink(herdr)?.includes("/Cellar/herdr/")) return { herdr, brew: join(dir, "brew") };
+export interface HomebrewHerdr {
+  herdr: string;
+  brew: string;
+}
+
+export function homebrewHerdrs(p: Probes): HomebrewHerdr[] {
+  return HOMEBREW_BIN_DIRS.map((dir) => ({ herdr: join(dir, "herdr"), brew: join(dir, "brew") })).filter((b) => p.readlink(b.herdr)?.includes("/Cellar/herdr/"));
+}
+
+export function homebrewUninstallCommands(brews: readonly HomebrewHerdr[]): string[] {
+  return brews.map((b) => `${shellQuote(b.brew)} uninstall herdr`);
+}
+
+/** Uninstalls Homebrew's herdr from each prefix; a note for the result's detail, and whether every one went. */
+async function uninstallHomebrewHerdr(p: Probes, brews: readonly HomebrewHerdr[]): Promise<{ ok: boolean; note: string; remedy?: string }> {
+  const left: { brew: HomebrewHerdr; code: number }[] = [];
+  for (const brew of brews) {
+    const res = await p.exec([brew.brew, "uninstall", "herdr"], { timeoutMs: DOWNLOAD_TIMEOUT_MS });
+    if (res.code !== 0) left.push({ brew, code: res.code });
   }
-  return null;
+  if (left.length === 0) return { ok: true, note: "removed Homebrew's herdr" };
+  const commands = homebrewUninstallCommands(left.map((l) => l.brew)).join(" && ");
+  return { ok: false, note: `Homebrew's herdr is still installed (brew uninstall exit ${left[0]!.code}). Remove it in a terminal: ${commands}`, remedy: `Run ${commands} in a terminal` };
+}
+
+/** Whether the herdr setup runs is already a current fork build, so only Homebrew's copy is left to remove. */
+async function runsCurrentBuild(p: Probes, list: HerdrBuilds | null): Promise<boolean> {
+  const herdr = resolveTool(p, "herdr").exec;
+  if (!herdr) return false;
+  const res = await p.exec([...herdr, "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
+  return res.code === 0 && herdrVerdict(parseHerdrVersion(res.stdout), list).kind === "current";
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 export function removeHerdrBackups(p: Probes): string[] {
@@ -134,6 +165,11 @@ export async function installHerdrBuild(p: Probes, arch: HostArch): Promise<Inst
   const fail = (detail: string): InstallResult => ({ via: "download", ok: false, detail });
 
   const list = await fetchHerdrBuilds(p);
+  const brews = homebrewHerdrs(p);
+  if (brews.length > 0 && (await runsCurrentBuild(p, list))) {
+    const removed = await uninstallHomebrewHerdr(p, brews);
+    return { via: "download", ok: removed.ok, detail: capitalize(removed.note), ...(removed.remedy ? { remedy: removed.remedy } : {}) };
+  }
   if (!list) return fail("rt could not read herdr's build list from m4ttstack/herdr");
   const build = newestBuild(list);
   const asset = build.assets[arch];
@@ -151,11 +187,7 @@ export async function installHerdrBuild(p: Probes, arch: HostArch): Promise<Inst
   removeHerdrBackups(p);
 
   const notes: string[] = [];
-  const brew = homebrewHerdr(p);
-  if (brew) {
-    const res = await p.exec([brew.brew, "uninstall", "herdr"], { timeoutMs: DOWNLOAD_TIMEOUT_MS });
-    notes.push(res.code === 0 ? "removed Homebrew's herdr" : `Homebrew's herdr is still installed (brew uninstall exit ${res.code})`);
-  }
+  const removed = brews.length > 0 ? await uninstallHomebrewHerdr(p, brews) : null;
 
   let moved = 0;
   let refused = 0;
@@ -165,8 +197,9 @@ export async function installHerdrBuild(p: Probes, arch: HostArch): Promise<Inst
   }
   if (moved > 0) notes.push(`moved ${moved} running herdr ${moved === 1 ? "server" : "servers"} onto it`);
   if (refused > 0) notes.push("restart herdr when your agents are done");
+  if (removed) notes.push(removed.note);
 
-  return { via: "download", ok: true, detail: [`Installed herdr ${build.version}`, ...notes].join("; ") };
+  return { via: "download", ok: removed?.ok ?? true, detail: [`Installed herdr ${build.version}`, ...notes].join("; "), ...(removed?.remedy ? { remedy: removed.remedy } : {}) };
 }
 
 /** `error` is set when ~/.local/bin/herdr itself does not run, so nothing was checked or stopped. */

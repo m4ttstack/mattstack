@@ -2282,10 +2282,31 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(p.calls.exec.some((argv) => argv[0] === "curl")).toBe(true);
     });
 
-    test("Homebrew's herdr beside a current build is replaced", async () => {
+    test("Homebrew's herdr beside a current build is uninstalled, with no download", async () => {
       const p = herdrOn(FORK, { extra: { files: { "/usr/local/bin/herdr": "bin" }, links: { "/opt/homebrew/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr" } } });
-      expect((await herdrIntegrationStep.run(makeCtx(p).ctx)).state).toBe("done");
-      expect(p.calls.exec.some((argv) => argv[0] === "curl")).toBe(true);
+      const outcome = await herdrIntegrationStep.run(makeCtx(p).ctx);
+      expect(outcome.state).toBe("done");
+      expect(p.calls.exec.some((argv) => argv[0] === "curl")).toBe(false);
+      expect(p.calls.exec).toContainEqual(["/opt/homebrew/bin/brew", "uninstall", "herdr"]);
+      expect(integrationCalls(p)).toHaveLength(1);
+    });
+
+    test("a Homebrew uninstall that fails names the command to run", async () => {
+      const p = herdrOn(FORK, { extra: { files: { "/usr/local/bin/herdr": "bin" }, links: { "/opt/homebrew/bin/herdr": "../Cellar/herdr/0.9.5/bin/herdr" } } });
+      const exec = p.exec;
+      p.exec = async (argv, o) => (argv[1] === "uninstall" ? { code: 1, stdout: "", stderr: "Error" } : exec(argv, o));
+      const outcome = await herdrIntegrationStep.run(makeCtx(p).ctx);
+      expect(outcome.state).toBe("failed");
+      expect(remedyOf(outcome)).toBe("Run /opt/homebrew/bin/brew uninstall herdr in a terminal");
+      expect(integrationCalls(p)).toEqual([]);
+    });
+
+    test("build list unreachable + current fork build: no download, the integration runs, step done", async () => {
+      const p = herdrOn(FORK, { extra: { fetch: async () => ({ status: 404, body: "Not Found", headers: {} }) } });
+      const outcome = await herdrIntegrationStep.run(makeCtx(p).ctx);
+      expect(outcome.state).toBe("done");
+      expect(p.calls.exec.some((argv) => argv[0] === "curl")).toBe(false);
+      expect(integrationCalls(p)).toEqual([["/usr/local/bin/herdr", "integration", "install", "claude"]]);
     });
 
     test("failed install skips the integration", async () => {
