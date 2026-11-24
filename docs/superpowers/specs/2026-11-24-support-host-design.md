@@ -1,6 +1,6 @@
 # Support host: teammates start a Maude chat
 
-**Status:** design, 2026-11-24, waiting for approval. Builds on
+**Status:** approved by the operator, 2026-11-24. Builds on
 `2026-11-03-slack-support-chat-design.md` and
 `2026-11-06-slack-support-requester-design.md`, which stay true except where
 this document says otherwise. "Maude" is the `agent.persona` default. "Alex" is
