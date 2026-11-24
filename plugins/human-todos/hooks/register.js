@@ -1289,7 +1289,7 @@ async function startHerdr($, todo) {
       return end(token);
     }
     await patchTodo($, todo.id, { token, paneId: placed.paneId, tabId: placed.tabId, herdrSession: session, liveTail: [], isStopping: false });
-    const wrapper = `trap : INT; cd -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`;
+    const wrapper = `trap : INT; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`;
     const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(`zsh -c ${quote(wrapper)} todo ${quote(todo.script ?? "")} ${quote(cwd)}`)}`);
     if (typed.exitCode !== 0)
       throw new Error("herdr would not run the script");

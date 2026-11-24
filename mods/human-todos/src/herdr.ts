@@ -262,8 +262,9 @@ export async function startHerdr($: EngineInterface, todo: Todo): Promise<void> 
       return end(token)
     }
     await patchTodo($, todo.id, { token, paneId: placed.paneId, tabId: placed.tabId, herdrSession: session, liveTail: [], isStopping: false })
-    // A reused tab's shell can be in any folder, so the script goes to the one Confirm showed, or does not run.
-    const wrapper = `trap : INT; cd -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`
+    // A reused tab's shell can be in any folder, so the script goes to the one Confirm showed, or does not run. The builtin, quietly: a cd
+    // function or a chpwd hook in .zshenv could lead elsewhere.
+    const wrapper = `trap : INT; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`
     const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(`zsh -c ${quote(wrapper)} todo ${quote(todo.script ?? '')} ${quote(cwd)}`)}`)
     if (typed.exitCode !== 0) throw new Error('herdr would not run the script')
   } catch (err) {
