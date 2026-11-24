@@ -18,9 +18,12 @@ import { detectEditors, type DetectedEditor } from "../editors.ts";
 import { UserActionableError } from "../errors.ts";
 import { GIT_FLOOR, gitBelowFloor } from "./git-floor.ts";
 import { installHerdrBuild } from "./herdr-install.ts";
+import { vendorBinPath, type InstallResult } from "./install-result.ts";
 import type { Probes } from "./probes.ts";
 import type { HostArch, PackRequirements, ToolDownloadPin } from "./requirements.ts";
 import { updateSetupState } from "./state.ts";
+
+export { vendorBinPath, type InstallResult, type InstallVia } from "./install-result.ts";
 
 /**
  * URLs only — never a shell command. R-T21-a: nothing in this file ever
@@ -60,10 +63,6 @@ export const NERD_FONT_ARCHIVE: NerdFontArchive = {
   allowedHosts: ["github.com", "release-assets.githubusercontent.com"],
 };
 
-/** Where a vendor script installs `tool`. The board runs Claude Code from this exact path, since launchd's PATH has no claude on it. */
-export function vendorBinPath(home: string, tool: string): string {
-  return join(home, ".local", "bin", tool);
-}
 
 /** A team-declared `--version`/probe must never hang `rt tools install` forever. */
 const PROBE_TIMEOUT_MS = 5000;
@@ -107,14 +106,6 @@ const REAL_SEAMS: ToolsInstallSeams = { resolveTool, bundledToolExec, link, dete
 
 // ─── installTool ───────────────────────────────────────────────────────────
 
-export type InstallVia = "download" | "vendor" | "apple-clt" | "bundled-link";
-export interface InstallResult {
-  via: InstallVia;
-  ok: boolean;
-  detail: string;
-  /** Internal bundled-link classification, excluded from the JSON envelope. */
-  reason?: Extract<LinkOutcome, { ok: false }>["reason"];
-}
 
 function firstLine(s: string): string {
   return s.trim().split("\n")[0] ?? "";
