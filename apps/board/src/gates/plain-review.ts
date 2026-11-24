@@ -17,7 +17,8 @@ const PLAIN_REVIEW_REFUSAL =
   'Build the open the review skill skipped: run review-source.sh on the report json, ' +
   'then gate_open {handBack: true, outPath: <dir>/review-post.open.json}, and open ' +
   'that file with open-gate.sh. Only when one of those two has failed or refused, ' +
-  'open the plain gate with --plain-reason "<its exact output>".';
+  'open the plain gate with --plain-reason "<its exact output>"; this message is ' +
+  'not that output.';
 
 type Obj = Record<string, unknown>;
 

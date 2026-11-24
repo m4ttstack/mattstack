@@ -1,10 +1,4 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  utimesSync,
-  writeFileSync,
-} from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import type { Database } from 'bun:sqlite';
@@ -17,6 +11,7 @@ import {
   type RtResponse,
 } from '@mattstack/rt-client';
 import type { DoctorState } from '../doctor-state.ts';
+import { GateRefused } from '../gates/plain-review.ts';
 import {
   gateAnswer,
   gateOpen,
@@ -25,7 +20,6 @@ import {
   readGateOpenFile,
   type GateVerbIo,
 } from '../gates/verbs.ts';
-import { GateRefused } from '../gates/plain-review.ts';
 import { statusBinPath } from '../herdr.ts';
 import type { RespondState } from '../respond-state.ts';
 import type { ReviewState } from '../review-state.ts';
@@ -389,7 +383,9 @@ describe('gateOpen: a plain review gate over a structured report', () => {
       id: 'findings-1',
       label: 'Post which findings?',
       multi: true,
-      options: [{ value: 'f1', label: '[Minor] Comment names the wrong helper' }],
+      options: [
+        { value: 'f1', label: '[Minor] Comment names the wrong helper' },
+      ],
     },
     OUTCOME,
   ];
@@ -399,7 +395,12 @@ describe('gateOpen: a plain review gate over a structured report', () => {
       context: JSON.stringify({
         'gate-ctx': 'findings@1',
         findings: [
-          { id: 'f1', severity: 'minor', title: FINDING.title, body: FINDING.body },
+          {
+            id: 'f1',
+            severity: 'minor',
+            title: FINDING.title,
+            body: FINDING.body,
+          },
         ],
       }),
     },

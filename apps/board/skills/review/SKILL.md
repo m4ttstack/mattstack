@@ -22,7 +22,7 @@ metadata:
 
 Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:review` and whose folder sits in the same plugin version folder as the loaded skill's own directory, use it; otherwise call `skills_resolve {id: "skills:board:review", dir: "<the loaded skill's own directory>"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2178 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2232 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -126,12 +126,18 @@ digraph review_flow {
 
     "Fitted review-post open file handed back?" [shape=diamond];
     "@review/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [shape=plaintext];
+    "Domain skill's structured report (review)?" [shape=diamond];
+    "Build refusal quoted (review)?" [shape=diamond];
+    "Sent back to build the open once (review)?" [shape=diamond];
+    "Send the domain skill back to build the open" [shape=box];
+    "Print the plain-gate line in the pane" [shape=box];
+    "STOP: a plain gate needs the build step's own refusal" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Report json sibling (review)?" [shape=diamond];
     "Build the per-finding questions (findings-N, outcome)" [shape=box];
     "Build the outcome-only question (clean review)" [shape=box];
     "Print the tier-fallback line in the pane" [shape=box];
     "Build the tier-fallback questions (tiers, outcome)" [shape=box];
-    "<status-bin> gate open <state> --kind review-post --questions <json> --context <text>" [shape=plaintext];
+    "<status-bin> gate open <state> --kind review-post --questions <json> --context <text> [--plain-reason <text>]" [shape=plaintext];
     "review-post open exit?" [shape=diamond];
     "review-post: take the review gate step" [shape=box];
     "review-post step outcome?" [shape=diamond];
@@ -311,18 +317,29 @@ digraph review_flow {
     "Append the review-round line to --report" -> "Fitted review-post open file handed back?";
 
     "Fitted review-post open file handed back?" -> "@review/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [label="yes"];
-    "Fitted review-post open file handed back?" -> "Report json sibling (review)?" [label="no"];
+    "Fitted review-post open file handed back?" -> "Domain skill's structured report (review)?" [label="no"];
+    "Domain skill's structured report (review)?" -> "Build refusal quoted (review)?" [label="yes: domain path, json sibling at version 2 or 3"];
+    "Domain skill's structured report (review)?" -> "Report json sibling (review)?" [label="no: generic path, or no such json"];
+    "Domain skill's structured report (review)?" -> "STOP: a plain gate needs the build step's own refusal" [label="tempted to build the questions from the json"];
+    "STOP: a plain gate needs the build step's own refusal" -> "Build refusal quoted (review)?";
+    "Build refusal quoted (review)?" -> "Print the plain-gate line in the pane" [label="yes"];
+    "Build refusal quoted (review)?" -> "Sent back to build the open once (review)?" [label="no"];
+    "Sent back to build the open once (review)?" -> "Send the domain skill back to build the open" [label="no"];
+    "Sent back to build the open once (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the review gate's open was never built"];
+    "Send the domain skill back to build the open" -> "Fitted review-post open file handed back?";
+    "Print the plain-gate line in the pane" -> "Report json sibling (review)?";
     "@review/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" -> "review-post open exit?";
     "Report json sibling (review)?" -> "Build the per-finding questions (findings-N, outcome)" [label="valid, findings present"];
     "Report json sibling (review)?" -> "Build the outcome-only question (clean review)" [label="valid, findings is an empty array"];
     "Report json sibling (review)?" -> "Print the tier-fallback line in the pane" [label="absent or malformed"];
     "Print the tier-fallback line in the pane" -> "Build the tier-fallback questions (tiers, outcome)";
-    "Build the per-finding questions (findings-N, outcome)" -> "<status-bin> gate open <state> --kind review-post --questions <json> --context <text>";
-    "Build the outcome-only question (clean review)" -> "<status-bin> gate open <state> --kind review-post --questions <json> --context <text>";
-    "Build the tier-fallback questions (tiers, outcome)" -> "<status-bin> gate open <state> --kind review-post --questions <json> --context <text>";
-    "<status-bin> gate open <state> --kind review-post --questions <json> --context <text>" -> "review-post open exit?";
+    "Build the per-finding questions (findings-N, outcome)" -> "<status-bin> gate open <state> --kind review-post --questions <json> --context <text> [--plain-reason <text>]";
+    "Build the outcome-only question (clean review)" -> "<status-bin> gate open <state> --kind review-post --questions <json> --context <text> [--plain-reason <text>]";
+    "Build the tier-fallback questions (tiers, outcome)" -> "<status-bin> gate open <state> --kind review-post --questions <json> --context <text> [--plain-reason <text>]";
+    "<status-bin> gate open <state> --kind review-post --questions <json> --context <text> [--plain-reason <text>]" -> "review-post open exit?";
     "review-post open exit?" -> "review-post: take the review gate step" [label="0"];
-    "review-post open exit?" -> "Ask the review questions as one combined native form (degraded)" [label="nonzero: the daemon is down"];
+    "review-post open exit?" -> "Build refusal quoted (review)?" [label="3: plain gate refused"];
+    "review-post open exit?" -> "Ask the review questions as one combined native form (degraded)" [label="any other nonzero: the daemon is down"];
     "review-post: take the review gate step" -> "review-post step outcome?";
     "review-post step outcome?" -> "Record the verdict answer in --report" [label="answered"];
     "review-post step outcome?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
@@ -968,6 +985,41 @@ record of it could overwrite a round the board already holds. `Record
 the verdict answer in --report` reads the line back, so a pane resumed
 on the verdict records the round this pass reviewed.
 
+### Domain skill's structured report (review)?
+
+Yes when a domain skill resolved and the json sibling of `--report` parses
+with `version` 2 or 3, whatever its `findings`, `threads` and `skipped`
+hold. The gate for that report is the domain skill's fitted open file, and
+only its build step makes one: `review-source.sh` on the report json, then
+`gate_open` with `handBack: true`. A gate built from the json by hand shows
+the human titles alone, with no body, evidence or drafted comment, and
+`gate open` refuses it with exit 3.
+
+### Build refusal quoted (review)?
+
+Yes when this pass ran the build step and holds the output of the call that
+failed: `review-source.sh`'s nonzero exit with its stderr, or `gate_open`'s
+refusal, the field fixes its own budget allows already spent. A build step
+that was never run has no refusal, and neither does a cost or a guess. Exit 3
+from `gate open` is never one: it reports that the step is still missing.
+
+### Send the domain skill back to build the open
+
+In this session, take the domain skill up again at its gate build step,
+with the report already written: its extras file, `review-source.sh`, then
+`gate_open {handBack: true, outPath: <dir>/review-post.open.json}`. Review
+nothing again and rewrite no finding. It hands back the open file's path, or
+its refusal word for word.
+
+### Print the plain-gate line in the pane
+
+Print one line in the pane quoting the refusal:
+
+`plain gate: <the failing call>: <its output>; findings show without their context`
+
+The same text, from the failing call on, is the open's `--plain-reason`,
+which `gate open` puts at the head of the gate's context.
+
 ### Build the per-finding questions (findings-N, outcome)
 
 The json sibling parsed and its `findings` is a non-empty array. Build the
@@ -1060,7 +1112,7 @@ summary); `open-gate.sh` opens it as it stands.
 ### Ask the review questions as one combined native form (degraded)
 
 The daemon was down at open time (`gate open` or `open-gate.sh` exited
-nonzero), or the gate step's wait failed three times ("A failing wait is
+nonzero, never 3: that is a refused plain gate, and it has its own edge), or the gate step's wait failed three times ("A failing wait is
 not degradation" in `board:gate-cli-recipes`). Ask one combined native
 form carrying the same questions the gate would have: every `thread-N`
 question first on a re-review, then every `findings-N` chunk when the
@@ -1882,8 +1934,10 @@ the pane form's prose, is fitted to a budget. The file goes in untouched:
 never rebuilt, re-ordered, trimmed, or hand-edited, even when its `pane`
 left a context out. Nothing below is built for it.
 
-**The json sibling.** Otherwise build the questions yourself from the json
-sibling of `--report`: swap the trailing `.md` for `.json`, or append
+**The json sibling.** Two routes reach `Report json sibling (review)?`: a
+review with no structured report, and a structured one whose build step
+refused (`Print the plain-gate line in the pane`), which opens with
+`--plain-reason`. The json sibling is `--report`'s stem swap: swap the trailing `.md` for `.json`, or append
 `.json` when `--report`'s path doesn't end in `.md`: a stem swap, never an
 append onto the md path. That's the same derivation the board's own
 `readReviewReportJson` uses server-side; the wrapper just reads the file
@@ -1893,8 +1947,8 @@ The hand-built per-finding recipe below covers first reviews only. A
 report json whose `threads` or `skipped` array is non-empty reaches the
 gate through the domain skill's fitted open file (`review-source.sh`,
 then `gate-ctx.sh fit`, with `round` in the extras), which carries the
-`thread-N` and `skipped-N` questions. Handed such a json with no fitted
-open file, treat it as malformed at `Report json sibling (review)?`: the
+`thread-N` and `skipped-N` questions. When such a json reaches this recipe
+(its build step refused), treat it as malformed at `Report json sibling (review)?`: the
 tier fallback, with the earlier threads as hand-built `thread-N`
 questions and the skipped findings as hand-built `skipped-N` questions.
 

@@ -3,6 +3,7 @@ import {
   gateAsk as facilityGateAsk,
   gateWait as facilityGateWait,
 } from '@mattstack/rt-client';
+import { GATE_REFUSED_EXIT, GateRefused } from '../src/gates/plain-review.ts';
 import {
   gateAnswer,
   gateOpen,
@@ -11,7 +12,6 @@ import {
   readGateOpenFile,
   type GateVerbIo,
 } from '../src/gates/verbs.ts';
-import { GATE_REFUSED_EXIT, GateRefused } from '../src/gates/plain-review.ts';
 
 const io: GateVerbIo = {
   gateAsk: facilityGateAsk,
