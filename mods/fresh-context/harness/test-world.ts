@@ -54,6 +54,15 @@ export function world(on: On, { signedIn = true }: { signedIn?: boolean } = {}) 
     commandsRegistered.push({ name: e.name, description: e.description })
     return { value: { command: e.name } }
   })
+  on('command.list', () => ({
+    value: [
+      { name: 'mattstack:pr-usher', description: '', source: 'plugin' as const, plugin: 'mattstack' },
+      { name: 'review', description: '', source: 'builtin' as const },
+      { name: 'permissions', description: '', source: 'builtin' as const },
+      { name: 'mine', description: '', source: 'user' as const },
+      { name: 'server:prompt', description: '', source: 'mcp' as const },
+    ],
+  }))
   on('command.run', (_, e) => {
     commands.push(e.args ? `${e.command} ${e.args}` : e.command)
     order.push(`command ${e.command}`)

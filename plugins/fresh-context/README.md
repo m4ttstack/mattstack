@@ -12,7 +12,8 @@ off, without anyone typing `/clear` for it.
 - `ledger`: free text the session wrote about where it is. The mod carries it
   as is; each skill decides what its ledger holds.
 - `then`: optional. The instruction the fresh context starts on, submitted on
-  its own, so a slash command works. Left out, the fresh context holds the
+  its own. It can name a plugin skill as `/plugin:skill args`, which goes in as a
+  request to use that skill; any other slash command is refused. Left out, the fresh context holds the
   ledger and waits for something else (a pending wakeup, a chat message) to
   start its next turn.
 
