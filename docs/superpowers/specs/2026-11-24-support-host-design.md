@@ -73,14 +73,16 @@ It has failed, even if it works, if:
 | Host away | Queue, and say so |
 | Transport | Switchboard (A below) |
 | Read-only limits | Keep the skill rules; no new enforcement |
+| Stop | Instant; the person's next request in 24 hours asks the host |
 
 ## Approaches
 
 - **A. Switchboard carries the request, Slack carries the chat (picked).** The
   relay already queues undelivered envelopes for 7 days and stamps the sender
   from their token. Teammates need no new Slack permission and the host can
-  report back. Costs: both people must be board-peered, the host's board must
-  be running and updated, and request text passes through the relay.
+  report back. Costs: both people must be board-peered, both daemons must be
+  new enough, and request text passes through the relay. Support uses its own
+  relay queue, not the board inbox (see Transport).
 - **B. The teammate's Mac sends the `@Maude` DM.** No relay, but by Slack's docs
   teammates likely need `im:write` and a reconnect, the host depends on
   `search.messages` (which Slack calls legacy), and queueing and host-away are
@@ -100,20 +102,44 @@ It has failed, even if it works, if:
 - **Two sides.** The org names the host and the host accepts on one Mac, since
   it uses their Claude account, Slack DM and disk. *My call.*
 - **Ready** means support-chat Slack scopes, `rt.linearSupportApiKey`, a
-  `defaultRepo` rt knows a folder for, `chat.humanHandle`, and a peered, running
-  board. Accepting is refused with the missing piece named. *My call:* the
-  Linear key is required, because a filed ticket is part of the point.
+  `defaultRepo` rt knows a folder for, `chat.humanHandle`, a working board token,
+  the org's support key readable on this Mac, and what `lib/linear/org-ids.ts`
+  needs (a forge host and a Linear team in `mattstack.directory`), without which
+  every ticket is refused. Accepting is refused with the missing piece named.
+  *My call:* a working ticket path is required. The host's Linear key decides
+  which workspace tickets reach, as today.
 - **Where:** org keys in the app's Settings > Team and the console's org
   settings; the host's accept switch and readiness in Settings > Team on the
   host's Mac. A setup row on the host's Mac reports a piece that stops working.
-- **Availability** follows the relay's existing asks flag
-  (`/boards/self/asks`, `askable`): the host's Mac publishes whether it accepts,
-  and peers read it. An older host board never publishes it, so nothing shows.
 - **Hidden** when the org has not opted in or no Mac accepts, and for the host.
-  Shown disabled, with the reason, when the teammate is not board-peered or has
-  no Slack connection. *My call.*
+  Shown disabled, with the reason, when the teammate has no board token, no
+  Slack connection, or cannot read the org's support key. *My call.*
 - **Turning off** either side stops new requests. Open chats continue. A queued
   request gets `not-accepting`.
+
+## Transport
+
+*My calls in this section, made after a design check found the board inbox unsafe.*
+
+- **Its own relay queue.** Requests and statuses go through new support routes
+  on the switchboard, authenticated by the same board token, kept 7 days until
+  acked, and pulled by each Mac's daemon over an outbound long-poll. The board
+  inbox cannot carry them: the served board and the `board-peer` cron both read
+  and ack it, they can be different builds, and an old one acks an unknown type
+  and drops it. With its own queue, only a daemon that understands a request can
+  ack it, after storing it, and neither board has to be running.
+- **Availability.** A new opt-in flag on the relay, set by the accepting
+  daemon. Not the asks flag, which is on by default. The relay also records when
+  the host's daemon last polled, so the form can say "Alex's Mac is away" before
+  sending. If it looks up but nothing answers in 2 minutes, it says so then.
+- **Proof of org.** Relay usernames are global, with no org or forge in the key,
+  so a username alone does not prove membership. Turning support on writes a
+  random support key to the org's members secrets
+  (`mattstack/org/secrets/`, which every member's age key opens). A request
+  carries a keyed hash, made with that key, over its id, sender, host, text,
+  context and Slack id. The host recomputes it with the relay-stamped sender and
+  also requires that sender on the roster. Statuses back are checked the same
+  way. Removing a member rotates the key.
 
 Follow rt:settings for the registry checklist and for what an older rt does
 with the new org keys.
@@ -127,49 +153,62 @@ with the new org keys.
    - From an MR's row menu ("Need help with this MR?"): the MR's link and its
      review or run state. *My call.*
    - Never: logs, file contents, env values, tokens, local paths. *My call.*
-3. Send goes through one daemon verb, used by both surfaces and by a CLI verb
-   under `rt chat`. It sends a `support-request` envelope to the host with a
-   stable id, the text, the context and the sender's Slack user id (from their
-   own token's `auth.test`). Size-capped. A retry reuses the id.
+3. Send goes through one daemon verb, used by the board and the app. There is
+   no CLI or MCP verb, and the mod denies agents a shell route to it: a person
+   sends a request, from a form that showed it. It sends the text, the context,
+   a stable id and the sender's Slack user id, read by the daemon from their own
+   token's `auth.test`. Size-capped. A retry reuses the id.
 4. The form reports status, and a later change is a desk notification.
 
 | Status | Teammate reads |
 |---|---|
 | sent | Asked Alex's agent |
-| opened | Maude will message you in Slack, with a link to the DM |
-| waiting | Two chats are already open; Alex will pick it up |
+| received | Alex's Mac has it and Maude is starting |
+| opened | Maude messaged you in Slack, with a link to the DM |
+| already-waiting | You already have a request waiting; it is shown |
+| waiting | Alex needs to OK this one; it will wait |
 | no answer in 2 minutes | Alex's Mac is away. Your request will wait up to 7 days |
 | already-open | You already have a chat open, with a link to the DM |
 | declined, not-accepting, failed | What happened, and to message Alex directly |
 | expired | It was never picked up after 7 days |
 
-The relay's 201 is not "received": only the host's own status is. "Sent"
-requires the 201, and an unreachable relay is a send failure that keeps the text.
-
-The board hands `support-status` envelopes to the daemon, so both surfaces read
-one state. With the sender's board down, a request still goes out and the
-status waits for the board.
+An accepted send is not "received": only the host's own status is. An
+unreachable relay is a send failure that keeps the text. Status is the sender's
+daemon's, so both surfaces read one state.
 
 ## On the host's Mac
 
-1. **Receive.** The host's board gets the envelope and hands it to the daemon.
-   Unlike other types it is acked only once the daemon has durably stored it,
-   because `runPeerTick` acks even what threw. One that cannot be handed over
-   must not block the rest of the inbox.
-2. **Check,** in order: support is on, this Mac accepts, this person is the
-   host, and `from` (relay-stamped) is on this org's roster. A non-member is
-   dropped and logged, with no reply. An id already seen is a redelivery.
+1. **Receive.** The daemon stores the request, then acks it. An id already seen
+   is a redelivery.
+2. **Check** the keyed hash and the roster first. A failure is dropped and
+   logged with no reply. Then: support is on, this person is the host, this Mac
+   accepts; otherwise `not-accepting`.
 3. **Slack account.** The claimed id must be an active person in the host's
-   workspace. If the host's own roster-to-Slack match names a different
-   account, the request becomes a gate that says so. *My call:* the id is
-   self-claimed, and a wrong one would DM a third person.
-4. **Already open** with that person: reply `already-open`.
-5. **Under the cap:** open through `approveSlackOpen`'s path with no gate,
-   reply `opened`, and send the host a desk notification that opens the chat in
-   the viewer, where Stop closes it through the existing close.
+   workspace, else `failed`. *My call:* no second match against the roster. The
+   daemon has none, the board's is by display name, and only a proven member can
+   reach this step.
+4. **Already open** with that person: reply `already-open`. A request of theirs
+   already waiting: `already-waiting`. *My call.*
+5. **Under the cap:** reply `received`, open through `approveSlackOpen`'s path
+   with no gate, and send the host a desk notification that opens the chat in the
+   viewer, where Stop is. Reply `opened` only when Maude's first message is in
+   Slack.
 6. **Over the cap:** a `slack-open` gate, reply `waiting`. It expires with the
    request, not after 30 minutes. Decline replies `declined`.
-7. **An open that fails** replies `failed` with a plain reason and notifies the host.
+7. **An open that fails,** including the agent never reaching the chat within 60
+   seconds, replies `failed` with a plain reason and notifies the host.
+
+A request is its own stored record, and its gate is keyed on the request id, not
+`slack:<userId>`. It never supersedes or blocks a typed `@Maude`, pane or resume
+gate for the same person, and a chat opened with them by any route settles their
+waiting request as `already-open`. *My call.*
+
+**Stop** is new UI in the chat viewer and a new operator-only verb, since the
+viewer has no close today and Archive only hides the room. Decided with the
+operator: it kills the agent's pane at once, tells the teammate in one fixed line
+that the host will follow up, and leaves no resume window. That person's next
+request within 24 hours is a gate, reply `waiting`, instead of opening by itself.
+It is offered on any open support chat. *My call.*
 
 *My calls:* the cap counts every open support chat, operator-started ones
 included, and is enforced in one transaction so two requests cannot pass it
@@ -180,7 +219,7 @@ back, so the first two open and the rest wait for the host.
 This is a deliberate exception to the requester design's rule that nothing
 opens without the operator's tap. It exists only in this daemon path: no
 model-issued tool call may reach it, `gate_answer` still refuses `slack-open`,
-and the mod's shell denies grow to cover the new host-side CLI surface.
+and the mod's shell denies grow to cover the new verbs.
 
 ## The chat
 
@@ -191,8 +230,10 @@ and the mod's shell denies grow to cover the new host-side CLI surface.
   problem. For a request over a day old, it asks whether help is still needed.
   *My call.*
 - MR links are for the chat. The ticket guard already refuses them.
-- Closing, resume, milestones and outcomes are unchanged. With no requesting
-  pane, milestones fall back to the host's desk notification.
+- Resume and the ordinary close are unchanged. With no requesting pane,
+  milestones fall back to the host's desk notification. `closed` is skipped
+  today when there is no requester, so these chats send it: the outcome, summary
+  and ticket list reach the host. *My call.*
 - `rt:slack-support` changes for the new opening, through
   superpowers:writing-skills. The closing line may name Need help? beside the
   trigger.
@@ -202,10 +243,8 @@ and the mod's shell denies grow to cover the new host-side CLI surface.
 - Outbound only from the host's Mac: the relay long-poll, Slack, Linear and Claude.
 - Request text sits in the relay, unencrypted by us, until acked or 7 days. The
   form says the request goes through mattstack's relay. *My call.*
-- Relay usernames are global across orgs. The roster check on the host is what
-  ties a sender to this org.
-- Version skew is normal: every new envelope must be ignorable by an older
-  board, and the relay ships before any client that needs it.
+- Version skew is normal: an older daemon never polls the support queue or sets
+  the flag, and the relay ships before any client that needs it.
 - Employer-visible surfaces carry no mattstack ticket ids.
 - `slack-open` gates never appear on the board.
 
@@ -219,12 +258,13 @@ Both colour schemes are rendered and looked at.
 
 ## Testing
 
-- **Unit:** each host check, the roster refusal, cap races, redelivery, the
-  ack-after-store rule, Slack id mismatch, gate lifetime, status mapping, what
+- **Unit:** each host check, the hash and roster refusals (a same-named
+  user from another org included), cap races, redelivery, the ack-after-store
+  rule, gate lifetime, status mapping, what
   context is attached, visibility rules.
 - **Daemon:** request to open to ticket to close with fake Slack, Linear and
   relay; host away then back after days; opt-out with requests queued.
-- **Relay:** availability flag, and older clients.
+- **Relay:** queue, availability, last-seen, and older clients.
 - **Live:** a second account asks from the board and from the app menu, with the
   host's Mac awake, then asleep.
 
@@ -232,7 +272,7 @@ Docs: `slack-support-chat.mdx` gains asking for help, hosting, and org opt-in.
 
 ## Left to the builder
 
-- Verb names, envelope payload shapes, storage (claim the next
+- Verb and route names, payload shapes, how the key rotates, storage (claim the next
   `SCHEMA_VERSION` per `.claude/rules/state.md`), and size caps.
 - How the app reads status, and whether its form is native or a web view.
 - The setup row's id and wording.
