@@ -24,6 +24,7 @@ import {
   type SlackItem,
 } from "../../state/index.ts";
 import { recordSupportTicket, startGrace } from "../../state/slack-conversation-store.ts";
+import { insertRequest } from "../../state/support-store.ts";
 import { createChatHandlers } from "../handlers/chat.ts";
 import { createSlackChatHandlers } from "../handlers/slack-chat.ts";
 import { createSlackBridge } from "../slack-bridge.ts";
@@ -809,4 +810,35 @@ test("a manually opened conversation has no open deadline", async () => {
   const h = harness();
   await h.run(2 * SLACK_OPEN_DEADLINE_MS, { watcher: false });
   expect(h.row().closedAt).toBeNull();
+});
+
+function supportRow(h: ReturnType<typeof harness>, conversationId: number) {
+  insertRequest(
+    { id: "r1", direction: "in", peer: "ada", org: "acme", text: "help", parts: [], slackUserId: "U0TEST", state: "opened", reason: null, persona: null, dmLink: null, conversationId, gateId: null, statusAt: 0, sentAt: START, receivedAt: START },
+    h.db,
+  );
+}
+
+test("a support chat's close milestone carries the outcome and tickets with no requester", async () => {
+  const h = harness();
+  supportRow(h, h.opened.id);
+  recordSupportTicket(h.opened.id, { id: "T-1", title: "t", url: "u" }, START, h.db);
+  await finishClose(h.opened.id, "closed-by-pane", "Fixed the cache", h.deps);
+  expect(h.desk).toEqual(["Alex Example's chat closed: the pane ended it. Fixed the cache. Tickets: T-1."]);
+});
+
+test("a support chat picked up again still sends its close milestone", async () => {
+  const h = harness();
+  supportRow(h, h.opened.id);
+  closeConversation(h.opened.id, "idle", START, h.db);
+  const again = openConversation({ ...conversation, agentHandle: "pane.two", resumedFrom: h.opened.id }, h.db);
+  await finishClose(again.id, "closed-by-pane", "Done", h.deps);
+  expect(h.desk).toHaveLength(1);
+});
+
+test("a manual chat with no requester still sends no close milestone", async () => {
+  const h = harness();
+  await finishClose(h.opened.id, "closed-by-pane", "Bye", h.deps);
+  expect(h.desk).toEqual([]);
+  expect(h.dms).toEqual([]);
 });

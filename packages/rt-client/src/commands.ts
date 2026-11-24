@@ -4,6 +4,7 @@
  * its functions against this map so a new command only needs an entry here
  * plus one function, never a change to the transport itself.
  */
+import type { SupportPart, SupportRequest } from "./support.ts";
 import type { EvidenceAddress, EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
 import type { ApprovalRuleLite, PullRequest, MRDetail, MergeQueueStatus, Pipeline, PipelineJob } from "@mattstack/glance";
 import type { z } from "zod";
@@ -919,6 +920,18 @@ export interface Commands {
   /** From a pane it raises a resume gate; `approved: true` is the operator's own tap (Flock, the console) and resumes at once. */
   "chat:slack-resume": { payload: { conversation: number; requesterSession?: string; requesterHandle?: string; approved?: boolean }; data: { gateId: string; question: SlackOpenForm } | { conversation: number; agent: "same" | "fresh" } };
   "chat:slack-expire": { payload: Record<string, never>; data: { expired: number } };
+  /** Whether this person can ask their org's support host for help; `hidden` shows nothing at all. */
+  "support:availability": { payload: Record<string, never>; data: { state: "hidden" } | { state: "disabled"; reason: string; host: string } | { state: "ready"; host: string; away: boolean } };
+  /** What a request can attach, for a form to show before it is sent. */
+  "support:context": { payload: { mr?: { url: string; state: string }; board?: string; app?: string }; data: { parts: SupportPart[] } };
+  /** A person's alone, from a form that showed every part. A retry reuses `id`; changed words need a new one. */
+  "support:send": { payload: { id: string; text: string; parts: SupportPart[] }; data: { request: SupportRequest } };
+  "support:mine": { payload: Record<string, never>; data: { requests: (SupportRequest & { /** Sent, and the host's Mac has not answered within 2 minutes. */ away: boolean })[] } };
+  "support:host": { payload: Record<string, never>; data: { isHost: boolean; accepting: boolean; missing: string[] } };
+  /** A person's alone. */
+  "support:accept": { payload: { on: boolean }; data: { accepting: boolean } };
+  /** A person's alone: closes any open Slack support chat at once. */
+  "support:stop": { payload: { conversation: number }; data: { /** The teammate's line reached Slack. */ told: boolean } };
   "pane:list": { payload: Record<string, never>; data: { panes: ChatPane[] } };
   "pane:peek": { payload: { paneId: string; lines?: number }; data: { paneId: string; lines: string[] } };
   "pane:accounts": { payload: Record<string, never>; data: { accounts: PaneAccount[] } };
@@ -1386,6 +1399,13 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "chat:slack-assignment",
   "chat:slack-resume",
   "chat:slack-expire",
+  "support:availability",
+  "support:context",
+  "support:send",
+  "support:mine",
+  "support:host",
+  "support:accept",
+  "support:stop",
   "pane:list",
   "pane:peek",
   "pane:accounts",

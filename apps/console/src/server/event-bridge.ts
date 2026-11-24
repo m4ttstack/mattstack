@@ -37,6 +37,15 @@ export function slackBridgeRule(consoleUrl: string): EventBridgeRule {
   };
 }
 
+/** The third rule: a help request that waits for the host's OK. */
+export function supportBridgeRule(consoleUrl: string): EventBridgeRule {
+  return {
+    ...slackBridgeRule(consoleUrl),
+    subjectPrefix: 'support:',
+    title: 'Help request',
+  };
+}
+
 function readEventBridges(): EventBridgeRule[] {
   return getSetting<EventBridgeRule[]>('rt.notify.eventBridges').value ?? [];
 }
@@ -61,7 +70,7 @@ export async function installConsoleBridgeRule(
 ): Promise<void> {
   const resolveUrl = opts.resolveUrl ?? (() => deckAppUrl('console'));
   const deckUrl = await resolveUrl();
-  for (const rule of [consoleBridgeRule, slackBridgeRule]) {
+  for (const rule of [consoleBridgeRule, slackBridgeRule, supportBridgeRule]) {
     reconcileEventBridgeRule({
       app: 'console',
       deckUrl,

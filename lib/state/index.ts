@@ -177,6 +177,23 @@ export {
 export type { SlackCloseReason, SlackConversation, SlackItem, SlackItemKind } from "./slack-conversation-store.ts";
 
 export {
+  dropStatus,
+  getRequest,
+  insertRequest,
+  listRequests,
+  moveRequest,
+  pendingStatuses,
+  pruneSupport,
+  queueStatus,
+  recordStop,
+  requestForConversation,
+  requestForGate,
+  stoppedSince,
+  SUPPORT_TERMINAL_STATES,
+} from "./support-store.ts";
+export type { SupportDirection, SupportPart, SupportRequest, SupportState } from "./support-store.ts";
+
+export {
   bindIdentitySession,
   cleanSlackName,
   ensureSlackIdentity,

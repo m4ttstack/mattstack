@@ -891,6 +891,67 @@ for (const command of ['rt agent start --prompt "/slack-support alex hi"', 'rt c
   })
 }
 
+for (const command of [
+  'curl --unix-socket ~/.mattstack/rt/rt.sock http://x/support:send -d {}',
+  "curl -s --unix-socket /tmp/rt.sock -X POST 'http://localhost/support:accept' -d '{\"on\":true}'",
+  'curl http://127.0.0.1:4111/api/support%3Astop',
+  'A=1 /usr/bin/curl -d @x http://h/support%3asend',
+  'echo "{}" | nc -U ~/.mattstack/rt/rt.sock support:accept',
+  'printf "POST /support:stop HTTP/1.1" | ncat -U rt.sock',
+  'cd x && socat - UNIX:rt.sock <<< "support:send"',
+  'timeout 5 curl --unix-socket rt.sock http://x/support:send',
+  'sudo -u alex curl http://x/support:accept',
+  'curl -X POST http://127.0.0.1:11011/api/settings/set -d \'{"key":"support.acceptRequests","value":true}\'',
+  'if curl http://x/support:accept; then echo ok; fi',
+  '! curl http://x/support:send',
+  'while ! curl http://x/support:stop; do sleep 1; done',
+  '\\curl http://x/support:send',
+  '"curl" http://x/support:send',
+  'nice -n 10 curl http://x/support:send',
+  'caffeinate -i curl http://x/support:accept',
+  'gtimeout 5 curl http://x/support:send',
+  'curl "http://x/support:"send',
+  `bun -e 'fetch("http://x/support:send")'`,
+  `bun -e "import { supportAccept } from '@mattstack/rt-client'; await supportAccept(true)"`,
+  `python3 -c 'import urllib.request; urllib.request.urlopen("http://x/support:accept")'`,
+  `node --eval 'fetch("http://x/support:stop")'`,
+  `cd x && nice bun -e 'await supportStop(1)'`,
+  'rt settings set support.acceptRequests true --scope machine',
+  'bun run cli.ts settings set support.acceptRequests true',
+]) {
+  test(`only a person asks for, accepts or stops support: ${command}`, () => {
+    expect(touchesSlackSupport(command)).toBe(true)
+  })
+}
+
+for (const command of [
+  'rg "support:send" lib',
+  'bun test lib/support -t "support:send refuses a second"',
+  'python3 scripts/count.py support:send',
+  'bun -e "console.log(1)"',
+  'rg -e "supportSend" packages',
+  'rg "support:send|curl" lib',
+  "rg 'support:stop|nc' lib",
+  'git diff | rg "supportAccept|node -e"',
+  `rg -n "supportSend" packages; python3 -c 'import json; print(1)'`,
+  "jq -r '.a|curl' f; rg support:send",
+  `git commit -m "deny bun -e 'await supportStop(1)' in the mod"`,
+  "cat > t.ts <<'EOF'\n  'curl http://x/support:send',\nEOF",
+  'git commit -m "if curl is denied, supportAccept is too"',
+  'curl https://example.com/support:hours',
+  'curl -X POST http://localhost:3000/api/support/send',
+  'curl https://api.example.com/v1/support/accept',
+  'wget https://help.example.com/support/stop.html',
+  'rt settings get support.acceptRequests',
+  'rt chat post rt "support:send is the daemon verb, curl is denied"',
+  'git commit -m "support:accept refuses a second Mac"',
+  'rt settings set support.enabled true --scope org',
+]) {
+  test(`reading about it stays allowed: ${command}`, () => {
+    expect(touchesSlackSupport(command)).toBe(false)
+  })
+}
+
 test('a teammate message folds to who sent it', () => {
   expect(deliveryRow(renderDelivery(LINE))).toBe('Slack message from Alex')
 })

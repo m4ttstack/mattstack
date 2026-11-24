@@ -10,8 +10,12 @@ vi.mock('@mattstack/rt-client', () => ({
   setSetting: vi.fn(),
 }));
 
-const { consoleBridgeRule, installConsoleBridgeRule, slackBridgeRule } =
-  await import('./event-bridge');
+const {
+  consoleBridgeRule,
+  installConsoleBridgeRule,
+  slackBridgeRule,
+  supportBridgeRule,
+} = await import('./event-bridge');
 const rt = await import('@mattstack/rt-client');
 
 beforeEach(() => {
@@ -70,10 +74,20 @@ describe('slackBridgeRule', () => {
   });
 });
 
+describe('supportBridgeRule', () => {
+  it('notifies a help request that waits for the host, as a Slack request does', () => {
+    expect(supportBridgeRule('https://console.mattstack')).toEqual({
+      ...slackBridgeRule('https://console.mattstack'),
+      subjectPrefix: 'support:',
+      title: 'Help request',
+    });
+  });
+});
+
 describe('installConsoleBridgeRule', () => {
   const rule = consoleBridgeRule('https://console.mattstack');
 
-  it('upserts both rules with the url deck resolved into an empty list', async () => {
+  it('upserts every rule with the url deck resolved into an empty list', async () => {
     const io = fakeIo([]);
     await installConsoleBridgeRule({
       read: io.read,
@@ -83,6 +97,7 @@ describe('installConsoleBridgeRule', () => {
     expect(io.writes.at(-1)).toEqual([
       consoleBridgeRule('https://console.local.test'),
       slackBridgeRule('https://console.local.test'),
+      supportBridgeRule('https://console.local.test'),
     ]);
   });
 
@@ -90,6 +105,7 @@ describe('installConsoleBridgeRule', () => {
     const io = fakeIo([
       consoleBridgeRule('http://localhost:11011'),
       slackBridgeRule('http://localhost:11011'),
+      supportBridgeRule('http://localhost:11011'),
     ]);
     await installConsoleBridgeRule({
       read: io.read,
@@ -109,11 +125,16 @@ describe('installConsoleBridgeRule', () => {
     expect(io.writes.at(-1)).toEqual([
       rule,
       slackBridgeRule('https://console.mattstack'),
+      supportBridgeRule('https://console.mattstack'),
     ]);
   });
 
   it('leaves identical rules already present untouched, no duplicate written', async () => {
-    const io = fakeIo([rule, slackBridgeRule('https://console.mattstack')]);
+    const io = fakeIo([
+      rule,
+      slackBridgeRule('https://console.mattstack'),
+      supportBridgeRule('https://console.mattstack'),
+    ]);
     await installConsoleBridgeRule({
       read: io.read,
       write: io.write,
@@ -148,6 +169,7 @@ describe('installConsoleBridgeRule', () => {
       board,
       rule,
       slackBridgeRule('https://console.mattstack'),
+      supportBridgeRule('https://console.mattstack'),
     ]);
   });
 
@@ -168,7 +190,11 @@ describe('installConsoleBridgeRule', () => {
     expect(rt.getSetting).toHaveBeenCalledWith('rt.notify.eventBridges');
     expect(rt.setSetting).toHaveBeenLastCalledWith(
       'rt.notify.eventBridges',
-      [rule, slackBridgeRule('https://console.mattstack')],
+      [
+        rule,
+        slackBridgeRule('https://console.mattstack'),
+        supportBridgeRule('https://console.mattstack'),
+      ],
       'user'
     );
   });

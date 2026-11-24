@@ -24,8 +24,8 @@ import { rtDir } from "../rt-paths.ts";
 
 export type DbFlavor = "cli" | "daemon";
 
-/** PRAGMA user_version target for the combined schema below (v1 + v2 + v3 + v4 + v6 + v7 + v8 + v9 + v12 + v13 + v14, plus v15's agents.pack, v16's agents.adopted columns, v17's slack_conversations and slack_items tables, and v18's slack requester columns and slack_support_tickets table; v10 and v11 are DML-only migrations, not DDL blocks in SCHEMAS). */
-export const SCHEMA_VERSION = 18;
+/** PRAGMA user_version target for the combined schema below (v1 + v2 + v3 + v4 + v6 + v7 + v8 + v9 + v12 + v13 + v14, plus v15's agents.pack, v16's agents.adopted columns, v17's slack_conversations and slack_items tables, v18's slack requester columns and slack_support_tickets table, and v19's support tables; v10 and v11 are DML-only migrations, not DDL blocks in SCHEMAS). */
+export const SCHEMA_VERSION = 19;
 
 // busy_timeout is per-process, not per-store (spec "The database"): a CLI
 // command may block briefly; the daemon's event loop must never block long,
@@ -396,6 +396,45 @@ CREATE TABLE IF NOT EXISTS slack_items (
 CREATE INDEX IF NOT EXISTS slack_items_pending ON slack_items(conversation_id, delivered_at);
 `;
 
+// Tables (v19): support requests between teammates and the org's support host
+// (lib/state/support-store.ts is the only writer).
+const V19_SCHEMA = `
+CREATE TABLE IF NOT EXISTS support_requests (
+  direction       TEXT NOT NULL,    -- in: this Mac answers it, out: this Mac sent it
+  peer            TEXT NOT NULL,    -- the other person's forge username
+  id              TEXT NOT NULL,
+  org             TEXT NOT NULL,
+  text            TEXT NOT NULL,
+  parts           TEXT NOT NULL,    -- JSON: the context the sender kept
+  slack_user_id   TEXT NOT NULL,    -- the sender's
+  state           TEXT NOT NULL,
+  reason          TEXT,
+  persona         TEXT,             -- out: the host's bot, from its last status
+  dm_link         TEXT,
+  conversation_id INTEGER,
+  gate_id         TEXT,
+  status_at       INTEGER NOT NULL DEFAULT 0, -- the host's clock, on the last status sent or believed
+  sent_at         INTEGER NOT NULL, -- the sender's clock
+  received_at     INTEGER NOT NULL, -- in: the relay's clock
+  updated_at      INTEGER NOT NULL,
+  PRIMARY KEY (direction, peer, id)
+);
+CREATE INDEX IF NOT EXISTS support_requests_conversation ON support_requests(conversation_id);
+CREATE INDEX IF NOT EXISTS support_requests_gate ON support_requests(gate_id);
+CREATE TABLE IF NOT EXISTS support_outbox (
+  id         TEXT NOT NULL,
+  to_user    TEXT NOT NULL,
+  body       TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (id, to_user)
+);
+CREATE TABLE IF NOT EXISTS support_stops (
+  slack_user_id TEXT NOT NULL,
+  stopped_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS support_stops_user ON support_stops(slack_user_id, stopped_at);
+`;
+
 /**
  * Every schema block, in version order. `runMigrations` execs
  * `SCHEMAS.join("")` unconditionally on EVERY open (R015/R056): every
@@ -405,7 +444,7 @@ CREATE INDEX IF NOT EXISTS slack_items_pending ON slack_items(conversation_id, d
  * A future schema block joins this array; leaving one out is caught by the
  * dynamic table-presence test in db-schema-convergence.test.ts.
  */
-const SCHEMAS = [V1_SCHEMA, V2_SCHEMA, V3_SCHEMA, V4_SCHEMA, V6_SCHEMA, V7_SCHEMA, V8_SCHEMA, V9_SCHEMA, V12_SCHEMA, V13_SCHEMA, V14_SCHEMA, V17_SCHEMA];
+const SCHEMAS = [V1_SCHEMA, V2_SCHEMA, V3_SCHEMA, V4_SCHEMA, V6_SCHEMA, V7_SCHEMA, V8_SCHEMA, V9_SCHEMA, V12_SCHEMA, V13_SCHEMA, V14_SCHEMA, V17_SCHEMA, V19_SCHEMA];
 
 /** project_mr_demands.sections (v6): SQLite's ALTER TABLE ADD COLUMN has no
     IF NOT EXISTS, so unlike every statement in the V*_SCHEMA strings above it

@@ -3601,6 +3601,39 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      support: {
+        description: "Let your org ask a teammate's agent for help",
+        subcommands: {
+          on: {
+            description: "Choose whose Mac answers, and turn support on",
+            module: "./commands/team.ts",
+            fn: "teamSupportOn",
+            args: [
+              { name: "Host", flag: "--host", type: "text", placeholder: "alex", hint: "Whose Mac answers; the one already set when left out" },
+              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
+              SETUP_JSON_ARG,
+            ],
+          },
+          off: {
+            description: "Stop new support requests",
+            module: "./commands/team.ts",
+            fn: "teamSupportOff",
+            args: [
+              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
+              SETUP_JSON_ARG,
+            ],
+          },
+          status: {
+            description: "See whether support is on and who answers",
+            module: "./commands/team.ts",
+            fn: "teamSupportStatus",
+            args: [
+              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
+              SETUP_JSON_ARG,
+            ],
+          },
+        },
+      },
       "admin-secrets": {
         description: "Share the switchboard admin token with your org's owners and admins, and keep it locked to them",
         module: "./commands/team.ts",

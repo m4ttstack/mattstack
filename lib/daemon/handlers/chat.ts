@@ -21,6 +21,7 @@ import type { Logger } from "pino";
 import {
   ackMessage,
   claimMessage,
+  conversationById,
   conversationForAgent,
   conversationForRoom,
   releaseClaim,
@@ -969,6 +970,9 @@ export type SlackRefusal = { ok: false; error: string; failure: { code: string; 
 
 const SLACK_NOT_RECORDED = "Slack has this message, but it could not be saved to the room, so do not send it again";
 
+const CHAT_CLOSED = "This Slack chat is closed, so the message was not sent";
+const CHAT_CLOSED_CODE = "rt_chat_closed";
+
 export function slackRefusal(message: string): SlackRefusal {
   return { ok: false, error: `chat: ${message}`, failure: { code: "slack-chat", message } };
 }
@@ -990,7 +994,7 @@ function slackRoute(fromId: string, toId: string, sessionId: string | undefined,
   // A fresh agent that resumed a chat holds a row whose room is the old pair's, so the pair hash would miss it.
   const assigned = conversationForAgent(fromId, db);
   const latest = assigned?.slackHandle === toId ? assigned : latestConversationForRoom(dmRoomName(fromId, toId), db);
-  if (latest && latest.closedAt !== null) return { refused: slackRefusal("This Slack chat is closed, so the message was not sent") };
+  if (latest && latest.closedAt !== null) return { refused: slackRefusal(CHAT_CLOSED) };
   if (latest?.agentHandle === fromId) {
     if (!sessionSeatedOn(fromId, sessionId, db)) {
       return { refused: slackRefusal("Only the session signed in as this pane can send to its Slack chat, so sign in and try again") };
@@ -1019,11 +1023,19 @@ async function deliverSlackReply(
   const outgoing = withPrefix(text, persona);
   const stored = outgoing.slice(slackPrefix(persona).length);
   if (!stored) return { ok: false, error: "chat: that message is empty without the prefix, so it was not sent" };
+  // The host can stop the chat during any wait here, and Slack would take the message after its goodbye.
+  const stillOpen = () => conversationById(conversation.id, db)?.closedAt === null;
+  const sleepWhileOpen = async (ms: number) => {
+    await sleep(ms);
+    if (!stillOpen()) throw new SlackError(CHAT_CLOSED_CODE);
+  };
   try {
     const slack = await client();
     if (!slack) return { ok: false, error: "chat: Slack is not connected on this machine, so the message was not sent" };
-    await postHonouringRetryAfter(slack, conversation.slackChannel, outgoing, sleep);
+    if (!stillOpen()) return slackRefusal(CHAT_CLOSED);
+    await postHonouringRetryAfter(slack, conversation.slackChannel, outgoing, sleepWhileOpen);
   } catch (err) {
+    if (err instanceof SlackError && err.code === CHAT_CLOSED_CODE) return slackRefusal(CHAT_CLOSED);
     log.warn({ err, conversation: conversation.id }, "chat: Slack reply failed");
     return { ok: false, error: `chat: Slack did not take the message (${err instanceof SlackError ? err.code : "the token could not be read"})` };
   }

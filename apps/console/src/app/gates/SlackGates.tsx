@@ -31,6 +31,7 @@ type Decision = 'approve' | 'decline';
 function originLine(view: SlackGateView, trigger: string): string | null {
   const origin = view.origin;
   if (!origin) return null;
+  if (origin.from === 'app') return 'Asked for help from mattstack';
   if (origin.from === 'teammate') return `Teammate asked with ${trigger}`;
   if (origin.from === 'pane') return `From pane ${origin.pane}`;
   return `From ${origin.handle}`;

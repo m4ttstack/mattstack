@@ -12,9 +12,10 @@ import { normalizeGateOptions } from "../../packages/rt-client/src/gate-options.
 import type { GateQuestion, GateRow, SlackOpenForm } from "../../packages/rt-client/src/commands.ts";
 export type { SlackOpenForm };
 import { tsBefore, tsFromMs } from "../daemon/slack-bridge.ts";
-import { addRoomMember } from "../state/chat-store.ts";
+import { addRoomMember, markDelivered, postMessage } from "../state/chat-store.ts";
 import { conversationById, endGrace, enqueueItem, paneInUse, ticketsForChain, type SlackConversation, type SupportTicket } from "../state/slack-conversation-store.ts";
-import { SlackConversationBusy, conversationForSlackUser, dmRoomFor, ensureSlackIdentity, isValidChatName, openConversation } from "../state/index.ts";
+import { SlackConversationBusy, conversationForSlackUser, dmRoomFor, ensureSlackIdentity, isValidChatName, listOpenConversations, openConversation } from "../state/index.ts";
+import type { SlackSupportMeta } from "../support/host.ts";
 import { sendMilestone, type MilestoneDeps, type SlackMilestone } from "./milestones.ts";
 
 export const SLACK_OPEN_KIND = "slack-open";
@@ -96,7 +97,7 @@ export type SlackOpenDeps = {
   /** The chat presence pane of a session, when it has one. */
   presencePane(session: string): string | null;
   gates: {
-    open(input: { id: string; subject: string; kind: string; questions: GateQuestion[]; context: string; meta: SlackOpenMeta | SlackResumeMeta; pane?: string }): Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    open(input: { id: string; subject: string; kind: string; questions: GateQuestion[]; context: string; meta: SlackOpenMeta | SlackResumeMeta | SlackSupportMeta; pane?: string }): Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     close(id: string): Promise<void>;
     listOpen(): GateRow[];
     /** Adds text to the context of a gate that is still waiting, and merges `meta` into its meta when given. */
@@ -155,27 +156,44 @@ async function tell(deps: SlackOpenDeps, meta: Pick<SlackOpenMeta, "requesterHan
   }
 }
 
+/** A support request's open: its text arrives as the chat's first message, inside the transaction that opens the chat. */
+export interface SupportOpenOptions {
+  firstItem: string;
+  /** The most chats that may be open before this one; null skips the count. */
+  maxOpen: number | null;
+  /** Runs inside the open's transaction. */
+  record(conversation: SlackConversation, messageId: number): void;
+}
+
+/** `reason` is for the operator alone; a teammate is told by the code. */
+export type SlackOpenFailure = "cap" | "busy" | "setup" | "slack" | "agent";
+
+class TooManyOpen extends Error {}
+
 export async function approveSlackOpen(
   deps: SlackOpenDeps,
   meta: Omit<SlackOpenMeta, "action"> & { action?: "open" },
-): Promise<{ ok: true; conversation: number } | { ok: false; reason: string }> {
-  const fail = async (reason: string) => {
-    await tell(deps, meta, { kind: "open-failed", person: meta.personName, reason });
-    return { ok: false as const, reason };
+  options?: SupportOpenOptions,
+): Promise<{ ok: true; conversation: number } | { ok: false; reason: string; code: SlackOpenFailure }> {
+  const fail = async (reason: string, code: SlackOpenFailure) => {
+    // A support request answers a full house or an open chat itself, so neither is a failure the host is told of.
+    const settled = options && (code === "cap" || code === "busy");
+    if (!settled) await tell(deps, meta, { kind: "open-failed", person: meta.personName, reason });
+    return { ok: false as const, reason, code };
   };
   const heldBy = (room: string) => `${meta.personName} already has a Slack chat open in ${room}`;
 
   const busy = conversationForSlackUser(meta.person, deps.db);
-  if (busy) return fail(heldBy(busy.room));
+  if (busy) return fail(heldBy(busy.room), "busy");
   const humanHandle = deps.humanHandle();
-  if (!isValidChatName(humanHandle)) return fail(`the chat.humanHandle setting is empty or invalid ("${humanHandle}")`);
+  if (!isValidChatName(humanHandle)) return fail(`the chat.humanHandle setting is empty or invalid ("${humanHandle}")`, "setup");
   const connected = await deps.connect(meta.person);
-  if (!connected.ok) return fail(connected.reason);
-  if (deps.repoPath(meta.repo) === null) return fail("the folder for this repo is not known to rt");
+  if (!connected.ok) return fail(connected.reason, "slack");
+  if (deps.repoPath(meta.repo) === null) return fail("the folder for this repo is not known to rt", "setup");
 
   const started = await deps.startAgent(meta.repo, meta.personName);
-  if (!started.ok) return fail(started.error);
-  if (started.reused) return fail("an earlier support agent is still running in this repo");
+  if (!started.ok) return fail(started.error, "agent");
+  if (started.reused) return fail("an earlier support agent is still running in this repo", "agent");
   const { agent } = started;
   const { target } = connected;
 
@@ -183,9 +201,10 @@ export async function approveSlackOpen(
   const firstTs = meta.triggerTs ?? meta.appendedTriggerTs ?? null;
   const requesterPane = meta.requesterPane ?? (meta.requesterSession ? deps.presencePane(meta.requesterSession) : null);
   const open = deps.db.transaction(() => {
+    if (options?.maxOpen != null && listOpenConversations(deps.db).length >= options.maxOpen) throw new TooManyOpen();
     const identity = ensureSlackIdentity(target.userId, target.firstName, deps.db);
     const { room } = dmRoomFor(agent.handle, identity.id, humanHandle, deps.db);
-    return openConversation(
+    const conversation = openConversation(
       {
         room,
         agentHandle: agent.handle,
@@ -209,19 +228,29 @@ export async function approveSlackOpen(
       },
       deps.db,
     );
+    if (options) {
+      const posted = postMessage({ room, handle: identity.id, body: options.firstItem }, deps.db);
+      if (!posted) throw new Error("the chat room refused the request");
+      // The item below is the agent's delivery; its inbox must never carry a teammate's text.
+      for (const member of [agent.handle, identity.id]) markDelivered(room, member, posted.id, deps.db);
+      enqueueItem({ conversationId: conversation.id, kind: "message", fromHandle: identity.id, text: options.firstItem, createdAt: openedAt }, deps.db);
+      options.record(conversation, posted.id);
+    }
+    return conversation;
   });
   try {
     const conversation = open.immediate();
-    await tell(deps, meta, { kind: "opened", person: meta.personName, room: conversation.room, agentPane: agent.paneId });
+    if (!options) await tell(deps, meta, { kind: "opened", person: meta.personName, room: conversation.room, agentPane: agent.paneId });
     return { ok: true, conversation: conversation.id };
   } catch (err) {
     await deps.stopAgent(agent).catch((stopErr) => deps.log.warn({ err: stopErr, agent: agent.id }, "slack: the agent for a failed open could not be stopped"));
     if (err instanceof SlackConversationBusy) {
       const holder = conversationForSlackUser(meta.person, deps.db);
-      return fail(holder ? heldBy(holder.room) : `${meta.personName} already has a Slack chat open`);
+      return fail(holder ? heldBy(holder.room) : `${meta.personName} already has a Slack chat open`, "busy");
     }
+    if (err instanceof TooManyOpen) return fail("the most chats that can be open at once are open", "cap");
     deps.log.warn({ err }, "slack: the open could not be recorded");
-    return fail("the chat could not be recorded");
+    return fail("the chat could not be recorded", "agent");
   }
 }
 
@@ -364,18 +393,28 @@ async function declineSlackResume(deps: SlackOpenDeps, meta: SlackResumeMeta, ga
   await deps.closePane(conversation.assignedPane);
 }
 
+export function slackOpenApproved(row: GateRow): boolean {
+  return String(unwrapGateAnswerValue(row.answer?.answers?.[DECISION_ID])).toLowerCase() === APPROVE;
+}
+
+export function slackSupportMeta(row: GateRow): SlackSupportMeta | null {
+  const meta = row.meta as Partial<SlackSupportMeta> | null;
+  return meta?.action === "support" ? (meta as SlackSupportMeta) : null;
+}
+
 /** Routes an answered `slack-open` gate by its `meta.action`; an action this build does not know is left as it is. */
-export async function answerSlackOpen(deps: SlackOpenDeps, row: GateRow): Promise<void> {
-  const decision = String(unwrapGateAnswerValue(row.answer?.answers?.[DECISION_ID])).toLowerCase();
+export async function answerSlackOpen(deps: SlackOpenDeps, row: GateRow, support?: (row: GateRow) => Promise<void>): Promise<void> {
+  if (slackSupportMeta(row)) return support?.(row);
+  const approved = slackOpenApproved(row);
   const resume = slackResumeMeta(row);
   if (resume) {
-    if (decision === APPROVE) await approveSlackResume(deps, { conversation: resume.conversation, triggerTs: resume.triggerTs, exceptGateId: row.id, requesterSession: resume.requesterSession, requesterHandle: resume.requesterHandle });
+    if (approved) await approveSlackResume(deps, { conversation: resume.conversation, triggerTs: resume.triggerTs, exceptGateId: row.id, requesterSession: resume.requesterSession, requesterHandle: resume.requesterHandle });
     else await declineSlackResume(deps, resume, row.id);
     return;
   }
   const meta = slackOpenMeta(row);
   if (!meta) return;
-  if (decision === APPROVE) {
+  if (approved) {
     await approveSlackOpen(deps, meta);
     return;
   }

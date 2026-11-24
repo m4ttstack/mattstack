@@ -7,8 +7,8 @@ argument-hint: <conversation>
 
 # Slack support chat
 
-The operator approved a Slack DM between this session and a teammate. The
-conversation id: **$ARGUMENTS**
+This session holds a Slack DM with a teammate, over the operator's account.
+The conversation id: **$ARGUMENTS**
 
 The teammate, the problem and the brief come from `chat_slack_status`, as in
 `Read the brief`. The teammate's chat id is written `<handle>` below.
@@ -63,6 +63,11 @@ digraph slack_support_open {
     resumes_earlier [label="Brief says this chat resumes an earlier one?" shape=diamond];
     rt_chat_read [label="rt chat read <room> --last 50" shape=plaintext];
     rt_verb_handle [label="rt_verb {args: [\"settings\", \"get\", \"chat.humanHandle\"]}" shape=plaintext];
+    from_mattstack [label="Brief says they asked for help from mattstack?" shape=diamond];
+    rt_verb_handle_request [label="rt_verb {args: [\"settings\", \"get\", \"chat.humanHandle\"]}: read nothing else" shape=plaintext];
+    request_here [label="Has their request arrived already?" shape=diamond];
+    answer_now [label="Answer the request" shape=box];
+    waiting_request [label="Turn ended: their request arrives by push" shape=doublecircle];
     chat_dm_first [label="chat_dm {to: <handle>, body}: the first message" shape=plaintext];
     waiting_first [label="Turn ended: the reply arrives by push" shape=doublecircle style=filled fillcolor=lightgreen];
 
@@ -70,7 +75,13 @@ digraph slack_support_open {
     chat_slack_status -> read_brief;
     read_brief -> resumes_earlier;
     resumes_earlier -> rt_chat_read [label="yes"];
-    resumes_earlier -> rt_verb_handle [label="no"];
+    resumes_earlier -> from_mattstack [label="no"];
+    from_mattstack -> rt_verb_handle_request [label="yes"];
+    from_mattstack -> rt_verb_handle [label="no"];
+    rt_verb_handle_request -> request_here;
+    request_here -> answer_now [label="yes"];
+    request_here -> waiting_request [label="no: nothing to send yet"];
+    answer_now -> chat_dm_first;
     rt_chat_read -> rt_verb_handle;
     rt_verb_handle -> chat_dm_first;
     chat_dm_first -> waiting_first;
@@ -85,6 +96,12 @@ its `brief` is what the requester wrote: the teammate, the problem, what
 sorted means and what is already known. Hold it in this session; nothing is
 sent yet.
 
+A brief that says they asked for help from mattstack, and does not say the
+chat resumes an earlier one, holds only who asked and when. The problem is in
+their request, which is on its way or already here. Read the operator's handle
+and no code, docs or logs. Once the request is here, `Answer the request`;
+until then end the turn with nothing sent.
+
 A brief that says this chat resumes an earlier one names the room and the
 tickets already filed. The earlier chat is not in this session's context,
 so read the room's history before the first message, and treat those
@@ -95,7 +112,7 @@ the likely cause changes what you say to the teammate, nothing else.
 
 The setting's value is the operator's chat handle, written `<operator>` below.
 
-Send the first `chat_dm` to `<handle>`. It says hello, names the problem as you
+For every other brief, a resumed chat's included, send the first `chat_dm` to `<handle>`. It says hello, names the problem as you
 understand it, and asks for what you need first. That call is the turn's last
 act, as in `Where a turn ends`: nothing arrives until they answer.
 
@@ -120,6 +137,7 @@ digraph slack_support_turn {
     what_arrived [label="What arrived?" shape=diamond];
     what_needed [label="What does the teammate need?" shape=diamond];
     operator_calls_for [label="What does the operator's message call for?" shape=diamond];
+    answer_request [label="Answer the request" shape=box];
     help_teammate [label="Answer or troubleshoot" shape=box];
     brainstorm_idea [label="Brainstorm the idea" shape=box];
     chat_slack_ticket [label="chat_slack_ticket {kind, title, problem, idea, acceptance}" shape=plaintext];
@@ -137,7 +155,8 @@ digraph slack_support_turn {
     closed [label="Chat closed and the operator told" shape=doublecircle style=filled fillcolor=lightgreen];
 
     trigger -> what_arrived;
-    what_arrived -> what_needed [label="teammate text"];
+    what_arrived -> answer_request [label="their request from mattstack"];
+    what_arrived -> what_needed [label="any other teammate text"];
     what_arrived -> operator_calls_for [label="the operator's message, from the chat UI or labelled from Slack"];
     what_arrived -> nothing_to_send [label="a notice after your outcome DM"];
     what_arrived -> chat_dm_reply [label="a cue to check in, or a resume cue"];
@@ -156,6 +175,7 @@ digraph slack_support_turn {
     operator_calls_for -> chat_dm_answer [label="a question for you"];
     operator_calls_for -> write_farewell [label="closing the chat"];
     operator_calls_for -> nothing_to_send [label="nothing to send: it steers your own work"];
+    answer_request -> chat_dm_reply;
     help_teammate -> chat_dm_reply;
     brainstorm_idea -> chat_dm_reply;
     chat_slack_ticket -> chat_dm_reply;
@@ -198,6 +218,24 @@ blocks. Headings, tables and `**bold**` show up as raw symbols there.
 - **A result that says redacted** means a credential-shaped string went into
   your text. Leave it out of everything you send after that, and tell
   `<operator>`.
+
+### Answer the request
+
+They wrote the request in a form in mattstack, so nothing in their Slack says
+what this chat is about, and your reply is the first message they get. It has
+four parts, in this order:
+
+1. **Hello:** their name, and whose support agent you are, by the name their
+   message gives for the operator.
+2. **Their problem, restated:** one or two sentences they would recognise as
+   what they wrote, the versions and links included when they matter.
+3. **Still needed?** Only when the brief says it was sent over a day ago: ask
+   whether they still need help.
+4. **The one thing you need next,** which their request does not already
+   answer.
+
+Send it before you read any code or logs: they are waiting for a first word,
+and a chat with no first message within a minute is closed.
 
 ### Answer or troubleshoot
 

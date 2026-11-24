@@ -329,7 +329,7 @@ describe("settings/registry", () => {
       expect(def?.merge).toBe("replace");
     });
 
-    test("has exactly the 24 migrated:true keys and the 114 suite keys", () => {
+    test("has exactly the 24 migrated:true keys and the 117 suite keys", () => {
       const migratedFalseKeys: string[] = [];
       const migratedTrueKeys = [
         "rt.roles", "rt.intercepts", "rt.ignoredMrs", "rt.worktrees", "rt.worktreeReadyApproval", "rt.repoIdentityOverrides", "rt.repoRoots",
@@ -401,6 +401,9 @@ describe("settings/registry", () => {
         "chat.push.target",
         "chat.slackSupport.trigger",
         "chat.slackSupport.defaultRepo",
+        "support.enabled",
+        "support.host",
+        "support.acceptRequests",
         "agent.persona",
         "agent.provider",
         "agent.claude.model",
@@ -454,7 +457,7 @@ describe("settings/registry", () => {
         "rt.work.gateModeShadow",
         "superpowers.execution",
       ];
-      expect(suiteKeys).toHaveLength(114);
+      expect(suiteKeys).toHaveLength(117);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

@@ -10,7 +10,9 @@ export {
   SUPPORT_AWAY_MS, SUPPORT_BODY_MAX_BYTES, SUPPORT_PARTS_MAX, SUPPORT_PART_MAX, SUPPORT_REQUEST_MAX_BYTES, SUPPORT_TEXT_MAX, SUPPORT_TTL_MS,
   parseSupportDraft, parseSupportMessage, supportBodyTooLarge,
 } from "./support.ts";
-export type { SupportDraft, SupportHostState, SupportKind, SupportMessage } from "./support.ts";
+export type {
+  SupportDirection, SupportDraft, SupportHostState, SupportKind, SupportMessage, SupportPart, SupportRequest, SupportState,
+} from "./support.ts";
 
 export {
   readProjectMRs,
@@ -68,6 +70,13 @@ export {
   chatSlackResume,
   chatSlackStart,
   chatSlackAssignment,
+  supportAccept,
+  supportAvailability,
+  supportContext,
+  supportHost,
+  supportMine,
+  supportSend,
+  supportStop,
   eventsHead,
   eventsEmit,
   eventsWait,

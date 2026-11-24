@@ -64,6 +64,7 @@ import { discoverOrgs, readTeamSnapshot, readUserIntegrationOverrides, type Team
 import { createRealAgeKeySeam } from "./home/age-key.ts";
 import { readSecret, createRealSecretsExecSeam, type SecretsSeams } from "./secrets/store.ts";
 import { startPeerWaker } from "./daemon/peer-waker.ts";
+import type { SupportService } from "./support/service.ts";
 import { spawnUsageSweep } from "./daemon/usage-sweep.ts";
 import { readSwitchboardToken } from "./daemon/handlers/secrets.ts";
 import { readBoardSwitchboardToken } from "./team/board-token.ts";
@@ -414,6 +415,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
   let freshnessEnv: FreshnessEnv;
   let routedHandlers: ReturnType<typeof buildRoutedHandlers> | undefined;
   let slackOpenDeps: SlackOpenDeps | undefined;
+  let support: SupportService | undefined;
   let bootIdentityMigration: Promise<unknown> = Promise.resolve();
   let stopRenameDetector: (() => void) | undefined;
   let pollersHandle: ReturnType<typeof startPollers> | null = null;
@@ -949,6 +951,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
             if (removed > 0) log.info({ removed }, "pruned old chat messages");
             const slack = pruneSlackItems(db);
             if (slack.removed > 0) log.info({ removed: slack.removed }, "pruned old Slack chat items");
+            support?.prune();
           },
           { bootDelayMs: 60_000, intervalMs: 24 * 60 * 60 * 1000 },
           log,
@@ -1183,6 +1186,12 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           "slack-bridge",
           () => slackBridge.sweep(),
           { bootDelayMs: 10_000, intervalMs: 5_000 },
+          log,
+        ));
+        sweepHandles.push(scheduleSweep(
+          "support-tick",
+          async () => { await support?.tick(); },
+          { bootDelayMs: 11_000, intervalMs: 5_000 },
           log,
         ));
         sweepHandles.push(scheduleSweep(
@@ -1494,6 +1503,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         for (const h of sweepHandles) h.stop();
         cron?.dispose();
         peerWaker?.stop();
+        support?.stop();
         hooksGuard?.closeAll();
       },
     },
@@ -1522,6 +1532,10 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         const bgService: BgService = createBgService({ log });
         routedHandlers = buildRoutedHandlers({
           onSlackOpenDeps: (deps) => { slackOpenDeps = deps; },
+          onSupport: (service) => {
+            support = service;
+            support.start();
+          },
           ctx: handlerCtx,
           broadcast: emit,
           systemProcessScanner,

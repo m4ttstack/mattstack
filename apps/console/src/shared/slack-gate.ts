@@ -1,14 +1,17 @@
 import type { GateRow } from '@mattstack/rt-client';
 
-/** A `slack-open` gate expires this long after it opened. */
+/** A `slack-open` gate expires this long after it opened, unless its meta says when. */
 export const SLACK_GATE_TTL_MS = 30 * 60_000;
 /** Under this many minutes left, the countdown reads as urgent. */
 const URGENT_MINUTES = 5;
 const MINUTE_MS = 60_000;
+const HOUR_MINUTES = 60;
+const DAY_MINUTES = 24 * HOUR_MINUTES;
 
 export type SlackOrigin =
   | { from: 'pane'; pane: string }
   | { from: 'teammate' }
+  | { from: 'app' }
   | { from: 'handle'; handle: string };
 
 export interface SlackGateView {
@@ -42,6 +45,7 @@ function originOf(
   gate: GateRow,
   meta: Record<string, unknown>
 ): SlackOrigin | null {
+  if (meta.action === 'support') return { from: 'app' };
   if (text(meta.triggerTs)) {
     return { from: 'teammate' };
   }
@@ -60,12 +64,21 @@ export function slackGateView(gate: GateRow): SlackGateView {
     brief: briefOf(gate, meta),
     origin: originOf(gate, meta),
     openedAt: gate.openedAt,
-    expiresAt: gate.openedAt + SLACK_GATE_TTL_MS,
+    expiresAt:
+      typeof meta.expiresAt === 'number'
+        ? meta.expiresAt
+        : gate.openedAt + SLACK_GATE_TTL_MS,
   };
 }
 
+function duration(minutes: number): string {
+  if (minutes >= DAY_MINUTES) return `${Math.floor(minutes / DAY_MINUTES)}d`;
+  if (minutes >= HOUR_MINUTES) return `${Math.floor(minutes / HOUR_MINUTES)}h`;
+  return `${minutes}m`;
+}
+
 export function agedLabel(openedAt: number, now: number): string {
-  return `${Math.max(0, Math.floor((now - openedAt) / MINUTE_MS))}m old`;
+  return `${duration(Math.max(0, Math.floor((now - openedAt) / MINUTE_MS)))} old`;
 }
 
 export function leftLabel(
@@ -73,7 +86,7 @@ export function leftLabel(
   now: number
 ): { text: string; urgent: boolean } {
   const left = Math.max(0, Math.ceil((expiresAt - now) / MINUTE_MS));
-  return { text: `${left}m left`, urgent: left < URGENT_MINUTES };
+  return { text: `${duration(left)} left`, urgent: left < URGENT_MINUTES };
 }
 
 /** What a teammate starts a message with to ask the bot back: the trigger

@@ -974,6 +974,34 @@ const ROWS: readonly SettingDef[] = [
       "The repo (host/path, like github.com/acme/support or gitlab.com/acme/support) whose folder the agent runs in when a teammate starts a Slack support chat by writing the trigger to you. Chats a pane requests use that pane's own repo.",
   },
 
+  // --- support (a teammate asks the org's support agent for help) ----------
+  {
+    key: "support.enabled",
+    type: "boolean",
+    scopes: ["org"],
+    default: false,
+    merge: "replace",
+    description:
+      "Let everyone in the org ask the support host's agent for help from mattstack. Turn it on with rt team support on, which also makes the org's support key.",
+  },
+  {
+    key: "support.host",
+    type: "string",
+    scopes: ["org"],
+    defaultNote: "Not set, so no one answers support requests.",
+    merge: "replace",
+    description: "Whose Mac answers the org's support requests, by forge username. They also turn it on for that Mac.",
+  },
+  {
+    key: "support.acceptRequests",
+    type: "boolean",
+    scopes: ["machine"],
+    default: false,
+    merge: "replace",
+    description:
+      "Answer the org's support requests on this Mac. The support host turns it on in the app, under Settings > Team, on one Mac; the value alone does not start it.",
+  },
+
   // --- agent (rt agent handoff) --------------------------------------------
   {
     key: "agent.persona",

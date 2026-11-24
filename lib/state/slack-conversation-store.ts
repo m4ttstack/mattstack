@@ -426,12 +426,13 @@ export function markStalledNoted(id: number, now: number, db: Database = getStat
  * True once the support agent has posted into the conversation's room. Neither a watcher poll nor a
  * teammate's message sets it, so it separates an agent that reached the chat from one that only started.
  */
-export function agentHasPosted(conv: Pick<SlackConversation, "room" | "agentHandle" | "openedAt">, db: Database = getStateDb()): boolean {
+export function agentHasPosted(conv: Pick<SlackConversation, "room" | "agentHandle" | "openedAt" | "closedAt">, db: Database = getStateDb()): boolean {
   // A resumed conversation reuses the room and may reuse the handle, so posts from before this row opened don't count.
+  // Nor do the closing lines rt records under the agent's handle, which follow the row's close.
   return (
     db
-      .query(`SELECT 1 FROM chat_messages WHERE room = ? AND handle = ? AND posted_at >= ? LIMIT 1;`)
-      .get(conv.room, conv.agentHandle, conv.openedAt) !== null
+      .query(`SELECT 1 FROM chat_messages WHERE room = ?1 AND handle = ?2 AND posted_at >= ?3 AND (?4 IS NULL OR posted_at < ?4) LIMIT 1;`)
+      .get(conv.room, conv.agentHandle, conv.openedAt, conv.closedAt) !== null
   );
 }
 

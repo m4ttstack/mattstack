@@ -74,9 +74,9 @@ describe("slack client", () => {
   });
 
   test("reads granted scopes from the x-oauth-scopes header", async () => {
-    const f = fakeFetch([{ headers: { "x-oauth-scopes": "im:history, chat:write" }, body: { ok: true, user_id: "U0TEST" } }]);
+    const f = fakeFetch([{ headers: { "x-oauth-scopes": "im:history, chat:write" }, body: { ok: true, user_id: "U0TEST", team_id: "T0TEST" } }]);
     const r = await createSlackClient("t", f.impl).authTest();
-    expect(r).toEqual({ userId: "U0TEST", scopes: ["im:history", "chat:write"] });
+    expect(r).toEqual({ userId: "U0TEST", teamId: "T0TEST", scopes: ["im:history", "chat:write"] });
     expect(f.calls[0]!.auth).toBe("Bearer t");
   });
 
