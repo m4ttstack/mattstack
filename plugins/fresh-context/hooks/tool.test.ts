@@ -356,3 +356,28 @@ test('begin dates the hand-off from when the reset was asked for', async ($, on)
   await w.clock.settle()
   expect(w.rt[0]?.args).toEqual(['begin', '--since', '1000000'])
 })
+
+const ROW = (input: unknown, isExpanded = false) =>
+  ({
+    plugin: 'fresh-context',
+    component: 'ToolUse',
+    requestId: 'toolu_1',
+    props: { tool_use_id: 'toolu_1', tool: TOOL, input, isRunning: false, isErrored: false, isInterrupted: false, isExpanded },
+  }) as const
+
+test('the row shows the mode alone, and ctrl+o the whole call', async ($, on) => {
+  const seen: unknown[] = []
+  on('ui.render', { component: 'ToolUse' }, (_, e, next) => {
+    seen.push(e.props.input)
+    return next(e)
+  })
+  world(on)
+  const input = { mode: 'compact', ledger: 'Goal: x\n'.repeat(50), then: 'Continue' }
+  for (const surface of ['terminal', 'desktop'] as const) {
+    for (const [row, drawn] of [[ROW(input), { mode: 'compact' }], [ROW(input, true), input], [ROW({ ledger: 'x' }), { ledger: 'x' }]] as const) {
+      const ui = await $.ui.mount({ ...row, surface } as never)
+      expect(seen.at(-1)).toEqual(drawn)
+      await ui.unmount()
+    }
+  }
+})
