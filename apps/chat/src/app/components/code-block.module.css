@@ -4,7 +4,7 @@
 
 .pre {
   margin: 0;
-  padding: 8px 12px;
+  padding: 12px 14px;
   overflow-x: auto;
   border-radius: inherit;
   font-family: var(--mantine-font-family-monospace);
@@ -41,14 +41,15 @@
 /* The block's right edge, so the toolbar can follow a long block down. */
 .corner {
   position: absolute;
-  inset: 3px 3px 3px auto;
+  inset: 8px 8px 8px auto;
   pointer-events: none;
 }
 
-/* Slack's message toolbar, in the corner: 30px, so it fits a one-line block. */
+/* Slack's message toolbar, in the corner: 28px, so a one-line block leaves 8px
+   around it. */
 .toolbar {
   position: sticky;
-  top: 3px;
+  top: 8px;
   display: flex;
   gap: 2px;
   padding: 2px;

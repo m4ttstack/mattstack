@@ -70,7 +70,7 @@ export function CodeBlock({ code }: CodeBlockProps) {
               <ActionIcon
                 variant="subtle"
                 color="gray"
-                size={24}
+                size={22}
                 radius="sm"
                 aria-label="Wrap lines"
                 aria-pressed={wrap}
@@ -84,7 +84,7 @@ export function CodeBlock({ code }: CodeBlockProps) {
             value={code}
             label="Copy code"
             tooltipPosition="top"
-            size={24}
+            size={22}
             iconSize={16}
             radius="sm"
           />
