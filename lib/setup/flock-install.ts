@@ -16,7 +16,7 @@ export const FLOCK_BUNDLE_ID = "dev.mattstack.Flock";
 export const FLOCK_TEAM_ID = "5BF66B3X4V";
 export const FLOCK_MIN_MACOS = 15;
 
-export const flockNeedsMacos = (major: number = FLOCK_MIN_MACOS): string => `Flock needs macOS ${major} or newer`;
+export const flockNeedsMacos = (version: string = `${FLOCK_MIN_MACOS}`): string => `Flock needs macOS ${version.replace(/(\.0)+$/, "")} or newer`;
 
 const FEED_TIMEOUT_MS = 10_000;
 const PROBE_TIMEOUT_MS = 5000;
@@ -166,7 +166,7 @@ export async function installFlock(p: Probes): Promise<InstallResult> {
     if (macos && macos.major < FLOCK_MIN_MACOS) return fail(flockNeedsMacos());
 
     const feed = await fetchFlockFeed(p, macos?.version);
-    if (feed?.lowestMinimum && !feed.release) return fail(flockNeedsMacos(Number.parseInt(feed.lowestMinimum, 10)));
+    if (feed?.lowestMinimum && !feed.release) return fail(flockNeedsMacos(feed.lowestMinimum));
     const release = feed?.release;
     if (!release) return fail("rt could not read Flock's release feed from m4ttstack/flock");
 
@@ -195,7 +195,7 @@ export async function installFlock(p: Probes): Promise<InstallResult> {
     const appeared = await installedFlock(p);
     if (appeared) return already(appeared);
     const dest = join(target, "Flock.app");
-    if (p.exists(dest)) return fail(`Something else is at ${targetShown}/Flock.app, so nothing was installed. Move it away, then press Install.`);
+    if (p.exists(dest)) return fail(`Something else is at ${targetShown}/Flock.app, so nothing was installed. Move it away and try again`);
 
     // A copy killed midway must never leave a half-written Flock.app that reads ready, so it lands under a staged name and is renamed whole.
     staged = join(target, `.Flock-${process.pid}.new`);

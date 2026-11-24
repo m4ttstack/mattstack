@@ -140,8 +140,8 @@ The run:
 - points the board at its repo, so the board's agents start in that checkout. The board's repo is the first repo in the team's board projects, else the first repo the team tracks
 - installs the mattstack Claude Code plugins, turns on your team's pack, and seeds Claude Code's permissions (see [Claude Code setup](#claude-code-setup))
 - writes the **sparse** writing style on a new Mac where nothing chose one
-- installs the `rt-context` and `skill-blocks` editor extensions into every VS Code-family editor it finds
 - installs [Flock](/apps/flock) into `/Applications`, or `~/Applications` when `/Applications` is not writable, unless it is already there. Flock needs macOS 15 or later, so an older macOS skips it
+- installs the `rt-context` and `skill-blocks` editor extensions into every VS Code-family editor it finds
 - installs the JetBrainsMonoNL Nerd Font and adds it as a fallback to each of those editors' terminal font, so the icons in rt's terminal screens draw. A terminal that already lists a Nerd Font, or one whose font you changed after rt set it, is left alone
 - restarts the apps deck manages, so none keeps running code from before the run
 
@@ -233,8 +233,8 @@ It installs the `mattstack`, `fast-browser`, `chat`, `superpowers`, `gate-form`,
 | `rt` | Ships inside the app (`Contents/MacOS/rt`), linked at `~/.local/bin/rt` |
 | Background daemon | Caches branch, MR and PR data, scans ports, guards git hooks, snapshots the home repo. See [The daemon](/start/daemon) |
 | Bundled apps | board, console, chat, and boxscore, served locally through deck |
-| `rt-context` extension | Every VS Code-family editor: worktree, branch, and linked ticket in the status bar. See [Editor extensions](/rt/guides/context-extension) |
 | Flock | The Mac app for your herdr panes, downloaded from its latest release. It updates itself. See [flock](/apps/flock) |
+| `rt-context` extension | Every VS Code-family editor: worktree, branch, and linked ticket in the status bar. See [Editor extensions](/rt/guides/context-extension) |
 | `skill-blocks` extension | Every VS Code-family editor: errors, hover, completion and rename while you write skills. See [Editor extensions](/rt/guides/context-extension) |
 | Shell integration | `~/.local/bin` first on PATH, plus the `rtcd` alias, for zsh, bash, and fish |
 | Bundled helpers | `jq`, `gh`, `glab`, `bun`, `node`, `sops`, `age`, `zstd`, `git-lfs`, `cloudflared`, `fast-browser`, `gitq`, and `deck`, among others, pinned and shipped inside the app |

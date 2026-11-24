@@ -86,7 +86,7 @@ rt verify --json    # structured JSON for tooling
 does not install anything. Rows marked required are the critical ones: macOS
 version, Command Line Tools, the processor (Apple silicon or Intel), the `rt` binary, absence of
 split legacy state dirs, the app bundle, the daemon, the install flavor,
-herdr, Claude, the browser helper, plus credential and forge-reachability
+herdr, Flock (on macOS 15 or newer), Claude, the browser helper, plus credential and forge-reachability
 groups. The editor extension, the vsix, shell integration, the `~/.local/bin`
 link, and intercepts are reported but not critical.
 

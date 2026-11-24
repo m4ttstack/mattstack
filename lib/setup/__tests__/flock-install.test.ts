@@ -169,7 +169,7 @@ describe("Flock's macOS floor", () => {
     const p = setup({ macos: ok("15.1\n") }, {}, { body: feed(item(1171, "0.12.1", URL_0_12_1, "16.0"), item(1173, "0.12.2", URL_0_12_2, "17.0")) });
     expect(await installFlock(p)).toEqual({ via: "download", ok: false, detail: "Flock needs macOS 16 or newer" });
     expect(p.calls.exec.some((a) => a[0] === "curl")).toBe(false);
-    expect((await installFlock(setup({ macos: ok("15.1\n") }, {}, { body: tooNew("16.2") }))).detail).toBe("Flock needs macOS 16 or newer");
+    expect((await installFlock(setup({ macos: ok("15.1\n") }, {}, { body: tooNew("16.2") }))).detail).toBe("Flock needs macOS 16.2 or newer");
   });
 
   test("a version that cannot be read does not count as too old", async () => {
@@ -304,7 +304,7 @@ describe("installFlock", () => {
   test("does not copy over something else named Flock.app", async () => {
     const p = setup({ ids: { [SYSTEM]: "com.example.NotFlock" } }, { dirs: { [APP]: [], [SYSTEM]: [] }, files: { [plistOf(APP)]: "plist", [plistOf(SYSTEM)]: "plist" } });
     const result = await installFlock(p);
-    expect(result).toEqual({ via: "download", ok: false, detail: "Something else is at /Applications/Flock.app, so nothing was installed. Move it away, then press Install." });
+    expect(result).toEqual({ via: "download", ok: false, detail: "Something else is at /Applications/Flock.app, so nothing was installed. Move it away and try again" });
     expect(copies(p)).toEqual([]);
     expect(p.calls.removed).not.toContain(SYSTEM);
   });
