@@ -246,11 +246,13 @@ describe("toolRows — tool.herdr against the fork's build list", () => {
   const LOCAL = `${HOME}/.local/bin/herdr`;
   const sha = "a".repeat(64);
   const asset = (v: string) => ({ url: `https://github.com/m4ttstack/herdr/releases/download/v${v}/herdr-macos-aarch64`, sha256: sha });
-  const builds = JSON.stringify({
-    schema: 1,
-    newest: "0.9.5-ms.2",
-    builds: ["0.9.5-ms.1", "0.9.5-ms.2"].map((version, i) => ({ version, herdr: "0.9.5", revision: i + 1, changesServer: true, assets: { arm64: asset(version) }, supersedes: [] })),
-  });
+  const buildsOf = (changes: Record<string, boolean>) =>
+    JSON.stringify({
+      schema: 1,
+      newest: Object.keys(changes).at(-1),
+      builds: Object.entries(changes).map(([version, changesServer], i) => ({ version, herdr: "0.9.5", revision: i + 1, changesServer, assets: { arm64: asset(version) }, supersedes: [] })),
+    });
+  const builds = buildsOf({ "0.9.5-ms.1": true, "0.9.5-ms.2": true });
   const listFetch = async () => ({ status: 200, body: builds, headers: {} });
   const INTEGRATED = "claude: current (v7) (/x)\n";
 
@@ -309,7 +311,7 @@ describe("toolRows — tool.herdr against the fork's build list", () => {
     const r = await herdrRowOf(herdrProbes({ version: "0.9.4-ms.3" }));
     expect(r.status).toBe("invalid");
     expect(r.required).toBe(true);
-    expect(r.detail).toBe("herdr 0.9.4-ms.3 is older than 0.9.5-ms.2, which mattstack needs");
+    expect(r.detail).toBe("herdr 0.9.4-ms.3 is older than 0.9.5-ms.1, which mattstack needs");
     expect(r.action).toEqual(UPGRADE);
   });
 
@@ -351,6 +353,27 @@ describe("toolRows — tool.herdr against the fork's build list", () => {
     expect(r.optionalNote).toBe("herdr keeps working; panes end only when you restart it.");
     expect(r.detail).toBe("Restart herdr when your agents are done");
     expect(r.action).toEqual({ type: "run", label: "Restart herdr", verb: ["tools", "restart", "herdr"] });
+  });
+
+  test("a server no build since has changed reads ready, with no Restart", async () => {
+    const body = buildsOf({ "0.9.5-ms.1": true, "0.9.5-ms.2": false });
+    const p = herdrProbes({ version: "0.9.5-ms.2", sessions: [{ name: "work", socket: "/s/work.sock", version: "0.9.5-ms.1" }] }, { fetch: async () => ({ status: 200, body, headers: {} }) });
+    const r = await herdrRowOf(p);
+    expect(r.status).toBe("ready");
+    expect(r.action).toBeNull();
+  });
+
+  test("a stock version string that is not a version is never quoted", async () => {
+    const p = fakeProbes({ home: HOME, fetch: listFetch, exec: (argv) => (argv[1] === "--version" ? ok("development build\n") : ok()) });
+    expect((await herdrRowOf(p)).detail).toBe("herdr is not the mattstack build. Upgrade installs 0.9.5-ms.2");
+  });
+
+  test("an outdated fork build behind a stock shadow reads the shadow row", async () => {
+    const shadow = "/Users/x/.cargo/bin/herdr";
+    const p = herdrProbes({ version: "0.9.5-ms.1" }, { env: { PATH: `/Users/x/.cargo/bin:${HOME}/.local/bin` }, files: { [shadow]: "bin", [LOCAL]: "bin" } });
+    const r = await herdrRowOf(p);
+    expect(r.detail).toBe(`${shadow} would run instead of the mattstack build. rt did not make it, so rt left it alone`);
+    expect(r.required).toBe(true);
   });
 
   test("a server already on the installed build reads ready", async () => {
@@ -1266,7 +1289,11 @@ describe("toolRows — team-declared tool.team.<name>", () => {
     const exec: ExecScript = (argv) => (argv[1] === "--version" && argv[0]!.endsWith("herdr") ? missing("herdr") : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.herdr");
     expect(r.action).toEqual({ type: "install", label: "Install", tool: "herdr", via: "download" });
-    expect(teamToolManualSteps({ name: "herdr", why: "panes" })).toEqual({ type: "steps", label: "Show steps…", steps: ["Download it from https://github.com/m4ttstack/herdr/releases/latest"] });
+    expect(teamToolManualSteps({ name: "herdr", why: "panes" })).toEqual({ type: "steps", label: "Show steps…", steps: [
+        "Download the herdr build for this Mac's processor from https://github.com/m4ttstack/herdr/releases/latest",
+        "Move it to ~/.local/bin/herdr",
+        "Run: chmod 755 ~/.local/bin/herdr",
+      ] });
   });
 
   test("doppler missing with a download pinned for this processor -> missing, install action via download, id namespaced (R-T8-L1a)", async () => {
@@ -1392,7 +1419,7 @@ describe("toolRows: a tool that prints no version", () => {
   test("nonnumeric herdr output says its version could not be read", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? ok("  development build\n") : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
-    expect(r.detail).toBe("herdr development build is not the mattstack build. Upgrade installs 0.9.5-ms.1");
+    expect(r.detail).toBe("herdr is not the mattstack build. Upgrade installs 0.9.5-ms.1");
     expect(r.status).toBe("invalid");
     expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "herdr", via: "download" });
   });

@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { BUNDLED_VSIX_FILES, VENDOR_INSTALLERS, VSIX_NOT_FOUND_DETAIL, claudeConfigDirs, findBundledVsixes, installRoute, installTool, parseCltLabel, setupTool, type ToolsInstallSeams } from "../tools-install.ts";
 import { detectEditors } from "../../editors.ts";
-import { HERDR_BUILDS_URL } from "../herdr-builds.ts";
+import { HERDR_ASSET_PREFIX, HERDR_BUILDS_URL } from "../herdr-builds.ts";
 import { processFlavor } from "../../flavor.ts";
 import { DEV_TRAY_APP_BUNDLE, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
 import { fakeProbes, ok, missing } from "./fakes.ts";
@@ -39,11 +39,24 @@ describe("installTool — tool.herdr (the fork's build list)", () => {
   });
 
   test("installTool(herdr) never runs a vendor script or brew install", async () => {
-    const exec: ExecScript = (argv) => (argv[0] === "brew" && argv[1] === "--version" ? ok("4.0.0") : ok());
-    const p = fakeProbes({ exec, fetch: async () => ({ status: 404, body: "", headers: {} }) });
-    const result = await installTool(p, "herdr", [], NOOP_SEAMS);
-    expect(result).toEqual({ via: "download", ok: false, detail: "rt could not read herdr's build list from m4ttstack/herdr" });
+    const url = `${HERDR_ASSET_PREFIX}v0.9.5-ms.2/herdr-macos-aarch64`;
+    const sha = "a".repeat(64);
+    const body = JSON.stringify({
+      schema: 1,
+      newest: "0.9.5-ms.2",
+      builds: [{ version: "0.9.5-ms.2", herdr: "0.9.5", revision: 2, changesServer: false, assets: { arm64: { url, sha256: sha } }, supersedes: [] }],
+    });
+    const exec: ExecScript = (argv) => {
+      if (argv[0] === "brew" && argv[1] === "--version") return ok("4.0.0");
+      if (argv[0] === "shasum") return ok(`${sha}  ${argv[3]}\n`);
+      if (argv[1] === "--version") return ok("herdr 0.9.5-ms.2\n");
+      return ok();
+    };
+    const p = fakeProbes({ exec, fetch: async () => ({ status: 200, body, headers: {} }) });
+    const result = await installTool(p, "herdr", [], { ...NOOP_SEAMS, hostArch: () => "arm64" });
+    expect(result).toEqual({ via: "download", ok: true, detail: "Installed herdr 0.9.5-ms.2" });
     expect(p.calls.fetch).toEqual([HERDR_BUILDS_URL]);
+    expect(p.calls.exec.find((argv) => argv[0] === "curl")?.[2]).toBe(url);
     expect(p.calls.exec.some((argv) => argv[0] === "sh" || argv[0] === "bash" || (argv[0] === "brew" && argv[1] === "install"))).toBe(false);
     expect(VENDOR_INSTALLERS.herdr).toBeUndefined();
   });

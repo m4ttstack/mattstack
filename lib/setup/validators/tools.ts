@@ -35,7 +35,7 @@ import { fits, heldCopy, runnableEngine, type Floor } from "../../engine-floor.t
 import { chromeInstalled } from "../chrome.ts";
 import { mattstackFloor } from "../mattstack-floor.ts";
 import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
-import { fetchHerdrBuilds, herdrVerdict, parseHerdrVersion } from "../herdr-builds.ts";
+import { fetchHerdrBuilds, HERDR_MIN_BUILD, herdrVerdict, parseHerdrVersion } from "../herdr-builds.ts";
 import { homebrewHerdr, staleHerdrSessions } from "../herdr-install.ts";
 import { VENDOR_INSTALLERS, vendorBinPath } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
@@ -142,21 +142,12 @@ async function herdrRow(p: Probes, seams: ToolsSeams): Promise<Row> {
   const upgrade = provisionedInstallAction("herdr", "Upgrade");
   if (homebrewHerdr(p)) return row({ ...base, status: "invalid", detail: "Homebrew's herdr would run instead of the mattstack build. Upgrade removes it", action: upgrade });
 
-  const verdict = herdrVerdict(parseHerdrVersion(versionRes.stdout), await fetchHerdrBuilds(p));
+  const list = await fetchHerdrBuilds(p);
+  const verdict = herdrVerdict(parseHerdrVersion(versionRes.stdout), list);
   const version = verdict.version;
-  if (verdict.kind === "stock") return row({ ...base, status: "invalid", detail: `${named("herdr", version)} is not the mattstack build. Upgrade installs ${verdict.target}`, action: upgrade });
-  if (verdict.kind === "outdated" && verdict.belowMinimum) {
-    return row({ ...base, status: "invalid", detail: `${named("herdr", version)} is older than ${verdict.target}, which mattstack needs`, action: upgrade });
-  }
-  if (verdict.kind === "outdated") {
-    return row({
-      ...base,
-      required: false,
-      optionalNote: "Installed by Install (herdr.integration).",
-      status: "needs-you",
-      detail: `${named("herdr", version)} has a newer mattstack build, ${verdict.target}`,
-      action: upgrade,
-    });
+  if (verdict.kind === "stock") {
+    const which = /^[0-9]/.test(version) ? named("herdr", version) : "herdr";
+    return row({ ...base, status: "invalid", detail: `${which} is not the mattstack build. Upgrade installs ${verdict.target}`, action: upgrade });
   }
 
   const shadow = shadowingHerdr(p);
@@ -169,7 +160,21 @@ async function herdrRow(p: Probes, seams: ToolsSeams): Promise<Row> {
     });
   }
 
-  if ((await staleHerdrSessions(p, herdr, version)).length > 0) {
+  if (verdict.kind === "outdated" && verdict.belowMinimum) {
+    return row({ ...base, status: "invalid", detail: `${named("herdr", version)} is older than ${HERDR_MIN_BUILD}, which mattstack needs`, action: upgrade });
+  }
+  if (verdict.kind === "outdated") {
+    return row({
+      ...base,
+      required: false,
+      optionalNote: "Installed by Install (herdr.integration).",
+      status: "needs-you",
+      detail: `${named("herdr", version)} has a newer mattstack build, ${verdict.target}`,
+      action: upgrade,
+    });
+  }
+
+  if ((await staleHerdrSessions(p, herdr, version, list)).length > 0) {
     return row({
       ...base,
       required: false,
@@ -607,7 +612,13 @@ function teamToolRemedyAction(req: ToolRequirement, arch: HostArch, verb: "Insta
 
 /** The route around a failed Install, or null when the team declared no way to install the tool by hand. */
 export function teamToolManualSteps(req: ToolRequirement): Action | null {
-  if (req.name === "herdr") return { type: "steps", label: "Show steps…", steps: [`Download it from ${HERDR_RELEASES_PAGE}`] };
+  if (req.name === "herdr") {
+    return {
+      type: "steps",
+      label: "Show steps…",
+      steps: [`Download the herdr build for this Mac's processor from ${HERDR_RELEASES_PAGE}`, "Move it to ~/.local/bin/herdr", "Run: chmod 755 ~/.local/bin/herdr"],
+    };
+  }
   const vendor = VENDOR_INSTALLERS[req.name];
   if (vendor) return { type: "steps", label: "Show steps…", steps: [`curl -fsSL ${vendor.url} | ${vendor.shell}`] };
   const url = req.install?.url;

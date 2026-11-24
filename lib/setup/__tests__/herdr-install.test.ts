@@ -8,17 +8,31 @@ import { fakeProbes, ok, type FakeProbesOpts } from "./fakes.ts";
 const HOME = "/fake-home";
 const BIN = join(HOME, ".local", "bin");
 const DEST = join(BIN, "herdr");
-const STAGED = join(BIN, ".herdr-0.9.5-ms.2.new");
 const TMP = "/fake-tmp";
-const DOWNLOAD = join(TMP, "rt-herdr-install", "herdr");
-const ARM = { url: `${HERDR_ASSET_PREFIX}v0.9.5-ms.2/herdr-macos-aarch64`, sha256: "a".repeat(64) };
-const INTEL = { url: `${HERDR_ASSET_PREFIX}v0.9.5-ms.2/herdr-macos-x86_64`, sha256: "b".repeat(64) };
+const WORK = join(TMP, "rt-herdr-install");
+const DOWNLOAD = join(WORK, "herdr");
+const asset = (version: string, arch: "aarch64" | "x86_64") => ({ url: `${HERDR_ASSET_PREFIX}v${version}/herdr-macos-${arch}`, sha256: (arch === "aarch64" ? "a" : "b").repeat(64) });
+const ARM = asset("0.9.5-ms.2", "aarch64");
+const INTEL = asset("0.9.5-ms.2", "x86_64");
+const staged = (version: string) => join(BIN, `.herdr-${version}.new`);
+const STAGED = staged("0.9.5-ms.2");
 
-function listBody(changesServer = true): string {
+/** Build version → changesServer; the last entry is the list's newest. */
+type Builds = Record<string, boolean>;
+
+function listBody(builds: Builds): string {
+  const versions = Object.keys(builds);
   return JSON.stringify({
     schema: 1,
-    newest: "0.9.5-ms.2",
-    builds: [{ version: "0.9.5-ms.2", herdr: "0.9.5", revision: 2, changesServer, assets: { arm64: ARM, x86_64: INTEL }, supersedes: [] }],
+    newest: versions.at(-1),
+    builds: versions.map((version) => ({
+      version,
+      herdr: "0.9.5",
+      revision: Number(version.split("-ms.")[1]),
+      changesServer: builds[version],
+      assets: { arm64: asset(version, "aarch64"), x86_64: asset(version, "x86_64") },
+      supersedes: [],
+    })),
   });
 }
 
@@ -31,9 +45,12 @@ interface Session {
 interface Script {
   sha?: string;
   stagedVersion?: string;
+  installedVersion?: string;
   sessions?: Session[];
   handoff?: ExecResult;
   brewUninstall?: ExecResult;
+  curl?: ExecResult;
+  install?: ExecResult;
 }
 
 type Seen = { argv: string[]; env?: Record<string, string> };
@@ -42,9 +59,11 @@ function herdrExec(script: Script, seen: Seen[]) {
   const sessions = script.sessions ?? [];
   return (argv: string[], opts?: ExecOpts): ExecResult => {
     seen.push({ argv, env: opts?.env });
+    if (argv[0] === "curl") return script.curl ?? ok();
+    if (argv[0] === "install") return script.install ?? ok();
     if (argv[0] === "shasum") return ok(`${script.sha ?? ARM.sha256}  ${argv[3]}\n`);
-    if (argv[0] === STAGED && argv[1] === "--version") return ok(`herdr ${script.stagedVersion ?? "0.9.5-ms.2"}\n`);
-    if (argv[0] === DEST && argv[1] === "--version") return ok("herdr 0.9.5-ms.2\n");
+    if (argv[0]!.endsWith(".new") && argv[1] === "--version") return ok(`herdr ${script.stagedVersion ?? argv[0]!.slice(argv[0]!.indexOf(".herdr-") + 7, -4)}\n`);
+    if (argv[0] === DEST && argv[1] === "--version") return script.installedVersion === "" ? { code: 127, stdout: "", stderr: "ENOENT" } : ok(`herdr ${script.installedVersion ?? "0.9.5-ms.2"}\n`);
     if (argv[1] === "session" && argv[2] === "list") {
       return ok(JSON.stringify({ sessions: sessions.map((s) => ({ name: s.name, running: true, socket_path: s.socket, panes: 3 })) }));
     }
@@ -58,17 +77,22 @@ function herdrExec(script: Script, seen: Seen[]) {
   };
 }
 
-function setup(script: Script = {}, extra: FakeProbesOpts = {}, fetchStatus = 200, changesServer = true) {
+function setup(script: Script = {}, extra: FakeProbesOpts = {}, opts: { fetchStatus?: number; builds?: Builds } = {}) {
   const seen: Seen[] = [];
+  const fetchStatus = opts.fetchStatus ?? 200;
+  const builds = opts.builds ?? { "0.9.5-ms.2": true };
   const p = fakeProbes({
     home: HOME,
     env: { TMPDIR: TMP },
     exec: herdrExec(script, seen),
-    fetch: async () => ({ status: fetchStatus, body: fetchStatus === 200 ? listBody(changesServer) : "Not Found", headers: {} }),
+    fetch: async () => ({ status: fetchStatus, body: fetchStatus === 200 ? listBody(builds) : "Not Found", headers: {} }),
+    files: { [DEST]: "old herdr" },
     ...extra,
   });
   return { p, seen };
 }
+
+const handoffs = (seen: Seen[]) => seen.filter((c) => c.argv[1] === "server" && c.argv[2] === "live-handoff");
 
 describe("installHerdrBuild", () => {
   test("installs the newest build for arm64", async () => {
@@ -82,6 +106,7 @@ describe("installHerdrBuild", () => {
     expect(result.via).toBe("download");
     expect(result.ok).toBe(true);
     expect(result.detail.startsWith("Installed herdr 0.9.5-ms.2")).toBe(true);
+    expect(p.calls.removed).toContain(WORK);
   });
 
   test("an Intel Mac downloads the x86_64 asset", async () => {
@@ -91,24 +116,70 @@ describe("installHerdrBuild", () => {
     expect(result.ok).toBe(true);
   });
 
+  test("an empty TMPDIR downloads under /tmp, never a path relative to the cwd", async () => {
+    const { p } = setup({}, { env: { TMPDIR: "" } });
+    await installHerdrBuild(p, "arm64");
+    expect(p.calls.exec).toContainEqual(["curl", "-fsSL", ARM.url, "-o", "/tmp/rt-herdr-install/herdr"]);
+  });
+
   test("sha mismatch installs nothing", async () => {
     const { p } = setup({ sha: "c".repeat(64) });
     const result = await installHerdrBuild(p, "arm64");
     expect(result).toEqual({ via: "download", ok: false, detail: "The herdr download did not match the build list's sha256, so nothing was installed" });
     expect(p.calls.renames).toEqual([]);
     expect(p.calls.exec.some((argv) => argv[0] === "install")).toBe(false);
+    expect(p.calls.removed).toContain(WORK);
   });
 
   test("wrong --version installs nothing", async () => {
     const { p } = setup({ stagedVersion: "0.9.5" });
     const result = await installHerdrBuild(p, "arm64");
-    expect(result.ok).toBe(false);
+    expect(result).toEqual({ via: "download", ok: false, detail: "The herdr download reports version 0.9.5, not 0.9.5-ms.2, so nothing was installed" });
     expect(p.calls.removed).toContain(STAGED);
     expect(p.calls.renames).toEqual([]);
+    expect(p.readFile(DEST)).toBe("old herdr");
+  });
+
+  test("a failed download installs nothing", async () => {
+    const { p } = setup({ curl: { code: 22, stdout: "", stderr: "curl: (22) 404\n" } });
+    const result = await installHerdrBuild(p, "arm64");
+    expect(result).toEqual({ via: "download", ok: false, detail: "Downloading herdr failed (exit 22): curl: (22) 404" });
+    expect(p.calls.exec.some((argv) => argv[0] === "shasum" || argv[0] === "install")).toBe(false);
+    expect(p.readFile(DEST)).toBe("old herdr");
+    expect(p.calls.removed).toContain(WORK);
+  });
+
+  test("a download that times out installs nothing", async () => {
+    const { p } = setup({ curl: { code: 124, stdout: "", stderr: "" } });
+    const result = await installHerdrBuild(p, "arm64");
+    expect(result).toEqual({ via: "download", ok: false, detail: "Downloading herdr did not finish in time" });
+    expect(p.readFile(DEST)).toBe("old herdr");
+    expect(p.calls.removed).toContain(WORK);
+  });
+
+  test("a failed copy into ~/.local/bin installs nothing", async () => {
+    const { p } = setup({ install: { code: 71, stdout: "", stderr: "install: Permission denied\n" } });
+    const result = await installHerdrBuild(p, "arm64");
+    expect(result).toEqual({ via: "download", ok: false, detail: "Copying herdr into ~/.local/bin failed: install: Permission denied" });
+    expect(p.calls.renames).toEqual([]);
+    expect(p.readFile(DEST)).toBe("old herdr");
+    expect(p.calls.removed).toContain(WORK);
+  });
+
+  test("a rename that throws removes the staged copy and keeps the old binary", async () => {
+    const { p } = setup();
+    p.rename = () => {
+      throw new Error("EACCES: permission denied");
+    };
+    const result = await installHerdrBuild(p, "arm64");
+    expect(result).toEqual({ via: "download", ok: false, detail: "Replacing ~/.local/bin/herdr failed: EACCES: permission denied" });
+    expect(p.calls.removed).toContain(STAGED);
+    expect(p.readFile(DEST)).toBe("old herdr");
+    expect(p.calls.removed).toContain(WORK);
   });
 
   test("install fails without touching the binary when the list is unreachable", async () => {
-    const { p } = setup({}, {}, 404);
+    const { p } = setup({}, {}, { fetchStatus: 404 });
     const result = await installHerdrBuild(p, "arm64");
     expect(result).toEqual({ via: "download", ok: false, detail: "rt could not read herdr's build list from m4ttstack/herdr" });
     expect(p.calls.exec.some((argv) => argv[0] === "curl")).toBe(false);
@@ -130,7 +201,7 @@ describe("installHerdrBuild", () => {
 
   test("deletes flock's stock backup", async () => {
     const backup = join(BIN, "herdr.pre-mouse-backup");
-    const present = setup({}, { files: { [backup]: "stock" } });
+    const present = setup({}, { files: { [DEST]: "old herdr", [backup]: "stock" } });
     await installHerdrBuild(present.p, "arm64");
     expect(present.p.calls.removed).toContain(backup);
 
@@ -163,19 +234,34 @@ describe("installHerdrBuild", () => {
       ],
     });
     const result = await installHerdrBuild(p, "arm64");
-    const handoffs = seen.filter((c) => c.argv[1] === "server" && c.argv[2] === "live-handoff");
-    expect(handoffs).toHaveLength(1);
-    expect(handoffs[0]!.argv).toEqual([DEST, "server", "live-handoff", "--import-exe", DEST, "--expected-version", "0.9.5-ms.2"]);
-    expect(handoffs[0]!.env).toEqual({ HERDR_SOCKET_PATH: "/s/work.sock" });
+    expect(handoffs(seen)).toHaveLength(1);
+    expect(handoffs(seen)[0]!.argv).toEqual([DEST, "server", "live-handoff", "--import-exe", DEST, "--expected-version", "0.9.5-ms.2"]);
+    expect(handoffs(seen)[0]!.env).toEqual({ HERDR_SOCKET_PATH: "/s/work.sock" });
     expect(result.detail).toContain("moved 1 running herdr server onto it");
     expect(result.detail).not.toContain("restart herdr");
   });
 
-  test("a build that keeps the server never hands off", async () => {
-    const { p, seen } = setup({ sessions: [{ name: "work", socket: "/s/work.sock", version: "0.9.5" }] }, {}, 200, false);
+  test("a stock server is handed off even when the newest build keeps the server", async () => {
+    const { p, seen } = setup({ sessions: [{ name: "work", socket: "/s/work.sock", version: "0.9.5" }] }, {}, { builds: { "0.9.5-ms.2": false } });
+    await installHerdrBuild(p, "arm64");
+    expect(handoffs(seen)).toHaveLength(1);
+  });
+
+  test("a fork server is left alone when no build after it changes the server", async () => {
+    const { p, seen } = setup({ sessions: [{ name: "work", socket: "/s/work.sock", version: "0.9.5-ms.1" }] }, {}, { builds: { "0.9.5-ms.1": true, "0.9.5-ms.2": false } });
     const result = await installHerdrBuild(p, "arm64");
-    expect(seen.some((c) => c.argv[2] === "live-handoff")).toBe(false);
+    expect(handoffs(seen)).toHaveLength(0);
     expect(result.detail).toBe("Installed herdr 0.9.5-ms.2");
+  });
+
+  test("a fork server is handed off when a build between it and the new one changes the server", async () => {
+    const { p, seen } = setup(
+      { sha: asset("0.9.5-ms.3", "aarch64").sha256, sessions: [{ name: "work", socket: "/s/work.sock", version: "0.9.5-ms.1" }] },
+      {},
+      { builds: { "0.9.5-ms.1": false, "0.9.5-ms.2": true, "0.9.5-ms.3": false } },
+    );
+    await installHerdrBuild(p, "arm64");
+    expect(handoffs(seen).map((c) => c.argv.at(-1))).toEqual(["0.9.5-ms.3"]);
   });
 
   test("refused handoff leaves the server and reports restart", async () => {
@@ -206,9 +292,21 @@ describe("herdr helpers", () => {
     expect(stops).toEqual([{ argv: [DEST, "server", "stop"], env: { HERDR_SOCKET_PATH: "/s/work.sock" } }]);
   });
 
+  test("restartStaleHerdrServers leaves a server no build since has changed", async () => {
+    const { p, seen } = setup({ sessions: [{ name: "work", socket: "/s/work.sock", version: "0.9.5-ms.1" }] }, {}, { builds: { "0.9.5-ms.1": true, "0.9.5-ms.2": false } });
+    expect(await restartStaleHerdrServers(p)).toEqual({ stopped: [], failed: [] });
+    expect(seen.some((c) => c.argv[2] === "stop")).toBe(false);
+  });
+
+  test("restartStaleHerdrServers says so when ~/.local/bin/herdr does not run", async () => {
+    const { p, seen } = setup({ installedVersion: "", sessions: [{ name: "work", socket: "/s/work.sock", version: "0.9.5" }] });
+    expect(await restartStaleHerdrServers(p)).toEqual({ stopped: [], failed: [], error: "~/.local/bin/herdr does not run (exit 127), so rt restarted nothing" });
+    expect(seen.some((c) => c.argv[2] === "stop")).toBe(false);
+  });
+
   test("staleHerdrSessions is empty when herdr cannot list sessions", async () => {
     const p = fakeProbes({ exec: () => ({ code: 127, stdout: "", stderr: "ENOENT" }) });
-    expect(await staleHerdrSessions(p, [DEST], "0.9.5-ms.2")).toEqual([]);
+    expect(await staleHerdrSessions(p, [DEST], "0.9.5-ms.2", null)).toEqual([]);
   });
 
   test("homebrewHerdr finds an Intel Homebrew copy and ignores a non-Cellar link", () => {
