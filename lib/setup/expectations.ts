@@ -40,6 +40,11 @@ function isRecheck(a: Action): boolean {
   return a.type === "run" && a.verb.length === 2 && a.verb[0] === "setup" && a.verb[1] === "status";
 }
 
+/** A row whose only fix ends the person's panes is theirs to press when they choose, so it never holds Install or Finish. */
+export function endsPanes(r: Row): boolean {
+  return r.action?.type === "run" && r.action.verb.join(" ") === "tools restart herdr";
+}
+
 function waitForFinish(r: Row): Row {
   return { ...r, finishGated: true, waivable: false, optionalNote: null };
 }
@@ -52,7 +57,7 @@ function toTarget(r: Row, target: Target): Row {
     return settled ? { ...rest, required: false, optionalNote: null } : { ...rest, required: false };
   }
   if (settled) return { ...r, optionalNote: null };
-  if (r.required) return r;
+  if (r.required || endsPanes(r)) return r;
   // An install row nobody can press anything on would strand Install, so it waits for Finish instead.
   if (target === "install" && r.action !== null && !isRecheck(r.action)) return { ...r, required: true, optionalNote: null };
   return waitForFinish(r);
