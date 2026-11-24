@@ -63,7 +63,7 @@ runs in three phases:
    install: a registry of steps covering the home repo, team join, secrets,
    PATH links, intercepts, settings seeding, repo clones, service
    registration, the proxy, skills, cron triage, plugins, the browser helper,
-   herdr integration, the editor extension, service start, a snapshot push,
+   herdr integration, the Flock app, the editor extension, service start, a snapshot push,
    and a final verify.
 
 `rt setup plan` shows the checklist before anything runs; `rt setup status`
