@@ -5,6 +5,7 @@ import {
   type DraftEnvelope,
   type Envelope,
 } from '../src/peer/envelope.ts';
+import { SupportStore } from './support.ts';
 
 export const ENVELOPE_TTL_MS = 7 * 24 * 60 * 60_000;
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60_000;
@@ -28,7 +29,10 @@ function mintCode(): string {
     payload stays an opaque JSON string end to end. Per-recipient rows make
     broadcast, ack, and TTL prune single statements. */
 export class SwitchboardStore {
+  readonly support: SupportStore;
+
   constructor(private db: Database) {
+    this.support = new SupportStore(db);
     db.run(`CREATE TABLE IF NOT EXISTS boards (
       username TEXT PRIMARY KEY,
       token_hash TEXT NOT NULL,
@@ -132,8 +136,8 @@ export class SwitchboardStore {
   }
 
   /** Remove a board outright: its registration (killing the token), its
-      pending envelopes, and any outstanding invite for the handle. Returns
-      false when no such board exists. */
+      pending envelopes, any outstanding invite for the handle, and its
+      support messages and host flag. Returns false when no such board exists. */
   deleteBoard(username: string): boolean {
     const canonical = canonicalUsername(username);
     return this.db.transaction(() => {
@@ -144,6 +148,7 @@ export class SwitchboardStore {
       this.db.run(`DELETE FROM envelopes WHERE recipient = ?`, [canonical]);
       this.db.run(`DELETE FROM invites WHERE username = ?`, [canonical]);
       this.db.run(`DELETE FROM asks_off WHERE username = ?`, [canonical]);
+      this.support.clear(canonical);
       return true;
     })();
   }
