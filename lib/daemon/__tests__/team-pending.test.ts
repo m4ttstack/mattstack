@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { execFileSync } from "child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import type { RunResult } from "../../subprocess.ts";
+import { childEnv, runCapture, type RunResult } from "../../subprocess.ts";
 import { readPending } from "../team-pending.ts";
 
 const TEAM_STORE = "mattstack/teams/widgets/settings.team.jsonc";
@@ -60,6 +61,24 @@ function clone(opts: Clone) {
 const none = { unowned: [], heldBack: [], packZones: [] };
 
 describe("readPending", () => {
+  test("leaves the clone's index alone, so it never holds the lock a commit needs", async () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "rt-team-pending-"));
+    dirs.push(repoDir);
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: repoDir, env: childEnv() });
+    git("init", "-q", "-b", "mattstack");
+    writeFileSync(join(repoDir, "README.md"), "widgets\n");
+    git("add", "-A");
+    git("-c", "user.name=dev1", "-c", "user.email=dev1@example.test", "commit", "-q", "-m", "seed");
+    // A stale mtime is what makes a status that takes the lock rewrite the index.
+    utimesSync(join(repoDir, "README.md"), 1_000_000_000, 1_000_000_000);
+    const index = join(repoDir, ".git", "index");
+    const before = readFileSync(index);
+
+    expect(await readPending(repoDir, runCapture, none)).toEqual([]);
+
+    expect(readFileSync(index).equals(before)).toBe(true);
+  });
+
   test("maps a changed team store to its keys", async () => {
     const c = clone({
       files: { [TEAM_STORE]: `{"board.slack": {"channel": "#new"}}` },

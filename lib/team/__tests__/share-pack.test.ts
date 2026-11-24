@@ -191,6 +191,7 @@ describe("sharePack", () => {
       expect(handle.status().lastPushError).toBeNull();
     } finally {
       handle.stop();
+      await handle.settled();
     }
 
     const snapshotFiles = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
