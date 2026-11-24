@@ -235,14 +235,25 @@ export async function installHerdrBuild(p: Probes, arch: HostArch): Promise<Inst
   return { via: "download", ok: removed?.ok ?? true, ...title, detail: [`Installed herdr ${build.version}`, ...notes].join("; "), ...(removed?.remedy ? { remedy: removed.remedy } : {}) };
 }
 
-/** `error` is set when ~/.local/bin/herdr does not run or cannot list its sessions, so nothing was checked or stopped. */
-export async function restartStaleHerdrServers(p: Probes): Promise<{ stopped: string[]; failed: string[]; error?: string }> {
+/** `error` is set when ~/.local/bin/herdr does not run or cannot list its sessions, so nothing was checked. */
+async function staleServersOfInstalled(p: Probes): Promise<{ herdr: string; stale: HerdrSession[]; error?: string }> {
   const herdr = vendorBinPath(p.home, "herdr");
   const reported = await p.exec([herdr, "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
-  if (reported.code !== 0) return { stopped: [], failed: [], error: `~/.local/bin/herdr does not run (exit ${reported.code}), so rt stopped nothing` };
+  if (reported.code !== 0) return { herdr, stale: [], error: `~/.local/bin/herdr does not run (exit ${reported.code})` };
   const { version } = parseHerdrVersion(reported.stdout);
   const stale = await staleHerdrSessions(p, [herdr], version, await fetchHerdrBuilds(p));
-  if (!stale) return { stopped: [], failed: [], error: "herdr could not list its sessions, so rt stopped nothing" };
+  return stale ? { herdr, stale } : { herdr, stale: [], error: "herdr could not list its sessions" };
+}
+
+/** The names of the servers `restartStaleHerdrServers` would stop. */
+export async function checkStaleHerdrServers(p: Probes): Promise<{ stale: string[]; error?: string }> {
+  const { stale, error } = await staleServersOfInstalled(p);
+  return { stale: stale.map((s) => s.name), ...(error ? { error } : {}) };
+}
+
+export async function restartStaleHerdrServers(p: Probes): Promise<{ stopped: string[]; failed: string[]; error?: string }> {
+  const { herdr, stale, error } = await staleServersOfInstalled(p);
+  if (error) return { stopped: [], failed: [], error: `${error}, so rt stopped nothing` };
   const results = await Promise.all(stale.map((s) => p.exec([herdr, "server", "stop"], { env: { HERDR_SOCKET_PATH: s.socket }, timeoutMs: PROBE_TIMEOUT_MS })));
   return {
     stopped: stale.filter((_, i) => results[i]!.code === 0).map((s) => s.name),

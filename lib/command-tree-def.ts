@@ -3347,7 +3347,11 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/tools.ts",
         fn: "toolsRestart",
         omitBehavior: "picker",
-        args: [{ name: "Tool", type: "text", placeholder: "herdr", hint: "Tool name (herdr)" }, SETUP_JSON_ARG],
+        args: [
+          { name: "Tool", type: "text", placeholder: "herdr", hint: "Tool name (herdr)" },
+          { name: "Check", flag: "--check", type: "boolean", default: false, hint: "Name the servers a restart would stop, and stop none" },
+          SETUP_JSON_ARG,
+        ],
       },
     },
   },
