@@ -63,7 +63,7 @@ runs in three phases:
    install: a registry of steps covering the home repo, team join, secrets,
    PATH links, intercepts, settings seeding, repo clones, service
    registration, the proxy, skills, cron triage, plugins, the browser helper,
-   herdr integration, the editor extension, service start, a snapshot push,
+   herdr integration, the Flock app, the editor extension, service start, a snapshot push,
    and a final verify.
 
 `rt setup plan` shows the checklist before anything runs; `rt setup status`
@@ -86,7 +86,7 @@ rt verify --json    # structured JSON for tooling
 does not install anything. Rows marked required are the critical ones: macOS
 version, Command Line Tools, the processor (Apple silicon or Intel), the `rt` binary, absence of
 split legacy state dirs, the app bundle, the daemon, the install flavor,
-herdr, Claude, the browser helper, plus credential and forge-reachability
+herdr, Flock (on macOS 15 or newer), Claude, the browser helper, plus credential and forge-reachability
 groups. The editor extension, the vsix, shell integration, the `~/.local/bin`
 link, and intercepts are reported but not critical.
 

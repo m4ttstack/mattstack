@@ -19,6 +19,7 @@ const UPDATE_SAFE: StepId[] = [
   "editor.terminal-font",
   "fastbrowser.setup",
   "herdr.integration",
+  "flock.install",
   "extension.install",
   "verify",
   "apps.restart",

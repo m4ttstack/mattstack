@@ -1,5 +1,5 @@
 /**
- * `fastbrowser.setup`, `herdr.integration`, `extension.install`,
+ * `fastbrowser.setup`, `herdr.integration`, `flock.install`, `extension.install`,
  * `services.start`, `snapshot.push` — the remaining `--tool`/rt-driven apply
  * steps. Each tool-setup step pre-checks the tool's own presence itself
  * (never lets `setupTool`'s `UserActionableError` fall through to the
@@ -23,7 +23,8 @@ import { readSetupState, updateSetupState } from "../state.ts";
 import { fetchHerdrBuilds, herdrVerdict, parseHerdrVersion } from "../herdr-builds.ts";
 import { homebrewHerdrs, installHerdrBuild, removeHerdrBackups } from "../herdr-install.ts";
 import type { InstallResult } from "../install-result.ts";
-import { claudeConfigDirs, hostArch, NO_EDITORS_DETAIL, NO_RECORDED_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
+import { FLOCK_TOOL, flockBelowFloor, flockNeedsMacos, installedFlock } from "../flock-install.ts";
+import { claudeConfigDirs, hostArch, installTool, NO_EDITORS_DETAIL, NO_RECORDED_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 const HERDR_VERSION_TIMEOUT_MS = 5000;
@@ -144,6 +145,40 @@ export const herdrIntegrationStep: StepDef = {
   updateSafe: true,
   applies: () => true,
   run: herdrIntegrationRunSafe,
+};
+
+// ─── flock.install ───────────────────────────────────────────────────────────
+
+async function flockInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
+  await waitWhilePreparing(ctx.p, "accounts", { onWait: (line) => ctx.log("flock.install", line) });
+  if (await installedFlock(ctx.p)) return { state: "skipped", detail: "Flock is already installed" };
+  if (await flockBelowFloor(ctx.p)) return { state: "skipped", detail: flockNeedsMacos() };
+  // An update run must not put back a Flock the member removed after rt installed it.
+  if (ctx.update && readSetupState(ctx.p).flockInstalledAt) return { state: "skipped", detail: "Flock was removed after rt installed it, so rt left it alone" };
+  const result = await installTool(ctx.p, FLOCK_TOOL, []);
+  return result.ok ? { state: "done", detail: result.detail } : flockNotInstalled(ctx, result.detail);
+}
+
+/** A non-interactive run has nobody to press Retry, and a failure would stop it before services.start, so Flock's row carries the miss. */
+function flockNotInstalled(ctx: ApplyContext, detail: string): StepOutcome {
+  if (ctx.update) return { state: "failed", detail, remedy: "Open setup's Flock row and press Install" };
+  if (ctx.nonInteractive) return { state: "skipped", detail };
+  return { state: "failed", detail, remedy: "Install Flock from github.com/m4ttstack/flock/releases, then Retry" };
+}
+
+export const flockInstallStep: StepDef = {
+  id: "flock.install",
+  title: "Install Flock",
+  kind: "rt",
+  updateSafe: true,
+  applies: () => true,
+  run: async (ctx) => {
+    try {
+      return await flockInstallRun(ctx);
+    } catch (err) {
+      return flockNotInstalled(ctx, err instanceof Error ? err.message : String(err));
+    }
+  },
 };
 
 // ─── extension.install ───────────────────────────────────────────────────────

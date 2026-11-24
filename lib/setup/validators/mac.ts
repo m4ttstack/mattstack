@@ -8,6 +8,7 @@
 import type { Action, Row } from "../contract.ts";
 import { row } from "../contract.ts";
 import { GIT_FLOOR, gitBelowFloor, parseGitVersion } from "../git-floor.ts";
+import { readMacosVersion } from "../macos-version.ts";
 import { memberPath } from "../member-path.ts";
 import type { Probes } from "../probes.ts";
 
@@ -24,16 +25,15 @@ const RECHECK_ACTION: Action = { type: "run", label: "Re-check", verb: ["setup",
 
 async function macosVersionRow(p: Probes): Promise<Row> {
   const base = { id: "tool.macos", kind: "tool" as const, title: "macOS version", why: "rt and mattstack.app require macOS 14 or newer.", required: true };
-  const res = await p.exec(["sw_vers", "-productVersion"]);
-  const version = res.stdout.trim();
-  const major = version ? Number.parseInt(version.split(".")[0]!, 10) : NaN;
+  const macos = await readMacosVersion(p);
 
   // A failed/unreachable sw_vers means "couldn't determine", not "determined
   // to be too old" — RULING (honesty): never report "invalid" for a probe
   // that couldn't run.
-  if (res.code !== 0 || Number.isNaN(major)) {
+  if (!macos) {
     return row({ ...base, status: "error", detail: "Could not read your macOS version" });
   }
+  const { version, major } = macos;
   if (major >= 14) return row({ ...base, status: "ready", detail: `macOS ${version}` });
   return row({ ...base, status: "invalid", detail: "rt needs macOS 14 or newer" });
 }

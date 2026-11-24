@@ -87,6 +87,10 @@ describe("rowsToChecks", () => {
     expect(oneCheck([baseRow({ id: "tool.herdr", status: "missing", required: true })], { ci: true }).status).toBe("warn");
   });
 
+  test("tool.flock missing in ci -> warn (not bundled)", () => {
+    expect(oneCheck([baseRow({ id: "tool.flock", status: "missing", required: true })], { ci: true }).status).toBe("warn");
+  });
+
   // tool.fast-browser's own row never carries required:true past the
   // "missing" status (composePlan drops to required:false for needs-you and
   // error), so a required:true needs-you row only ever reaches here as a
@@ -130,7 +134,7 @@ describe("rowsToChecks", () => {
   });
 
   test("these exemptions are ci-only, all still fail interactively", () => {
-    for (const id of ["tool.claude", "tool.herdr", "tool.fast-browser", "tool.plugins"]) {
+    for (const id of ["tool.claude", "tool.herdr", "tool.flock", "tool.fast-browser", "tool.plugins"]) {
       expect(oneCheck([baseRow({ id, status: "missing", required: true })], { ci: false }).status).toBe("fail");
     }
   });

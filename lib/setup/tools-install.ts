@@ -17,6 +17,7 @@ import { appBundlePath, bundledToolExec, resolveTool } from "../deps/resolve.ts"
 import { detectEditors, type DetectedEditor } from "../editors.ts";
 import { UserActionableError } from "../errors.ts";
 import { GIT_FLOOR, gitBelowFloor } from "./git-floor.ts";
+import { FLOCK_TOOL, installFlock } from "./flock-install.ts";
 import { installHerdrBuild } from "./herdr-install.ts";
 import { vendorBinPath, type InstallResult } from "./install-result.ts";
 import type { Probes } from "./probes.ts";
@@ -201,7 +202,7 @@ function linkOutcomeDetail(outcome: LinkOutcome): string {
 
 /** The branch `installTool` would take for `tool`, without installing; null where it would refuse (a team's download URL, a tap formula, or no method at all). */
 export async function installRoute(p: Probes, tool: string, reqs: PackRequirements[], seams: ToolsInstallSeams = REAL_SEAMS): Promise<"bundled" | "download" | "vendor" | null> {
-  if (tool === "herdr") return "download";
+  if (tool === "herdr" || tool === FLOCK_TOOL) return "download";
   if (seams.bundledToolExec(p, tool)) return "bundled";
   if (VENDOR_INSTALLERS[tool]) return "vendor";
   if (teamPin(reqs, tool, (seams.hostArch ?? hostArch)())) return "download";
@@ -216,6 +217,11 @@ export function teamPin(reqs: PackRequirements[], tool: string, arch: HostArch):
 export async function installTool(p: Probes, tool: string, reqs: PackRequirements[], seams: ToolsInstallSeams = REAL_SEAMS): Promise<InstallResult> {
   if (tool === "apple-clt") return installAppleClt(p);
   if (tool === "herdr") return installHerdrBuild(p, (seams.hostArch ?? hostArch)());
+  if (tool === FLOCK_TOOL) {
+    const result = await installFlock(p);
+    if (result.placed) updateSetupState(p, (s) => ({ ...s, flockInstalledAt: p.now().toISOString() }));
+    return result;
+  }
 
   const bundled = seams.bundledToolExec(p, tool);
   if (bundled) {

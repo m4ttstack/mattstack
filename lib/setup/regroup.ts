@@ -4,6 +4,7 @@ const SPLIT_ORDER: GroupId[] = ["agents", "browser", "repos", "rt", "team"];
 
 const HOME: Record<string, GroupId> = {
   "tool.herdr": "agents",
+  "tool.flock": "agents",
   "tool.claude": "agents",
   "tool.plugins": "agents",
   "tool.linear-mcp": "agents",

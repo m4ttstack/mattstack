@@ -14,6 +14,7 @@ import { applyEventsPath } from "./apply-run.ts";
 import { readLogin, FINISH_IN_BROWSER, type LoginSession, type LoginTool } from "./cli-login.ts";
 import { applyStepAction, REPO_PLACE_ROW_PREFIX, type Action, type Plan, type Row } from "./contract.ts";
 import { endsPanes } from "./expectations.ts";
+import { FLOCK_TOOL } from "./flock-install.ts";
 import { fancyUrlsState, type FancyUrls } from "./fancy-urls.ts";
 import { createCapableGitHubToken, GITHUB_OAUTH_CLIENT_ID, readGitHubSignIn, readStoredGitHubToken, type GitHubSignIn } from "./github-signin.ts";
 import { homeOrigin, isRestorableOrigin } from "./home-remote.ts";
@@ -516,6 +517,7 @@ type AccountsPrepare = (PrepareRecord & { running: boolean }) | null;
 
 function preparedTool(rowId: string): string | null {
   if (rowId === "tool.herdr") return "herdr";
+  if (rowId === "tool.flock") return FLOCK_TOOL;
   return rowId.startsWith("tool.team.") ? rowId.slice("tool.team.".length) : null;
 }
 

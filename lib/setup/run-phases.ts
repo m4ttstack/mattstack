@@ -33,6 +33,7 @@ export const STEP_PHASES: Readonly<Record<StepId, StepPhase>> = {
   "editor.terminal-font": { weight: 2, paused: "Couldn't set up your editor's terminal font" },
   "fastbrowser.setup": { weight: 4, paused: "Couldn't set up Fast Browser" },
   "herdr.integration": { weight: 1, paused: "Couldn't set up herdr" },
+  "flock.install": { weight: 2, paused: "Couldn't install Flock" },
   "extension.install": { weight: 2, paused: "Couldn't install editor extensions" },
   "services.start": { weight: 2, paused: "Couldn't start mattstack" },
   "board.restart": { weight: 1, paused: "Couldn't start the board" },

@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { BUNDLED_VSIX_FILES, VENDOR_INSTALLERS, VSIX_NOT_FOUND_DETAIL, claudeConfigDirs, findBundledVsixes, installRoute, installTool, parseCltLabel, setupTool, type ToolsInstallSeams } from "../tools-install.ts";
 import { detectEditors } from "../../editors.ts";
+import { FLOCK_APPCAST_URL } from "../flock-install.ts";
 import { HERDR_ASSET_PREFIX, HERDR_BUILDS_URL } from "../herdr-builds.ts";
 import { processFlavor } from "../../flavor.ts";
 import { DEV_TRAY_APP_BUNDLE, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
@@ -60,6 +61,60 @@ describe("installTool — tool.herdr (the fork's build list)", () => {
     expect(p.calls.exec.find((argv) => argv[0] === "curl")?.[2]).toBe(url);
     expect(p.calls.exec.some((argv) => argv[0] === "sh" || argv[0] === "bash" || (argv[0] === "brew" && argv[1] === "install"))).toBe(false);
     expect(VENDOR_INSTALLERS.herdr).toBeUndefined();
+  });
+});
+
+describe("installTool — flock-app (the notarized Flock app from m4ttstack/flock)", () => {
+  test("installRoute(flock-app) is download", async () => {
+    const p = fakeProbes();
+    expect(await installRoute(p, "flock-app", [], NOOP_SEAMS)).toBe("download");
+    expect(p.calls.exec).toEqual([]);
+  });
+
+  test("a team's own flock command keeps its pin, and flock-app stays Flock.app", async () => {
+    const pin = { url: "https://downloads.example.com/flock", sha256: "a".repeat(64), extract: "" };
+    const reqs: PackRequirements[] = [{ pack: "widgets", integrations: [], tools: [{ name: "flock", why: "file locks", install: { download: { arm64: pin } } }] }];
+    const seams = { ...NOOP_SEAMS, hostArch: () => "arm64" as const };
+    const p = fakeProbes({ exec: (argv) => (argv[0] === "shasum" ? ok(`${"b".repeat(64)}  x\n`) : ok()), fetch: async () => ({ status: 404, body: "", headers: {} }) });
+    expect(await installRoute(p, "flock", [], seams)).toBeNull();
+    expect(await installRoute(p, "flock", reqs, seams)).toBe("download");
+    expect((await installTool(p, "flock", reqs, seams)).detail).toContain("team's pinned sha256");
+    expect(p.calls.exec.some((a) => a.includes(pin.url))).toBe(true);
+    expect(p.calls.fetch).toEqual([]);
+    expect((await installTool(p, "flock-app", reqs, seams)).detail).toContain("Flock's release feed");
+  });
+
+  test("installTool(flock-app) runs installFlock", async () => {
+    const p = fakeProbes({ fetch: async () => ({ status: 404, body: "", headers: {} }) });
+    const result = await installTool(p, "flock-app", [], NOOP_SEAMS);
+    expect(p.calls.fetch).toEqual([FLOCK_APPCAST_URL]);
+    expect(result).toEqual({ via: "download", ok: false, detail: "rt could not read Flock's release feed from m4ttstack/flock" });
+  });
+
+  test("installTool(flock-app) records when it put Flock in place, keyed on the result and not its wording", async () => {
+    const p = fakeProbes({
+      env: { TMPDIR: "/fake-tmp" },
+      statPaths: { "/Applications": { isDirectory: true, writable: true } },
+      dirs: { [`/fake-tmp/rt-flock-install-${process.pid}/unpacked/Flock.app`]: [] },
+      fetch: async () => ({ status: 200, body: `<item><sparkle:version>1</sparkle:version><sparkle:shortVersionString>0.12.2</sparkle:shortVersionString><enclosure url="https://github.com/m4ttstack/flock/releases/download/v0.12.2/Flock-0.12.2.zip"/></item>`, headers: {} }),
+      exec: (argv) => {
+        if (argv[0] === "/usr/bin/plutil") return ok("dev.mattstack.Flock\n");
+        if (argv[0] === "/usr/bin/codesign" && argv[1] === "-dv") return { code: 0, stdout: "", stderr: "TeamIdentifier=5BF66B3X4V\n" };
+        return ok();
+      },
+    });
+    const result = await installTool(p, "flock-app", [], NOOP_SEAMS);
+    expect(result).toMatchObject({ ok: true, placed: true });
+    expect(readSetupState(p).flockInstalledAt).toBe(p.now().toISOString());
+  });
+
+  test("installTool(flock-app) records nothing when Flock is already there or the install fails", async () => {
+    const present = fakeProbes({ files: { "/Applications/Flock.app/Contents/Info.plist": "plist" }, exec: (argv) => (argv[0] === "/usr/bin/plutil" ? ok("dev.mattstack.Flock\n") : ok()) });
+    expect((await installTool(present, "flock-app", [], NOOP_SEAMS)).detail).toContain("is already installed");
+    const feedDown = fakeProbes({ fetch: async () => ({ status: 404, body: "", headers: {} }) });
+    await installTool(feedDown, "flock-app", [], NOOP_SEAMS);
+    expect(readSetupState(present).flockInstalledAt).toBeUndefined();
+    expect(readSetupState(feedDown).flockInstalledAt).toBeUndefined();
   });
 });
 

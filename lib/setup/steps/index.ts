@@ -24,7 +24,7 @@ import { claudeRulesStep } from "./claude-rules.ts";
 import { linearMcpStep } from "./linear-mcp.ts";
 import { claudePermissionsStep } from "./claude-permissions.ts";
 import { editorFontStep } from "./editor-font.ts";
-import { fastbrowserSetupStep, herdrIntegrationStep, extensionInstallStep, servicesStartStep, snapshotPushStep } from "./tools.ts";
+import { fastbrowserSetupStep, flockInstallStep, herdrIntegrationStep, extensionInstallStep, servicesStartStep, snapshotPushStep } from "./tools.ts";
 import { verifyStep } from "./verify.ts";
 import { appsRestartStep } from "./apps-restart.ts";
 import { toFailedOutcome } from "./step-utils.ts";
@@ -90,6 +90,7 @@ export const STEPS: StepDef[] = [
   editorFontStep,
   fastbrowserSetupStep,
   herdrIntegrationStep,
+  flockInstallStep,
   extensionInstallStep,
   servicesStartStep,
   boardRestartStep,

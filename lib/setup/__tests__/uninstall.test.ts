@@ -293,6 +293,17 @@ describe("rt uninstall", () => {
       expect(readSetupState(p).installRanAt).toBeUndefined();
     });
 
+    test("a run that keeps the data takes the Flock stamp off the record, so a reinstalled app installs Flock again", async () => {
+      const actions: UninstallAction[] = [{ id: "services.unregister", title: "x", kind: "app" }];
+      const p = bareProbes();
+      updateSetupState(p, (s) => ({ ...s, flockInstalledAt: "2026-11-01T00:00:00.000Z" }));
+      const { ctx } = makeCtx(p, { need: async () => ({ ok: true, detail: "done" }) });
+
+      await runUninstall(ctx, actions);
+
+      expect(readSetupState(p).flockInstalledAt).toBeUndefined();
+    });
+
     test("a run that keeps the data takes the last run off the record, so a reinstalled app's form never finishes on it", async () => {
       const actions: UninstallAction[] = [{ id: "services.unregister", title: "x", kind: "app" }];
       const p = bareProbes();

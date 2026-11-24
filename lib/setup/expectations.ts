@@ -15,6 +15,7 @@ export const ROW_TARGETS: Readonly<Record<string, Target>> = {
   "tool.chrome": "install",
   "team.identity": "install",
   "tool.herdr": "finish",
+  "tool.flock": "finish",
   "tool.claude": "finish",
   "tool.fast-browser": "finish",
   "tool.linear-mcp": "finish",

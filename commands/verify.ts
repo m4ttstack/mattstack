@@ -66,14 +66,16 @@ function actionHint(action: Action | null): string {
  * Tools a CI runner structurally cannot satisfy, and why each is expected
  * rather than broken:
  *
- * - `tool.claude` / `tool.herdr` are not bundled; nothing in the headless
- *   install installs them, so their absence on a runner is the designed shape.
+ * - `tool.claude` / `tool.herdr` / `tool.flock` are not bundled. A headless
+ *   apply does run `flock.install`, but a runner with no Flock installed (a
+ *   fresh image, no network to GitHub) is still an expected shape; nothing in
+ *   it installs claude or herdr, so theirs is too.
  * - `tool.plugins` reaching this check at all means claude IS present
  *   (its own 127 already short-circuits to "skipped" above, which never
  *   fails); a runner can carry a bare claude with none of the baseline
  *   plugins installed, and that is still the designed shape, not a break.
  */
-const CI_UNSATISFIABLE_TOOLS = new Set(["tool.claude", "tool.herdr", "tool.plugins"]);
+const CI_UNSATISFIABLE_TOOLS = new Set(["tool.claude", "tool.herdr", "tool.flock", "tool.plugins"]);
 
 function ciNeverCritical(r: Row, ci: boolean): boolean {
   if (!ci) return false;

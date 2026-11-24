@@ -210,6 +210,7 @@ export const STEP_IDS = [
   "editor.terminal-font",
   "fastbrowser.setup",
   "herdr.integration",
+  "flock.install",
   "extension.install",
   "services.start",
   "board.restart",

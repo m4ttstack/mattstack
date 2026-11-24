@@ -35,6 +35,8 @@ export interface SetupState {
   lastApplyAt?: string;
   /** The rt version the last `rt setup update` run stamped, whatever its outcome. */
   lastUpdate?: { version: string; at: string };
+  /** When rt last installed Flock on this Mac: an update run that finds it gone leaves it gone, since the member removed it. */
+  flockInstalledAt?: string;
   /** The newest dev app version a notice already announced on this Mac, so each release is announced once. */
   devAppAnnounced?: string;
   /** Whether the last full or `--from` run ended ok; `--only` retries and update runs leave it. mattstack.app reopens an unfinished setup at Done only when true. */

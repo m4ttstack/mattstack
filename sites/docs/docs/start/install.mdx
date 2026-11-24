@@ -77,7 +77,7 @@ rt setup gitlab connect --host gitlab.example.com
 
 After **Join**, the screen shows your team's name and reads **Waiting for Jane Doe to confirm your membership**. Let them know you're waiting. Your admin approves from the notification mattstack shows them.
 
-The wait has no progress bar, because nothing installs for the team until your admin approves you. Click **Hide** to close the window; mattstack keeps checking in the background. When your admin approves, a **You're in** notification brings you back. Once they approve, mattstack starts installing what the next screen's sign-ins need, such as Claude Code and any team tool with a sign-in.
+The wait has no progress bar, because nothing installs for the team until your admin approves you. Click **Hide** to close the window; mattstack keeps checking in the background. When your admin approves, a **You're in** notification brings you back. Once they approve, mattstack starts installing Claude Code, herdr, Flock and what the next screen's sign-ins need, such as any team tool with a sign-in.
 
 A request nobody has approved yet keeps waiting.
 
@@ -140,6 +140,7 @@ The run:
 - points the board at its repo, so the board's agents start in that checkout. The board's repo is the first repo in the team's board projects, else the first repo the team tracks
 - installs the mattstack Claude Code plugins, turns on your team's pack, and seeds Claude Code's permissions (see [Claude Code setup](#claude-code-setup))
 - writes the **sparse** writing style on a new Mac where nothing chose one
+- installs [Flock](/apps/flock) into `/Applications`, or `~/Applications` when `/Applications` is not writable, unless it is already there. Flock needs macOS 15 or later, so an older macOS skips it
 - installs the `rt-context` and `skill-blocks` editor extensions into every VS Code-family editor it finds
 - installs the JetBrainsMonoNL Nerd Font and adds it as a fallback to each of those editors' terminal font, so the icons in rt's terminal screens draw. A terminal that already lists a Nerd Font, or one whose font you changed after rt set it, is left alone
 - restarts the apps deck manages, so none keeps running code from before the run
@@ -232,6 +233,7 @@ It installs the `mattstack`, `fast-browser`, `chat`, `superpowers`, `gate-form`,
 | `rt` | Ships inside the app (`Contents/MacOS/rt`), linked at `~/.local/bin/rt` |
 | Background daemon | Caches branch, MR and PR data, scans ports, guards git hooks, snapshots the home repo. See [The daemon](/start/daemon) |
 | Bundled apps | board, console, chat, and boxscore, served locally through deck |
+| Flock | The Mac app for your herdr panes, downloaded from its latest release. It updates itself. See [flock](/apps/flock) |
 | `rt-context` extension | Every VS Code-family editor: worktree, branch, and linked ticket in the status bar. See [Editor extensions](/rt/guides/context-extension) |
 | `skill-blocks` extension | Every VS Code-family editor: errors, hover, completion and rename while you write skills. See [Editor extensions](/rt/guides/context-extension) |
 | Shell integration | `~/.local/bin` first on PATH, plus the `rtcd` alias, for zsh, bash, and fish |

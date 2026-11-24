@@ -29,6 +29,7 @@ import {
   extensionInstallRun,
   extensionInstallStep,
   fastbrowserSetupStep,
+  flockInstallStep,
   herdrIntegrationStep,
   servicesStartRun,
   waitForDaemonUp,
@@ -2371,6 +2372,134 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     });
   });
 
+  // ─── flock.install ───────────────────────────────────────────────────────
+
+  describe("flock.install", () => {
+    const TMP = "/fake-tmp";
+    const UNPACKED_APP = join(TMP, `rt-flock-install-${process.pid}`, "unpacked", "Flock.app");
+    const INSTALLED_PLIST = "/Applications/Flock.app/Contents/Info.plist";
+    const appcast = `<rss xmlns:sparkle="x"><channel><item><sparkle:version>1173</sparkle:version><sparkle:shortVersionString>0.12.2</sparkle:shortVersionString><enclosure url="https://github.com/m4ttstack/flock/releases/download/v0.12.2/Flock-0.12.2.zip"/></item></channel></rss>`;
+
+    /** A Mac with no Flock, a reachable feed, and a download that verifies; `installed` puts a real-looking Flock in /Applications. */
+    function flockMac(opts: { installed?: boolean; feedStatus?: number; macos?: string } = {}) {
+      return fakeProbes({
+        home,
+        env: { TMPDIR: TMP },
+        statPaths: { "/Applications": { isDirectory: true, writable: true } },
+        dirs: { [UNPACKED_APP]: [] },
+        files: { [join(UNPACKED_APP, "Contents", "Info.plist")]: "plist", ...(opts.installed ? { [INSTALLED_PLIST]: "plist" } : {}) },
+        fetch: async () => ({ status: opts.feedStatus ?? 200, body: opts.feedStatus && opts.feedStatus !== 200 ? "Not Found" : appcast, headers: {} }),
+        exec: (argv) => {
+          if (argv[0] === "sw_vers") return ok(opts.macos ? `${opts.macos}\n` : "");
+          if (argv[0] === "/usr/bin/plutil") return ok(argv[2] === "CFBundleIdentifier" ? "dev.mattstack.Flock\n" : "0.12.2\n");
+          if (argv[0] === "/usr/bin/codesign" && argv[1] === "-dv") return { code: 0, stdout: "", stderr: "TeamIdentifier=5BF66B3X4V\n" };
+          return ok();
+        },
+      });
+    }
+
+    test("installs a missing Flock and records it", async () => {
+      const p = flockMac();
+      const outcome = await flockInstallStep.run(makeCtx(p).ctx);
+      expect(outcome).toEqual({ state: "done", detail: "Installed Flock 0.12.2 in /Applications" });
+      expect(readSetupState(p).flockInstalledAt).toBe(p.now().toISOString());
+    });
+
+    test("skips an installed Flock", async () => {
+      const p = flockMac({ installed: true });
+      const outcome = await flockInstallStep.run(makeCtx(p).ctx);
+      expect(outcome).toEqual({ state: "skipped", detail: "Flock is already installed" });
+      expect(p.calls.fetch).toEqual([]);
+      expect(readSetupState(p).flockInstalledAt).toBeUndefined();
+    });
+
+    test("a Mac below macOS 15 skips with the floor and fetches nothing", async () => {
+      const p = flockMac({ macos: "14.7.1" });
+      const outcome = await flockInstallStep.run(makeCtx(p).ctx);
+      expect(outcome).toEqual({ state: "skipped", detail: "Flock needs macOS 15 or newer" });
+      expect(p.calls.fetch).toEqual([]);
+      expect(readSetupState(p).flockInstalledAt).toBeUndefined();
+    });
+
+    test("update run leaves a Flock the member removed", async () => {
+      const p = flockMac();
+      updateSetupState(p, (s) => ({ ...s, flockInstalledAt: "2026-11-01T00:00:00.000Z" }));
+      const outcome = await flockInstallStep.run(makeCtx(p, { update: true }).ctx);
+      expect(outcome).toEqual({ state: "skipped", detail: "Flock was removed after rt installed it, so rt left it alone" });
+      expect(p.calls.fetch).toEqual([]);
+    });
+
+    test("update run installs Flock on a Mac rt never installed it on", async () => {
+      const p = flockMac();
+      const outcome = await flockInstallStep.run(makeCtx(p, { update: true }).ctx);
+      expect(outcome.state).toBe("done");
+      expect(p.calls.fetch.length).toBe(1);
+    });
+
+    test("a full run reinstalls a removed Flock", async () => {
+      const p = flockMac();
+      updateSetupState(p, (s) => ({ ...s, flockInstalledAt: "2026-11-01T00:00:00.000Z" }));
+      expect((await flockInstallStep.run(makeCtx(p).ctx)).state).toBe("done");
+    });
+
+    const FEED_DOWN = "rt could not read Flock's release feed from m4ttstack/flock";
+
+    test("a failed install on an update run names the row", async () => {
+      const p = flockMac({ feedStatus: 404 });
+      const outcome = await flockInstallStep.run(makeCtx(p, { update: true }).ctx);
+      expect(outcome).toEqual({ state: "failed", detail: FEED_DOWN, remedy: "Open setup's Flock row and press Install" });
+      expect(readSetupState(p).flockInstalledAt).toBeUndefined();
+    });
+
+    test("a failed install on a non-interactive run is skipped, so it never stops the run", async () => {
+      const p = flockMac({ feedStatus: 404 });
+      expect(await flockInstallStep.run(makeCtx(p, { nonInteractive: true }).ctx)).toEqual({ state: "skipped", detail: FEED_DOWN });
+    });
+
+    test("a failed install with a person there fails with the manual route", async () => {
+      const p = flockMac({ feedStatus: 404 });
+      expect(await flockInstallStep.run(makeCtx(p).ctx)).toEqual({ state: "failed", detail: FEED_DOWN, remedy: "Install Flock from github.com/m4ttstack/flock/releases, then Retry" });
+    });
+
+    test("a throw follows the same three outcomes", async () => {
+      const throwing = () => {
+        const p = flockMac();
+        p.exists = () => {
+          throw new Error("disk gone");
+        };
+        return p;
+      };
+      expect(await flockInstallStep.run(makeCtx(throwing(), { update: true }).ctx)).toEqual({ state: "failed", detail: "disk gone", remedy: "Open setup's Flock row and press Install" });
+      expect(await flockInstallStep.run(makeCtx(throwing(), { nonInteractive: true }).ctx)).toEqual({ state: "skipped", detail: "disk gone" });
+      expect(await flockInstallStep.run(makeCtx(throwing()).ctx)).toEqual({ state: "failed", detail: "disk gone", remedy: "Install Flock from github.com/m4ttstack/flock/releases, then Retry" });
+    });
+
+    test("waits for a running prepare accounts before reading the machine", async () => {
+      const startedAt = new Date("2026-10-30T10:00:00.000Z");
+      const record = { stage: "accounts", startedAt: startedAt.toISOString(), pid: process.pid, items: ["flock-app"], failed: [] };
+      let sleeps = 0;
+      const base = flockMac({ installed: true });
+      const p: Probes = fakeProbes({
+        home,
+        now: startedAt,
+        files: { [INSTALLED_PLIST]: "plist", [preparePath(home, "accounts")]: JSON.stringify(record) },
+        exec: async (argv, opts) => {
+          if (argv[0] === "sleep" && ++sleeps === 2) p.writeFile(preparePath(home, "accounts"), JSON.stringify({ ...record, pid: undefined, endedAt: startedAt.toISOString() }));
+          return argv[0] === "/usr/bin/plutil" ? ok(argv[2] === "CFBundleIdentifier" ? "dev.mattstack.Flock\n" : "0.12.2\n") : base.exec(argv, opts);
+        },
+      });
+      const { ctx, logs } = makeCtx(p);
+      expect((await flockInstallStep.run(ctx)).state).toBe("skipped");
+      const calls = (p as ReturnType<typeof fakeProbes>).calls.exec;
+      expect(calls.slice(0, 2)).toEqual([["sleep", "5"], ["sleep", "5"]]);
+      expect(logs.filter((l) => l.line === "Waiting for the background installs to finish")).toEqual([{ id: "flock.install", line: "Waiting for the background installs to finish" }]);
+    });
+
+    test("the step is titled Install Flock", () => {
+      expect(flockInstallStep.title).toBe("Install Flock");
+    });
+  });
+
   // ─── extension.install ───────────────────────────────────────────────────
 
   function noopResolution(tool: string): ToolResolution {
@@ -2762,6 +2891,15 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
         const broken = [rowOf("tool.claude", "tool", "Claude Code", "needs-you")];
         expect(outcomeFromChecks([fail("tool.claude")], broken).state).toBe("failed");
+      });
+
+      test("a Flock left missing, as an update run leaves a removed one, reads as needs-you, not a failed check", () => {
+        const install: Action = { type: "install", label: "Install", tool: "flock-app", via: "download" };
+        const rows = [{ ...rowOf("tool.flock", "tool", "Flock", "missing"), action: install }];
+        expect(outcomeFromChecks([fail("tool.flock")], rows)).toEqual({ state: "needs-you", detail: "To install: Flock" });
+
+        const noAction = [rowOf("tool.flock", "tool", "Flock", "missing")];
+        expect(outcomeFromChecks([fail("tool.flock")], noAction).state).toBe("failed");
       });
 
       test("settleChecks keeps waiting on tool.daemon while an unconnected account also fails", async () => {

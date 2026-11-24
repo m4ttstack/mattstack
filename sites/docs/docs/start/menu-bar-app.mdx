@@ -89,7 +89,7 @@ With it off, the app checks every 6 hours, a new release opens Sparkle's update 
 An update never re-runs Install. Instead, the first launch on a new version runs [`rt setup update`](/rt/reference/setup/update) once setup has been finished on this Mac. That run does three things:
 
 1. Runs any one-time migrations the release carries.
-2. Re-applies the setup steps that are safe to repeat (PATH, settings, skills, intercepts, plugins, Claude permissions, Fast Browser, herdr and the browser extension).
+2. Re-applies the setup steps that are safe to repeat (PATH, settings, skills, intercepts, plugins, Claude permissions, Fast Browser, herdr, Flock and the browser extension). A Flock you removed after setup installed it stays removed.
 3. Runs the setup check.
 
 It never asks you anything and never replaces a value you chose. When the check finds something only you can fix, you get a notification that opens the Setup status window.

@@ -851,7 +851,7 @@ test("prepare answers what it installed", async () => {
   expect(macos.code).toBe(0);
   expect(macos.lines[0]).toMatchObject({ contract: 1, stage: "macos", installed: ["apple-clt"], failed: [] });
   const accounts = await run("join-happy", ["setup", "prepare", "accounts", "--json"]);
-  expect(accounts.lines[0]).toMatchObject({ stage: "accounts", installed: ["claude", "herdr"], failed: [] });
+  expect(accounts.lines[0]).toMatchObject({ stage: "accounts", installed: ["claude", "herdr", "flock-app"], failed: [] });
   const bad = await run("join-happy", ["setup", "prepare", "later", "--json"]);
   expect(bad.code).toBe(2);
   expect(bad.lines[0].error.code).toBe("bad-stage");

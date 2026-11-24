@@ -127,6 +127,21 @@ describe("composePlan", () => {
     expect(fda.detail).toContain("via the daemon");
   });
 
+  test("macOS 14 with no Flock -> the Flock row is skipped and optional, and holds neither Install nor Finish", async () => {
+    const p = fakeProbes({ exec: (argv) => (argv[0] === "sw_vers" ? ok("14.7.1\n") : readyExec(argv)), tray: grantedTray });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
+    expect(everyRow(plan).rows.find((r) => r.id === "tool.flock")).toMatchObject({ required: false, status: "skipped", detail: "Flock needs macOS 15 or newer", action: null });
+    expect(plan.requiredMissing).not.toContain("tool.flock");
+    expect(plan.finishBlockedBy).not.toContain("tool.flock");
+  });
+
+  test("macOS 15 with no Flock -> the Flock row is required and missing", async () => {
+    const p = fakeProbes({ exec: (argv) => (argv[0] === "sw_vers" ? ok("15.1\n") : readyExec(argv)), tray: grantedTray });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
+    expect(everyRow(plan).rows.find((r) => r.id === "tool.flock")).toMatchObject({ required: true, status: "missing" });
+    expect(plan.requiredMissing).toContain("tool.flock");
+  });
+
   test("create intent -> team ref from the intent, forge derived from its remote, account.github row present", async () => {
     const p = fakeProbes({ exec: readyExec, tray: grantedTray });
     writeIntent(p, createIntent());
@@ -177,8 +192,13 @@ describe("composePlan", () => {
     process.env.HOME = home;
     try {
       // canInstall also needs tool.arch and tool.app ready; readyExec/grantedTray alone leave both unmocked, and neither is solo-specific.
-      const soloExec: ExecScript = (argv) => (argv[0] === "uname" ? ok("arm64") : readyExec(argv));
-      const p = fakeProbes({ exec: soloExec, tray: grantedTray, dirs: { "/Applications/mattstack.app": [] }, files: { "/fake-home/.local/bin/claude": "bin" } });
+      const soloExec: ExecScript = (argv) => (argv[0] === "uname" ? ok("arm64") : argv[0] === "/usr/bin/plutil" ? ok("dev.mattstack.Flock\n") : readyExec(argv));
+      const p = fakeProbes({
+        exec: soloExec,
+        tray: grantedTray,
+        dirs: { "/Applications/mattstack.app": [] },
+        files: { "/fake-home/.local/bin/claude": "bin", "/Applications/Flock.app/Contents/Info.plist": "plist" },
+      });
       writeIntent(p, { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "solo" });
       const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
       expect(plan.team).toEqual({ slug: "", name: "", mode: "none" });

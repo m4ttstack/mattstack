@@ -1,16 +1,18 @@
 /**
  * `rt setup prepare`: the installs setup starts while the member is still
  * answering screens, so nothing waits on them later. Command Line Tools start
- * at the macOS screen; Claude Code, herdr, the team's tools and Fast Browser's
+ * at the macOS screen; Claude Code, herdr, Flock, the team's tools and Fast Browser's
  * runtime start once the member is approved. Each stage keeps its own record,
  * which the form reads to show a row as installing.
  */
 import { dirname } from "path";
 import { resolveTool } from "../deps/resolve.ts";
 import type { StepOutcome } from "./apply.ts";
+import { FLOCK_TOOL, flockBelowFloor, installedFlock } from "./flock-install.ts";
 import { FAST_BROWSER, preparePath, readPrepare, waitWhilePreparing, type PrepareRecord, type PrepareStage } from "./prepare-record.ts";
 import type { Probes } from "./probes.ts";
 import type { PackRequirements, ToolRequirement } from "./requirements.ts";
+import { readSetupState } from "./state.ts";
 import { signInTools } from "./sign-in-tools.ts";
 import { setUpFastBrowser } from "./steps/tools.ts";
 import { gitBelowFloor } from "./git-floor.ts";
@@ -72,6 +74,8 @@ export async function prepareTools(p: Probes, stage: PrepareStage, reqs: PackReq
   // The board runs claude from the vendor path only, so a copy elsewhere on PATH still needs the vendor install.
   if (!p.exists(vendorBinPath(p.home, "claude"))) items.push("claude");
   if (await missingBinary(p, "herdr")) items.push("herdr");
+  // A Flock the member removed after rt installed it stays removed: the connect screen starts this stage again.
+  if (!(await installedFlock(p)) && !readSetupState(p).flockInstalledAt && !(await flockBelowFloor(p))) items.push(FLOCK_TOOL);
 
   const required = (tools: ToolRequirement[]) => tools.filter((t) => !t.optional);
   const team = firstByName([...required(signInTools(reqs)), ...required(reqs.flatMap((r) => r.tools))]);

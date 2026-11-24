@@ -91,7 +91,7 @@ if [ -f "$HOME/.vmtest-key/linear-key.txt" ]; then
   if RT_BATCH=1 "$RT" setup linear connect --json < "$HOME/.vmtest-key/linear-key.txt" >/dev/null 2>&1; then
     echo "joiner: linear connected"
     # --from resumes Install from linear.mcp onward (fastbrowser.setup,
-    # herdr.integration, extension.install, services.start, snapshot.push,
+    # herdr.integration, flock.install, extension.install, services.start, snapshot.push,
     # verify on this branch), not just the one step: Install already ran
     # once at join time, before this key existed, so linear.mcp skipped and
     # never wrote the mcpServers entry. This is what makes it write it now.
