@@ -36,9 +36,9 @@ function resolveTeamReqs(p: Probes): PackRequirements[] {
   return ref.slug ? readPackRequirements(p, ref.slug) : [];
 }
 
-/** What installTool can act on here, mirroring its branch order: apple-clt, rt's bundled tools that resolve in this environment, its hardcoded vendor installers, and the joined team's declared tools. */
+/** What installTool can act on here, mirroring its branch order: apple-clt, herdr's fork build, rt's bundled tools that resolve in this environment, its hardcoded vendor installers, and the joined team's declared tools. */
 function installableTools(p: Probes, reqs: PackRequirements[]): string[] {
-  const names = new Set<string>(["apple-clt", ...Object.keys(VENDOR_INSTALLERS)]);
+  const names = new Set<string>(["apple-clt", "herdr", ...Object.keys(VENDOR_INSTALLERS)]);
   for (const name of DEFAULT_EXPOSED) if (name !== "rt" && bundledToolExec(p, name)) names.add(name);
   for (const r of reqs) for (const t of r.tools) names.add(t.name);
   return [...names].sort();

@@ -17,6 +17,7 @@ import { appBundlePath, bundledToolExec, resolveTool } from "../deps/resolve.ts"
 import { detectEditors, type DetectedEditor } from "../editors.ts";
 import { UserActionableError } from "../errors.ts";
 import { GIT_FLOOR, gitBelowFloor } from "./git-floor.ts";
+import { installHerdrBuild } from "./herdr-install.ts";
 import type { Probes } from "./probes.ts";
 import type { HostArch, PackRequirements, ToolDownloadPin } from "./requirements.ts";
 import { updateSetupState } from "./state.ts";
@@ -30,18 +31,18 @@ import { updateSetupState } from "./state.ts";
  * looked up here and never auto-executed (see the `manual-install-required`
  * refusal in installTool).
  *
- * These run even on a Mac with Homebrew: brew's claude-code and herdr put
- * the binary somewhere setup's later rows did not find it. Both scripts
- * install into ~/.local/bin, which is where the install is verified.
- * `shell` is the one each vendor's own docs pipe the script to.
+ * These run even on a Mac with Homebrew: brew's claude-code puts the binary
+ * somewhere setup's later rows did not find it. The script installs into
+ * ~/.local/bin, which is where the install is verified. `shell` is the one
+ * each vendor's own docs pipe the script to. herdr is not here: it installs
+ * from the m4ttstack/herdr fork's build list (`installHerdrBuild`).
  */
 export const VENDOR_INSTALLERS: Record<string, { url: string; shell: "sh" | "bash" }> = {
-  herdr: { url: "https://herdr.dev/install.sh", shell: "sh" },
   claude: { url: "https://claude.ai/install.sh", shell: "bash" },
 };
 
 /** The only hosts a hardcoded VENDOR_INSTALLERS entry may point at — closes the door on a future entry (or a typo) silently widening what rt will fetch-and-run. */
-const VENDOR_ALLOWED_HOSTS = new Set(["herdr.dev", "claude.ai", "bun.sh"]);
+const VENDOR_ALLOWED_HOSTS = new Set(["claude.ai", "bun.sh"]);
 
 export interface NerdFontArchive {
   url: string;
@@ -209,6 +210,7 @@ function linkOutcomeDetail(outcome: LinkOutcome): string {
 
 /** The branch `installTool` would take for `tool`, without installing; null where it would refuse (a team's download URL, a tap formula, or no method at all). */
 export async function installRoute(p: Probes, tool: string, reqs: PackRequirements[], seams: ToolsInstallSeams = REAL_SEAMS): Promise<"bundled" | "download" | "vendor" | null> {
+  if (tool === "herdr") return "download";
   if (seams.bundledToolExec(p, tool)) return "bundled";
   if (VENDOR_INSTALLERS[tool]) return "vendor";
   if (teamPin(reqs, tool, (seams.hostArch ?? hostArch)())) return "download";
@@ -222,6 +224,7 @@ export function teamPin(reqs: PackRequirements[], tool: string, arch: HostArch):
 
 export async function installTool(p: Probes, tool: string, reqs: PackRequirements[], seams: ToolsInstallSeams = REAL_SEAMS): Promise<InstallResult> {
   if (tool === "apple-clt") return installAppleClt(p);
+  if (tool === "herdr") return installHerdrBuild(p, (seams.hostArch ?? hostArch)());
 
   const bundled = seams.bundledToolExec(p, tool);
   if (bundled) {
