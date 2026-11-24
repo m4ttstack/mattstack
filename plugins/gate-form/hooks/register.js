@@ -387,6 +387,15 @@ function bellArgs(cwd, questions) {
   return ["herdr", "notification", "show", `${who} needs you`, "--body", body, "--sound", "request"];
 }
 
+// mods/gate-form/src/gate/blocker.ts
+var BLOCKER_SOURCE = "mattstack:gate";
+function raiseArgs(paneId, message) {
+  return ["herdr", "pane", "report-blocker", paneId, "--source", BLOCKER_SOURCE, "--message", message];
+}
+function clearArgs(paneId) {
+  return ["herdr", "pane", "clear-blocker", paneId, "--source", BLOCKER_SOURCE];
+}
+
 // mods/gate-form/src/gate/board.ts
 var NO_ADDRESS = "Board address not found";
 var KIND_TITLES = {
@@ -1095,6 +1104,8 @@ var watching = new Set;
 var WAIT_RETRY_MS = [1000, 5000, 15000];
 var answering = new Set;
 var deck = {};
+var blocker = { chain: Promise.resolve() };
+var END_MARGIN_MS = 250;
 var asked = new Map;
 var queued = [];
 var WAIT_MS = 5000;
@@ -1114,7 +1125,29 @@ async function writeForms($, change) {
   });
   if (legacy.length > 0)
     await update($, legacyAtom, () => null);
+  syncBlocker($, written);
   return written;
+}
+async function herdrPane($) {
+  if (await $.env.get("HERDR_ENV") !== "1")
+    return;
+  return await $.env.get("HERDR_PANE_ID") || undefined;
+}
+function syncBlocker($, forms) {
+  const target = waitingTitle(forms);
+  blocker.chain = blocker.chain.then(async () => {
+    if (target === blocker.shown)
+      return;
+    blocker.shown = target;
+    const pane = await herdrPane($);
+    if (pane)
+      await $.process.run(target === null ? clearArgs(pane) : raiseArgs(pane, target), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => {
+        return;
+      });
+  }).catch(() => {
+    return;
+  });
+  return blocker.chain;
 }
 async function waitingForm($) {
   const forms = await readForms($);
@@ -1302,7 +1335,7 @@ async function openForm($, form, supersededId) {
     $.ui.toast(`${title} is waiting: press Show above the prompt`);
 }
 async function ringBell($, form) {
-  if (await $.env.get("HERDR_ENV") !== "1" || !await $.env.get("HERDR_PANE_ID"))
+  if (!await herdrPane($))
     return;
   await $.process.run(bellArgs(await $.session.cwd(), form.questions), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => {
     return;
@@ -1610,6 +1643,23 @@ function register(on) {
     await closeOrphans($).catch(() => {
       return;
     });
+    readForms($).then((forms) => syncBlocker($, forms)).catch(() => {
+      return;
+    });
+    return next(e);
+  });
+  on("session.end", async ($, e, next) => {
+    const timeoutMs = Math.min(QUICK_TIMEOUT_MS, next.budget.remainingMs - END_MARGIN_MS);
+    if (blocker.shown !== null && timeoutMs > 0) {
+      const pane = await herdrPane($).catch(() => {
+        return;
+      });
+      if (pane)
+        await $.process.run(clearArgs(pane), { timeoutMs }).catch(() => {
+          return;
+        });
+      blocker.shown = null;
+    }
     return next(e);
   });
   on("tool.call", { tool: "mcp__gate-form__ask" }, async ($, e) => {

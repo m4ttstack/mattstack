@@ -4,6 +4,7 @@ import { addWheel, bandAbovePrompt, hotkeyChoices, isEngaged, isPlaced, paneMess
 
 import type { BoardGate, Form, GateFormAskResult, LegacyForm } from '../types'
 import { bellArgs } from './gate/bell'
+import { clearArgs, raiseArgs } from './gate/blocker'
 import { NO_ADDRESS, addBoardGate, boardAddress, boardText, boardUrl, kindTitle, readBoardOnly } from './gate/board'
 import { addForm, currentForm, fitForm, fromLegacy, knownForms, openCount, patchForm, waitingTitle } from './gate/forms'
 import { PLUGIN_QUESTION, agentFields, answerOutcome, boardFields, formFromRow, gateForm, listedGates, pluginForm, readKitResult, savedResult, spillPaths, spilledGate, toForm, type GateCall } from './gate/parse'
@@ -43,6 +44,11 @@ const WAIT_RETRY_MS = [1_000, 5_000, 15_000]
 const answering = new Set<string>()
 // The board's local address as deck last gave it; null when deck has none.
 const deck: { address?: string | null } = {}
+// What herdr was last told for this pane: the message, null once cleared, undefined until this load has told it.
+// Runs go through one chain so herdr gets them in write order.
+const blocker: { shown?: string | null; chain: Promise<void> } = { chain: Promise.resolve() }
+// session.end's whole chain shares one short bound, so the clear leaves room for the hooks after it.
+const END_MARGIN_MS = 250
 
 // `$.gateForm` asks this load issued, by form id, until `wait` collects the outcome; a reload forgets them all.
 type Asked = { outcome?: GateFormAskResult; wakes: (() => void)[]; timer?: Timer }
@@ -72,7 +78,28 @@ async function writeForms($: EngineInterface, change: (list: Form[]) => Form[]):
     return (written = change(list.length > 0 || legacy.length === 0 ? list : legacy))
   })
   if (legacy.length > 0) await update($, legacyAtom, () => null)
+  void syncBlocker($, written)
   return written
+}
+
+async function herdrPane($: EngineInterface): Promise<string | undefined> {
+  if ((await $.env.get('HERDR_ENV')) !== '1') return undefined
+  return (await $.env.get('HERDR_PANE_ID')) || undefined
+}
+
+// herdr shows the pane as blocked while a form waits. A herdr without the verb fails the run, which changes nothing.
+function syncBlocker($: EngineInterface, forms: Form[]): Promise<void> {
+  const target = waitingTitle(forms)
+  blocker.chain = blocker.chain
+    .then(async () => {
+      if (target === blocker.shown) return
+      // Set before the run, so a session end while it is under way still clears it; a failed run is not tried again.
+      blocker.shown = target
+      const pane = await herdrPane($)
+      if (pane) await $.process.run(target === null ? clearArgs(pane) : raiseArgs(pane, target), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => undefined)
+    })
+    .catch(() => undefined)
+  return blocker.chain
 }
 
 // A form closed before it was answered waits above the prompt, with a way back to it.
@@ -279,7 +306,7 @@ async function openForm($: EngineInterface, form: Form, supersededId?: string | 
 
 // The AskUserQuestion hook that rings herdr's bell never fires for a kit form, so opening one rings it. Outside herdr nothing rings.
 async function ringBell($: EngineInterface, form: Form): Promise<void> {
-  if ((await $.env.get('HERDR_ENV')) !== '1' || !(await $.env.get('HERDR_PANE_ID'))) return
+  if (!(await herdrPane($))) return
   await $.process.run(bellArgs(await $.session.cwd(), form.questions), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => undefined)
 }
 
@@ -595,6 +622,20 @@ export function register(on: On): void {
     setting.reading = readSetting($)
     void setting.reading.then(() => (setting.isOn ? turnOn($) : undefined)).catch(() => undefined)
     await closeOrphans($).catch(() => undefined)
+    // A load starts not knowing what herdr shows, so with nothing open this clears a blocker an earlier load left.
+    void readForms($)
+      .then(forms => syncBlocker($, forms))
+      .catch(() => undefined)
+    return next(e)
+  })
+
+  on('session.end', async ($, e, next) => {
+    const timeoutMs = Math.min(QUICK_TIMEOUT_MS, next.budget.remainingMs - END_MARGIN_MS)
+    if (blocker.shown !== null && timeoutMs > 0) {
+      const pane = await herdrPane($).catch(() => undefined)
+      if (pane) await $.process.run(clearArgs(pane), { timeoutMs }).catch(() => undefined)
+      blocker.shown = null
+    }
     return next(e)
   })
 
