@@ -567,16 +567,14 @@ var GO_BACK = "go-back:";
 var canChat = (form) => form.source !== "plugin";
 var isSinglePage = (form) => form.source === "plugin";
 var isConfirm = (form) => form.confirm === true;
-var isOneQuestion = (form) => !isSinglePage(form) && form.questions.length === 1 && menuRows(form).length === 0;
+var isOneQuestion = (form) => !isSinglePage(form) && form.questions.length === 1;
 var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
+var isSubmitPage = (form, s) => isReview(form, s) || isOneQuestion(form) && s.page === 0;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {
-  const ids = s.page > firstPage(s) && !isReview(form, s) ? ["back", "next"] : ["next"];
-  if (isReview(form, s) && menuRows(form).length > 0)
-    ids.push("more");
-  if (canChat(form))
-    ids.push("chat");
-  return ids;
+  const hasBack = s.page > firstPage(s) && !isReview(form, s);
+  const more = isSubmitPage(form, s) && menuRows(form).length > 0 ? ["more"] : [];
+  return [...hasBack ? ["back", "next", ...more] : [...more, "next"], ...canChat(form) ? ["chat"] : []];
 }
 function navAtOf(form, s) {
   return navIds(form, s).includes(s.navAt) ? s.navAt : "next";
@@ -647,12 +645,13 @@ function goTo(form, s, page) {
 }
 var firstPage = (s) => s.contextPaged ? -1 : 0;
 var isContextPage = (s) => s.page < 0;
-function advance(form, s) {
+function accepted(form, s) {
   const i = s.page;
   const q = form.questions[i];
   const accepts = q !== undefined && (q.multi ? s.picked[i].length > 0 : s.chosen[i] !== undefined);
-  return goTo(form, accepts ? { ...s, answered: markAnswered(s, i) } : s, i + 1);
+  return accepts ? { ...s, answered: markAnswered(s, i) } : s;
 }
+var advance = (form, s) => goTo(form, accepted(form, s), s.page + 1);
 function moveCursor(form, s, by) {
   const q = form.questions[s.page];
   const count = q ? choicesOf(q).length : 0;

@@ -437,7 +437,7 @@ test('in an 80-column pane the review page and its open menu fit the width', asy
   }
   await click('Next')
   await click('Review')
-  await click('More actions')
+  await click('More')
   const rows = await rowsOf(pane, key)
   for (const row of rows) expect([...row].length, row).toBeLessThanOrEqual(78)
   const text = rows.join('\n')

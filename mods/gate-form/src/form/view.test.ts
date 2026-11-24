@@ -129,12 +129,60 @@ test('when the whole page scrolls on a narrow pane, the context still reaches it
   expect(deadTurnsAfterScrolling(oneQuestion, 30, 12, 200).last).toContain('end6')
 })
 
-test('a one-question gate with run controls keeps its review page, where More actions lives', () => {
-  const gate = { ...(toForm('T', undefined, [{ id: 'a', label: 'Pick one', options: [{ value: 'x', label: 'X (Recommended)' }] }], 'gate') as Form), controls: { pause: true, goBack: [] } }
-  const next = perform({ type: 'advance' }, gate, initial(gate))!
-  expect(next.post).toBeUndefined()
-  expect(next.state.page).toBe(1)
-  expect(visibleLines(gate, next.state, VIEW, ROWS).map(textOf).join('\n')).toContain('More actions')
+const controlled = { ...(toForm('T', undefined, [{ id: 'a', label: 'Pick one', options: [{ value: 'x', label: 'X (Recommended)' }, { value: 'y', label: 'Y' }] }], 'gate') as Form), controls: { pause: true, goBack: [] } }
+const open = () => perform({ type: 'menu', hit: { type: 'toggle' } }, controlled, initial(controlled))!.state
+
+test('a one-question gate with run controls has no review page: it submits from its question, which carries More', () => {
+  const text = visibleLines(controlled, initial(controlled), VIEW, ROWS).map(textOf).join('\n')
+  expect(text).toContain('More ▾')
+  expect(text).not.toContain('Review')
+  expect(text).not.toContain('⏎')
+  expect(perform({ type: 'advance' }, controlled, initial(controlled))?.post).toEqual({ type: 'answer', formId: controlled.id, answers: { a: 'x' } })
+})
+
+test("one question's Submit takes the recommended pick, with nothing clicked first", () => {
+  const submit = visibleLines(controlled, initial(controlled), VIEW, ROWS).flat().find(span => span.t.trim() === 'Submit')!
+  expect(perform(submit.action!, controlled, initial(controlled))?.post).toEqual({ type: 'answer', formId: controlled.id, answers: { a: 'x' } })
+})
+
+test("one question's Submit is disabled until an option is picked", () => {
+  const plain = { ...controlled, questions: controlled.questions.map(q => ({ ...q, options: q.options.map(o => ({ ...o, label: o.value })) })) }
+  const submitOf = (s: State) => visibleLines(plain, s, VIEW, ROWS).flat().find(span => span.t.trim() === 'Submit')!
+  expect(submitOf(initial(plain)).action).toBeUndefined()
+  expect(submitOf(perform({ type: 'option', idx: 1 }, plain, initial(plain))!.state).action).toBeDefined()
+})
+
+test('a More menu opened by click on a question takes the keys, and an option click closes it', () => {
+  expect(visibleLines(controlled, open(), VIEW, ROWS).map(textOf).join('\n')).toContain('Pause run')
+  expect(keyEffect({ key: 'return' }, controlled, open())?.post).toEqual({ type: 'answer', formId: controlled.id, answers: { next: 'hold' } })
+  expect(perform({ type: 'option', idx: 1 }, controlled, open())!.state.menu.open).toBe(false)
+})
+
+test('Chat with the More menu open closes it, so Enter cannot pause the run', () => {
+  for (const armed of [perform({ type: 'chat' }, controlled, open())!, keyEffect({ key: 'x', ctrl: true }, controlled, open())!]) {
+    expect(armed.state.menu.open).toBe(false)
+    expect(keyEffect({ key: 'return' }, controlled, armed.state)?.post).not.toMatchObject({ answers: { next: 'hold' } })
+  }
+})
+
+test('a write-in clicked with the More menu open, or just closed, takes typing at once', () => {
+  const form = toForm('T', undefined, [{ id: 'a', label: 'Pick one', writeIn: true, options: [{ value: 'x', label: 'X' }] }], 'gate') as Form
+  const gate = { ...form, controls: { pause: true, goBack: [] } }
+  const menu = perform({ type: 'menu', hit: { type: 'toggle' } }, gate, initial(gate))!.state
+  const reclicked = perform({ type: 'menu', hit: { type: 'toggle' } }, gate, menu)!.state
+  const backspaced = keyEffect({ key: 'backspace' }, gate, menu)!.state
+  for (const before of [menu, reclicked, backspaced]) {
+    const onWriteIn = perform({ type: 'option', idx: 1 }, gate, before)!.state
+    expect(keyEffect({ key: 'h' }, gate, onWriteIn)!.state.text[0]).toBe('h')
+  }
+})
+
+test('More clicked open and shut on a text question leaves the keys with the text', () => {
+  const form = toForm('T', undefined, [{ id: 'a', label: 'Say why', writeIn: true, options: [] }], 'gate') as Form
+  const gate = { ...form, controls: { pause: true, goBack: [] } }
+  const toggle: Action = { type: 'menu', hit: { type: 'toggle' } }
+  const shut = perform(toggle, gate, perform(toggle, gate, initial(gate))!.state)!.state
+  expect(keyEffect({ key: 'h' }, gate, shut)!.state.text[0]).toBe('h')
 })
 
 test('the context page shows the armed Chat label after a first press', () => {

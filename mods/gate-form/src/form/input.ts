@@ -2,7 +2,7 @@ import type { ClientKeyEvent, JsonValue } from 'claude-code'
 import { gridMove, menuHit, menuKey, type GridRow, type GridSpot, type MenuHit, type MenuMove } from '@mattstack/mod-kit'
 
 import type { Form } from '../../types'
-import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isContextPage, isPicked, isOnNav, isOneQuestion, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
+import { accepted, advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isContextPage, isPicked, isOnNav, isOneQuestion, isReview, isSinglePage, isSubmitPage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
 
 export type Action =
   | { type: 'page'; page: number }
@@ -16,6 +16,9 @@ export type Action =
 export type Effect = { state: State; post?: JsonValue }
 
 const disarm = (s: State): State => ({ ...s, chatArmed: undefined })
+// The keys go back to the page's answers.
+const offNav = (s: State): State => ({ ...s, onNav: undefined, navAt: 'next' })
+const shut = (s: State): State => (s.menu.open ? offNav({ ...s, menu: { ...s.menu, open: false } }) : s)
 
 function post(form: Form, s: State, answers: Record<string, unknown>, control?: string): Effect {
   return { state: { ...s, phase: 'submitted', sent: form.attempt ?? 0, control }, post: { type: 'answer', formId: form.id, answers: answers as JsonValue } }
@@ -52,8 +55,9 @@ export function optionClick(form: Form, s: State, idx: number, now: number): Eff
 }
 
 // The first press arms it; the second sets the form aside. A gate set aside stays open and answerable.
-function chat(form: Form, s: State): Effect | undefined {
+function chat(form: Form, opened: State): Effect | undefined {
   if (!canChat(form)) return undefined
+  const s = shut(opened)
   if (!s.chatArmed) return { state: { ...s, chatArmed: true } }
   const state = form.source === 'gate' ? disarm(s) : { ...disarm(s), phase: 'chat' as const }
   return { state, post: { type: 'chat', formId: form.id, draft: answersOf(form, s) as JsonValue } }
@@ -87,18 +91,19 @@ function performOn(action: Action, form: Form, armed: State): Effect | undefined
   if (armed.phase !== 'active') return undefined
   if (action.type === 'chat') return chat(form, armed)
   // Any act between two option clicks breaks them up, so only two clicks in a row count as a double click.
-  const s = action.type === 'option' ? disarm(armed) : { ...disarm(armed), lastClick: undefined }
+  const calm = action.type === 'option' ? disarm(armed) : { ...disarm(armed), lastClick: undefined }
+  const s = action.type === 'menu' ? calm : shut(calm)
   switch (action.type) {
     case 'page':
       return { state: goTo(form, s, action.page) }
     case 'advance':
       return { state: advance(form, s) }
     case 'option':
-      return optionClick(form, s, action.idx, Date.now())
+      return optionClick(form, offNav(s), action.idx, Date.now())
     case 'send':
       return send(form, s)
     case 'menu':
-      return moved(form, { ...s, navAt: 'more' }, menuHit(s.menu, menuRows(form), action.hit))
+      return moved(form, s.menu.open ? offNav(s) : { ...s, onNav: true, navAt: 'more' }, menuHit(s.menu, menuRows(form), action.hit))
   }
 }
 
@@ -148,7 +153,7 @@ function pressNav(ev: ClientKeyEvent, form: Form, armed: State, s: State): Effec
 
 const isEnter = (ev: ClientKeyEvent) => ev.key === 'return' || ev.key === 'enter'
 
-// Enter on something it activates (an enabled nav button, a More actions row, a choice) shows the press before
+// Enter on something it activates (an enabled nav button, a More row, a choice) shows the press before
 // the key acts, as a click would.
 export function pressesButton(ev: ClientKeyEvent, form: Form, s: State): boolean {
   if (s.phase !== 'active') return false
@@ -157,10 +162,10 @@ export function pressesButton(ev: ClientKeyEvent, form: Form, s: State): boolean
   if (s.menu.open) return true
   // Enter on an option picks it with no press to show, as a list row in an OS has none.
   if (isSinglePage(form) || !isOnNav(form, s)) return false
-  return !(navAtOf(form, s) === 'next' && isReview(form, s) && !canSubmit(form, s))
+  return !(navAtOf(form, s) === 'next' && isSubmitPage(form, s) && !canSubmit(form, accepted(form, s)))
 }
 
-// On the review page ← → move along its buttons (Submit, More actions, Chat about this); ← from the first one pages
+// On the review page ← → move along its buttons (More, Submit, Chat about this); ← from the first one pages
 // back to the last question. Tab steps the buttons round.
 function reviewKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefined {
   const ids = navIds(form, s)

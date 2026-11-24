@@ -62,14 +62,14 @@ test('a gate answered on the board closes the pane, toasts where, and the form s
   await pane.unmount()
 })
 
-test('More actions lists Go back to stage as a flat group, and the arrows skip its heading', async ($, on) => {
+test('More lists Go back to stage as a flat group, and the arrows skip its heading', async ($, on) => {
   const w = world(on)
   await drawOn($, 'terminal')
   await ask($)
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await clickWord(pane, 'Next')
   await clickWord(pane, 'Review')
-  await clickWord(pane, 'More actions')
+  await clickWord(pane, 'More')
   const text = (await rowsOf(pane, (await clientOf(pane)).key!)).join('\n')
   for (const word of ['Pause run', 'Go back to stage', 'plan', 'provision']) expect(text).toContain(word)
   expect(text).not.toContain('▸')

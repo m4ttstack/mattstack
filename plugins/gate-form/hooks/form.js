@@ -315,7 +315,6 @@ function buttonRow(left, right, width, indent) {
   return line;
 }
 // packages/mod-kit/src/widgets/menu.ts
-var MORE_ACTIONS = "More actions ▾";
 var CONNECTOR = 2;
 var GROUP_INDENT = 2;
 var cut2 = (text, room) => cellWidth(text) <= room ? text : `${cutCells(text, Math.max(0, room - 1))}…`;
@@ -930,16 +929,14 @@ var GO_BACK = "go-back:";
 var canChat = (form) => form.source !== "plugin";
 var isSinglePage = (form) => form.source === "plugin";
 var isConfirm = (form) => form.confirm === true;
-var isOneQuestion = (form) => !isSinglePage(form) && form.questions.length === 1 && menuRows(form).length === 0;
+var isOneQuestion = (form) => !isSinglePage(form) && form.questions.length === 1;
 var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
+var isSubmitPage = (form, s) => isReview(form, s) || isOneQuestion(form) && s.page === 0;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {
-  const ids = s.page > firstPage(s) && !isReview(form, s) ? ["back", "next"] : ["next"];
-  if (isReview(form, s) && menuRows(form).length > 0)
-    ids.push("more");
-  if (canChat(form))
-    ids.push("chat");
-  return ids;
+  const hasBack = s.page > firstPage(s) && !isReview(form, s);
+  const more = isSubmitPage(form, s) && menuRows(form).length > 0 ? ["more"] : [];
+  return [...hasBack ? ["back", "next", ...more] : [...more, "next"], ...canChat(form) ? ["chat"] : []];
 }
 function navAtOf(form, s) {
   return navIds(form, s).includes(s.navAt) ? s.navAt : "next";
@@ -1010,12 +1007,13 @@ function goTo(form, s, page) {
 }
 var firstPage = (s) => s.contextPaged ? -1 : 0;
 var isContextPage = (s) => s.page < 0;
-function advance(form, s) {
+function accepted(form, s) {
   const i = s.page;
   const q = form.questions[i];
   const accepts = q !== undefined && (q.multi ? s.picked[i].length > 0 : s.chosen[i] !== undefined);
-  return goTo(form, accepts ? { ...s, answered: markAnswered(s, i) } : s, i + 1);
+  return accepts ? { ...s, answered: markAnswered(s, i) } : s;
 }
+var advance = (form, s) => goTo(form, accepted(form, s), s.page + 1);
 function moveCursor(form, s, by) {
   const q = form.questions[s.page];
   const count = q ? choicesOf(q).length : 0;
@@ -1086,6 +1084,8 @@ function deleteChar(s) {
 
 // mods/gate-form/src/form/input.ts
 var disarm = (s) => ({ ...s, chatArmed: undefined });
+var offNav = (s) => ({ ...s, onNav: undefined, navAt: "next" });
+var shut = (s) => s.menu.open ? offNav({ ...s, menu: { ...s.menu, open: false } }) : s;
 function post(form, s, answers, control) {
   return { state: { ...s, phase: "submitted", sent: form.attempt ?? 0, control }, post: { type: "answer", formId: form.id, answers } };
 }
@@ -1116,9 +1116,10 @@ function optionClick(form, s, idx, now) {
     return send(form, once) ?? { state: once };
   return { state: advance(form, once) };
 }
-function chat(form, s) {
+function chat(form, opened) {
   if (!canChat(form))
     return;
+  const s = shut(opened);
   if (!s.chatArmed)
     return { state: { ...s, chatArmed: true } };
   const state = form.source === "gate" ? disarm(s) : { ...disarm(s), phase: "chat" };
@@ -1150,18 +1151,19 @@ function performOn(action, form, armed) {
     return;
   if (action.type === "chat")
     return chat(form, armed);
-  const s = action.type === "option" ? disarm(armed) : { ...disarm(armed), lastClick: undefined };
+  const calm = action.type === "option" ? disarm(armed) : { ...disarm(armed), lastClick: undefined };
+  const s = action.type === "menu" ? calm : shut(calm);
   switch (action.type) {
     case "page":
       return { state: goTo(form, s, action.page) };
     case "advance":
       return { state: advance(form, s) };
     case "option":
-      return optionClick(form, s, action.idx, Date.now());
+      return optionClick(form, offNav(s), action.idx, Date.now());
     case "send":
       return send(form, s);
     case "menu":
-      return moved(form, { ...s, navAt: "more" }, menuHit(s.menu, menuRows(form), action.hit));
+      return moved(form, s.menu.open ? offNav(s) : { ...s, onNav: true, navAt: "more" }, menuHit(s.menu, menuRows(form), action.hit));
   }
 }
 function gridOf(form, s) {
@@ -1219,7 +1221,7 @@ function pressesButton(ev, form, s) {
     return true;
   if (isSinglePage(form) || !isOnNav(form, s))
     return false;
-  return !(navAtOf(form, s) === "next" && isReview(form, s) && !canSubmit(form, s));
+  return !(navAtOf(form, s) === "next" && isSubmitPage(form, s) && !canSubmit(form, accepted(form, s)));
 }
 function reviewKey(ev, form, s) {
   const ids = navIds(form, s);
@@ -1507,6 +1509,7 @@ function progress(form, s, view) {
   const room = view.width - widthOf(line) - widthOf([left]);
   return room >= 2 ? [...line, sp(" ".repeat(room)), left] : line;
 }
+var MORE_LABEL = "More ▾";
 var MORE = { type: "menu", hit: { type: "toggle" } };
 function spanAt2(id, left, line) {
   return id === "chat" ? line.length - 1 : 1 + 2 * left.indexOf(id);
@@ -1516,13 +1519,18 @@ function navRows(form, s, view) {
   const page = s.page;
   const back = { label: "← Back", action: { type: "page", page: page - 1 }, tone: "secondary", disabled: page === firstPage(s) };
   const forward = (label) => ({ label, action: { type: "advance" }, tone: "secondary" });
-  const submit = { label: unansweredCount(s) === 0 || form.source === "gate" ? "Submit" : "Submit anyway", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) };
-  const next = isOneQuestion(form) || page === n ? submit : page < n - 1 ? forward("Next →") : forward("Review →");
+  const taken = accepted(form, s);
+  const submit = { label: unansweredCount(taken) === 0 || form.source === "gate" ? "Submit" : "Submit anyway", action: isReview(form, s) ? { type: "send" } : { type: "advance" }, tone: "brand", disabled: !canSubmit(form, taken) };
+  const next = isSubmitPage(form, s) ? submit : page < n - 1 ? forward("Next →") : forward("Review →");
   const aside = chatButton(form, s);
-  const rows = page === n ? menuRows(form) : [];
-  const more = { label: MORE_ACTIONS, action: MORE, tone: "quiet" };
-  const left = [...page === n || isOneQuestion(form) && !s.contextPaged ? [] : [["back", back]], ["next", next], ...rows.length === 0 ? [] : [["more", more]]];
-  const line = buttonRow(left.map(([, button]) => button), aside, view.width, 2);
+  const rows = isSubmitPage(form, s) ? menuRows(form) : [];
+  const more = { label: MORE_LABEL, action: MORE, tone: "quiet" };
+  const mores = rows.length === 0 ? [] : [["more", more]];
+  const isBlankBack = isReview(form, s) && rows.length === 0;
+  const hasBack = isBlankBack || !isReview(form, s) && (!isOneQuestion(form) || s.contextPaged === true);
+  const left = hasBack ? [["back", back], ["next", next], ...mores] : [...mores, ["next", next]];
+  const drawn = buttonRow(left.map(([, button]) => button), aside, view.width, 2);
+  const line = isBlankBack ? drawn.map((span, i) => i === 1 ? sp(" ".repeat(cellWidth(span.t))) : span) : drawn;
   const marked = (row) => {
     if (!view.focused || !isOnNav(form, s))
       return row;
@@ -1533,7 +1541,7 @@ function navRows(form, s, view) {
     return [marked(line)];
   const at = line.findIndex((span) => span.action === MORE);
   const indent = widthOf(line.slice(0, at));
-  const hung = menu({ ...s.menu, label: MORE_ACTIONS, rows, width: view.width, indent, pressing: view.pressing === true, actionFor: (hit) => ({ type: "menu", hit }) });
+  const hung = menu({ ...s.menu, label: MORE_LABEL, rows, width: view.width, indent, pressing: view.pressing === true, actionFor: (hit) => ({ type: "menu", hit }) });
   return [marked(line), ...hung.slice(1)];
 }
 function confirmFoot(form, view) {

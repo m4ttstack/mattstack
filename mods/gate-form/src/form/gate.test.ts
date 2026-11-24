@@ -43,9 +43,9 @@ test('Submit is disabled until every question is answered', () => {
   expect(sent?.post).toEqual({ type: 'answer', formId: gate.id, answers: { tier: 'std', why: 'no' } })
 })
 
-test('More actions offers Pause run and a Go back to stage heading with one row per stage', () => {
+test('More offers Pause run and a Go back to stage heading with one row per stage', () => {
   const s = atReview(gate)
-  expect(screen(gate, s)).toContain('More actions ▾')
+  expect(screen(gate, s)).toContain('More ▾')
   const open = run(gate, s, { type: 'menu', hit: { type: 'toggle' } })!.state
   expect(screen(gate, open)).toContain('Pause run')
   expect(screen(gate, open)).toContain('Go back to stage')
@@ -53,8 +53,8 @@ test('More actions offers Pause run and a Go back to stage heading with one row 
   for (const stage of ['plan', 'provision', 'implement']) expect(screen(gate, open)).toContain(stage)
 })
 
-test('More actions is absent when the gate offers no run controls', () => {
-  expect(screen(bare, atReview(bare))).not.toContain('More actions')
+test('More is absent when the gate offers no run controls', () => {
+  expect(screen(bare, atReview(bare))).not.toContain('More')
 })
 
 test('Pause run sends only next: hold', () => {
@@ -68,32 +68,44 @@ test('Go back to stage plan sends next: go-back with to: plan', () => {
   expect(picked?.post).toEqual({ type: 'answer', formId: gate.id, answers: { next: 'go-back', to: 'plan' } })
 })
 
-test('keyboard: Tab selects More actions, Enter opens it, arrows move past the heading, Enter picks', () => {
-  const picked = keys(gate, atReview(gate), 'tab', 'return', 'down', 'down', 'return')
+test('keyboard: left selects More, Enter opens it, arrows move past the heading, Enter picks', () => {
+  const picked = keys(gate, atReview(gate), 'left', 'return', 'down', 'down', 'return')
   expect(picked?.post).toEqual({ type: 'answer', formId: gate.id, answers: { next: 'go-back', to: 'provision' } })
 })
 
-test('keyboard: left closes the menu, then moves along the review buttons and pages back from the first', () => {
-  const open = keys(gate, atReview(gate), 'tab', 'return')!.state
+test('keyboard: left closes the menu, then pages back from More, the first button', () => {
+  const open = keys(gate, atReview(gate), 'left', 'return')!.state
   expect(open.menu.open).toBe(true)
   const closed = keyEffect({ key: 'left' }, gate, open)!.state
   expect(keyEffect({ key: 'backspace' }, gate, open)!.state.menu.open).toBe(false)
   expect(closed.menu.open).toBe(false)
-  const onSubmit = keyEffect({ key: 'left' }, gate, closed)!.state
-  expect(onSubmit.page).toBe(REVIEW)
-  expect(keyEffect({ key: 'left' }, gate, onSubmit)!.state.page).toBe(REVIEW - 1)
+  expect(closed.page).toBe(REVIEW)
+  expect(keyEffect({ key: 'left' }, gate, closed)!.state.page).toBe(REVIEW - 1)
 })
 
 test('the review page has no Back button: left from the first button pages back, right stays, Enter submits', () => {
-  const s = answeredAll(gate)
-  const nav = linesAt(gate, s).find(line => textOf(line).includes('Submit'))!
+  const s = answeredAll(bare)
+  const nav = linesAt(bare, s).find(line => textOf(line).includes('Submit'))!
   expect(textOf(nav)).not.toContain('Back')
-  const back = keyEffect({ key: 'left' }, gate, s)!.state
+  const back = keyEffect({ key: 'left' }, bare, s)!.state
   expect(back.page).toBe(REVIEW - 1)
   expect(back.onNav).toBeUndefined()
-  expect(keyEffect({ key: 'right' }, gate, s)!.state.page).toBe(REVIEW)
-  expect(keyEffect({ key: 'return' }, gate, s)?.post).toEqual({ type: 'answer', formId: gate.id, answers: { tier: 'std', why: 'no' } })
+  expect(keyEffect({ key: 'right' }, bare, s)!.state.page).toBe(REVIEW)
+  expect(keyEffect({ key: 'return' }, bare, s)?.post).toEqual({ type: 'answer', formId: bare.id, answers: { tier: 'std', why: 'no' } })
 })
+
+for (const [name, form] of [['with', gate], ['without', bare]] as const) {
+  for (const width of [70, 40]) {
+    test(`Submit starts in the column Next and Review did, ${name} run controls, at ${width} columns`, () => {
+      const columnOf = (page: number, word: string) => {
+        const row = linesAt(form, { ...answeredAll(form), page }, width).map(textOf).findLast(line => line.includes(word))!
+        return row.indexOf(word)
+      }
+      expect(columnOf(0, 'Next →')).toBe(columnOf(1, 'Review →'))
+      expect(columnOf(REVIEW, 'Submit')).toBe(columnOf(1, 'Review →'))
+    })
+  }
+}
 
 test('a question page keeps its Back button', () => {
   expect(screen(gate, goTo(gate, initial(gate), 1))).toContain('Back')

@@ -15,7 +15,7 @@ export type FormQuestion = {
   parts?: { id: string; values: string[] }[]
 }
 
-// The run controls a gate offers; More actions shows a row for each that is set.
+// The run controls a gate offers; the More menu shows a row for each that is set.
 export type Controls = { pause: boolean; goBack: string[] }
 
 export type Form = {
