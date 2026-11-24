@@ -3,7 +3,7 @@ import { createApp } from '@mattstack/app-server/app';
 import type { RtSettingsApi } from '@mattstack/settings-kit/server';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { createSettingsRoutes } from './settings';
+import { createSettingsRoutes, type SettingsDeps } from './settings';
 
 const DEFS: Record<string, Record<string, unknown>> = {
   'rt.logLevel': {
@@ -21,6 +21,13 @@ const DEFS: Record<string, Record<string, unknown>> = {
     merge: 'replace',
     description: 'Scan roots.',
     schema: { type: 'array', items: { type: 'string' } },
+  },
+  'support.enabled': {
+    key: 'support.enabled',
+    type: 'boolean',
+    scopes: ['org'],
+    merge: 'replace',
+    description: 'Support requests.',
   },
   'rt.cron': {
     key: 'rt.cron',
@@ -99,6 +106,7 @@ describe('settings-kit behind console', () => {
     expect(defs.map(d => d.key)).toEqual([
       'rt.logLevel',
       'rt.repoRoots',
+      'support.enabled',
       'rt.cron',
     ]);
     expect(defs.find(d => d.key === 'rt.repoRoots')?.writable).toBe(true);
@@ -223,6 +231,99 @@ describe('settings-kit behind console', () => {
       post('localhost', { key: 'rt.cron', scope: 'machine', value: {} })
     );
     expect(res.status).toBe(400);
+  });
+
+  describe('turning the org support switch on', () => {
+    const SUPPORT_ON = { key: 'support.enabled', scope: 'org', value: true };
+    const calls: unknown[] = [];
+    let answer: Awaited<ReturnType<SettingsDeps['enableSupport']>>;
+    const withSupport = createSettingsRoutes(
+      { rt: RT },
+      {
+        enableSupport: async payload => {
+          calls.push([payload, writes.length]);
+          return answer;
+        },
+      }
+    );
+
+    beforeEach(() => {
+      calls.length = 0;
+      answer = { ok: true, data: { enabled: true, host: 'Alex' } };
+    });
+
+    it('makes the key before the setting is written', async () => {
+      const res = await withSupport.fetch(
+        post('localhost', SUPPORT_ON),
+        LOOPBACK
+      );
+      expect(res.status).toBe(200);
+      expect(calls).toEqual([[{ on: true }, 0]]);
+      expect(writes).toHaveLength(1);
+    });
+
+    it('leaves the switch off and says why when the daemon refuses', async () => {
+      const said = 'No one is set to answer support requests yet.';
+      answer = {
+        ok: false,
+        error: `support: ${said}`,
+        failure: { code: 'support-no-host', message: said },
+      };
+      const res = await withSupport.fetch(
+        post('localhost', SUPPORT_ON),
+        LOOPBACK
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: said });
+      expect(writes).toHaveLength(0);
+    });
+
+    it('reads plainly when rt does not answer', async () => {
+      answer = { ok: false, error: 'connect ENOENT /tmp/rt.sock' };
+      const res = await withSupport.fetch(
+        post('localhost', SUPPORT_ON),
+        LOOPBACK
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: 'rt did not answer, so support is still off. Try again.',
+      });
+      expect(writes).toHaveLength(0);
+    });
+
+    it('leaves every other write to the kit', async () => {
+      for (const body of [
+        { ...SUPPORT_ON, value: false },
+        { ...SUPPORT_ON, value: 'true' },
+        { ...SUPPORT_ON, scope: 'user' },
+        LOG_LEVEL,
+      ])
+        await withSupport.fetch(post('localhost', body), LOOPBACK);
+      await withSupport.fetch(
+        post('localhost', SUPPORT_ON, 'application/json', {}, 'unset'),
+        LOOPBACK
+      );
+      await withSupport.fetch(
+        post('localhost', SUPPORT_ON, 'text/plain'),
+        LOOPBACK
+      );
+      expect(calls).toEqual([]);
+    });
+
+    it('never asks the daemon for a write that is not local', async () => {
+      const refused = [
+        await withSupport.fetch(
+          post('localhost', SUPPORT_ON),
+          peer('10.0.0.2')
+        ),
+        await withSupport.fetch(
+          post('console.example.dev', SUPPORT_ON),
+          LOOPBACK
+        ),
+      ];
+      expect(refused.map(r => r.status)).toEqual([403, 403]);
+      expect(calls).toEqual([]);
+    });
   });
 
   it('404s an unknown settings path instead of falling through silently', async () => {
