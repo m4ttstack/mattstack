@@ -253,7 +253,7 @@ export function HelpButton({ help }: { help: Help }) {
         onOpenChange={setOpen}
         side="top"
         align="end"
-        sideOffset={36}
+        sideOffset={8}
         ariaLabel={`Ask ${read.persona}`}
         initialFocus={first}
         classNames={{ root: 'tui-help-portal', popup: 'tui-help-popup' }}
