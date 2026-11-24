@@ -14,6 +14,7 @@ import {
   readByHandle,
 } from '../state/index.ts';
 import { gateNotifyCopy } from './notify-copy.ts';
+import { reviewPostContext } from './plain-review.ts';
 import { domainForKind } from './sweep.ts';
 
 export type GateAnswers = Record<string, string | string[]>;
@@ -23,6 +24,7 @@ export interface GateQuestion {
   label: string;
   multi: boolean;
   options: Array<string | { value: string; label: string }>;
+  context?: string;
 }
 
 /** Thin seam over the three rt-client gate facility wrappers this CLI drives.
@@ -76,6 +78,8 @@ interface GateVerbState {
   gateId?: string;
   paneId?: string;
   tabId?: string;
+  runStartedAt?: number;
+  startedAt: number;
 }
 
 /** Every gate verb resolves its db the same way the status CLIs do: from the
@@ -152,13 +156,23 @@ export async function gateOpen(
   kind: string,
   questionsJson: string,
   io: GateVerbIo,
-  extras: { context?: string; worktree?: string } = {}
+  extras: { context?: string; worktree?: string; plainReason?: string } = {}
 ): Promise<GateOpenResult> {
   const questions = JSON.parse(questionsJson) as GateQuestion[];
   const db = openDbForHandle(statePath);
   const state = readGateVerbState(statePath, db);
   const domain = domainForKind(kind);
   if (!domain) throw new Error(`gate open: unrecognized kind "${kind}"`);
+
+  const context =
+    kind === 'review-post'
+      ? reviewPostContext(
+          statePath,
+          state.runStartedAt ?? state.startedAt,
+          questions,
+          extras
+        )
+      : extras.context;
 
   const origin: NonNullable<Commands['gate:ask']['payload']['origin']> = {
     surface: 'board',
@@ -178,7 +192,7 @@ export async function gateOpen(
     origin,
   };
   if (state.paneId) payload.paneId = state.paneId;
-  if (extras.context !== undefined) payload.context = extras.context;
+  if (context !== undefined) payload.context = context;
 
   const res = await io.gateAsk(payload);
   if (!res.ok || !res.data)

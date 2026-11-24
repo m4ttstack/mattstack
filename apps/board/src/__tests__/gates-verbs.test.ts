@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import type { Database } from 'bun:sqlite';
@@ -19,6 +25,7 @@ import {
   readGateOpenFile,
   type GateVerbIo,
 } from '../gates/verbs.ts';
+import { GateRefused } from '../gates/plain-review.ts';
 import { statusBinPath } from '../herdr.ts';
 import type { RespondState } from '../respond-state.ts';
 import type { ReviewState } from '../review-state.ts';
@@ -356,6 +363,209 @@ describe('gateOpen', () => {
     expect(row.reportReady).toBe(true);
     const { readReviewReport } = await import('../review-state.ts');
     expect(readReviewReport(MR_URL, db)).toContain('lgtm');
+  });
+});
+
+describe('gateOpen: a plain review gate over a structured report', () => {
+  const FINDING = {
+    id: 'f1',
+    tier: 'Minor',
+    title: 'Comment names the wrong helper',
+    body: 'The comment still names the old helper.',
+  };
+  const REPORT = {
+    version: 3,
+    summary: { readiness: 'with-fixes', reasoning: 'One note.' },
+    findings: [FINDING],
+  };
+  const OUTCOME = {
+    id: 'outcome',
+    label: 'Verdict',
+    multi: false,
+    options: ['approve', 'comment'],
+  };
+  const PLAIN = [
+    {
+      id: 'findings-1',
+      label: 'Post which findings?',
+      multi: true,
+      options: [{ value: 'f1', label: '[Minor] Comment names the wrong helper' }],
+    },
+    OUTCOME,
+  ];
+  const FITTED = [
+    {
+      ...PLAIN[0],
+      context: JSON.stringify({
+        'gate-ctx': 'findings@1',
+        findings: [
+          { id: 'f1', severity: 'minor', title: FINDING.title, body: FINDING.body },
+        ],
+      }),
+    },
+    OUTCOME,
+  ];
+  const reviewCtx = (extra: object = {}) =>
+    JSON.stringify({
+      'gate-ctx': 'review@1',
+      readiness: 'with-fixes',
+      summary: 'One note.',
+      findings: { minor: 1 },
+      ...extra,
+    });
+  const RUN_START = 1_700_000_000_000;
+
+  /** The report json sits at the handle's own path (see readReviewReportJson). */
+  function writeReport(report: unknown, writtenAt = RUN_START + 60_000): void {
+    mkdirSync(dirname(statePath), { recursive: true });
+    writeFileSync(
+      statePath,
+      typeof report === 'string' ? report : JSON.stringify(report)
+    );
+    utimesSync(statePath, writtenAt / 1000, writtenAt / 1000);
+  }
+
+  beforeEach(() => {
+    db.run('DELETE FROM agent_states');
+    writeState({ runStartedAt: RUN_START });
+  });
+
+  interface Extras {
+    context?: string;
+    plainReason?: string;
+  }
+
+  async function refused(
+    questions: unknown,
+    extras: Extras = {}
+  ): Promise<string> {
+    const { io, calls } = fakeIo();
+    const err = await gateOpen(
+      statePath,
+      'review-post',
+      JSON.stringify(questions),
+      io,
+      extras
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GateRefused);
+    expect(calls.gateAsk).toEqual([]);
+    expect(readState().gateId).toBeUndefined();
+    return (err as Error).message;
+  }
+
+  async function opened(
+    questions: unknown,
+    extras: Extras = {},
+    kind = 'review-post'
+  ): Promise<Commands['gate:ask']['payload']> {
+    const { io, calls } = fakeIo();
+    await gateOpen(statePath, kind, JSON.stringify(questions), io, extras);
+    return calls.gateAsk[0]!;
+  }
+
+  test('hand-built questions are refused, naming the skipped step and the flag', async () => {
+    writeReport(REPORT);
+    const message = await refused(PLAIN, { context: 'Ready with fixes' });
+    expect(message).toContain('review-source.sh');
+    expect(message).toContain('gate_open');
+    expect(message).toContain('handBack');
+    expect(message).toContain('--plain-reason');
+  });
+
+  test('tier questions over a structured report are refused too', async () => {
+    writeReport(REPORT);
+    await refused(QUESTIONS);
+  });
+
+  test('a clean structured report still needs its review@1 context', async () => {
+    writeReport({ ...REPORT, findings: [] });
+    await refused([OUTCOME], { context: 'Ready to merge' });
+  });
+
+  test('review@1 over a findings question with no findings@1 is refused', async () => {
+    writeReport(REPORT);
+    await refused(PLAIN, { context: reviewCtx() });
+  });
+
+  test('review@1 with the findings questions left out is refused', async () => {
+    writeReport(REPORT);
+    await refused([OUTCOME], { context: reviewCtx() });
+  });
+
+  test('a fitted open goes through as it is', async () => {
+    writeReport(REPORT);
+    const context = reviewCtx();
+    const payload = await opened(FITTED, { context });
+    expect(payload.context).toBe(context);
+    expect(payload.questions).toEqual(FITTED as never);
+  });
+
+  test('a clean fitted open goes through', async () => {
+    writeReport({ ...REPORT, findings: [] });
+    await opened([OUTCOME], { context: reviewCtx({ findings: {} }) });
+  });
+
+  test('a re-review whose fitted open carries only threads goes through', async () => {
+    writeReport({ ...REPORT, findings: [], threads: [{ discussionId: 'd1' }] });
+    const thread = {
+      id: 'thread-1',
+      label: 'a.ts:1',
+      multi: true,
+      context: JSON.stringify({ 'gate-ctx': 'carryover@1', thread: 'd1' }),
+      options: ['post:d1', 'resolve:d1'],
+    };
+    await opened([thread, OUTCOME], {
+      context: reviewCtx({ findings: {}, re_review: true, round: 2 }),
+    });
+  });
+
+  test('a stated reason opens the plain gate and heads its context', async () => {
+    writeReport(REPORT);
+    const payload = await opened(PLAIN, {
+      context: 'Ready with fixes',
+      plainReason: ' review-source.sh exit 2: cannot read extras ',
+    });
+    expect(payload.context).toBe(
+      'Plain gate: review-source.sh exit 2: cannot read extras\n\nReady with fixes'
+    );
+  });
+
+  test('a stated reason stands alone when the gate has no context', async () => {
+    writeReport(REPORT);
+    const payload = await opened(PLAIN, { plainReason: 'gate_open refused' });
+    expect(payload.context).toBe('Plain gate: gate_open refused');
+  });
+
+  test('a blank reason is no reason', async () => {
+    writeReport(REPORT);
+    await refused(PLAIN, { plainReason: '  ' });
+  });
+
+  test('a reason never touches a fitted open', async () => {
+    writeReport(REPORT);
+    const context = reviewCtx();
+    const payload = await opened(FITTED, { context, plainReason: 'unneeded' });
+    expect(payload.context).toBe(context);
+  });
+
+  test.each<[string, unknown]>([
+    ['no report json', null],
+    ['unparseable json', '{ nope'],
+    ['a legacy report with no version', { ...REPORT, version: undefined }],
+    ['a report whose findings are not an array', { ...REPORT, findings: 'x' }],
+  ])('%s still opens a plain gate', async (_name, report) => {
+    if (report !== null) writeReport(report);
+    await opened(PLAIN);
+  });
+
+  test('a report json from before this run is stale, as on the generic path', async () => {
+    writeReport(REPORT, RUN_START - 60_000);
+    await opened(QUESTIONS);
+  });
+
+  test('other review gates are left alone', async () => {
+    writeReport(REPORT);
+    await opened([OUTCOME], {}, 'review-escalation');
   });
 });
 

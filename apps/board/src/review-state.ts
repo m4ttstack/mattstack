@@ -103,6 +103,15 @@ export function reviewReportPath(handle: string): string {
   return reportPathForHandle(handle);
 }
 
+/** The report's `.json` sibling, by the same stem swap the wrapper skill
+    makes. */
+export function reviewReportJsonPath(handle: string): string {
+  const reportPath = reviewReportPath(handle);
+  return /\.md$/.test(reportPath)
+    ? reportPath.replace(/\.md$/, '.json')
+    : `${reportPath}.json`;
+}
+
 /** Sibling `.json` structured report a review pane can write beside its
     `.md` one, for the sheet UI. Read straight off disk rather than ingested
     into the db like the markdown (see readReviewReport): it reflects
@@ -123,15 +132,12 @@ export function readReviewReportJson(
     )
     .get(mrUrl) as { handle: string } | null;
   if (!row) return null;
-  const reportPath = reviewReportPath(row.handle);
+  const jsonPath = reviewReportJsonPath(row.handle);
   // This derived path coincides with mintHandle's own <slug>.json handle
   // path. Handles are db rows, not files, so that coincidence is safe:
   // pruneStates unlinking <slug>.json is this report's intended cleanup,
   // not a collision with live handle state. If handles ever become files
   // again, this derivation has to change with them.
-  const jsonPath = /\.md$/.test(reportPath)
-    ? reportPath.replace(/\.md$/, '.json')
-    : `${reportPath}.json`;
   try {
     return readFileSync(jsonPath, 'utf8');
   } catch {
