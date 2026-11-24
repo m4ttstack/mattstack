@@ -3,6 +3,7 @@
  *
  *   rt tools install <tool> [--json]
  *   rt tools setup <tool> [--config-dir <dir>]… [--json]
+ *   rt tools restart herdr [--json]
  *
  * Thin CLI shell over lib/setup/tools-install.ts: this module only parses
  * args, resolves the joined team's pack requirements (for team-declared
@@ -17,6 +18,7 @@ import * as out from "../lib/ui/out.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { warn } from "../lib/ui/warn.ts";
 import { readIntent, orgRefFromIntent } from "../lib/setup/intent.ts";
+import { restartStaleHerdrServers } from "../lib/setup/herdr-install.ts";
 import { recordToolInstall } from "../lib/setup/prepare.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { readPackRequirements, type PackRequirements } from "../lib/setup/requirements.ts";
@@ -144,4 +146,52 @@ export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: P
     process.exit(1);
   }
   out.print(out.line("done", `Set up ${t}`, result.detail));
+}
+
+const RESTART_TOOLS = ["herdr"];
+
+/** Ends the herdr servers still on an older herdr, which ends their panes. */
+export async function toolsRestart(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
+  const json = args.includes("--json");
+  let t = tool(args);
+  if (!t) {
+    if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
+      t = (await pickTool("Restart which tool?", RESTART_TOOLS)) ?? undefined;
+      if (!t) process.exit(0);
+    } else if (json) {
+      exitUserError(new UserActionableError("usage", "usage: rt tools restart herdr [--json]"), json);
+    } else {
+      out.fail(usageFailure("Which tool?", "rt tools restart herdr"));
+      process.exit(2);
+    }
+  }
+  if (t !== "herdr") {
+    if (json) exitUserError(new UserActionableError("usage", "usage: rt tools restart herdr [--json]"), json);
+    out.fail(usageFailure("rt can only restart herdr", "rt tools restart herdr"));
+    process.exit(2);
+  }
+
+  const result = await restartStaleHerdrServers(p);
+  const failed = result.error !== undefined || result.failed.length > 0;
+  if (json) {
+    out.json(envelope({ stopped: result.stopped, failed: result.failed }));
+    if (failed) {
+      out.fail({ title: result.error ?? `herdr did not stop: ${result.failed.join(", ")}` });
+      process.exit(1);
+    }
+    return;
+  }
+  if (result.error !== undefined) {
+    out.fail({ title: "herdr was not restarted", why: result.error });
+    process.exit(1);
+  }
+  if (result.failed.length > 0) {
+    out.fail({ title: "herdr did not stop every server", why: `Still running: ${result.failed.join(", ")}` });
+    process.exit(1);
+  }
+  if (result.stopped.length === 0) {
+    out.print(out.line("done", "Every herdr server already runs the installed herdr"));
+    return;
+  }
+  out.print(out.line("done", "Restarted herdr", `Stopped ${result.stopped.join(", ")}`));
 }

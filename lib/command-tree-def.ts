@@ -3342,6 +3342,13 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      restart: {
+        description: "Restart herdr's servers that run an older herdr (ends their panes)",
+        module: "./commands/tools.ts",
+        fn: "toolsRestart",
+        omitBehavior: "picker",
+        args: [{ name: "Tool", type: "text", placeholder: "herdr", hint: "Tool name (herdr)" }, SETUP_JSON_ARG],
+      },
     },
   },
 

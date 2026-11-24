@@ -20,8 +20,13 @@ import { fetchPermissions } from "../permissions.ts";
 import { waitWhilePreparing } from "../prepare-record.ts";
 import type { Probes } from "../probes.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
-import { claudeConfigDirs, NO_EDITORS_DETAIL, NO_RECORDED_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
+import { fetchHerdrBuilds, herdrVerdict, parseHerdrVersion } from "../herdr-builds.ts";
+import { homebrewHerdr, installHerdrBuild, removeHerdrBackups } from "../herdr-install.ts";
+import type { InstallResult } from "../install-result.ts";
+import { claudeConfigDirs, hostArch, NO_EDITORS_DETAIL, NO_RECORDED_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
+
+const HERDR_VERSION_TIMEOUT_MS = 5000;
 
 function realSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -100,13 +105,26 @@ export const fastbrowserSetupStep: StepDef = {
 
 // ─── herdr.integration ───────────────────────────────────────────────────────
 
+/** The fork build is installed when herdr is stock, behind the newest build, or shadowed by Homebrew's copy; null when nothing was needed, else the install's result. */
+async function installForkHerdrIfNeeded(p: Probes, herdr: string[]): Promise<InstallResult | null> {
+  const reported = await p.exec([...herdr, "--version"], { timeoutMs: HERDR_VERSION_TIMEOUT_MS });
+  if (reported.code !== 0) return null;
+  const verdict = herdrVerdict(parseHerdrVersion(reported.stdout), await fetchHerdrBuilds(p));
+  if (verdict.kind === "current" && !homebrewHerdr(p)) return null;
+  return installHerdrBuild(p, hostArch());
+}
+
 async function herdrIntegrationRun(ctx: ApplyContext): Promise<StepOutcome> {
   const resolved = resolveTool(ctx.p, "herdr");
   if (!resolved.chosen) return { state: "skipped", detail: "herdr is not installed (see the Tools section)" };
 
+  const installed = await installForkHerdrIfNeeded(ctx.p, resolved.exec ?? ["herdr"]);
+  if (installed && !installed.ok) return { state: "failed", detail: installed.detail, remedy: "Open setup's herdr row and press Upgrade" };
+  removeHerdrBackups(ctx.p);
+
   const configDirs = claudeConfigDirs(ctx.p, []);
   const result = await setupTool(ctx.p, "herdr", { configDirs });
-  if (result.ok) return { state: "done", detail: result.detail };
+  if (result.ok) return { state: "done", detail: installed ? `${installed.detail}; ${result.detail}` : result.detail };
   return { state: "failed", detail: result.detail, remedy: "Run herdr integration install claude in a terminal for details" };
 }
 
@@ -120,7 +138,7 @@ async function herdrIntegrationRunSafe(ctx: ApplyContext): Promise<StepOutcome> 
 
 export const herdrIntegrationStep: StepDef = {
   id: "herdr.integration",
-  title: "Set up herdr integration",
+  title: "Set up herdr",
   kind: "rt",
   updateSafe: true,
   applies: () => true,
