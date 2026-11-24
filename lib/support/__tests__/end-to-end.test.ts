@@ -159,7 +159,7 @@ function world() {
       },
     };
   }
-  return { clock, org, slack, wire, mac, now };
+  return { clock, org, slack, wire, mac, now, relayFor };
 }
 
 async function accepting(w: ReturnType<typeof world>) {
@@ -182,6 +182,9 @@ describe("support, end to end", () => {
     const conv = listOpenConversations(host.db)[0]!;
     expect(pendingItems(conv.id, host.db)[0]).toMatchObject({ kind: "message", text: "the board will not load\n\nVersions: rt 1.2.3" });
 
+    await host.service.tick();
+    expect(ada.state("r1")).toBe("received");
+    expect(getRequest("in", "ada", "r1", host.db)!.state).toBe("opening");
     expect(await host.agentWrites(0, "Hi Ada, the board will not load for you. What do you see?")).toMatchObject({ ok: true });
     await host.service.tick();
     await until("the sender reads opened", () => ada.state("r1") === "opened");
@@ -210,6 +213,11 @@ describe("support, end to end", () => {
     await host.service.handlers["support:stop"]({ conversation: listOpenConversations(host.db)[0]!.id });
     await ada.ask("r2");
     await until("the second one is answered", () => ada.state("r2") === "waiting");
+    await host.answer("approve");
+    await until("the second one opens", () => host.agents.length === 2);
+    await host.agentWrites(1, "Hi again");
+    await host.agentFilesTicket(1);
+    await finishClose(listOpenConversations(host.db)[0]!.id, "closed-by-pane", "I filed SUP-7, see https://linear.app/acme/issue/SUP-7", host.lifecycle);
     const everything = [...w.slack.map((m) => m.text), ...w.wire].join("\n");
     expect(everything).not.toContain("SUP-7");
     expect(everything).not.toContain("linear.app");
@@ -239,13 +247,14 @@ describe("support, end to end", () => {
     const stranger = w.mac("ada", "U0ADA", { key: OTHER_KEY });
     stranger.service.start();
     expect(await stranger.ask("r1")).toMatchObject({ ok: true });
-    await Bun.sleep(80);
+    const bo = w.mac("bo", "U0BO");
+    await bo.ask("r2");
+    await until("a member's later request opens", () => host.agents.length === 1);
     await host.service.tick();
-    expect(host.agents).toEqual([]);
-    expect(listRequests("in", undefined, host.db)).toEqual([]);
+    expect(listRequests("in", undefined, host.db).map((r) => `${r.peer} ${r.id}`)).toEqual(["bo r2"]);
+    expect(host.agents).toHaveLength(1);
     expect(stranger.state("r1")).toBe("sent");
     expect(stranger.desk).toEqual([]);
-    expect(host.desk).toEqual([]);
   });
 
   test("support turned off with two queued: both read not-accepting and nothing opens", async () => {
@@ -261,8 +270,9 @@ describe("support, end to end", () => {
     await until("both are answered", () => ada.state("r1") === "not-accepting" && bo.state("r2") === "not-accepting");
     expect(host.agents).toEqual([]);
     expect(ada.desk).toEqual(["Alex is not taking requests now. Message Alex directly."]);
+    w.clock.offset += 2 * 60_000;
     await host.service.tick();
-    expect(await ada.service.handlers["support:availability"]({})).toEqual({ ok: true, data: { state: "hidden" } });
+    expect(await w.relayFor("bo").host("alex")).toMatchObject({ accepting: false });
   });
 
   test("stop, ask again: the second request waits for the host", async () => {
@@ -292,13 +302,15 @@ describe("support, end to end", () => {
     const host = await accepting(w);
     const first = w.mac("ada", "U0ADA");
     const second = w.mac("ada", "U0ADA", { machine: "ada-laptop" });
-    second.service.start();
+    await second.ask("r0");
     await first.ask("r1");
     await until("the request opens", () => host.agents.length === 1);
-    await Bun.sleep(40);
+    second.service.start();
+    await until("the other Mac has polled and read its own", () => second.state("r0") === "received");
+    expect(second.state("r1")).toBeUndefined();
     first.service.start();
-    await until("the Mac that asked reads received", () => first.state("r1") === "received");
-    expect(second.desk).toEqual([]);
+    await until("the Mac that asked reads its own answer", () => first.state("r1") === "already-open");
+    expect(second.desk).toEqual(["Alex's Mac has it and Maude is starting"]);
   });
 
   test("a second Mac of the host's cannot accept while the first is there", async () => {

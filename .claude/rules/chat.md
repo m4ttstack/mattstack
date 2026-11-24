@@ -5,6 +5,8 @@ paths:
   - "lib/chat-viewer-url.ts"
   - "lib/daemon/handlers/chat.ts"
   - "skills/rt-chat/**"
+  - "lib/support/**"
+  - "lib/daemon/handlers/support.ts"
 ---
 
 # rt chat
@@ -54,14 +56,15 @@ host, and a roster member's request opens a chat on that person's Mac with no
 tap (`lib/support/`, `docs/superpowers/specs/2026-11-24-support-host-design.md`).
 It reaches the daemon only through the switchboard's support queue, proved by
 the org's key (`lib/support/sync.ts`), and only the daemon's own loop calls
-the open (`lib/support/host.ts`). Two open chats, a second request from one
-person, or a Stop in the last 24 hours makes it a `slack-open` gate with a
-`support:` subject and `meta.action` `support`, which lives 7 days and is
-reconciled on every `support-tick`. `support:send`, `support:accept` and
+the open (`lib/support/host.ts`). Two open chats, or a Stop of that person's
+in the last 24 hours, makes it a `slack-open` gate with a `support:` subject
+and `meta.action` `support`, which lives 7 days and is reconciled on every
+`support-tick`. `support:send`, `support:accept` and
 `support:stop` are a person's alone: no CLI verb, MCP tool or `rt_verb` route
 may call them, and the mod denies shell lines that would. Stop
 (`lib/support/stop.ts`) closes the row before the pane and leaves no grace
-window.
+window. A second request from someone with a chat or a request open is
+answered `already-open` or `already-waiting`, never a gate.
 
 `skills/rt-slack-support/SKILL.md` owns what the agent does. Read
 `docs/superpowers/specs/2026-11-03-slack-support-chat-design.md` and

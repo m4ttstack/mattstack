@@ -55,6 +55,8 @@ export interface SupportHandlerDeps {
   /** Something the relay loops wait for has changed. */
   poke(): void;
   stop(conversation: number): Promise<{ ok: true; told: boolean } | { ok: false; reason: string }>;
+  /** The relay holds this Mac as the accepting one, as far as this Mac knows. */
+  holdsRole(): boolean;
   versions(): Promise<{ rt: string; app: string | null; macos: string | null }>;
   /** Null when the setup status could not be read. */
   unreadySetupRows(): Promise<string[] | null>;
@@ -102,21 +104,21 @@ const SEND_REFUSALS: Record<Exclude<SupportSend, "ok" | "changed">, (host: strin
   rejected: () => ["rejected", "The relay would not take this request. Update mattstack, then try again."],
 };
 
+const CHANGED: [code: string, message: string] = ["changed", "Your first version of this was already sent, so that is the one they will read."];
+
 function hostName(cfg: SupportConfig): string {
   const host = cfg.host ?? "";
   return cfg.roster.find((e) => canonicalHandle(e.username) === canonicalHandle(host))?.name ?? host;
 }
 
+/** A request the host never finished with stops counting once the relay has forgotten it. Returns the ones that just expired. */
+export function expireSent(db: Database, now: number): SupportRequest[] {
+  return listRequests("out", OPEN, db).filter((r) => now - r.sentAt >= SUPPORT_TTL_MS && moveRequest(r, OPEN, { state: "expired" }, now, db));
+}
+
 export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof SUPPORT_COMMANDS)[number]]: (payload: unknown) => Promise<CommandResult<K>> } {
   const { db } = deps;
   const sending = createChain();
-
-  /** A request the host never finished with stops counting once the relay has forgotten it. */
-  function expireOld(): void {
-    for (const r of listRequests("out", OPEN, db)) {
-      if (deps.now() - r.sentAt >= SUPPORT_TTL_MS) moveRequest(r, OPEN, { state: "expired" }, deps.now(), db);
-    }
-  }
 
   async function send(id: string, text: string, parts: SupportPart[]): Promise<CommandResult<"support:send">> {
     const cfg = deps.config();
@@ -126,14 +128,20 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
     const to = canonicalHandle(cfg.host);
 
     const already = getRequest("out", to, id, db);
-    if (already) return { ok: true, data: { request: already } };
-    expireOld();
-    if (listRequests("out", OPEN, db).length > 0) return refuse("already-waiting", "You already have a request waiting.");
+    if (already) {
+      const same = already.text === text && JSON.stringify(already.parts) === JSON.stringify(parts);
+      return same ? { ok: true, data: { request: already } } : refuse(...CHANGED);
+    }
+    expireSent(db, deps.now());
+    if (listRequests("out", OPEN, db).some((r) => r.peer === to && r.org === cfg.org)) return refuse("already-waiting", "You already have a request waiting.");
 
     const relay = await deps.relay();
     if (!relay) return refuse("no-board", "Connect your board first.");
     const keys = await deps.keys();
     if (!keys) return refuse("no-key", "This Mac cannot open the org's secrets.");
+    const host = await relay.host(cfg.host);
+    if (!host) return refuse(...SEND_REFUSALS.unreachable(hostName(cfg)));
+    if (!host.accepting) return refuse("not-accepting", `${hostName(cfg)} is not taking requests now. Message them directly.`);
     let slackUserId: string | null;
     try {
       slackUserId = await deps.slackUserId();
@@ -155,7 +163,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
     };
     insertRequest(request, db);
     deps.poke();
-    if (result === "changed") return refuse("changed", "Your first version of this was already sent, so that is the one they will read.");
+    if (result === "changed") return refuse(...CHANGED);
     return { ok: true, data: { request: { ...request, updatedAt: sentAt } } };
   }
 
@@ -215,7 +223,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
     },
 
     "support:mine": async (): Promise<CommandResult<"support:mine">> => {
-      expireOld();
+      expireSent(db, deps.now());
       const requests = listRequests("out", undefined, db)
         .reverse()
         .slice(0, SHOWN)
@@ -226,7 +234,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
     "support:host": async (): Promise<CommandResult<"support:host">> => {
       const cfg = deps.config();
       if (!cfg?.isHost) return { ok: true, data: { isHost: false, accepting: false, missing: [] } };
-      return { ok: true, data: { isHost: true, accepting: cfg.acceptHere, missing: await deps.readiness() } };
+      return { ok: true, data: { isHost: true, accepting: cfg.acceptHere && deps.holdsRole(), missing: await deps.readiness() } };
     },
 
     "support:accept": async (rawPayload: unknown): Promise<CommandResult<"support:accept">> => {

@@ -32,6 +32,7 @@ function harness() {
     missing: [] as string[],
     setHost: "ok" as "ok" | "other-machine" | "failed",
     setup: ["account.slack-support"] as string[] | null,
+    holdsRole: true,
     stop: { ok: true, told: true } as { ok: true; told: boolean } | { ok: false; reason: string },
   };
   const sent: SupportDraft[] = [];
@@ -74,6 +75,7 @@ function harness() {
     },
     versions: async () => ({ rt: "1.2.3", app: "4.5.6", macos: "15.1" }),
     unreadySetupRows: async () => state.setup,
+    holdsRole: () => state.holdsRole,
   };
   const handlers = createSupportHandlers(deps);
   const request = (over: Partial<SupportRequest> = {}) =>
@@ -281,6 +283,33 @@ describe("support:send", () => {
     expect(getRequest("out", "alex", "r1", h.db)).toMatchObject({ state: "sent" });
   });
 
+  test("a host that stopped accepting, or a relay that cannot say, gets nothing sent", async () => {
+    const off = harness();
+    off.state.host = { accepting: false, lastSeenAt: 1 };
+    expect(await send(off)).toMatchObject({ ok: false, failure: { code: "support-not-accepting" } });
+    const unknown = harness();
+    unknown.state.host = null;
+    expect(await send(unknown)).toMatchObject({ ok: false, failure: { code: "support-unreachable" } });
+    for (const h of [off, unknown]) {
+      expect(h.sent).toEqual([]);
+      expect(listRequests("out", undefined, h.db)).toEqual([]);
+    }
+  });
+
+  test("an id used again for other words says the first version is the one sent", async () => {
+    const h = harness();
+    await send(h);
+    expect(await send(h, { text: "something else" })).toMatchObject({ ok: false, failure: { code: "support-changed" } });
+    expect(await send(h, { parts: [] })).toMatchObject({ ok: false, failure: { code: "support-changed" } });
+    expect(h.sent).toHaveLength(1);
+  });
+
+  test("a request left with a former host does not hold up a new one", async () => {
+    const h = harness();
+    h.request({ peer: "former", state: "received" });
+    expect((await send(h)).ok).toBe(true);
+  });
+
   test("every other refusal says what to do and stores nothing", async () => {
     for (const result of ["unknown-recipient", "full", "unauthorized", "rejected"] as const) {
       const h = harness();
@@ -370,6 +399,8 @@ describe("support:host and support:accept", () => {
     expect(await h.handlers["support:host"]({})).toEqual({ ok: true, data: { isHost: false, accepting: false, missing: [] } });
     asHost(h, true);
     expect(await h.handlers["support:host"]({})).toEqual({ ok: true, data: { isHost: true, accepting: true, missing: ["Set your chat name"] } });
+    h.state.holdsRole = false;
+    expect(await h.handlers["support:host"]({})).toMatchObject({ data: { accepting: false } });
   });
 
   test("accept refuses for anyone but the host", async () => {

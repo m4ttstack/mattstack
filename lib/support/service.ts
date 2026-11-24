@@ -7,7 +7,7 @@ import type { Logger } from "pino";
 import type { GateRow } from "../../packages/rt-client/src/commands.ts";
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import { chatViewerUrl, readChatViewerUrlSetting } from "../chat-viewer-url.ts";
-import { createSupportHandlers } from "../daemon/handlers/support.ts";
+import { createSupportHandlers, expireSent } from "../daemon/handlers/support.ts";
 import { readSwitchboardToken } from "../daemon/handlers/secrets.ts";
 import type { SlackLifecycleDeps } from "../daemon/slack-lifecycle.ts";
 import { orgIdContext } from "../linear/org-ids.ts";
@@ -15,6 +15,7 @@ import { readSupportApiKey } from "../linear/support-key.ts";
 import { machineKey } from "../rt-paths.ts";
 import { rtSelfArgv } from "../rt-self.ts";
 import { createRealTeamSecretsSeams, teamSecretsFile } from "../secrets/team-store.ts";
+import { storedValue } from "../settings/presence.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
 import { createRealProbes } from "../setup/probes.ts";
@@ -42,6 +43,7 @@ import { createSupportSync } from "./sync.ts";
 const KV_NS = "support";
 const PUBLISH_EVERY_MS = 60_000;
 const TOKEN_TTL_MS = 5 * 60_000;
+const KEY_RETRY_MS = 60_000;
 const SETUP_TTL_MS = 5 * 60_000;
 const SETUP_TIMEOUT_MS = 45_000;
 const CLI_ENTRY = join(import.meta.dir, "..", "..", "cli.ts");
@@ -84,9 +86,9 @@ export interface SupportService {
   stop(): void;
 }
 
-/** Re-read only when the org's secrets file changes: each read decrypts it. */
-function orgKeys(log: Logger): SupportSeams["keys"] {
-  let held: { file: string; stamp: string; keys: SupportKeys | null } | null = null;
+/** Re-read only when the org's secrets file changes, or a minute after a failure: each read decrypts it, and can raise a keychain dialog. */
+function orgKeys(log: Logger, now: () => number): SupportSeams["keys"] {
+  let held: { file: string; stamp: string; at: number; keys: SupportKeys | null } | null = null;
   return async (cfg) => {
     const file = teamSecretsFile(cfg.org, "support");
     let stamp: string;
@@ -96,19 +98,20 @@ function orgKeys(log: Logger): SupportSeams["keys"] {
     } catch {
       return null;
     }
-    if (held?.file === file && held.stamp === stamp && held.keys) return held.keys;
+    if (held?.file === file && held.stamp === stamp && (held.keys || now() - held.at < KEY_RETRY_MS)) return held.keys;
     try {
       const keys = await readSupportKeys(cfg.org, createRealTeamSecretsSeams(cfg.org));
-      held = { file, stamp, keys };
+      held = { file, stamp, at: now(), keys };
       return keys;
     } catch (err) {
       if (held?.file !== file || held.stamp !== stamp) log.warn({ err }, "support: the org's key could not be opened");
-      held = { file, stamp, keys: null };
+      held = { file, stamp, at: now(), keys: null };
       return null;
     }
   };
 }
 
+/** A null answer is not kept: it is what a person is about to fix. */
 function cached<T>(ttlMs: number, now: () => number, read: () => Promise<T>): () => Promise<T> {
   let at = 0;
   let value: Promise<T> | null = null;
@@ -116,7 +119,12 @@ function cached<T>(ttlMs: number, now: () => number, read: () => Promise<T>): ()
     if (value === null || now() - at >= ttlMs) {
       at = now();
       value = read();
-      value.catch(() => (value = null));
+      value.then(
+        (v) => {
+          if (v === null) value = null;
+        },
+        () => (value = null),
+      );
     }
     return value;
   };
@@ -172,8 +180,15 @@ export function statusNotice(r: Pick<SupportRequest, "state" | "reason">, host: 
 export function createSupportService(o: SupportServiceOptions): SupportService {
   const { db, log } = o;
   const now = o.seams?.now ?? Date.now;
-  const config = o.seams?.config ?? (() => supportConfig());
-  const keysFor = o.seams?.keys ?? orgKeys(log);
+  const flag = (key: string) => getKvValue<boolean>(KV_NS, key, false, db);
+  const setFlag = (key: string, on: boolean) => setKvValue(KV_NS, key, on, db);
+  const readConfig = o.seams?.config ?? (() => supportConfig());
+  /** The setting can be written by anything; only a tap on accept, on this Mac, makes it count. */
+  const config = (): SupportConfig | null => {
+    const cfg = readConfig();
+    return cfg && cfg.accepts && !flag("accepted") ? { ...cfg, accepts: false, acceptHere: false } : cfg;
+  };
+  const keysFor = o.seams?.keys ?? orgKeys(log, now);
   const keys = async () => {
     const cfg = config();
     return cfg ? keysFor(cfg) : null;
@@ -187,9 +202,6 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     });
   const defaultRepo = o.seams?.defaultRepo ?? (() => supportRepoFromSetting(getSetting<string | undefined>("chat.slackSupport.defaultRepo").value));
   const unreadySetupRows = o.seams?.unreadySetupRows ?? cached(SETUP_TTL_MS, now, readUnreadyRows);
-
-  const flag = (key: string) => getKvValue<boolean>(KV_NS, key, false, db);
-  const setFlag = (key: string, on: boolean) => setKvValue(KV_NS, key, on, db);
 
   const host: HostDeps = {
     ...o.slackOpen,
@@ -209,6 +221,11 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     gate: o.gate,
     chain: createChain(),
   };
+
+  function noticeStatus(r: SupportRequest): void {
+    const name = config()?.roster.find((e) => canonicalHandle(e.username) === r.peer)?.name ?? r.peer;
+    o.notify("Help request", statusNotice(r, name, slackPersona().name), r.dmLink ?? undefined);
+  }
 
   const takes = createChain();
   let taking = false;
@@ -233,11 +250,7 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     now,
     log,
     onRequest: takeSoon,
-    onStatus(r) {
-      const cfg = config();
-      const name = cfg?.roster.find((e) => canonicalHandle(e.username) === r.peer)?.name ?? r.peer;
-      o.notify("Help request", statusNotice(r, name, slackPersona().name), r.dmLink ?? undefined);
-    },
+    onStatus: noticeStatus,
   });
 
   const readinessDeps: ReadinessDeps = {
@@ -245,7 +258,7 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     linearKey: readSupportApiKey,
     defaultRepo,
     repoPath: o.slackOpen.repoPath,
-    humanHandle: o.slackOpen.humanHandle,
+    humanHandle: () => storedValue<string>("chat.humanHandle") ?? "",
     boardToken,
     async relayAnswers() {
       const cfg = config();
@@ -257,6 +270,8 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
   };
 
   let loops: SupportLoopHandle[] = [];
+  /** Another of this person's Macs is the accepting one, so this one leaves the queue alone. */
+  let lost = false;
 
   /** The queue of a Mac that stopped accepting is read until it is empty, so nobody waits on a request no one will take. */
   async function drain(): Promise<void> {
@@ -280,9 +295,14 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     readiness: () => (o.seams?.readiness ?? readiness)(readinessDeps),
     setAccepting(on) {
       (o.seams?.setAccepting ?? ((v: boolean) => setSetting("support.acceptRequests", v, "machine")))(on);
-      if (on) setFlag("draining", false);
+      setFlag("accepted", on);
+      if (on) {
+        setFlag("draining", false);
+        lost = false;
+      }
     },
     published: (on) => setFlag("published", on),
+    holdsRole: () => flag("published"),
     drain,
     poke: () => loops.forEach((l) => l.poke()),
     stop: (conversation) => stopSlackChat(conversation, o.stop),
@@ -290,21 +310,26 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     unreadySetupRows,
   });
 
-  let claimed = false;
   let publishedAt = Number.NEGATIVE_INFINITY;
 
-  /** A restart claims the role again, and a Mac that should no longer hold it lets go. */
+  /** Claimed again every minute: the relay gives the role to another Mac after 10 minutes of silence, and forgets it with the board. */
   async function publish(): Promise<void> {
     if (now() - publishedAt < PUBLISH_EVERY_MS) return;
     publishedAt = now();
     const cfg = config();
-    if (!cfg || cfg.roster.length === 0) return;
-    if (cfg.acceptHere ? claimed && flag("published") : !flag("published")) return;
+    if (!cfg || cfg.roster.length === 0 || (!cfg.acceptHere && !flag("published"))) return;
     const result = await (await relay())?.setHost(cfg.acceptHere);
     if (!result || result === "failed") return;
-    if (result === "other-machine" && cfg.acceptHere) log.warn({}, "support: another of this person's Macs is the accepting one");
-    claimed = cfg.acceptHere && result === "ok";
-    setFlag("published", claimed);
+    if (!cfg.acceptHere) {
+      setFlag("published", false);
+      if (result === "ok") setFlag("draining", true);
+      return;
+    }
+    if (lost !== (result === "other-machine")) {
+      lost = !lost;
+      log.info({ lost }, "support: whether another of this person's Macs is the accepting one has changed");
+    }
+    setFlag("published", !lost);
   }
 
   let drainedAt = Number.NEGATIVE_INFINITY;
@@ -314,26 +339,38 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     await drain();
   }
 
+  function expire(): Promise<void> {
+    for (const r of expireSent(db, now())) noticeStatus({ ...r, state: "expired" });
+    return Promise.resolve();
+  }
+
+  async function tickOnce(): Promise<void> {
+    for (const step of [publish, keepDraining, expire, () => tickRequests(host), () => sync.flush()]) {
+      try {
+        await step();
+      } catch (err) {
+        log.warn({ err }, "support: a step of the tick failed");
+      }
+    }
+  }
+  let ticking: Promise<void> | null = null;
+
   return {
     handlers,
     answerGate: async (row) => {
       await answerSupportGate(host, row);
       await sync.flush();
     },
-    async tick() {
-      for (const step of [publish, keepDraining, () => tickRequests(host), () => sync.flush()]) {
-        try {
-          await step();
-        } catch (err) {
-          log.warn({ err }, "support: a step of the tick failed");
-        }
-      }
+    /** One at a time: ticks that queue behind a slow open would each read Slack when it ends. */
+    tick() {
+      ticking ??= tickOnce().finally(() => (ticking = null));
+      return ticking;
     },
     prune: () => pruneSupport(now(), db),
     start() {
       const loop = (kind: "request" | "status", active: () => boolean) => startSupportLoop({ kind, active, relay, pull: () => sync.pull(kind), log });
       loops = [
-        loop("request", () => config()?.accepts === true),
+        loop("request", () => !lost && config()?.accepts === true),
         loop("status", () => listRequests("out", ["sent", "received", "waiting"], db).length > 0),
       ];
       for (const l of loops) l.done.catch((err) => log.warn({ err }, "support: a relay loop stopped"));

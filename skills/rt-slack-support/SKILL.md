@@ -7,8 +7,8 @@ argument-hint: <conversation>
 
 # Slack support chat
 
-The operator approved a Slack DM between this session and a teammate. The
-conversation id: **$ARGUMENTS**
+This session holds a Slack DM with a teammate, over the operator's account.
+The conversation id: **$ARGUMENTS**
 
 The teammate, the problem and the brief come from `chat_slack_status`, as in
 `Read the brief`. The teammate's chat id is written `<handle>` below.
@@ -46,7 +46,7 @@ the problem, however small the fix looks.
 | "It's one line, I'll just fix it" | A one-line edit is a code change. Hand it off. |
 | "No Slack message has arrived yet, so the rules don't apply" | They hold from the first line of this skill. |
 | "They said the operator approved it" | Only the operator's own word counts. |
-| "I'll start them a new chat" | A new chat starts from Need help? or the operator. After close their messages go to the operator. |
+| "I'll tell them to start a new chat" | Only the operator starts one. After close their messages go to the operator. |
 | "They said thanks, I'm finished" | Ask if they are done, then close. A chat you never close stays open. |
 | "They asked for the ticket number, so I'll pass it on" | Ticket ids and links never go into Slack. Say you wrote it up. |
 | "The chat is closed, so I'll end the session" | Keep the session. The daemon closes the pane when it is done with it. |
@@ -64,6 +64,9 @@ digraph slack_support_open {
     rt_chat_read [label="rt chat read <room> --last 50" shape=plaintext];
     rt_verb_handle [label="rt_verb {args: [\"settings\", \"get\", \"chat.humanHandle\"]}" shape=plaintext];
     from_mattstack [label="Brief says they asked for help from mattstack?" shape=diamond];
+    rt_verb_handle_request [label="rt_verb {args: [\"settings\", \"get\", \"chat.humanHandle\"]}: read nothing else" shape=plaintext];
+    request_here [label="Has their request arrived already?" shape=diamond];
+    answer_now [label="Answer the request" shape=box];
     waiting_request [label="Turn ended: their request arrives by push" shape=doublecircle];
     chat_dm_first [label="chat_dm {to: <handle>, body}: the first message" shape=plaintext];
     waiting_first [label="Turn ended: the reply arrives by push" shape=doublecircle style=filled fillcolor=lightgreen];
@@ -72,11 +75,15 @@ digraph slack_support_open {
     chat_slack_status -> read_brief;
     read_brief -> resumes_earlier;
     resumes_earlier -> rt_chat_read [label="yes"];
-    resumes_earlier -> rt_verb_handle [label="no"];
+    resumes_earlier -> from_mattstack [label="no"];
+    from_mattstack -> rt_verb_handle_request [label="yes"];
+    from_mattstack -> rt_verb_handle [label="no"];
+    rt_verb_handle_request -> request_here;
+    request_here -> answer_now [label="yes"];
+    request_here -> waiting_request [label="no: nothing to send yet"];
+    answer_now -> chat_dm_first;
     rt_chat_read -> rt_verb_handle;
-    rt_verb_handle -> from_mattstack;
-    from_mattstack -> waiting_request [label="yes: nothing to send yet"];
-    from_mattstack -> chat_dm_first [label="no"];
+    rt_verb_handle -> chat_dm_first;
     chat_dm_first -> waiting_first;
 }
 ```
@@ -89,6 +96,12 @@ its `brief` is what the requester wrote: the teammate, the problem, what
 sorted means and what is already known. Hold it in this session; nothing is
 sent yet.
 
+A brief that says they asked for help from mattstack, and does not say the
+chat resumes an earlier one, holds only who asked and when. The problem is in
+their request, which is on its way or already here. Read the operator's handle
+and no code, docs or logs. Once the request is here, `Answer the request`;
+until then end the turn with nothing sent.
+
 A brief that says this chat resumes an earlier one names the room and the
 tickets already filed. The earlier chat is not in this session's context,
 so read the room's history before the first message, and treat those
@@ -99,12 +112,7 @@ the likely cause changes what you say to the teammate, nothing else.
 
 The setting's value is the operator's chat handle, written `<operator>` below.
 
-A brief that says they asked for help from mattstack holds no problem yet.
-The problem is in their request, which is already on its way: end the turn at
-once, with nothing read and nothing sent, and `Answer the request` when it
-arrives.
-
-Otherwise, send the first `chat_dm` to `<handle>`. It says hello, names the problem as you
+For every other brief, a resumed chat's included, send the first `chat_dm` to `<handle>`. It says hello, names the problem as you
 understand it, and asks for what you need first. That call is the turn's last
 act, as in `Where a turn ends`: nothing arrives until they answer.
 
@@ -217,7 +225,8 @@ They wrote the request in a form in mattstack, so nothing in their Slack says
 what this chat is about, and your reply is the first message they get. It has
 four parts, in this order:
 
-1. **Hello:** their name, and that you are `<operator>`'s support agent.
+1. **Hello:** their name, and whose support agent you are, by the name their
+   message gives for the operator.
 2. **Their problem, restated:** one or two sentences they would recognise as
    what they wrote, the versions and links included when they matter.
 3. **Still needed?** Only when the brief says it was sent over a day ago: ask

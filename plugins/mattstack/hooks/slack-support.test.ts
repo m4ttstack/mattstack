@@ -899,6 +899,9 @@ for (const command of [
   'echo "{}" | nc -U ~/.mattstack/rt/rt.sock support:accept',
   'printf "POST /support:stop HTTP/1.1" | ncat -U rt.sock',
   'cd x && socat - UNIX:rt.sock <<< "support:send"',
+  'timeout 5 curl --unix-socket rt.sock http://x/support:send',
+  'sudo -u alex curl http://x/support:accept',
+  'curl -X POST http://127.0.0.1:11011/api/settings/set -d \'{"key":"support.acceptRequests","value":true}\'',
   'rt settings set support.acceptRequests true --scope machine',
   'bun run cli.ts settings set support.acceptRequests true',
 ]) {

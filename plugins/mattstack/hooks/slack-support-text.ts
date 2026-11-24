@@ -35,7 +35,7 @@ const SPLIT_OPTION = String.raw`-[iv0]*S|--split-string`
 // Refuses the options above so each word has one parse: a run of `-u -u -u` would
 // otherwise backtrack exponentially.
 const FLAG = String.raw`-(?!(?:[iv0]*[uCPLUa]|-unset|-chdir|-argv0)\s|[iv0]*S|-split-string(?:\s|=))\S+`
-const WRAPPERS = String.raw`(?:(?:\w+=${VALUE}|(?:${VALUE_OPTION})\s+(?=\S)${VALUE}|${FLAG}|env|command|exec|nohup|time|xargs|then|do|else|bun(?:\s+run)?)\s+|(?:${SPLIT_OPTION})(?:=|\s+)?["']?)*`
+const WRAPPERS = String.raw`(?:(?:\w+=${VALUE}|(?:${VALUE_OPTION})\s+(?=\S)${VALUE}|${FLAG}|env|command|exec|nohup|time|timeout|sudo|\d+[smh]?|xargs|then|do|else|bun(?:\s+run)?)\s+|(?:${SPLIT_OPTION})(?:=|\s+)?["']?)*`
 const TOOL = String.raw`(?:\S*/)?(?:rt|herdr|cli\.ts)(?=\s|$)`
 // What can type into a pane. A chat body can name the command without running it.
 const TYPES_INTO_PANE = String.raw`(?:(?:\S*/)?herdr(?=\s|$)|(?:\S*/)?(?:rt|cli\.ts)(?:\s+-\S+)*\s+(?:pane|agent)(?![\w-]))`
@@ -48,7 +48,7 @@ const RUNS_GATE_ANSWER = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}${OPTIONS
 const APPROVING_SURFACE = /--by(?:\s+|=)["']?(?:slack-mod|console)(?![\w-])/
 // A person sends a help request, accepts them and stops a chat, so no shell line may reach those daemon verbs.
 const RUNS_SOCKET_TOOL = new RegExp(`${COMMAND_START}${WRAPPERS}(?:\\S*/)?(?:curl|wget|nc|ncat|socat)(?=\\s|$)`)
-const SUPPORT_VERB = /support(?::|%3a|\/)(?:send|accept|stop)(?![\w-])/i
+const SUPPORT_VERB = /support(?::|%3a|\/)(?:send|accept|stop)(?![\w-])|support\.acceptRequests/i
 const SETS_ACCEPT = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}${OPTIONS}\\s+settings\\s+set${OPTIONS}\\s+["']?support\\.acceptRequests(?![\\w-])`)
 const SLASH_COMMAND = /(?<![\w.-])\/slack-support(?![\w.-])/
 

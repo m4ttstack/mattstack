@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { setSetting, unsetSetting } from "../../settings/write.ts";
+import { setKvValue } from "../../state/kv-blob.ts";
 import { getRequest, insertRequest, listRequests, pendingStatuses } from "../../state/support-store.ts";
 import type { SupportDraft, SupportMessage } from "../../../packages/rt-client/src/support.ts";
 import { supportMac } from "../proof.ts";
@@ -17,6 +19,7 @@ function harness(me: "alex" | "ada" = "alex") {
     config: { ...h.state.config!, me, isHost, accepts: isHost, acceptHere: isHost } as SupportConfig | null,
     setHost: "ok" as "ok" | "other-machine" | "failed",
     reachable: true,
+    hostAccepting: true,
   };
   const events: string[] = [];
   const sent: SupportDraft[] = [];
@@ -36,7 +39,7 @@ function harness(me: "alex" | "ada" = "alex") {
       events.push(`setHost ${on}`);
       return state.setHost;
     },
-    host: async () => ({ accepting: true, lastSeenAt: h.state.now }),
+    host: async () => ({ accepting: state.hostAccepting, lastSeenAt: h.state.now }),
   };
   const options: SupportServiceOptions = {
     db: h.db,
@@ -63,6 +66,8 @@ function harness(me: "alex" | "ada" = "alex") {
       unreadySetupRows: async () => null,
     },
   };
+  // What a tap on accept leaves behind.
+  if (isHost) setKvValue("support", "accepted", true, h.db);
   const service = createSupportService(options);
   const restart = () => createSupportService(options);
   function arrive(kind: "request" | "status", from: string, to: string, id: string, body: object) {
@@ -70,20 +75,70 @@ function harness(me: "alex" | "ada" = "alex") {
     const at = h.state.now;
     inbox.push({ id, to, from, kind, sentAt: at, receivedAt: at, body: text, mac: supportMac(KEY, { kind, id, org: ORG, from, to, sentAt: at, body: text }) });
   }
-  return { h, state, events, sent, service, restart, arrive, left: () => inbox.length };
+  return { h, state, events, sent, relay, options, service, restart, arrive, left: () => inbox.length };
 }
 
 const ask = { text: "help", parts: [], slackUserId: ADA.slackUserId };
 
 describe("the accepting flag", () => {
-  test("a daemon restart publishes the accepting flag again, once", async () => {
+  test("a daemon restart publishes the accepting flag again, and every minute keeps it", async () => {
     const t = harness();
     await t.service.tick();
-    t.h.state.now += 2 * MINUTE;
+    t.h.state.now += 5_000;
     await t.service.tick();
     expect(t.events.filter((e) => e.startsWith("setHost"))).toEqual(["setHost true"]);
     await t.restart().tick();
-    expect(t.events.filter((e) => e.startsWith("setHost"))).toEqual(["setHost true", "setHost true"]);
+    expect(t.events.filter((e) => e.startsWith("setHost"))).toHaveLength(2);
+    t.h.state.now += MINUTE;
+    await t.service.tick();
+    expect(t.events.filter((e) => e.startsWith("setHost"))).toHaveLength(3);
+  });
+
+  test("a Mac that lost the role to another says so, stops polling, and takes it back when it can", async () => {
+    const t = harness();
+    await t.service.tick();
+    expect(await t.service.handlers["support:host"]({})).toMatchObject({ data: { accepting: true } });
+    t.state.setHost = "other-machine";
+    t.h.state.now += 2 * MINUTE;
+    await t.service.tick();
+    expect(await t.service.handlers["support:host"]({})).toMatchObject({ data: { isHost: true, accepting: false } });
+    let polled = 0;
+    t.relay.list = async () => (polled++, []);
+    t.service.start();
+    await Bun.sleep(30);
+    t.service.stop();
+    expect(polled).toBe(0);
+    t.state.setHost = "ok";
+    t.h.state.now += 2 * MINUTE;
+    await t.service.tick();
+    expect(await t.service.handlers["support:host"]({})).toMatchObject({ data: { accepting: true } });
+  });
+
+  test("the setting alone never accepts: a tap on accept has to be recorded on this Mac", async () => {
+    const t = harness();
+    setKvValue("support", "accepted", false, t.h.db);
+    t.arrive("request", "ada", "alex", "r1", ask);
+    t.service.start();
+    await t.service.tick();
+    await Bun.sleep(30);
+    t.service.stop();
+    expect(t.events).toEqual([]);
+    expect(t.left()).toBe(1);
+    expect(await t.service.handlers["support:host"]({})).toMatchObject({ data: { isHost: true, accepting: false } });
+    expect(await t.service.handlers["support:accept"]({ on: true })).toMatchObject({ ok: true });
+    expect(await t.service.handlers["support:host"]({})).toMatchObject({ data: { accepting: true } });
+  });
+
+  test("letting go of the role drains what was queued, however it was let go", async () => {
+    const t = harness();
+    await t.service.tick();
+    t.state.config = { ...t.state.config!, accepts: false, acceptHere: false };
+    t.arrive("request", "ada", "alex", "r1", ask);
+    t.h.state.now += 2 * MINUTE;
+    await t.service.tick();
+    await t.service.tick();
+    expect(t.left()).toBe(0);
+    expect(getRequest("in", "ada", "r1", t.h.db)!.state).toBe("not-accepting");
   });
 
   test("a claim that did not land is tried again a minute later", async () => {
@@ -95,8 +150,6 @@ describe("the accepting flag", () => {
     t.state.setHost = "ok";
     t.h.state.now += MINUTE;
     await t.service.tick();
-    t.h.state.now += 2 * MINUTE;
-    await t.service.tick();
     expect(t.events.filter((e) => e.startsWith("setHost"))).toEqual(["setHost true", "setHost true"]);
   });
 
@@ -105,6 +158,8 @@ describe("the accepting flag", () => {
     await t.service.tick();
     t.state.config = { ...t.state.config!, enabled: false, acceptHere: false };
     const after = t.restart();
+    await after.tick();
+    t.h.state.now += 2 * MINUTE;
     await after.tick();
     t.h.state.now += 2 * MINUTE;
     await after.tick();
@@ -124,6 +179,20 @@ describe("the accepting flag", () => {
     host.h.state.now += 2 * MINUTE;
     await host.service.tick();
     expect(host.events.filter((e) => e.startsWith("setHost"))).toEqual(["setHost true"]);
+  });
+});
+
+describe("readiness", () => {
+  test("a chat name nobody set reads as missing, whatever the registry's default is", async () => {
+    const t = harness();
+    const seen: string[] = [];
+    unsetSetting("chat.humanHandle", "user");
+    const service = createSupportService({ ...t.options, seams: { ...t.options.seams, readiness: async (d) => (seen.push(d.humanHandle()), []) } });
+    await service.handlers["support:host"]({});
+    setSetting("chat.humanHandle", "alex", "user");
+    await service.handlers["support:host"]({});
+    unsetSetting("chat.humanHandle", "user");
+    expect(seen).toEqual(["", "alex"]);
   });
 });
 
@@ -190,6 +259,26 @@ describe("accepting requests", () => {
     expect(pendingStatuses(t.h.db)).toEqual([]);
   });
 
+  test("a tick asked for while one is running is skipped", async () => {
+    const t = harness();
+    let lookups = 0;
+    let release = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    t.h.deps.findPerson = async () => {
+      lookups++;
+      await held;
+      return { ok: false, reason: "Slack did not answer", error: new Error("ratelimited") };
+    };
+    const service = t.restart();
+    t.h.request();
+    const ticks = [service.tick()];
+    await Bun.sleep(5);
+    for (let i = 0; i < 12; i++) ticks.push(service.tick());
+    release();
+    await Promise.all(ticks);
+    expect(lookups).toBe(1);
+  });
+
   test("a step that throws does not stop the next", async () => {
     const t = harness();
     const r = t.h.request();
@@ -213,6 +302,16 @@ describe("the sender's side", () => {
     await Bun.sleep(5);
     expect(t.events.filter((e) => e.startsWith("notify"))).toEqual(["notify Maude messaged you in Slack -> slack://user?team=T1&id=U0HOST"]);
     expect(getRequest("out", "alex", "r1", t.h.db)!.state).toBe("opened");
+  });
+
+  test("a request no one picked up in 7 days expires on its own, with one notice", async () => {
+    const t = harness("ada");
+    await t.service.handlers["support:send"]({ id: "r1", text: "help", parts: [] });
+    t.h.state.now += 7 * 24 * 60 * MINUTE;
+    await t.service.tick();
+    await t.service.tick();
+    expect(getRequest("out", "alex", "r1", t.h.db)!.state).toBe("expired");
+    expect(t.events.filter((e) => e.startsWith("notify"))).toEqual(["notify It was never picked up. Message alex directly."]);
   });
 
   test("a sender polls statuses only while it has a request that is not settled", async () => {
