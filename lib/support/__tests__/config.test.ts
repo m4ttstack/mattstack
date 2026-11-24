@@ -83,7 +83,7 @@ describe("supportConfig", () => {
     setSetting("support.acceptRequests", true, "machine");
     expect(supportConfig()!.acceptHere).toBe(true);
     seed({ ...on, "support.enabled": false });
-    expect(supportConfig()!.acceptHere).toBe(false);
+    expect(supportConfig()).toMatchObject({ accepts: true, acceptHere: false });
     seed(on, "ada");
     expect(supportConfig()!.acceptHere).toBe(false);
   });

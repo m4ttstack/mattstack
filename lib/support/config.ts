@@ -17,6 +17,9 @@ export interface SupportConfig {
   host: string | null;
   me: string | null;
   isHost: boolean;
+  /** This Mac's own switch, whatever the org says now. */
+  accepts: boolean;
+  /** The switch counts: the org has support on and this person is its host. */
   acceptHere: boolean;
   roster: { username: string; name?: string }[];
 }
@@ -35,8 +38,8 @@ export function supportConfig(p: Probes = createRealProbes()): SupportConfig | n
   const host = named !== null && listed(roster, named) ? named : null;
   const me = readTeamLocal(p, org).forgeUsername ?? null;
   const isHost = host !== null && me !== null && canonicalHandle(host) === canonicalHandle(me);
-  const acceptHere = enabled && isHost && getSetting<boolean>("support.acceptRequests").value === true;
-  return { org, orgRemote, enabled, host, me, isHost, acceptHere, roster };
+  const accepts = getSetting<boolean>("support.acceptRequests").value === true;
+  return { org, orgRemote, enabled, host, me, isHost, accepts, acceptHere: enabled && isHost && accepts, roster };
 }
 
 function listed(roster: SupportConfig["roster"], username: string): boolean {
