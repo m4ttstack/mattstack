@@ -14,7 +14,7 @@ export const HERDR_MIN_BUILD = "0.9.5-ms.1";
 export const HERDR_ASSET_PREFIX = "https://github.com/m4ttstack/herdr/releases/download/";
 
 const FETCH_TIMEOUT_MS = 10_000;
-const HOST_ARCHES: readonly HostArch[] = ["arm64", "x86_64"];
+export const HOST_ARCHES: readonly HostArch[] = ["arm64", "x86_64"];
 const SHA256 = /^[0-9a-f]{64}$/;
 const FORK_VERSION = /^(\d+(?:\.\d+)*)-ms\.(\d+)$/;
 

@@ -12,7 +12,7 @@
  */
 import { join } from "path";
 import { checkLockAgainst, isMissingPathAtRef, type Lock } from "../settings/schema-diff.ts";
-import { HERDR_BUILDS_URL, HERDR_MIN_BUILD, parseHerdrBuilds } from "../setup/herdr-builds.ts";
+import { HERDR_BUILDS_URL, HERDR_MIN_BUILD, HOST_ARCHES, newestBuild, parseHerdrBuilds } from "../setup/herdr-builds.ts";
 import type { RunResult } from "../subprocess.ts";
 
 export interface DepsRow {
@@ -494,14 +494,16 @@ export async function checkHerdrMinimum(seams: PreflightSeams): Promise<CheckRow
   try {
     const list = parseHerdrBuilds(JSON.stringify(await seams.fetchJson(HERDR_BUILDS_URL)));
     if (!list) throw new Error("herdr build list is not readable");
-    const published = list.builds.some((b) => b.version === HERDR_MIN_BUILD);
-    return {
-      id, label, pinned: HERDR_MIN_BUILD, current: list.newest,
-      status: published ? "ok" : "stale",
-      detail: published
-        ? `m4ttstack/herdr publishes ${HERDR_MIN_BUILD}`
-        : `rt needs herdr ${HERDR_MIN_BUILD}, which m4ttstack/herdr has not published`,
-    };
+    const row = { id, label, pinned: HERDR_MIN_BUILD, current: list.newest };
+    if (!list.builds.some((b) => b.version === HERDR_MIN_BUILD)) {
+      return { ...row, status: "stale", detail: `rt needs herdr ${HERDR_MIN_BUILD}, which m4ttstack/herdr has not published` };
+    }
+    // Setup installs the newest build and never falls back to an older one.
+    const missing = HOST_ARCHES.filter((arch) => !newestBuild(list).assets[arch]);
+    if (missing.length > 0) {
+      return { ...row, status: "stale", detail: `m4ttstack/herdr's newest build ${list.newest} has no download for ${missing.join(" or ")}` };
+    }
+    return { ...row, status: "ok", detail: `m4ttstack/herdr publishes ${HERDR_MIN_BUILD}` };
   } catch (err) {
     return { id, label, status: "error", detail: String((err as Error).message ?? err) };
   }

@@ -20,7 +20,7 @@ const HERDR_LIST = {
     herdr: HERDR_MIN_BUILD.split("-ms.")[0],
     revision: Number(HERDR_MIN_BUILD.split("-ms.")[1]),
     changesServer: true,
-    assets: { arm64: { url: `${HERDR_ASSET_PREFIX}v${HERDR_MIN_BUILD}/herdr-macos-aarch64`, sha256: "a".repeat(64) } },
+    assets: Object.fromEntries(["arm64", "x86_64"].map((arch) => [arch, { url: `${HERDR_ASSET_PREFIX}v${HERDR_MIN_BUILD}/herdr-macos-${arch}`, sha256: "a".repeat(64) }])),
     supersedes: [],
   }],
   flockPatchSha256: [],

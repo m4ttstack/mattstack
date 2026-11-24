@@ -421,7 +421,7 @@ describe("checkExtension", () => {
   });
 });
 
-function herdrList(versions: string[]) {
+function herdrList(versions: string[], arches: string[] = ["arm64", "x86_64"]) {
   const sha = "a".repeat(64);
   const prefix = "https://github.com/m4ttstack/herdr/releases/download/";
   return {
@@ -432,7 +432,7 @@ function herdrList(versions: string[]) {
       herdr: version.split("-ms.")[0],
       revision: Number(version.split("-ms.")[1]),
       changesServer: false,
-      assets: { arm64: { url: `${prefix}v${version}/herdr-macos-aarch64`, sha256: sha } },
+      assets: Object.fromEntries(arches.map((arch) => [arch, { url: `${prefix}v${version}/herdr-macos-${arch}`, sha256: sha }])),
       supersedes: [],
     })),
     flockPatchSha256: [],
@@ -448,6 +448,12 @@ describe("checkHerdrMinimum", () => {
     expect(r.status).toBe("ok");
     expect(r.pinned).toBe(HERDR_MIN_BUILD);
     expect(r.current).toBe("0.9.5-ms.9");
+  });
+
+  test("stale when the newest build has no download for a processor rt supports", async () => {
+    const r = await checkHerdrMinimum(seams({ fetchJson: () => Promise.resolve(herdrList([HERDR_MIN_BUILD], ["arm64"])) }));
+    expect(r.status).toBe("stale");
+    expect(r.detail).toBe(`m4ttstack/herdr's newest build ${HERDR_MIN_BUILD} has no download for x86_64`);
   });
 
   test("stale when it is not", async () => {
