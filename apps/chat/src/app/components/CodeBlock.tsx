@@ -57,37 +57,39 @@ export function CodeBlock({ code }: CodeBlockProps) {
       >
         <code>{code}</code>
       </pre>
-      <Paper
-        withBorder
-        bg="var(--tk-card)"
-        shadow="sm"
-        radius="lg"
-        className={classes.toolbar}
-      >
-        {longLine && (
-          <Tooltip label={wrapTip} position="top" withArrow>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size={30}
-              radius="md"
-              aria-label="Wrap lines"
-              aria-pressed={wrap}
-              onClick={() => setWrap(!wrap)}
-            >
-              <Icon name="wrapText" size={18} />
-            </ActionIcon>
-          </Tooltip>
-        )}
-        <CopyActionIcon
-          value={code}
-          label="Copy code"
-          tooltipPosition="top"
-          size={30}
-          iconSize={18}
+      <div className={classes.corner}>
+        <Paper
+          withBorder
+          bg="var(--tk-card)"
+          shadow="sm"
           radius="md"
-        />
-      </Paper>
+          className={classes.toolbar}
+        >
+          {longLine && (
+            <Tooltip label={wrapTip} position="top" withArrow>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size={24}
+                radius="sm"
+                aria-label="Wrap lines"
+                aria-pressed={wrap}
+                onClick={() => setWrap(!wrap)}
+              >
+                <Icon name="wrapText" size={16} />
+              </ActionIcon>
+            </Tooltip>
+          )}
+          <CopyActionIcon
+            value={code}
+            label="Copy code"
+            tooltipPosition="top"
+            size={24}
+            iconSize={16}
+            radius="sm"
+          />
+        </Paper>
+      </div>
     </Paper>
   );
 }
