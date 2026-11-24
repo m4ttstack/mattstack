@@ -1,7 +1,10 @@
 import { readFileSync, statSync } from 'fs';
 
 import type { RtResponse, RunDetail } from '@mattstack/rt-client';
-import { isFindingsQuestion } from '../client/board/review-gate.ts';
+import {
+  isFindingsQuestion,
+  paneContext,
+} from '../client/board/review-gate.ts';
 import { reviewReportJsonPath, reviewReportPath } from '../review-state.ts';
 import type { GateQuestion } from './verbs.ts';
 
@@ -63,7 +66,7 @@ function structuredFindingIds(
     return null;
   }
   if (!report || (report.version !== 2 && report.version !== 3)) return null;
-  if (!Array.isArray(report.findings)) return null;
+  if (!Array.isArray(report.findings)) return [];
   return report.findings.map(f => String(asObj(f)?.id));
 }
 
@@ -127,7 +130,6 @@ export async function reviewPostContext(
   if (problems.length > 0)
     throw new GateRefused(['gate open refused:', ...problems].join('\n'));
   if (fitted) return context;
-  return [`Plain gate: ${plainReason}`, ...(context ? [context] : [])].join(
-    '\n\n'
-  );
+  const prose = paneContext(context);
+  return [`Plain gate: ${plainReason}`, ...(prose ? [prose] : [])].join('\n\n');
 }

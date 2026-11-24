@@ -574,10 +574,38 @@ describe('gateOpen: a plain review gate over a structured report', () => {
     ['no report json', null],
     ['unparseable json', '{ nope'],
     ['a legacy report with no version', { ...REPORT, version: undefined }],
-    ['a report whose findings are not an array', { ...REPORT, findings: 'x' }],
   ])('%s still opens a plain gate', async (_name, report) => {
     if (report !== null) writeReport(report);
     await opened(PLAIN);
+  });
+
+  test('a versioned report with malformed findings still needs the fitted context and the run', async () => {
+    writeReport({ ...REPORT, findings: 'x' });
+    writeMarkdown('# review\n');
+    const message = await refused(QUESTIONS);
+    expect(message).toContain('review-source.sh');
+    expect(message).toContain('run_enter');
+  });
+
+  test('a stated reason opens the plain gate over malformed findings', async () => {
+    writeReport({ ...REPORT, findings: 'x' });
+    const payload = await opened(QUESTIONS, {
+      plainReason: 'review-source.sh exit 1: findings: required array',
+    });
+    expect(payload.context).toBe(
+      'Plain gate: review-source.sh exit 1: findings: required array'
+    );
+  });
+
+  test('a reason over a partly fitted gate flattens its review@1 context to prose', async () => {
+    writeReport(REPORT);
+    const payload = await opened(PLAIN, {
+      context: reviewCtx(),
+      plainReason: 'gate_open refused',
+    });
+    expect(payload.context).toStartWith('Plain gate: gate_open refused\n\n');
+    expect(payload.context).toContain('One note.');
+    expect(payload.context).not.toContain('gate-ctx');
   });
 
   test('a report json from before this run is stale, as on the generic path', async () => {
