@@ -165,12 +165,24 @@ test('Chat with the More menu open closes it, so Enter cannot pause the run', ()
   }
 })
 
-test('a write-in clicked with the More menu open takes typing at once', () => {
+test('a write-in clicked with the More menu open, or just closed, takes typing at once', () => {
   const form = toForm('T', undefined, [{ id: 'a', label: 'Pick one', writeIn: true, options: [{ value: 'x', label: 'X' }] }], 'gate') as Form
   const gate = { ...form, controls: { pause: true, goBack: [] } }
   const menu = perform({ type: 'menu', hit: { type: 'toggle' } }, gate, initial(gate))!.state
-  const onWriteIn = perform({ type: 'option', idx: 1 }, gate, menu)!.state
-  expect(keyEffect({ key: 'h' }, gate, onWriteIn)!.state.text[0]).toBe('h')
+  const reclicked = perform({ type: 'menu', hit: { type: 'toggle' } }, gate, menu)!.state
+  const backspaced = keyEffect({ key: 'backspace' }, gate, menu)!.state
+  for (const before of [menu, reclicked, backspaced]) {
+    const onWriteIn = perform({ type: 'option', idx: 1 }, gate, before)!.state
+    expect(keyEffect({ key: 'h' }, gate, onWriteIn)!.state.text[0]).toBe('h')
+  }
+})
+
+test('More clicked open and shut on a text question leaves the keys with the text', () => {
+  const form = toForm('T', undefined, [{ id: 'a', label: 'Say why', writeIn: true, options: [] }], 'gate') as Form
+  const gate = { ...form, controls: { pause: true, goBack: [] } }
+  const toggle: Action = { type: 'menu', hit: { type: 'toggle' } }
+  const shut = perform(toggle, gate, perform(toggle, gate, initial(gate))!.state)!.state
+  expect(keyEffect({ key: 'h' }, gate, shut)!.state.text[0]).toBe('h')
 })
 
 test('the context page shows the armed Chat label after a first press', () => {

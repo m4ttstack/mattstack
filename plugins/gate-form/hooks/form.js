@@ -1084,7 +1084,8 @@ function deleteChar(s) {
 
 // mods/gate-form/src/form/input.ts
 var disarm = (s) => ({ ...s, chatArmed: undefined });
-var shut = (s) => s.menu.open ? { ...s, menu: { ...s.menu, open: false }, onNav: undefined, navAt: "next" } : s;
+var offNav = (s) => ({ ...s, onNav: undefined, navAt: "next" });
+var shut = (s) => s.menu.open ? offNav({ ...s, menu: { ...s.menu, open: false } }) : s;
 function post(form, s, answers, control) {
   return { state: { ...s, phase: "submitted", sent: form.attempt ?? 0, control }, post: { type: "answer", formId: form.id, answers } };
 }
@@ -1158,11 +1159,11 @@ function performOn(action, form, armed) {
     case "advance":
       return { state: advance(form, s) };
     case "option":
-      return optionClick(form, s, action.idx, Date.now());
+      return optionClick(form, offNav(s), action.idx, Date.now());
     case "send":
       return send(form, s);
     case "menu":
-      return moved(form, { ...s, onNav: true, navAt: "more" }, menuHit(s.menu, menuRows(form), action.hit));
+      return moved(form, s.menu.open ? offNav(s) : { ...s, onNav: true, navAt: "more" }, menuHit(s.menu, menuRows(form), action.hit));
   }
 }
 function gridOf(form, s) {

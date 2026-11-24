@@ -16,8 +16,9 @@ export type Action =
 export type Effect = { state: State; post?: JsonValue }
 
 const disarm = (s: State): State => ({ ...s, chatArmed: undefined })
-// Closing an open menu takes the keys off the nav row with it.
-const shut = (s: State): State => (s.menu.open ? { ...s, menu: { ...s.menu, open: false }, onNav: undefined, navAt: 'next' } : s)
+// The keys go back to the page's answers.
+const offNav = (s: State): State => ({ ...s, onNav: undefined, navAt: 'next' })
+const shut = (s: State): State => (s.menu.open ? offNav({ ...s, menu: { ...s.menu, open: false } }) : s)
 
 function post(form: Form, s: State, answers: Record<string, unknown>, control?: string): Effect {
   return { state: { ...s, phase: 'submitted', sent: form.attempt ?? 0, control }, post: { type: 'answer', formId: form.id, answers: answers as JsonValue } }
@@ -98,11 +99,11 @@ function performOn(action: Action, form: Form, armed: State): Effect | undefined
     case 'advance':
       return { state: advance(form, s) }
     case 'option':
-      return optionClick(form, s, action.idx, Date.now())
+      return optionClick(form, offNav(s), action.idx, Date.now())
     case 'send':
       return send(form, s)
     case 'menu':
-      return moved(form, { ...s, onNav: true, navAt: 'more' }, menuHit(s.menu, menuRows(form), action.hit))
+      return moved(form, s.menu.open ? offNav(s) : { ...s, onNav: true, navAt: 'more' }, menuHit(s.menu, menuRows(form), action.hit))
   }
 }
 
