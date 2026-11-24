@@ -131,17 +131,21 @@ function followLinks(dir: string, fs: ResolveFs): string | null {
  * The version folder `dir` sits in, read from `<cache>/<market>/<plugin>/<version>/`
  * or a render tree's `<root>/<org>/<plugin>/<version>/`. A path written
  * through a link (a cswap profile's `plugins`, whichever profile installed the
- * pack) counts when its real path sits in a root's real path; only its link
- * targets are resolved, no file outside is read.
+ * pack) counts when its real path sits in a root's real path. A path is only
+ * looked up on disk once its text sits inside a root or names a plugin cache,
+ * so nothing else is touched.
  */
 export function versionOfDir(id: string, plugin: string, dir: string, deps: ResolveDeps): string | null {
   if (!posix.isAbsolute(dir)) return null;
   const text = posix.normalize(dir);
   // A render tree, `<root>/<org>/<plugin>/<version>/<mattstack>/`, names its pack version the way a cache copy does.
   const roots = [pluginCache(deps.home), renderRoot(deps.home)];
+  const written = roots.find((r) => within(r, text));
+  // Only a folder written inside a root, or one naming a plugin cache through a link (a cswap profile's `plugins`), is looked up on disk.
+  if (written === undefined && !text.includes("/plugins/cache/")) return null;
   // The written path, not its normalized text: the OS follows a link before the `..` after it.
   const real = followLinks(dir, deps.fs);
-  const root = roots.find((r) => within(r, text)) ?? (real === null ? undefined : roots.find((r) => within(deps.fs.realPath(r) ?? r, real)));
+  const root = written ?? (real === null ? undefined : roots.find((r) => within(deps.fs.realPath(r) ?? r, real)));
   if (root === undefined) return null;
   const [base, path] = real === null ? [root, text] : [deps.fs.realPath(root) ?? root, real];
   if (!within(base, path)) return null;

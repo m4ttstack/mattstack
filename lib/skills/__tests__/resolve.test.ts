@@ -324,6 +324,14 @@ describe("resolvePointers: versionless ids", () => {
     }
   });
 
+  test("a dir outside every root that names no plugin cache is never looked up", () => {
+    const fs = twoInstalled();
+    const looked: string[] = [];
+    const spy = { ...fs, realPath: (p: string) => (looked.push(p), fs.realPath(p)), exists: (p: string) => (looked.push(p), fs.exists(p)), readDir: (p: string) => (looked.push(p), fs.readDir(p)), readFile: (p: string) => (looked.push(p), fs.readFile(p)) };
+    resolvePointers("acme:work", { fs: spy, home: HOME }, "/src/acme/skills/work");
+    expect(looked.filter((p) => p.startsWith("/src"))).toEqual([]);
+  });
+
   test("a dir naming another plugin is refused", () => {
     for (const dir of [`${CACHE}/acme/acme-base/0.1.0/skills/work`, `${ROOT}/0.4.11/../../acme-base/0.1.0/skills/work`]) {
       const e = refusal(() => resolvePointers("acme:work", { fs: twoInstalled(), home: HOME }, dir));
