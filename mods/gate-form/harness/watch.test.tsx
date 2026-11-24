@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { ABOVE, PANE, QUESTIONS, SESSION, ask, boardResult, drawOn, eventually, formOf, kitResult, ok, resultText, rowsOf, startSession, world, type Engine } from './world'
+import { ABOVE, PANE, QUESTIONS, SESSION, ask, boardResult, drawOn, eventually, failed, formOf, kitResult, ok, resultText, rowsOf, startSession, world, type Engine } from './world'
 
 type Ui = Awaited<ReturnType<Engine['ui']['mount']>>
 
@@ -209,12 +209,44 @@ test('with rt.gates.kitForm off, a session start lists nothing and nothing is wa
   expect(w.waits).toEqual([])
 })
 
-test('opening a kit form rings the herdr bell as herdr-doorbell.sh does', async ($, on) => {
-  const w = world(on, { env: { HERDR_ENV: '1', HERDR_PANE_ID: 'p-1' } })
+const BELL = ['notification', 'show', 'repo needs you', '--body', 'Plan tier  (+1 more)', '--sound']
+const IN_HERDR = { HERDR_ENV: '1', HERDR_PANE_ID: 'p-1' }
+
+test('opening a kit form shows herdr’s notification without a sound, since the blocked pane chimes', async ($, on) => {
+  const w = world(on, { env: IN_HERDR })
   await drawOn($, 'terminal')
   await ask($)
   expect(await eventually(() => w.bells.length === 1)).toBe(true)
-  expect(w.bells).toEqual([['herdr', 'notification', 'show', 'repo needs you', '--body', 'Plan tier  (+1 more)', '--sound', 'request']])
+  expect(w.bells).toEqual([['herdr', ...BELL, 'none']])
+})
+
+test('a herdr that cannot show the pane as blocked gets the sound with the notification', async ($, on) => {
+  const w = world(on, { env: IN_HERDR, herdr: () => failed('unknown command') })
+  await drawOn($, 'terminal')
+  await ask($)
+  expect(await eventually(() => w.bells.length === 1)).toBe(true)
+  expect(w.bells).toEqual([['herdr', ...BELL, 'request']])
+})
+
+test('a form opened while the pane is already blocked gets the sound, since the pane chimes only once', async ($, on) => {
+  let n = 0
+  const w = world(on, { env: IN_HERDR, reply: () => ({ text: JSON.stringify(kitResult(`g${++n}`)) }) })
+  await drawOn($, 'terminal')
+  await ask($)
+  await ask($, { kind: 'review-post' })
+  expect(await eventually(() => w.bells.length === 2)).toBe(true)
+  expect(w.bells).toEqual([
+    ['herdr', ...BELL, 'none'],
+    ['herdr', ...BELL, 'request'],
+  ])
+})
+
+test('the bell runs the herdr binary herdr names for its panes', async ($, on) => {
+  const w = world(on, { env: { ...IN_HERDR, HERDR_BIN_PATH: '/opt/pinned/herdr' } })
+  await drawOn($, 'terminal')
+  await ask($)
+  expect(await eventually(() => w.bells.length === 1)).toBe(true)
+  expect(w.bells[0]![0]).toBe('/opt/pinned/herdr')
 })
 
 test('outside herdr no bell rings', async ($, on) => {

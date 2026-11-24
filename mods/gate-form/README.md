@@ -31,7 +31,7 @@ To turn the form off again, set the value to `false` and run `/reload-plugins`.
 
 ## In herdr
 
-In a herdr pane, the pane shows as blocked while a form is open, with the form's title as the reason. It goes back to normal once the last open form is answered or closed. A herdr too old to show it leaves the pane as it was, and the form works the same.
+In a herdr pane, the pane shows as blocked while a form is open, with the form's title as the reason. It goes back to normal once the last open form is answered or closed. A form that is still open shows as blocked again after a `/clear`, and within a few seconds after herdr updates itself in place. herdr chimes once when the pane turns blocked. A herdr too old to show it leaves the pane as it was, the form works the same, and the form's notification makes the sound instead.
 
 ## Asking from another plugin
 

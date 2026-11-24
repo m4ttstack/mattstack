@@ -253,3 +253,160 @@ test('a failed raise is not tried again while its title stands', async ($, on) =
   await settled()
   expect(w.blockers).toEqual([raiseArgs('p-1', 'plan-review')])
 })
+
+const WATCHED = { ...HERDR, HERDR_SOCKET_PATH: '/home/tester/herdr.sock' }
+const CHECK_MS = 5_000
+const check = async (w: World) => {
+  await w.clock.advance(CHECK_MS)
+  await settled()
+}
+const startedBy = ($: Engine, source: string) => $.classic.SessionStart({ source, session_id: 'sess-next' } as never)
+
+test('a form open across a herdr handoff is raised again', async ($, on) => {
+  let boundAt = 1
+  const w = world(on, { env: WATCHED, socket: () => boundAt })
+  await startInHerdr($, w)
+  await ask($)
+  expect(await eventually(() => w.blockers.length === 1)).toBe(true)
+  await check(w)
+  expect(w.blockers.splice(0)).toEqual([raiseArgs('p-1', 'plan-review')])
+  boundAt = 2
+  await check(w)
+  expect(w.blockers).toEqual([raiseArgs('p-1', 'plan-review')])
+})
+
+test('a handoff is followed by two more raises, for a server still detecting its agents, then none', async ($, on) => {
+  let boundAt = 1
+  const w = world(on, { env: WATCHED, socket: () => boundAt })
+  await startInHerdr($, w)
+  await ask($)
+  await settled()
+  w.blockers.splice(0)
+  boundAt = 2
+  for (let i = 0; i < 5; i++) await check(w)
+  expect(w.blockers).toEqual(Array(3).fill(raiseArgs('p-1', 'plan-review')))
+})
+
+test('a raise refused during a handoff is tried again at the next check', async ($, on) => {
+  let boundAt = 1
+  let refuse = false
+  const w = world(on, { env: WATCHED, socket: () => boundAt, herdr: () => (refuse ? failed('connection refused') : ok('')) })
+  await startInHerdr($, w)
+  await ask($)
+  await settled()
+  w.blockers.splice(0)
+  boundAt = 2
+  refuse = true
+  await check(w)
+  refuse = false
+  await check(w)
+  expect(w.blockers).toEqual(Array(2).fill(raiseArgs('p-1', 'plan-review')))
+})
+
+test('the moment with no socket during a handoff is not a handoff', async ($, on) => {
+  let boundAt: number | undefined = 1
+  const w = world(on, { env: WATCHED, socket: () => boundAt })
+  await startInHerdr($, w)
+  await ask($)
+  await settled()
+  w.blockers.splice(0)
+  boundAt = undefined
+  await check(w)
+  boundAt = 1
+  await check(w)
+  expect(w.blockers).toEqual([])
+})
+
+test('a handoff after the last form is answered raises nothing', async ($, on) => {
+  let boundAt = 1
+  const w = world(on, { env: WATCHED, socket: () => boundAt })
+  await startInHerdr($, w)
+  await ask($)
+  await answer($)
+  expect(await eventually(() => w.blockers.length === 2)).toBe(true)
+  w.blockers.splice(0)
+  boundAt = 2
+  await check(w)
+  expect(w.blockers).toEqual([])
+})
+
+test('a handoff after the session ended raises nothing', async ($, on) => {
+  let boundAt = 1
+  const w = world(on, { env: WATCHED, socket: () => boundAt })
+  await startInHerdr($, w)
+  await ask($)
+  await settled()
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: SESSION, resume: { id: SESSION } } as never)
+  w.blockers.splice(0)
+  boundAt = 2
+  await check(w)
+  expect(w.blockers).toEqual([])
+})
+
+test('a session start with a form open raises it twice more, for a herdr that has not seen the agent yet', async ($, on) => {
+  const old = { id: 'f-old', title: 'Old', questions: QUESTIONS, status: 'open', replyTo: 'agent' }
+  on('state.get', (_, e, next) => (e.key === 'form' ? { value: { value: { shape: 'form-3', value: old }, version: 1 } } : next(e)))
+  const w = world(on, { env: WATCHED, socket: () => 1, setting: 'off' })
+  await startSession($)
+  expect(await eventually(() => w.blockers.length === 1)).toBe(true)
+  for (let i = 0; i < 4; i++) await check(w)
+  expect(w.blockers).toEqual(Array(3).fill(raiseArgs('p-1', 'Old')))
+})
+
+test('a form open across /clear is raised again for the session that follows', async ($, on) => {
+  const w = world(on, { env: HERDR })
+  await startInHerdr($, w)
+  await ask($)
+  expect(await eventually(() => w.blockers.length === 1)).toBe(true)
+  await $.session.end({ reason: 'clear', sessionId: SESSION, resume: { id: SESSION } } as never)
+  await startedBy($, 'clear')
+  expect(await eventually(() => w.blockers.length === 3)).toBe(true)
+  expect(w.blockers).toEqual([raiseArgs('p-1', 'plan-review'), clearArgs('p-1'), raiseArgs('p-1', 'plan-review')])
+})
+
+test('/clear with no form open leaves the pane alone', async ($, on) => {
+  const w = world(on, { env: HERDR })
+  await startInHerdr($, w)
+  await ask($)
+  await answer($)
+  await settled()
+  w.blockers.splice(0)
+  await $.session.end({ reason: 'clear', sessionId: SESSION, resume: { id: SESSION } } as never)
+  await startedBy($, 'clear')
+  await settled()
+  expect(w.blockers).toEqual([])
+})
+
+test('a compaction does not raise a form that is already shown', async ($, on) => {
+  const w = world(on, { env: HERDR })
+  await startInHerdr($, w)
+  await ask($)
+  await settled()
+  await startedBy($, 'compact')
+  await settled()
+  expect(w.blockers).toEqual([raiseArgs('p-1', 'plan-review')])
+})
+
+test('a long title gives up its end, so herdr keeps the count of forms waiting', async ($, on) => {
+  let n = 0
+  const w = world(on, { env: HERDR, reply: () => ({ text: JSON.stringify(kitResult(`g${++n}`)) }) })
+  await startInHerdr($, w)
+  await ask($, { kind: 'x'.repeat(100) })
+  await ask($)
+  expect(await eventually(() => w.blockers.length === 2)).toBe(true)
+  expect(w.blockers).toEqual([raiseArgs('p-1', `${'x'.repeat(79)}…`), raiseArgs('p-1', `${'x'.repeat(63)}…, 1 more waiting`)])
+})
+
+test('the blocker is sent through the herdr binary herdr names for its panes', async ($, on) => {
+  const w = world(on, { env: { ...HERDR, HERDR_BIN_PATH: '/opt/pinned/herdr' } })
+  await drawOn($, 'terminal')
+  expect(await eventually(() => w.blockers.length === 1)).toBe(true)
+  expect(w.blockers).toEqual([['/opt/pinned/herdr', ...clearArgs('p-1').slice(1)]])
+})
+
+test('a named binary that is gone falls back to herdr on PATH', async ($, on) => {
+  const w = world(on, { env: { ...HERDR, HERDR_BIN_PATH: '/opt/gone/herdr' }, herdr: argv => (argv[0] === '/opt/gone/herdr' ? { deny: 'no such command' } : ok('')) })
+  await drawOn($, 'terminal')
+  expect(await eventually(() => w.blockers.length === 1)).toBe(true)
+  expect(w.blockers).toEqual([clearArgs('p-1')])
+})

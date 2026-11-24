@@ -76,6 +76,7 @@ export type Wait = { argv: readonly string[]; env?: Record<string, string>; end:
 
 const SETTING_ARGS = ['settings', 'get', 'rt.gates.kitForm', '--json']
 const isSettingRead = (argv: readonly string[]) => argv.slice(1).join(' ') === SETTING_ARGS.join(' ')
+const isHerdr = (name?: string) => name === 'herdr' || name?.endsWith('/herdr') === true
 const isGateList = (argv: readonly string[]) => argv.slice(1).join(' ') === 'gate list --json'
 
 function settingReply(setting: Setting): Ran {
@@ -102,6 +103,8 @@ export type WorldOptions = {
   files?: Record<string, string>
   // How herdr answers `herdr pane ...`; a herdr that has the blocker verbs succeeds.
   herdr?: Answer
+  // When herdr's socket was bound, which a server taking over changes; undefined while there is none.
+  socket?: () => number | undefined
 }
 
 // What sits beneath the plugin: the pane list, the mattstack tool, `rt`, `deck`, `open`, herdr, the prompt and the session.
@@ -127,6 +130,12 @@ export function world(on: On, opts: WorldOptions = {}) {
     if (text === undefined) throw new Error(`ENOENT: ${e.path}`)
     return { value: text }
   })
+  on('fs.stat', () => {
+    const mtimeMs = opts.socket?.()
+    if (mtimeMs === undefined) throw new Error('ENOENT: no socket')
+    return { value: { kind: 'other' as const, size: 0, mtimeMs, isLink: false } }
+  })
+  on('classic.SessionStart', () => ({}))
   on('tool.register', (_, e) => {
     registered.push(`tool:${e.name}`)
     return { value: { tool: `mcp__gate-form__${e.name}` } }
@@ -184,12 +193,12 @@ export function world(on: On, opts: WorldOptions = {}) {
       return ok('')
     }
     // Kept in the order herdr finishes them, so a run that overtook an earlier one shows out of order.
-    if (e.argv[0] === 'herdr' && e.argv[1] === 'pane') {
+    if (isHerdr(e.argv[0]) && e.argv[1] === 'pane') {
       const answer = (await opts.herdr?.(e.argv)) ?? ok('')
-      blockers.push([...e.argv])
+      if (!('deny' in answer)) blockers.push([...e.argv])
       return answer
     }
-    if (e.argv[0] === 'herdr') {
+    if (isHerdr(e.argv[0])) {
       bells.push([...e.argv])
       return ok('')
     }
