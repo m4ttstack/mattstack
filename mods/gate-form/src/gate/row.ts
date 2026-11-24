@@ -9,9 +9,9 @@ type Fields = Record<string, unknown>
 
 const fields = (value: unknown): Fields => (typeof value === 'object' && value !== null ? (value as Fields) : {})
 
-// `ask` and `gate_ask` carry their questions at the top, `gate_open` in its source or its review's extras.
+// A review names only some of its gate's questions (the tool builds the rest from the findings), so it has no count.
 function questionCount(input: Fields): number | undefined {
-  const lists = [input.questions, fields(input.source).questions, fields(fields(input.review).extras).questions]
+  const lists = [input.questions, fields(input.source).questions]
   return lists.find(Array.isArray)?.length
 }
 

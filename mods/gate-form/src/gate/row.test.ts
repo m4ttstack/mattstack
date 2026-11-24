@@ -7,10 +7,10 @@ test('the row keeps the short fields and counts the questions', () => {
   expect(rowInput({ kind: 'plan-review', sourcePath: '/x.json', handBack: true })).toEqual({ kind: 'plan-review', sourcePath: '/x.json', handBack: true })
 })
 
-test('a gate_open’s questions are counted in its source or its review', () => {
+test('a gate_open’s questions are counted in its source, and not in a review, which names only some', () => {
   const questions = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
   expect(rowInput({ kind: 'respond-plan', source: { context: 'long', questions } })).toEqual({ kind: 'respond-plan', questions: 3 })
-  expect(rowInput({ kind: 'review-post', review: { findings: {}, extras: { target: 'mr', questions } } })).toEqual({ kind: 'review-post', questions: 3 })
+  expect(rowInput({ kind: 'review-post', review: { findings: {}, extras: { target: 'mr', questions } } })).toEqual({ kind: 'review-post' })
   expect(rowInput({ kind: 'review-post', review: { findingsPath: '/f.json' } })).toEqual({ kind: 'review-post' })
 })
 

@@ -988,7 +988,7 @@ function oneLine(text) {
 }
 var fields = (value) => typeof value === "object" && value !== null ? value : {};
 function questionCount(input) {
-  const lists = [input.questions, fields(input.source).questions, fields(fields(input.review).extras).questions];
+  const lists = [input.questions, fields(input.source).questions];
   return lists.find(Array.isArray)?.length;
 }
 function rowInput(input) {
