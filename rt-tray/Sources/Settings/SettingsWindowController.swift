@@ -124,11 +124,13 @@ struct SettingsEnvironment {
     let updater: UpdaterController
     let apps: AppsSettingsModel
     let team: TeamSettingsModel
+    let support: SupportSettingsModel
     let devLogins: DevLoginsModel
     let waivers: WaiverClient
     let isDevBuild: Bool
     let version: String
     let onJoinAnotherTeam: () -> Void
     let onCreateTeam: () -> Void
+    let onOpenAccounts: () -> Void
     let onQuitForUninstall: () -> Void
 }

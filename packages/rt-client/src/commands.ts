@@ -4,7 +4,7 @@
  * its functions against this map so a new command only needs an entry here
  * plus one function, never a change to the transport itself.
  */
-import type { SupportPart, SupportRequest } from "./support.ts";
+import type { SupportHostView, SupportPart, SupportRequest } from "./support.ts";
 import type { EvidenceAddress, EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
 import type { ApprovalRuleLite, PullRequest, MRDetail, MergeQueueStatus, Pipeline, PipelineJob } from "@mattstack/glance";
 import type { z } from "zod";
@@ -927,7 +927,7 @@ export interface Commands {
   /** A person's alone, from a form that showed every part. A retry reuses `id`; changed words need a new one. */
   "support:send": { payload: { id: string; text: string; parts: SupportPart[] }; data: { request: SupportRequest } };
   "support:mine": { payload: Record<string, never>; data: { requests: (SupportRequest & { /** Sent, and the host's Mac has not answered within 2 minutes. */ away: boolean })[] } };
-  "support:host": { payload: Record<string, never>; data: { isHost: boolean; accepting: boolean; missing: string[] } };
+  "support:host": { payload: Record<string, never>; data: SupportHostView };
   /** A person's alone. */
   "support:accept": { payload: { on: boolean }; data: { accepting: boolean } };
   /** An org admin's alone: makes the org's support key when it has none, then writes the host (the saved one without `host`) and turns support on. Off keeps the key and the host. */

@@ -4,7 +4,12 @@ import MattstackCore
 struct TeamPane: View {
     let env: SettingsEnvironment
     @ObservedObject private var model: TeamSettingsModel
-    init(env: SettingsEnvironment) { self.env = env; self.model = env.team }
+    @ObservedObject private var support: SupportSettingsModel
+    init(env: SettingsEnvironment) { self.env = env; self.model = env.team; self.support = env.support }
+
+    private static func openConsole(_ path: String) {
+        if let url = URL(string: "mattstack://open/console/\(path)") { NSWorkspace.shared.open(url) }
+    }
 
     var body: some View {
         TeamPaneForm(
@@ -17,9 +22,28 @@ struct TeamPane: View {
             onUseTeam: { team in Task { await model.useTeam(team) } },
             onInvite: { handle, team in Task { await model.mintInvite(handle: handle, team: team) } },
             isSwitchingTeam: model.isSwitchingTeam,
-            packNotice: model.packNotice
+            packNotice: model.packNotice,
+            support: support.view.map {
+                SupportSectionState(view: $0, shownHost: support.shownHost, busy: support.busy,
+                                    orgError: support.orgError, hostError: support.hostError)
+            },
+            supportActions: SupportSectionActions(
+                pickHost: { who in Task { await support.pickHost(who) } },
+                setEnabled: { on in Task { await support.setEnabled(on) } },
+                setAccepting: { on in Task { await support.setAccepting(on) } },
+                chooseRepo: { repo in Task { await support.chooseRepo(repo) } },
+                makeKey: { Task { await support.makeKey() } },
+                openAccounts: env.onOpenAccounts,
+                openChatName: { Self.openConsole("config/chat.humanHandle") },
+                showWaiting: { Self.openConsole("slack-gates") }
+            )
         )
         .task { await model.load() }
+        .task { await support.load() }
+        // Setup, Slack or another Mac may have changed while this window was behind.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await support.load() }
+        }
     }
 }
 
@@ -36,6 +60,8 @@ struct TeamPaneForm: View {
     let onInvite: (_ handle: String, _ team: String?) -> Void
     var isSwitchingTeam = false
     var packNotice: String? = nil
+    var support: SupportSectionState? = nil
+    var supportActions = SupportSectionActions()
 
     @State private var handle = ""
     @State private var inviteTeam = ""
@@ -79,6 +105,7 @@ struct TeamPaneForm: View {
                             .accessibilityLabel("Switching your team")
                     }
                 }
+                if let support, support.view.isShown { SupportSection(state: support, actions: supportActions) }
                 Section(info?.activeTeam.map { "Members of \($0)" } ?? "Members") {
                     if let m = info?.members, !m.isEmpty { ForEach(m, id: \.username) { Text($0.username) } }
                     else { Text("Not visible with the current token.").foregroundStyle(.secondary) }

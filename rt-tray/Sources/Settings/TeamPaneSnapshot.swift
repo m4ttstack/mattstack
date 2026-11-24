@@ -27,6 +27,18 @@ enum TeamPaneSnapshot {
                 count += 1
             }
         }
+        for (name, state) in support {
+            let info = try! JSONDecoder().decode(TeamSettingsInfo.self, from: Data(people[0].1.utf8))
+            for scheme in ["light", "dark"] {
+                let view = TeamPaneForm(info: name == "pane" ? info : nil, invite: nil, error: nil, maskedRemote: "github.com/acme/org",
+                                        onCreateTeam: {}, onJoin: {}, onUseTeam: { _ in }, onInvite: { _, _ in }, support: state)
+                let section = Form { SupportSection(state: state, actions: SupportSectionActions()) }.formStyle(.grouped)
+                let framed = name == "pane" ? AnyView(view) : AnyView(section.scrollDisabled(true))
+                SnapshotRenderer.render(framed.frame(width: 576), appearance: scheme == "dark" ? .darkAqua : .aqua,
+                                        to: out.appendingPathComponent("support-\(name)-\(scheme).png"), scale: 2, colorSpace: .sRGB)
+                count += 1
+            }
+        }
         print("wrote \(count) snapshots to \(out.path)")
         return true
         #else
@@ -35,6 +47,32 @@ enum TeamPaneSnapshot {
     }
 
     #if DEBUG
+    private static let staff = [SupportPerson(username: "ada", name: "Ada Park"), SupportPerson(username: "alex", name: "Alex Moreau")]
+    private static func org(_ host: String?, hasKey: Bool = true, answering: Bool? = nil) -> SupportOrg {
+        SupportOrg(host: host, hasKey: hasKey, people: staff, answering: answering)
+    }
+    private static let slack = SupportNeed(text: "Connect Slack for support chats in Settings > Accounts", label: "Connect Slack for support chats", fix: "accounts")
+    private static let repo = SupportNeed(text: "Choose the repo the support agent works in", label: "Choose the repo the support agent works in", fix: "repo")
+    private static let linear = SupportNeed(text: "Add the Linear key support tickets are filed with", label: "Add the Linear key support tickets are filed with",
+                                            fix: nil, command: "rt secrets set rt linearSupportApiKey")
+    private static func state(_ view: SupportHostView, host: String? = nil, busy: SupportSettingsModel.Busy? = nil, orgError: String? = nil) -> SupportSectionState {
+        SupportSectionState(view: view, shownHost: host, busy: busy, orgError: orgError, hostError: nil)
+    }
+    private static let support: [(String, SupportSectionState)] = [
+        ("pane", state(SupportHostView(isHost: false, enabled: true, org: org("alex", answering: true)), host: "alex")),
+        ("admin-on", state(SupportHostView(isHost: false, enabled: true, org: org("alex", answering: true)), host: "alex")),
+        ("admin-off", state(SupportHostView(isHost: false, enabled: false, org: org(nil, hasKey: false)))),
+        ("admin-turning-on", state(SupportHostView(isHost: false, enabled: false, org: org("alex", hasKey: false)), host: "alex", busy: .turningOn)),
+        ("admin-not-accepted", state(SupportHostView(isHost: false, enabled: true, org: org("alex", answering: false)), host: "alex")),
+        ("admin-failed", state(SupportHostView(isHost: false, enabled: false, org: org("alex", hasKey: false)), host: "alex",
+                               orgError: "Your age key does not open the org's secrets")),
+        ("admin-no-key", state(SupportHostView(isHost: false, enabled: true, org: org("alex", hasKey: false, answering: true)), host: "alex")),
+        ("admin-making-key", state(SupportHostView(isHost: false, enabled: true, org: org("alex", hasKey: false, answering: true)), host: "alex", busy: .makingKey)),
+        ("host-not-ready", state(SupportHostView(isHost: true, enabled: true, needs: [slack, repo, linear], repos: ["git.example.com/acme/shop"]))),
+        ("host-ready", state(SupportHostView(isHost: true, enabled: true))),
+        ("host-answering", state(SupportHostView(isHost: true, enabled: true, accepting: true, open: 1, waiting: 1))),
+        ("host-other-mac", state(SupportHostView(isHost: true, enabled: true, otherMac: true))),
+    ]
     // TeamSettingsInfo's memberwise initializer is internal to MattstackCore.
     private static let people: [(String, String)] = [
         ("admin", #"{"contract":1,"name":"Widgets","slug":"acme","remote":"https://github.com/acme/org.git","lastPush":"2026-10-01T10:00:00+00:00","members":[{"username":"dev1"},{"username":"dev4"}],"role":"admin","activeTeam":"widgets","teams":["widgets","gadgets"],"orgTeams":["gadgets","widgets"]}"#),

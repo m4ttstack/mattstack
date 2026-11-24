@@ -11,7 +11,7 @@ export {
   parseSupportDraft, parseSupportMessage, supportBodyTooLarge,
 } from "./support.ts";
 export type {
-  SupportDirection, SupportDraft, SupportHostState, SupportKind, SupportMessage, SupportPart, SupportRequest, SupportState,
+  SupportDirection, SupportDraft, SupportHostState, SupportHostView, SupportKind, SupportMessage, SupportMissing, SupportOrg, SupportPart, SupportRequest, SupportState,
 } from "./support.ts";
 
 export {

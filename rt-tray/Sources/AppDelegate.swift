@@ -215,6 +215,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         NotificationCenter.default.addObserver(
             self, selector: #selector(loginItemChanged), name: .rtLoginItemChanged, object: nil)
         NotificationCenter.default.addObserver(
+            self, selector: #selector(showTeamSettings), name: .rtOpenTeamSettings, object: nil)
+        NotificationCenter.default.addObserver(
             self, selector: #selector(restartDeck(_:)), name: .rtRestartDeck, object: nil)
         NotificationCenter.default.addObserver(
             self, selector: #selector(viewDaemonLogs), name: .rtViewDaemonLogs, object: nil)
@@ -926,6 +928,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     @objc private func showSetupStatus() { Task { @MainActor in coordinator?.openSetupStatus() } }
     @objc private func resumeSetup() { Task { @MainActor in coordinator?.resumeSetup() } }
     @objc private func showSettings() { Task { @MainActor in coordinator?.showSettings() } }
+    @objc private func showTeamSettings() { Task { @MainActor in coordinator?.showSettings(pane: .team) } }
     @objc private func showUninstall() { Task { @MainActor in coordinator?.showSettings(pane: .uninstall) } }
     @objc private func showSettingsAccounts() { Task { @MainActor in coordinator?.showSettings(pane: .accounts) } }
     @objc private func appsChanged() { Task { @MainActor in await windowModel?.invalidateCatalog() } }
