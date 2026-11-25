@@ -34,12 +34,12 @@ describe("org.support-host", () => {
 
   test("ready while accepting with nothing missing", async () => {
     const { p } = probes();
-    expect(await supportHostRow(p, "acme")).toMatchObject({ id: SUPPORT_HOST_ROW_ID, status: "ready", required: false, detail: "Answering support requests" });
+    expect(await supportHostRow(p, "acme")).toMatchObject({ id: SUPPORT_HOST_ROW_ID, status: "ready", required: false, detail: "Answering help requests on this Mac", action: null });
   });
 
   test("needs-you while accepting with something missing, naming the first", async () => {
     const { p } = probes({ daemon: host(true, ["Set your chat name", "Slack did not answer"]) });
-    expect(await supportHostRow(p, "acme")).toMatchObject({ status: "needs-you", detail: "Set your chat name" });
+    expect(await supportHostRow(p, "acme")).toMatchObject({ status: "needs-you", detail: "Set your chat name", action: { type: "open-settings", target: "app-team" } });
   });
 
   test("skipped while not accepting, whatever is missing", async () => {

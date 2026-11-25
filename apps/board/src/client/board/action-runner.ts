@@ -552,6 +552,7 @@ export interface RowHandlers {
   standDown: (mr: BoardMR, on: boolean) => void;
   dropReview: (mr: BoardMR) => void;
   postSlack: (mr: BoardMR, channel?: string) => void;
+  help: (mr: BoardMR) => void;
 }
 
 export function dispatchRowAction(
@@ -588,6 +589,9 @@ export function dispatchRowAction(
       return undefined;
     case 'post-slack':
       h.postSlack(mr, opts.channel);
+      return undefined;
+    case 'help':
+      h.help(mr);
       return undefined;
     case 'ask':
       return runOne({ ...req, reviewer: opts.pick ?? req.reviewer }, mr, deps);

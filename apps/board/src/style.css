@@ -8873,3 +8873,378 @@ a.tui-id-card-ref:focus-visible {
 .tui-drawer-action > .tui-sep {
   margin: 0 -2px;
 }
+
+/* ── help button ──────────────────────────────────────────────────── */
+/* Under the drawers (90), the sheets (100) and the menus (200). */
+.tui-help-slot,
+.tui-help-portal {
+  z-index: 80;
+}
+.tui-help-slot {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+}
+.tui-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 15px 0 12px;
+  border: 1px solid var(--border-on-card);
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
+  color: var(--text-1);
+  font: 600 13px/1 var(--font-sans);
+  text-decoration: none;
+  cursor: pointer;
+}
+.tui-help > svg {
+  flex-shrink: 0;
+  color: var(--text-accent);
+}
+@media (hover: hover) {
+  .tui-help:hover:not([aria-disabled]) {
+    border-color: var(--fill-accent);
+    background: color-mix(in srgb, var(--fill-accent) 9%, var(--card));
+  }
+}
+.tui-help[data-open] {
+  border-color: var(--fill-accent);
+  background: color-mix(in srgb, var(--fill-accent) 9%, var(--card));
+}
+.tui-help:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 2px;
+}
+/* Faded toward the page rather than see-through: a row can sit behind it. */
+.tui-help[aria-disabled] {
+  border-color: color-mix(in srgb, var(--border-on-card) 55%, var(--page));
+  background: color-mix(in srgb, var(--card) 55%, var(--page));
+  box-shadow: 0 6px 20px rgb(0 0 0 / 10%);
+  color: var(--text-3);
+  cursor: default;
+}
+.tui-help[aria-disabled] > svg {
+  color: var(--text-4);
+}
+.tui-help[aria-disabled] > * {
+  opacity: 0.55;
+}
+.tui-help-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dot-ok);
+}
+.tui-help-dot[data-tone='wait'] {
+  background: var(--fill-gold);
+}
+.tui-help-dot[data-tone='bad'] {
+  background: var(--dot-bad);
+}
+.tui-help-spin {
+  animation: tui-spin 0.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-help-spin {
+    animation-duration: 3s;
+  }
+}
+/* The last row's actions scroll clear of the button. */
+.tui-app:has(.tui-help) {
+  padding-bottom: 72px;
+}
+
+.tui-help-popup {
+  width: 380px;
+  padding: 0;
+  border-color: var(--border-on-card);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 24%);
+}
+.tui-help-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 15px;
+  color: var(--text-1);
+  font: 400 13px/1.21 var(--font-sans);
+}
+.tui-help-card[data-face='status'] {
+  gap: 12px;
+}
+.tui-help-card :is(p, h2, ul) {
+  margin: 0;
+}
+.tui-help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tui-help-title {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+/* Drawn 15px, hit at 27px. */
+.tui-help-x {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin: -6px;
+  padding: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.tui-help-x:hover {
+  color: var(--text-1);
+}
+.tui-help-x:focus-visible,
+.tui-help-chip button:focus-visible,
+.tui-help-link:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: -1px;
+}
+.tui-help-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+}
+.tui-help-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 96px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-on-card);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text-1);
+  font: 400 13px/1.4 var(--font-sans);
+  resize: none;
+}
+.tui-help-input[data-mr] {
+  height: 72px;
+}
+.tui-help-input::placeholder {
+  color: var(--text-4);
+  opacity: 1;
+}
+/* The ring's other half pixel sits outside, so the words never move. */
+.tui-help-input:focus {
+  border-color: var(--fill-accent);
+  outline: 0.5px solid var(--fill-accent);
+}
+.tui-help-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.tui-help-parts-label {
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+.tui-help-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0;
+  list-style: none;
+}
+.tui-help-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 8px 0 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  font-size: 12px;
+}
+.tui-help-chip-tip {
+  min-width: 0;
+}
+.tui-help-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tui-help-chip button {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin: -6px;
+  padding: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.tui-help-chip button:hover {
+  color: var(--text-1);
+}
+.tui-help-away {
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fill-gold) 18%, var(--card));
+  color: color-mix(in srgb, var(--text-gold) 50%, var(--text-gold-small));
+  line-height: 18px;
+}
+.tui-help-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-bad);
+}
+.tui-help-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.tui-help-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.tui-help-send,
+.tui-help-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 7px;
+  font: 600 13px/1 var(--font-sans);
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+}
+.tui-help-send {
+  height: 32px;
+  padding: 0 14px;
+}
+.tui-help-send:disabled:not([aria-busy]) {
+  opacity: 0.5;
+}
+.tui-help-act {
+  height: 30px;
+  padding: 0 12px;
+}
+.tui-help-act:not([data-primary]) {
+  border: 1px solid var(--border-on-card);
+  padding: 0 11px;
+  background: var(--card);
+  color: var(--text-1);
+}
+.tui-help-act[data-primary] {
+  background: var(--fill-accent);
+  color: var(--on-fill-accent);
+}
+.tui-help-act[data-primary]:hover {
+  background: var(--fill-accent-hover);
+}
+.tui-help-act:not([data-primary]):hover {
+  background: color-mix(in srgb, var(--fg) 5%, var(--card));
+}
+.tui-help-act:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 2px;
+}
+.tui-help-acts {
+  display: flex;
+  justify-content: flex-end;
+}
+.tui-help-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tui-help-mark {
+  flex-shrink: 0;
+  color: var(--text-accent);
+}
+.tui-help-mark[data-tone='ok'] {
+  color: var(--dot-ok);
+}
+.tui-help-mark[data-tone='wait'] {
+  color: var(--text-gold);
+}
+.tui-help-mark[data-tone='bad'] {
+  color: var(--text-bad);
+}
+.tui-help-status-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tui-help-status-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.tui-help-status-detail {
+  color: var(--text-3);
+}
+.tui-help-words {
+  display: -webkit-box;
+  overflow: hidden;
+  padding: 8px 11px;
+  border-radius: 7px;
+  background: var(--surface-panel);
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+@media (max-width: 720px) {
+  .tui-help {
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  .tui-help > svg {
+    width: 18px;
+    height: 18px;
+  }
+  .tui-help-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .tui-help-popup {
+    width: min(380px, 100vw - 32px);
+  }
+  /* The two corners meet in a narrow window. */
+  body:has(.tui-help) [data-part='toasthost'] {
+    bottom: 68px;
+  }
+}
+.tui-menu-icon-label .tui-menu-help {
+  color: var(--text-accent);
+}
+.tui-menu-icon-label:has(> .tui-menu-help) {
+  font-weight: 500;
+}

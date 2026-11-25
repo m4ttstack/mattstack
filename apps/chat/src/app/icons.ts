@@ -5,6 +5,7 @@ import { lucideWrapperFn, registerIcons } from '@mattstack/app-kit/icons';
 import {
   Archive,
   AtSign,
+  CircleStop,
   Hash,
   History,
   MessageSquare,
@@ -14,6 +15,7 @@ import {
 registerIcons({
   archive: lucideWrapperFn(Archive),
   atSign: lucideWrapperFn(AtSign),
+  circleStop: lucideWrapperFn(CircleStop),
   hash: lucideWrapperFn(Hash),
   history: lucideWrapperFn(History),
   messageSquare: lucideWrapperFn(MessageSquare),

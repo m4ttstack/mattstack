@@ -24,6 +24,7 @@ if CommandLine.arguments.contains("--window-preview") {
 if MainActor.assumeIsolated({ WorktreeSnapshot.runIfRequested() }) { exit(0) }
 if MainActor.assumeIsolated({ ChecklistRowSnapshot.runIfRequested() }) { exit(0) }
 if MainActor.assumeIsolated({ TeamPaneSnapshot.runIfRequested() }) { exit(0) }
+if MainActor.assumeIsolated({ HelpWindowSnapshot.runIfRequested() }) { exit(0) }
 if MainActor.assumeIsolated({ NotificationsPaneSnapshot.runIfRequested() }) { exit(0) }
 if MainActor.assumeIsolated({ FastSetupSnapshot.runIfRequested() }) { exit(0) }
 if MainActor.assumeIsolated({ SettingsExtrasSnapshot.runIfRequested() }) { exit(0) }

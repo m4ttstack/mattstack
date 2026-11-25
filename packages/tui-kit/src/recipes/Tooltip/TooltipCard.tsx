@@ -164,6 +164,7 @@ export function TooltipCard({
     left: number;
     top: number;
     arrowX: number;
+    side: 'top' | 'bottom';
   } | null>(null);
   // Portal creation deferred to an effect, not computed during render — the
   // deck server does renderToStaticMarkup of OTHER components in this same
@@ -197,7 +198,16 @@ export function TooltipCard({
     // Exposed as --tooltip-arrow-x so app CSS can point an arrow at the
     // trigger's centre; the card itself stays left-aligned to the trigger.
     const arrowX = rect.left + rect.width / 2 - left;
-    setPos({ left, top: rect.bottom + gap, arrowX });
+    // Below, unless the card would leave the window there and fits above.
+    const height = card.offsetHeight;
+    const below = rect.bottom + gap;
+    const above = rect.top - gap - height;
+    const side =
+      below + height > window.innerHeight - VIEWPORT_MARGIN &&
+      above >= VIEWPORT_MARGIN
+        ? 'top'
+        : 'bottom';
+    setPos({ left, top: side === 'top' ? above : below, arrowX, side });
   }, [visible, triggerRef, gapVar]);
 
   if (!mounted || !visible) return null;
@@ -224,6 +234,7 @@ export function TooltipCard({
       ref={cardRef}
       style={style}
       data-part={part}
+      data-side={pos?.side}
       aria-hidden="true"
     >
       {children}

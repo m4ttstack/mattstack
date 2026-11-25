@@ -9928,7 +9928,7 @@
         {
           "type": "frame",
           "id": "rgCV4",
-          "x": 1130,
+          "x": 16,
           "y": 744,
           "name": "Need help button",
           "height": 40,
@@ -21028,7 +21028,7 @@
         {
           "type": "frame",
           "id": "GPYxm",
-          "x": 1130,
+          "x": 16,
           "y": 744,
           "name": "Need help button",
           "height": 40,
@@ -21080,8 +21080,8 @@
         {
           "type": "frame",
           "id": "XrzzS",
-          "x": 884,
-          "y": 410,
+          "x": 16,
+          "y": 438,
           "name": "Form",
           "width": 380,
           "fill": "$ui-card",

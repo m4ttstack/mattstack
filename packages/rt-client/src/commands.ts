@@ -4,7 +4,7 @@
  * its functions against this map so a new command only needs an entry here
  * plus one function, never a change to the transport itself.
  */
-import type { SupportPart, SupportRequest } from "./support.ts";
+import type { SupportHostView, SupportPart, SupportSent } from "./support.ts";
 import type { EvidenceAddress, EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
 import type { ApprovalRuleLite, PullRequest, MRDetail, MergeQueueStatus, Pipeline, PipelineJob } from "@mattstack/glance";
 import type { z } from "zod";
@@ -921,13 +921,13 @@ export interface Commands {
   "chat:slack-resume": { payload: { conversation: number; requesterSession?: string; requesterHandle?: string; approved?: boolean }; data: { gateId: string; question: SlackOpenForm } | { conversation: number; agent: "same" | "fresh" } };
   "chat:slack-expire": { payload: Record<string, never>; data: { expired: number } };
   /** Whether this person can ask their org's support host for help; `hidden` shows nothing at all. */
-  "support:availability": { payload: Record<string, never>; data: { state: "hidden" } | { state: "disabled"; reason: string; host: string } | { state: "ready"; host: string; away: boolean } };
+  "support:availability": { payload: Record<string, never>; data: { state: "hidden" } | { state: "disabled"; reason: string; host: string; persona: string } | { state: "ready"; host: string; away: boolean; persona: string } };
   /** What a request can attach, for a form to show before it is sent. */
   "support:context": { payload: { mr?: { url: string; state: string }; board?: string; app?: string }; data: { parts: SupportPart[] } };
   /** A person's alone, from a form that showed every part. A retry reuses `id`; changed words need a new one. */
-  "support:send": { payload: { id: string; text: string; parts: SupportPart[] }; data: { request: SupportRequest } };
-  "support:mine": { payload: Record<string, never>; data: { requests: (SupportRequest & { /** Sent, and the host's Mac has not answered within 2 minutes. */ away: boolean })[] } };
-  "support:host": { payload: Record<string, never>; data: { isHost: boolean; accepting: boolean; missing: string[] } };
+  "support:send": { payload: { id: string; text: string; parts: SupportPart[] }; data: { request: SupportSent } };
+  "support:mine": { payload: Record<string, never>; data: { requests: SupportSent[] } };
+  "support:host": { payload: Record<string, never>; data: SupportHostView };
   /** A person's alone. */
   "support:accept": { payload: { on: boolean }; data: { accepting: boolean } };
   /** An org admin's alone: makes the org's support key when it has none, then writes the host (the saved one without `host`) and turns support on. Off keeps the key and the host. */

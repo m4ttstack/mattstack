@@ -35,6 +35,7 @@ final class SetupCoordinator {
                                                 effects: host.effects(permissions, { [weak self] in await self?.refreshSection() }),
                                                 reload: { [weak self] in await self?.afterAction() })
     private let teamSettings: TeamSettingsModel
+    private let supportSettings: SupportSettingsModel
     private let devLogins: DevLoginsModel
     private let appsSettings: AppsSettingsModel
     private let settingsRefresher: SettingsRefresher
@@ -79,6 +80,7 @@ final class SetupCoordinator {
         join = JoinPageModel(rt: rt, needs: needs, pollInterval: host.joinPollInterval)
         team = TeamChoiceModel(rt: rt, pasteboard: host.pasteboard)
         teamSettings = TeamSettingsModel(rt: rt, needs: needs)
+        supportSettings = SupportSettingsModel(daemon: SupportDaemon(), rt: rt)
         devLogins = DevLoginsModel(rt: rt)
         appsSettings = AppsSettingsModel(rt: rt)
         if !host.isTestDrive {
@@ -599,6 +601,7 @@ final class SetupCoordinator {
     func showSettings(pane: SettingsPane? = nil) {
         if settingsWindow == nil {
             let env = SettingsEnvironment(rt: rt, needs: needs, permissions: permissions, readiness: readiness, updater: updater, apps: appsSettings, team: teamSettings,
+                                          support: supportSettings,
                                           devLogins: devLogins,
                                           waivers: WaiverClient(rt: rt),
                                           isDevBuild: BundleFlavor.isDevBuild,
@@ -617,6 +620,7 @@ final class SetupCoordinator {
                                               guard self.setupIsComplete else { self.resumeSetup(); return }
                                               self.showSetup(entry: .upgrade, choice: .create)
                                           },
+                                          onOpenAccounts: { [weak self] in self?.settingsWindow?.show(pane: .accounts) },
                                           onQuitForUninstall: { NSApp.terminate(nil) })
             settingsWindow = SettingsWindowController(env: env)
         }

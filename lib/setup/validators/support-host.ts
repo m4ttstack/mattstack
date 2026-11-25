@@ -9,7 +9,7 @@ import { parseStoreText } from "../../settings/stores.ts";
 import { canonicalHandle } from "../../team/board-peers.ts";
 import { orgStoreFile } from "../../team/org-store.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
-import { row, type Row } from "../contract.ts";
+import { row, type Action, type Row } from "../contract.ts";
 import type { Probes } from "../probes.ts";
 
 export const SUPPORT_HOST_ROW_ID = "org.support-host";
@@ -18,12 +18,14 @@ const DAEMON_TIMEOUT_MS = 20_000;
 const BASE = {
   id: SUPPORT_HOST_ROW_ID,
   kind: "access" as const,
-  title: "Support requests",
+  title: "Support host",
   why: "Lets your org's teammates ask your agent for help from mattstack.",
   required: false,
   optionalNote: "Only your org's support host sees this.",
   recheck: "on-activate" as const,
 };
+
+const OPEN_SETTINGS: Action = { type: "open-settings", label: "Open Settings", target: "app-team" };
 
 function isHost(p: Probes, org: string): boolean {
   const file = orgStoreFile(p.home, org);
@@ -45,5 +47,5 @@ export async function supportHostRow(p: Probes, org: string): Promise<Row | null
   if (!state?.isHost) return row({ ...BASE, status: "skipped", detail: "Could not check" });
   if (!state.accepting) return row({ ...BASE, status: "skipped", detail: "Off" });
   const [first] = state.missing;
-  return first === undefined ? row({ ...BASE, status: "ready", detail: "Answering support requests" }) : row({ ...BASE, status: "needs-you", detail: first });
+  return first === undefined ? row({ ...BASE, status: "ready", detail: "Answering help requests on this Mac" }) : row({ ...BASE, status: "needs-you", detail: first, action: OPEN_SETTINGS });
 }

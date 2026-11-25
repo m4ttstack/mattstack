@@ -175,7 +175,7 @@ describe("support, end to end", () => {
     const host = await accepting(w);
     const ada = w.mac("ada", "U0ADA");
     ada.service.start();
-    expect(await ada.service.handlers["support:availability"]({})).toEqual({ ok: true, data: { state: "ready", host: "Alex", away: false } });
+    expect(await ada.service.handlers["support:availability"]({})).toEqual({ ok: true, data: { state: "ready", host: "Alex", away: false, persona: "Maude" } });
     expect(await ada.ask("r1", "the board will not load", [{ key: "versions", label: "Versions", value: "rt 1.2.3" }])).toMatchObject({ ok: true });
     await until("the request opens", () => host.agents.length === 1);
     await until("the sender reads received", () => ada.state("r1") === "received");

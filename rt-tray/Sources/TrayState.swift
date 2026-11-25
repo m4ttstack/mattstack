@@ -71,6 +71,8 @@ extension Notification.Name {
     static let rtRestartDaemon  = Notification.Name("rtRestartDaemon")
     /// Settings changed Start at Login; the tray menu re-reads it.
     static let rtLoginItemChanged = Notification.Name("rtLoginItemChanged")
+    /// A setup row that is mended in Settings > Team.
+    static let rtOpenTeamSettings = Notification.Name("rtOpenTeamSettings")
     /// `object` is the origin string for the lifecycle log.
     static let rtRestartDeck    = Notification.Name("rtRestartDeck")
     static let rtViewDaemonLogs = Notification.Name("rtViewDaemonLogs")

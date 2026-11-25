@@ -73,6 +73,8 @@ final class PermissionsService: PermissionProbing, PermissionsProviding, @unchec
     @MainActor
     func openSettings(_ target: String) {
         if target == "login-items" { SMAppService.openSystemSettingsLoginItems(); return }
+        // mattstack's own Settings, which AppDelegate owns.
+        if target == "app-team" { NotificationCenter.default.post(name: .rtOpenTeamSettings, object: nil); return }
         if let url = SystemSettingsLinks.url(forTarget: target, bundleId: bundleId) { NSWorkspace.shared.open(url) }
     }
 

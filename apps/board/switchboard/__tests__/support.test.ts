@@ -538,6 +538,7 @@ describe('the wire the relay and the client both declare', () => {
       client.SUPPORT_REQUEST_MAX_BYTES
     );
     expect(relay.SUPPORT_TTL_MS).toBe(client.SUPPORT_TTL_MS);
+    expect(relay.SUPPORT_MACHINE_HOLD_MS).toBe(client.SUPPORT_MACHINE_HOLD_MS);
   });
 
   test('both parse a draft the same way', () => {

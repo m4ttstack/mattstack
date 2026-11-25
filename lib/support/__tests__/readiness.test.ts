@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { SupportMissing } from "../../../packages/rt-client/src/support.ts";
 import { SLACK_SUPPORT_CHAT_SCOPES } from "../../setup/slack-app.ts";
 import { SlackError } from "../../slack/client.ts";
 import { readiness, type ReadinessDeps } from "../readiness.ts";
@@ -14,6 +15,7 @@ const ready: ReadinessDeps = {
   supportKey: async () => "ready",
   orgIds: () => ({ forgeHost: "git.example.com", teamKeys: ["ACME"] }),
 };
+const CONNECT = "Connect Slack for support chats in Settings > Accounts";
 const boom = async () => {
   throw new Error("sops: no key at /Users/alex/.mattstack/x");
 };
@@ -23,10 +25,10 @@ describe("readiness", () => {
     expect(await readiness(ready)).toEqual([]);
   });
 
-  const cases: [string, Partial<ReadinessDeps>, string][] = [
-    ["no Slack connection", { slackScopes: async () => null }, "Connect Slack for support chats in Setup"],
-    ["a Slack connection without the support scopes", { slackScopes: async () => ["chat:write"] }, "Connect Slack for support chats in Setup"],
-    ["a Slack that does not answer", { slackScopes: boom }, "Slack did not answer"],
+  const cases: [string, Partial<ReadinessDeps>, string, SupportMissing["fix"]][] = [
+    ["no Slack connection", { slackScopes: async () => null }, CONNECT, "accounts"],
+    ["a Slack connection without the support scopes", { slackScopes: async () => ["chat:write"] }, CONNECT, "accounts"],
+    ["a Slack that does not answer", { slackScopes: boom }, "Slack did not answer", null],
     [
       "a Slack connection that no longer works",
       {
@@ -34,12 +36,13 @@ describe("readiness", () => {
           throw new SlackError("token_revoked");
         },
       },
-      "Connect Slack for support chats in Setup",
+      CONNECT,
+      "accounts",
     ],
-    ["no Linear key", { linearKey: async () => null }, "Add the Linear key support tickets are filed with"],
-    ["a Linear key that cannot be read", { linearKey: boom }, "Add the Linear key support tickets are filed with"],
-    ["no default repo", { defaultRepo: () => null }, "Choose the repo the support agent works in"],
-    ["a default repo rt has no folder for", { repoPath: () => null }, "Tell rt where the support agent's repo is on this Mac"],
+    ["no Linear key", { linearKey: async () => null }, "Add the Linear key support tickets are filed with", null],
+    ["a Linear key that cannot be read", { linearKey: boom }, "Add the Linear key support tickets are filed with", null],
+    ["no default repo", { defaultRepo: () => null }, "Choose the repo the support agent works in", "repo"],
+    ["a default repo rt has no folder for", { repoPath: () => null }, "Tell rt where the support agent's repo is on this Mac", "repo"],
     [
       "a default repo setting that cannot be read",
       {
@@ -48,22 +51,29 @@ describe("readiness", () => {
         },
       },
       "Choose the repo the support agent works in",
+      "repo",
     ],
-    ["no chat name", { humanHandle: () => "" }, "Set your chat name"],
-    ["a chat name rt refuses", { humanHandle: () => "Not A Handle!" }, "Set your chat name"],
-    ["no board token", { boardToken: async () => null }, "Connect your board to your team's boards"],
-    ["a relay that refuses the token", { relayAnswers: async () => false }, "Your board's connection is not working"],
-    ["an org with no support key", { supportKey: async () => "missing" }, "Your org has no support key yet, so an org admin runs rt team support on"],
-    ["a support key this Mac's own does not open", { supportKey: async () => "unreadable" }, "This Mac cannot open the org's support key"],
-    ["a support key this Mac cannot open", { supportKey: boom }, "This Mac cannot open the org's support key"],
-    ["no forge host", { orgIds: () => ({ forgeHost: null, teamKeys: ["ACME"] }) }, "Your org's settings name no forge host, which tickets need"],
-    ["no Linear team", { orgIds: () => ({ forgeHost: "git.example.com", teamKeys: null }) }, "Your org's settings name no Linear team, which tickets need"],
+    ["no chat name", { humanHandle: () => "" }, "Set your chat name", "chat-name"],
+    ["a chat name rt refuses", { humanHandle: () => "Not A Handle!" }, "Set your chat name", "chat-name"],
+    ["no board token", { boardToken: async () => null }, "Connect your board to your team's boards", "accounts"],
+    ["a relay that refuses the token", { relayAnswers: async () => false }, "Your board's connection is not working", "accounts"],
+    ["an org with no support key", { supportKey: async () => "missing" }, "Your org has no support key yet, so an org admin runs rt team support on", null],
+    ["a support key this Mac's own does not open", { supportKey: async () => "unreadable" }, "This Mac cannot open the org's support key", null],
+    ["a support key this Mac cannot open", { supportKey: boom }, "This Mac cannot open the org's support key", null],
+    ["no forge host", { orgIds: () => ({ forgeHost: null, teamKeys: ["ACME"] }) }, "Your org's settings name no forge host, which tickets need", null],
+    ["no Linear team", { orgIds: () => ({ forgeHost: "git.example.com", teamKeys: null }) }, "Your org's settings name no Linear team, which tickets need", null],
   ];
-  for (const [name, patch, sentence] of cases) {
+  for (const [name, patch, text, fix] of cases) {
     test(`${name} is named on its own`, async () => {
-      expect(await readiness({ ...ready, ...patch })).toEqual([sentence]);
+      const missing = await readiness({ ...ready, ...patch });
+      expect(missing).toHaveLength(1);
+      expect(missing[0]).toMatchObject({ text, fix });
     });
   }
+
+  test("the Linear key, which only a terminal can set, names its command", async () => {
+    expect((await readiness({ ...ready, linearKey: async () => null }))[0]!.command).toBe("rt secrets set rt linearSupportApiKey");
+  });
 
   test("everything missing is named at once, and no error text reaches a person", async () => {
     const all = await readiness({
@@ -78,6 +88,6 @@ describe("readiness", () => {
       orgIds: () => ({ forgeHost: null, teamKeys: null }),
     });
     expect(all).toHaveLength(8);
-    expect(all.join(" ")).not.toContain("sops");
+    expect(JSON.stringify(all)).not.toContain("sops");
   });
 });

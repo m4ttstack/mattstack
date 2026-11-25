@@ -27,6 +27,7 @@ import {
   paneList,
   parseIdentity,
   serializeIdentity,
+  supportStop,
   type AgentStatus,
   type ChatMessage,
   type HerdRosterRow,
@@ -259,7 +260,8 @@ function daemonFailure(
   res: { error?: string; failure?: { code: string; message: string } },
   fallback: string
 ): DaemonFailure {
-  return res.failure?.code === 'slack-chat'
+  return res.failure?.code === 'slack-chat' ||
+    res.failure?.code.startsWith('support-')
     ? { error: res.failure.message, refused: true }
     : { error: res.error ?? fallback, refused: false };
 }
@@ -634,6 +636,33 @@ export const chat = new Hono()
       { conversation: resumed, room: await slackRoomOf(resumed) },
       200
     );
+  })
+  // Ends the chat at once and tells the teammate: the tap is the approval.
+  .post('/api/chat/slack-stop', async c => {
+    if (notOperatorPage(c)) return c.json({ error: 'forbidden' }, 403);
+    if (notJson(c)) {
+      return c.json({ error: 'Send application/json' }, 415);
+    }
+    if (fixturesEnabled()) {
+      return c.json({ error: 'Fixtures have no Slack chat to stop' }, 409);
+    }
+    const raw = await jsonBody(c);
+    if (!raw) return c.json({ error: 'Malformed JSON in request body' }, 400);
+    const conversation = raw.conversation;
+    if (
+      typeof conversation !== 'number' ||
+      !Number.isSafeInteger(conversation)
+    ) {
+      return c.json({ error: 'conversation is required' }, 400);
+    }
+    const res = await supportStop({ conversation }, rtOpts());
+    if (!res.ok || !res.data) {
+      const failed = daemonFailure(res, 'slack-stop: no data');
+      return failed.refused
+        ? c.json({ error: failed.error }, 409)
+        : c.json({ error: failed.error }, 502);
+    }
+    return c.json({ told: res.data.told }, 200);
   })
   // A person's picture by name, for the viewer's own face: the human has no
   // Slack chat to carry one. Null unless exactly one Slack person has the name.

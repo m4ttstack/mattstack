@@ -27,7 +27,7 @@ export interface ChooseOption {
 }
 
 export type Action =
-  | { type: "open-settings"; label: string; target: "fda" | "login-items" | "notifications" | "keyboard" }
+  | { type: "open-settings"; label: string; target: "fda" | "login-items" | "notifications" | "keyboard" | "app-team" }
   | { type: "request-permission"; label: string; which: "notifications" }
   // `create` is the service's own new-credential page with rt's needs prefilled; the app opens it in the browser and keeps the sheet up for the paste.
   // `verb`, when set, is what the app runs in place of `setup <integration> connect`: a create's own `--host`, never a team's declared one.

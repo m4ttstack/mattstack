@@ -7,11 +7,11 @@ export { guardTestDaemonEnv } from "./test-isolation.ts";
 export { redactCredentials } from "./redact.ts";
 export { SWITCHBOARD_URL, switchboardUrl } from "./switchboard.ts";
 export {
-  SUPPORT_AWAY_MS, SUPPORT_BODY_MAX_BYTES, SUPPORT_PARTS_MAX, SUPPORT_PART_MAX, SUPPORT_REQUEST_MAX_BYTES, SUPPORT_TEXT_MAX, SUPPORT_TTL_MS,
+  SUPPORT_AWAY_MS, SUPPORT_BODY_MAX_BYTES, SUPPORT_MACHINE_HOLD_MS, SUPPORT_PARTS_MAX, SUPPORT_PART_MAX, SUPPORT_REQUEST_MAX_BYTES, SUPPORT_TEXT_MAX, SUPPORT_TTL_MS,
   parseSupportDraft, parseSupportMessage, supportBodyTooLarge,
 } from "./support.ts";
 export type {
-  SupportDirection, SupportDraft, SupportHostState, SupportKind, SupportMessage, SupportPart, SupportRequest, SupportState,
+  SupportDirection, SupportDraft, SupportHostState, SupportHostView, SupportKind, SupportMessage, SupportMissing, SupportOrg, SupportPart, SupportRequest, SupportSent, SupportState,
 } from "./support.ts";
 
 export {

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
-import { Shredder } from 'lucide-react';
+import { LifeBuoy, Shredder } from 'lucide-react';
 
 import { ContextMenu } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
@@ -30,7 +30,7 @@ const FLAT_SECTIONS: Array<[BulkSection, string]> = [
   ['slack', 'slack'],
 ];
 
-type FlyoutSection = Exclude<Section, 'top' | 'agent'>;
+type FlyoutSection = Exclude<Section, 'top' | 'agent' | 'help'>;
 
 /** A Record, so a new Section fails to compile until it has a flyout. Key
     order is the menu's order. */
@@ -64,6 +64,8 @@ function glyphNode(g: ActionGlyph, blocked = false): React.ReactNode {
       return <RtMark />;
     case 'shredder':
       return <Shredder size={13} aria-hidden />;
+    case 'help':
+      return <LifeBuoy className="tui-menu-help" size={14} aria-hidden />;
     case 'flock':
       return (
         <img
@@ -439,6 +441,7 @@ function ActionMenu({
     .map(from => ({ from, items: top.filter(e => e.from === from) }))
     .filter(g => g.items.length);
   const topLoose = top.filter(e => !e.from);
+  const help = entries.filter(e => e.section === 'help');
 
   return shell(
     <>
@@ -483,6 +486,8 @@ function ActionMenu({
           </ContextMenu.Sub>
         )
       )}
+      {help.length > 0 && <ContextMenu.Separator />}
+      {help.map(renderItem)}
     </>
   );
 }

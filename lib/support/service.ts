@@ -5,12 +5,15 @@ import { existsSync, statSync } from "fs";
 import { join } from "path";
 import type { Logger } from "pino";
 import type { GateRow } from "../../packages/rt-client/src/commands.ts";
+import type { SupportMissing } from "../../packages/rt-client/src/support.ts";
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import { chatViewerUrl, readChatViewerUrlSetting } from "../chat-viewer-url.ts";
 import { createSupportHandlers, expireSent } from "../daemon/handlers/support.ts";
 import { readSwitchboardToken } from "../daemon/handlers/secrets.ts";
 import type { SlackLifecycleDeps } from "../daemon/slack-lifecycle.ts";
 import { UserActionableError } from "../errors.ts";
+import { isOrgAdmin } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { parseIdentity } from "../../packages/rt-client/src/settings/identity-codec.ts";
 import { orgIdContext } from "../linear/org-ids.ts";
 import { readSupportApiKey } from "../linear/support-key.ts";
 import { machineKey } from "../rt-paths.ts";
@@ -28,11 +31,13 @@ import type { SlackOpenDeps } from "../slack/request.ts";
 import { supportRepoFromSetting } from "../slack/trigger-offer.ts";
 import { getKvValue, setKvValue } from "../state/kv-blob.ts";
 import { listOpenConversations } from "../state/slack-conversation-store.ts";
+import { loadRepoIndex } from "../repo-index.ts";
 import { listRequests, pruneSupport, type SupportRequest } from "../state/support-store.ts";
 import { childEnv } from "../subprocess.ts";
 import { readBoardSwitchboardToken } from "../team/board-token.ts";
 import { canonicalHandle } from "../team/board-peers.ts";
 import { realMembersSeams } from "../team/members.ts";
+import { roleFor } from "../team/roles.ts";
 import { readPingVersions } from "../telemetry/ping.ts";
 import { createChain } from "./chain.ts";
 import { supportConfig, type SupportConfig } from "./config.ts";
@@ -77,7 +82,9 @@ export interface SupportSeams {
   boardToken(): Promise<string | null>;
   defaultRepo(): string | null;
   setAccepting(on: boolean): void;
-  readiness(deps: ReadinessDeps): Promise<string[]>;
+  readiness(deps: ReadinessDeps): Promise<SupportMissing[]>;
+  mayChange(): boolean;
+  repos(): string[];
   versions(): Promise<{ rt: string; app: string | null; macos: string | null }>;
   unreadySetupRows(): Promise<string[] | null>;
   loops: boolean;
@@ -143,6 +150,16 @@ async function readVersions(): Promise<{ rt: string; app: string | null; macos: 
   const macos = await p.exec(["sw_vers", "-productVersion"], { timeoutMs: 10_000 }).catch(() => null);
   const { appVersion } = await readPingVersions(p);
   return { rt: rtVersion(), app: appVersion, macos: macos?.code === 0 && macos.stdout.trim() ? macos.stdout.trim() : null };
+}
+
+/** What `chat.slackSupport.defaultRepo` takes. */
+function supportRepos(): string[] {
+  return Object.keys(loadRepoIndex())
+    .flatMap((key) => {
+      const id = parseIdentity(key);
+      return id?.kind === "remote" ? [id.id] : [];
+    })
+    .sort();
 }
 
 /** cli.ts named explicitly: the plain self argv here is the daemon's own entry point and would start a competing daemon. */
@@ -346,6 +363,16 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     return org;
   }
 
+  function mayChange(): boolean {
+    const org = currentOrg();
+    if (org === null) return false;
+    try {
+      return isOrgAdmin(roleFor(enableDeps.probes, org));
+    } catch {
+      return false;
+    }
+  }
+
   let loops: SupportLoopHandle[] = [];
 
   /** The queue of a Mac that stopped accepting is read until it is empty, so nobody waits on a request no one will take. */
@@ -375,6 +402,10 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
       }
     },
     readiness: () => (o.seams?.readiness ?? readiness)(readinessDeps),
+    mayChange: o.seams?.mayChange ?? mayChange,
+    openChats: () => listOpenConversations(db).length,
+    persona: () => slackPersona().name,
+    repos: o.seams?.repos ?? supportRepos,
     setAccepting(on) {
       writeSetting(on);
       setTapped(on ? (readConfig()?.orgRemote ?? null) : null);

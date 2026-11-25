@@ -41,6 +41,25 @@ test('an idle own MR: every action, by section, in menu order', () => {
   ]);
 });
 
+test('help comes last, only while there is someone to ask, named for the forge', () => {
+  const help = (mr: typeof ownIdle) =>
+    rowActions(mr, { ...actionEnvOf(ownEnv, mr), help: true }).at(-1)!;
+  expect(help(ownIdle)).toMatchObject({
+    section: 'help',
+    key: 'help',
+    label: 'need help with this MR?',
+    request: { kind: 'help' },
+  });
+  expect(help(ghOwnIdle).label).toBe('need help with this PR?');
+  expect(keys(ownIdle, ownEnv)).not.toContain('help');
+  expect(
+    bulkActions([ownIdle, teammateReviewed], {
+      ...actionEnvOf(ownEnv, ownIdle),
+      help: true,
+    } as never).map(a => a.key)
+  ).not.toContain('help');
+});
+
 test('the flock flyout: resume and saved commands join once /flock/menu answers, each with its own glyph', () => {
   const rows = rowActions(ownIdle, {
     ...actionEnvOf(ownEnv, ownIdle),

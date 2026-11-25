@@ -9,13 +9,17 @@ import type { Database } from "bun:sqlite";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import {
   SUPPORT_AWAY_MS,
+  SUPPORT_MACHINE_HOLD_MS,
   SUPPORT_PARTS_MAX,
   SUPPORT_PART_MAX,
   SUPPORT_TEXT_MAX,
   SUPPORT_TTL_MS,
   supportBodyTooLarge,
+  type SupportMissing,
   type SupportPart,
+  type SupportHostState,
   type SupportRequest,
+  type SupportSent,
   type SupportState,
 } from "../../../packages/rt-client/src/support.ts";
 import { UserActionableError } from "../../errors.ts";
@@ -23,6 +27,7 @@ import { getRequest, insertRequest, listRequests, moveRequest } from "../../stat
 import { createChain } from "../../support/chain.ts";
 import type { SupportConfig } from "../../support/config.ts";
 import { NO_SUPPORT_KEY, type SupportKeys } from "../../support/org-key.ts";
+import { SUPPORT_MAX_OPEN } from "../../support/host.ts";
 import type { SupportRelay, SupportSend } from "../../support/relay.ts";
 import { signDraft, type RequestBody } from "../../support/sync.ts";
 import { canonicalHandle } from "../../team/board-peers.ts";
@@ -49,7 +54,13 @@ export interface SupportHandlerDeps {
   relay(): Promise<SupportRelay | null>;
   /** This Mac's own Slack user, null with no connection; throws when Slack does not answer. */
   slackUserId(): Promise<string | null>;
-  readiness(): Promise<string[]>;
+  readiness(): Promise<SupportMissing[]>;
+  /** Whether this person may change the org's own switch. */
+  mayChange(): boolean;
+  openChats(): number;
+  persona(): string;
+  /** Repos with a folder on this Mac, as `host/path`. */
+  repos(): string[];
   setAccepting(on: boolean): void;
   /** The relay now holds this accepting flag. */
   published(on: boolean): void;
@@ -117,10 +128,11 @@ const SEND_REFUSALS: Record<Exclude<SupportSend, "ok" | "changed">, (host: strin
 
 const CHANGED: [code: string, message: string] = ["changed", "Your first version of this was already sent, so that is the one they will read."];
 
-function hostName(cfg: SupportConfig): string {
-  const host = cfg.host ?? "";
-  return cfg.roster.find((e) => canonicalHandle(e.username) === canonicalHandle(host))?.name ?? host;
+function nameOf(cfg: SupportConfig | null, username: string): string {
+  return cfg?.roster.find((e) => canonicalHandle(e.username) === canonicalHandle(username))?.name ?? username;
 }
+
+const hostName = (cfg: SupportConfig): string => nameOf(cfg, cfg.host ?? "");
 
 /** A request the host never finished with stops counting once the relay has forgotten it. Returns the ones that just expired. */
 export function expireSent(db: Database, now: number): SupportRequest[] {
@@ -144,7 +156,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
     const already = getRequest("out", to, id, db);
     if (already) {
       const same = already.text === text && JSON.stringify(already.parts) === JSON.stringify(parts);
-      return same ? { ok: true, data: { request: already } } : refuse(...CHANGED);
+      return same ? { ok: true, data: { request: asSent(already) } } : refuse(...CHANGED);
     }
     expireSent(db, deps.now());
     if (listRequests("out", OPEN, db).some((r) => r.peer === to && r.org === cfg.orgRemote)) return refuse("already-waiting", "You already have a request waiting.");
@@ -178,8 +190,18 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
     insertRequest(request, db);
     deps.poke();
     if (result === "changed") return refuse(...CHANGED);
-    return { ok: true, data: { request: { ...request, updatedAt: sentAt } } };
+    return { ok: true, data: { request: asSent({ ...request, updatedAt: sentAt }) } };
   }
+
+  const asSent = (r: SupportRequest): SupportSent => ({
+    ...r,
+    away: r.state === "sent" && deps.now() - r.sentAt > SUPPORT_AWAY_MS,
+    host: nameOf(deps.config(), r.peer),
+  });
+
+  /** A Mac that went silent keeps its flag on the relay, and no longer stops another from taking over. */
+  const heldElsewhere = (relay: SupportHostState | null): boolean =>
+    relay?.accepting === true && relay.lastSeenAt !== null && deps.now() - relay.lastSeenAt < SUPPORT_MACHINE_HOLD_MS;
 
   return {
     "support:availability": async (): Promise<CommandResult<"support:availability">> => {
@@ -187,7 +209,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
       const cfg = deps.config();
       if (!cfg?.enabled || cfg.host === null || cfg.isHost) return hidden;
       const host = hostName(cfg);
-      const disabled = (reason: string) => ({ ok: true as const, data: { state: "disabled" as const, reason, host } });
+      const disabled = (reason: string) => ({ ok: true as const, data: { state: "disabled" as const, reason, host, persona: deps.persona() } });
       if (cfg.me === null) return disabled("Connect your forge account first");
       const relay = await deps.relay();
       if (!relay) return disabled("Connect your board first");
@@ -197,7 +219,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
       if (slack === null) return disabled("Connect Slack first");
       if (!(await deps.keys())) return disabled(noKey());
       const away = status.lastSeenAt === null || deps.now() - status.lastSeenAt > SUPPORT_AWAY_MS;
-      return { ok: true, data: { state: "ready", host, away } };
+      return { ok: true, data: { state: "ready", host, away, persona: deps.persona() } };
     },
 
     "support:context": async (rawPayload: unknown): Promise<CommandResult<"support:context">> => {
@@ -241,14 +263,35 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
       const requests = listRequests("out", undefined, db)
         .reverse()
         .slice(0, SHOWN)
-        .map((r: SupportRequest) => ({ ...r, away: r.state === "sent" && deps.now() - r.sentAt > SUPPORT_AWAY_MS }));
+        .map(asSent);
       return { ok: true, data: { requests } };
     },
 
     "support:host": async (): Promise<CommandResult<"support:host">> => {
       const cfg = deps.config();
-      if (!cfg?.isHost) return { ok: true, data: { isHost: false, accepting: false, missing: [] } };
-      return { ok: true, data: { isHost: true, accepting: cfg.acceptHere && deps.holdsRole(), missing: await deps.readiness() } };
+      const isHost = cfg?.isHost === true;
+      const admin = cfg !== null && deps.mayChange();
+      const relay = isHost || admin ? await deps.relay() : null;
+      const onRelay = cfg?.host ? ((await relay?.host(cfg.host)) ?? null) : null;
+      const accepting = isHost && cfg.acceptHere && deps.holdsRole();
+      const needs = isHost ? await deps.readiness() : [];
+      return {
+        ok: true,
+        data: {
+          isHost,
+          enabled: cfg?.enabled === true,
+          accepting,
+          missing: needs.map((m) => m.text),
+          needs,
+          otherMac: isHost && !deps.holdsRole() && heldElsewhere(onRelay),
+          open: isHost ? deps.openChats() : 0,
+          cap: SUPPORT_MAX_OPEN,
+          waiting: isHost ? listRequests("in", ["waiting"], db).length : 0,
+          persona: deps.persona(),
+          repos: needs.some((m) => m.fix === "repo") ? deps.repos() : [],
+          org: admin ? { host: cfg.host, hasKey: !deps.keyMissing(), people: cfg.roster, answering: onRelay && onRelay.accepting } : null,
+        },
+      };
     },
 
     "support:accept": async (rawPayload: unknown): Promise<CommandResult<"support:accept">> => {
@@ -267,7 +310,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
       const cfg = deps.config();
       if (!cfg?.enabled || !cfg.isHost) return refuse("not-host", "Only your org's support host can accept requests.");
       const missing = await deps.readiness();
-      if (missing.length > 0) return refuse("not-ready", missing.map((m) => `${m}.`).join(" "));
+      if (missing.length > 0) return refuse("not-ready", missing.map((m) => `${m.text}.`).join(" "));
       const result = relay ? await relay.setHost(true) : "failed";
       if (result === "other-machine") return refuse("other-machine", "Another of your Macs is already accepting. Turn it off there first.");
       if (result === "failed") return refuse("relay", "The relay did not answer, so nothing changed. Try again.");

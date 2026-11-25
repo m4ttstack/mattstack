@@ -251,7 +251,7 @@ and the mod's shell denies grow to cover the new verbs.
 ## UI
 
 Mocked in pen.dev with the operator, then built live, last: the floating button
-(bottom right proposed), the form and its statuses, the row menu entry, the app
+(bottom left), the form and its statuses, the row menu entry, the app
 menu item and its window, and the Settings > Team section. The button must clear
 the selection bar, drawers and full-screen gate sheets. Copy follows rt:ui-copy.
 Both colour schemes are rendered and looked at.

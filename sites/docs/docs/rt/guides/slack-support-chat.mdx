@@ -7,7 +7,83 @@ title: Slack support chat
 
 A support chat lets one of your Claude panes help a teammate over a Slack direct message. The teammate writes in Slack. The pane answers there, and you can watch and steer from the chat viewer. The pane only reads and explains: it never edits files, commits or pushes for a teammate.
 
+You can open a chat yourself, or your org can let people [ask for help](#ask-for-help) from mattstack.
+
 Every pane reply starts with `[Maude 🤖]: `, so the teammate can tell it is the bot and not you. Maude is the default name. Change the name and emoji in the `agent.persona` setting, for example `{ "name": "Ada", "emoji": "🦊" }`. Change the words a teammate uses to ask for the bot again in the `chat.slackSupport.trigger` setting, for example `"!!ada"`. Without a trigger, it is the name after an `@`. A change applies to the next message.
+
+## Ask for help
+
+When your org has support on, you can ask from two places:
+
+- On the board, press **Need help?** in the bottom left corner. To ask about one row, pick **need help with this MR?** (or **PR?**) in its row menu.
+- In the mattstack app, choose **Ask Maude…** from the **Help** menu or the menu bar menu.
+
+Then:
+
+1. Write what you need help with.
+2. Look at **Sent with it** and untick anything you don't want to send. It offers your rt, app, board and macOS versions, the setup rows that need attention, and the MR or PR you asked about.
+3. Press **Ask Maude**.
+
+The button and the window then show where your request is. The bot answers in a Slack direct message from the person who hosts support, and **Open in Slack** takes you there.
+
+| You see | What it means |
+| --- | --- |
+| Asked Alex's agent | The request was sent, and Alex's Mac has not picked it up yet. |
+| Maude is starting | Alex's Mac has the request. |
+| Maude messaged you in Slack | The chat is open. |
+| Alex needs to OK this one | Too many chats are open, or Alex stopped your last one. It opens if Alex approves it. |
+| Alex's Mac is away | The request waits up to 7 days for that Mac. |
+| You already have a request waiting | Only one request of yours can wait at a time. |
+| You already have a chat open | Carry on in Slack. |
+| Alex declined this one, or Alex isn't taking requests | Message Alex directly. |
+| Your request didn't open | The card says why. |
+| It was never picked up after 7 days | Ask again, or message Alex. |
+| Nothing was sent | The card says why, and keeps what you wrote. |
+
+Requests travel through mattstack's relay, which holds each one for up to 7 days, until the host's Mac takes it. A request carries what you write, what is ticked under **Sent with it**, and your Slack user id, so the bot can message you.
+
+The button is missing when your org has support off, when no Mac is answering, and for the host. It is greyed, with the reason as its tip, until your Mac has a forge account, a board connection, Slack, and the org's support key. On the board it needs a [local board](/apps/board#three-things-decide-what-you-see).
+
+## Turn support on for your org
+
+An org owner or admin names one person whose Mac answers, the host.
+
+1. Open mattstack's **Settings > Team**.
+2. Under **Support**, pick the host in **Who answers**.
+3. Turn on **Let people ask for help**.
+
+This makes the org's support key and stores it with the org's secrets. Every member's Mac can open it, and a request without it is dropped. Removing someone from the org replaces it. The change reaches everyone the way [org changes travel](/start/teams#how-changes-travel).
+
+The section says when the host's Mac is answering. If it says the org has support on but no key, press **Fix**.
+
+From a terminal:
+
+```bash
+rt team support on --host <username>
+rt team support status
+rt team support off
+```
+
+Turning support off stops new requests. Open chats carry on.
+
+## Host support
+
+The host does this once, on the one Mac that answers:
+
+1. Do the steps in [Set up](#set-up), the Linear key included.
+2. Open **Settings > Team** and look under **Support**. Each row there names something this Mac still needs, with a button or a command that fixes it.
+3. Turn on **Answer help requests on this Mac**.
+
+The agent runs under your Claude account, in the repo named by the `chat.slackSupport.defaultRepo` setting, and writes as you in Slack. To move to another Mac, turn it off on the first one.
+
+A request from someone in the org opens a chat by itself. You get a desk notification, which opens that chat in the chat viewer. A request waits for you on the console's **Slack gates** page instead when:
+
+- two chats are already open, the ones you opened yourself included
+- you stopped that person's chat in the last 24 hours
+
+**Waiting for you** in Settings > Team opens that page. Each person can have one chat open at a time.
+
+Requests sent while your Mac is asleep or offline open in the order they arrived when it comes back. If something this Mac needs stops working, the **Support host** row in `rt setup status` says so.
 
 ## Set up
 
@@ -60,7 +136,7 @@ Put a full name in quotes:
 
 The pane writes a short brief, then sends the teammate a first message.
 
-You approve every chat. Any Claude pane can ask for one with the `chat_slack_request` tool. The pane shows you the question as a form, and the request also waits on the console's **Slack gates** page. The chat opens only when you approve it, and a background agent then holds the DM and tells the asking pane how it goes. A teammate who sends you a message starting with the bot's trigger is offered as a new chat for you to approve.
+You approve every chat, except the ones people [ask for from mattstack](#host-support). Any Claude pane can ask for one with the `chat_slack_request` tool. The pane shows you the question as a form, and the request also waits on the console's **Slack gates** page. The chat opens only when you approve it, and a background agent then holds the DM and tells the asking pane how it goes. A teammate who sends you a message starting with the bot's trigger is offered as a new chat for you to approve.
 
 You can also use the **On** control in the pane's Slack support action, which types the command for you. **Off** closes the chat. That action isn't in the herdr chat launcher, so [bind it to a key](/skills/herdr-chat#bind-keys).
 
@@ -77,9 +153,16 @@ You can also use the **On** control in the pane's Slack support action, which ty
 - The pane closes it once the teammate confirms the problem is sorted.
 - After 30 quiet minutes the pane checks in. After 60 quiet minutes the chat closes.
 - You can close it with **Off**.
+- You can end it at once with [**Stop**](#stop-a-chat) in the chat viewer.
 - Ending the pane's Claude session closes it at once: exiting, closing the pane, `/clear`, `/resume`, or signing the pane out of chat. There is no farewell. rt tells the teammate you will follow up, and sends you a desk notification.
 
 On close the pane sends a short farewell, and rt adds a fixed line saying anything further goes to you. The pane then sends you a message with the outcome and any tickets it filed. After that, what the teammate sends is an ordinary DM to you.
+
+## Stop a chat
+
+Open the chat's thread in the chat viewer, press **Stop**, then **Stop chat**. It ends the agent right away and tells the teammate in one line that you will follow up. The page bar says whether they were told. If they were not, check the direct message yourself.
+
+A stopped chat leaves no 60 minutes for the teammate to bring it back. If they ask for help from mattstack in the next 24 hours, the request waits for you instead of opening by itself.
 
 ## Pick a chat back up
 
