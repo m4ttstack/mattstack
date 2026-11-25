@@ -43,6 +43,11 @@ process.env[`GIT_CONFIG_KEY_${gitConfigSlot}`] = "credential.helper";
 process.env[`GIT_CONFIG_VALUE_${gitConfigSlot}`] = "";
 process.env.GIT_CONFIG_COUNT = String(gitConfigSlot + 1);
 
+// With no identity configured, git builds an email from the hostname and
+// refuses to commit when that has no domain. EMAIL is git's last resort, so any
+// identity a test or the system config sets still wins.
+process.env.EMAIL = "rt-tests@example.invalid";
+
 // rt-ui asks the terminal for its background on auto; a test run must never
 // write that query to the developer's terminal. lib/ui/background.ts and
 // rt-ui both honor this, and no suite's reset clears it.
