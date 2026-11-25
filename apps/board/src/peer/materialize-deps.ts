@@ -20,7 +20,7 @@ import type { OpenText } from './sealed.ts';
 const TICK_OPEN_TIMEOUT_MS = 5_000;
 
 export const openInTick: OpenText = a =>
-  textOpen(a, { timeoutMs: TICK_OPEN_TIMEOUT_MS });
+  textOpen(a, { timeoutMs: TICK_OPEN_TIMEOUT_MS, retryBudgetMs: 0 });
 
 export function senderIsOrgAdmin(
   username: string,

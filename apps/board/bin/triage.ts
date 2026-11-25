@@ -52,7 +52,11 @@ import {
   reviewerDisplayName,
 } from '../src/peer/nudges.ts';
 import { drainOutbox, enqueueOutbox } from '../src/peer/outbox.ts';
-import { outcomePublisher, peerUsername } from '../src/peer/sealed-send.ts';
+import {
+  outcomePreparer,
+  outcomePublisher,
+  peerUsername,
+} from '../src/peer/sealed-send.ts';
 import { readRespondStates } from '../src/respond-state.ts';
 import { launchReReview, reviewLaunchForTab } from '../src/review-launch.ts';
 import {
@@ -310,11 +314,13 @@ try {
       opts
     ) => markNudgeHandled(id, r, reason, undefined, undefined, opts);
     const publishOutcome = outcomePublisher(
-      {
-        seal: a => textSeal(a),
-        self: () => peerUsername(boardConfig.defaultMember),
-      },
-      draft => enqueueOutbox(draft)
+      outcomePreparer(
+        {
+          seal: a => textSeal(a),
+          self: () => peerUsername(boardConfig.defaultMember),
+        },
+        draft => enqueueOutbox(draft)
+      )
     );
     if (peerMode && boardConfig.forge.kind === 'github') {
       await declineRespondAsks(

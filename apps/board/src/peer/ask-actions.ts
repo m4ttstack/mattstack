@@ -16,7 +16,7 @@ import {
   type NudgeResult,
 } from './envelope.ts';
 import type { NudgeState } from './nudges.ts';
-import type { NoteReason } from './sealed-send.ts';
+import type { NoteReason, PreparedOutcome } from './sealed-send.ts';
 
 /** MRs with an accept in flight, so a second click on another ask for the
     same MR is refused before the first launch resolves. */
@@ -31,11 +31,8 @@ export interface AskActionDeps {
     reason?: string,
     opts?: { note?: string; declined?: true; replacing?: NudgeResult }
   ): boolean;
-  /** Answers why a note did not go with the outcome, which goes either way. */
-  publishOutcome(
-    to: string,
-    p: NudgeOutcomePayload
-  ): Promise<NoteReason | undefined>;
+  prepareOutcome(to: string, p: NudgeOutcomePayload): Promise<PreparedOutcome>;
+  publishOutcome(to: string, p: NudgeOutcomePayload): Promise<void>;
   readReviewStates(): Map<string, ReviewState>;
   readRespondStates(): Map<string, { status: string }>;
   isOwnMr(mrUrl: string): boolean;
@@ -165,14 +162,9 @@ export async function declineAsk(
   if ('ok' in n) return n;
   const words = input.reason ? DECLINE_REASONS[input.reason] : undefined;
   const note = input.note?.trim() || undefined;
-  if (
-    !deps.markNudgeHandled(n.id, 'rejected', words, {
-      declined: true,
-      ...(note ? { note } : {}),
-    })
-  )
-    return answered;
-  const noteReason = await deps.publishOutcome(
+  // Sealed before the claim: a board that stops between the two would leave an
+  // ask that reads as answered and an asker who was never told.
+  const prepared = await deps.prepareOutcome(
     n.from,
     outcome(n, 'rejected', {
       ...(words ? { reason: words } : {}),
@@ -180,6 +172,15 @@ export async function declineAsk(
       ...(note ? { declineNote: note } : {}),
     })
   );
+  if (
+    !deps.markNudgeHandled(n.id, 'rejected', words, {
+      declined: true,
+      ...(note ? { note } : {}),
+    })
+  )
+    return answered;
+  prepared.send();
+  const { noteReason } = prepared;
   return noteReason ? { ok: true, noteSent: false, noteReason } : { ok: true };
 }
 

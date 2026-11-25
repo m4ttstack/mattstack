@@ -76,11 +76,15 @@ export type OpenText = (
   ...args: Parameters<typeof textOpen>
 ) => Promise<{ ok: boolean; data?: OpenResult; failure?: { code: string } }>;
 
+/** The longest the daemon looks at (`lib/daemon/handlers/sealed-text.ts`). */
+const SEALED_MAX = 256 * 1024;
+
 export async function openOnce(
   open: OpenText,
   sealed: string,
   binding: SealBinding
 ): Promise<SealedRead> {
+  if (sealed.length > SEALED_MAX) return { state: 'unreadable' };
   try {
     const res = await open({ sealed, binding });
     // The daemon refuses to look at text this malformed, so it never opens.
@@ -156,6 +160,7 @@ export function createSealedReader(deps: {
 
   return {
     read(sealed, binding) {
+      if (sealed.length > SEALED_MAX) return { state: 'unreadable' };
       const now = deps.now();
       const key = JSON.stringify([
         binding.type,

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { Database } from 'bun:sqlite';
@@ -295,6 +295,21 @@ describe('the sealed reader', () => {
     expect(reader.read('s510', BINDING)).toEqual({ state: 'pending' });
   });
 
+  test('text longer than the daemon looks at is unreadable without asking', async () => {
+    const d = daemon(() => opened({ note: 'hi' }));
+    const reader = createSealedReader({
+      open: d.open,
+      changed() {},
+      now: () => 0,
+    });
+    const long = 'A'.repeat(256 * 1024 + 1);
+    expect(reader.read(long, BINDING)).toEqual({ state: 'unreadable' });
+    expect(await openOnce(d.open, long, BINDING)).toEqual({
+      state: 'unreadable',
+    });
+    expect(d.calls).toEqual([]);
+  });
+
   test('openOnce answers the fields or nothing, whatever the daemon does', async () => {
     expect(
       await openOnce(daemon(() => opened({ note: 'hi' })).open, 'YWdl', BINDING)
@@ -390,7 +405,13 @@ describe('asks', () => {
         seen.push(b);
         return {
           state: 'open',
-          fields: { title: 'T', sourceBranch: 'b', note: 'N', other: 'x' },
+          fields: {
+            title: 'T',
+            sourceBranch: 'b',
+            note: 'N',
+            other: 'x',
+            textState: 'spoof',
+          },
         };
       },
     };
@@ -630,6 +651,15 @@ describe('review states', () => {
     }
   });
 
+  test('beside sealed text only a fixed plain reason counts', () => {
+    expect(
+      arrive({ sealed: 'YWdl', reason: 'made up' }).reason
+    ).toBeUndefined();
+    expect(arrive({ sealed: 'YWdl', reason: 'pane closed' }).reason).toBe(
+      'pane closed'
+    );
+  });
+
   test('a plain reason shows as it did', () => {
     expect(
       attach(arrive({ reason: 'pane closed' }), stuckReader('unreadable'))
@@ -704,6 +734,18 @@ describe('review states', () => {
 });
 
 describe('WIRE_REASONS', () => {
+  test('holds every reason a decision can give', () => {
+    const source = readFileSync(
+      join(import.meta.dir, '..', 'triage', 'nudge.ts'),
+      'utf8'
+    );
+    const decided = [
+      ...source.matchAll(/action: '(?:reject|expire)', reason: '([a-z-]+)'/g),
+    ].map(m => m[1]!);
+    expect(decided.length).toBeGreaterThan(5);
+    expect(decided.filter(r => !WIRE_REASONS.has(r))).toEqual([]);
+  });
+
   test('holds what the code itself writes, and no free text', () => {
     for (const r of [
       'cooldown',
@@ -782,6 +824,26 @@ describe('announcements', () => {
     );
     expect(shown).toEqual([]);
     expect(keeps).toEqual([kept()]);
+  });
+
+  test('a relay clock ahead of this Mac does not keep one forever', () => {
+    const keeps: { receivedAt: number }[] = [];
+    materializeEnvelope(
+      envelope({
+        id: 'a1',
+        from: 'admin1',
+        type: 'announcement',
+        receivedAt: NOW + 10 * ANNOUNCEMENT_MAX_AGE_MS,
+        payload: { ...ANNOUNCEMENT_PLACEHOLDER, sealed: 'YWdl' },
+      }),
+      {
+        ...boardMaterializeDeps(() => {}),
+        isOrgAdmin: () => true,
+        keepAnnouncement: a => void keeps.push(a),
+      },
+      NOW
+    );
+    expect(keeps[0]!.receivedAt).toBe(NOW);
   });
 
   test('one that opens shows its text once', async () => {

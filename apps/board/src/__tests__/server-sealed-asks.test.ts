@@ -6,8 +6,14 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, beforeEach, expect, test } from 'bun:test';
 
-import type { SealResult } from '@mattstack/rt-client';
-import { readNudges, readSentNudges, writeNudge } from '../peer/nudges.ts';
+import type { OpenResult, SealResult } from '@mattstack/rt-client';
+import {
+  readNudges,
+  readSentNudges,
+  writeNudge,
+  writeSentNudge,
+} from '../peer/nudges.ts';
+import { writePeerReview } from '../peer/peer-reviews.ts';
 import { askBinding, outcomeBinding } from '../peer/sealed.ts';
 import { openStateDb } from '../state/db.ts';
 import { bootBoardServer } from './board-server.ts';
@@ -85,6 +91,7 @@ const pr = {
 };
 
 let seal: SealResult | 'down';
+let open: OpenResult = { ok: false, reason: 'unavailable' };
 const seals: unknown[] = [];
 const daemon = Bun.serve({
   unix: join(rtDir, 'rt.sock'),
@@ -104,6 +111,7 @@ const daemon = Bun.serve({
           syncedAt: Date.now(),
         },
       });
+    if (cmd === 'text:open') return Response.json({ ok: true, data: open });
     if (cmd === 'text:seal') {
       seals.push(body);
       return seal === 'down'
@@ -307,4 +315,93 @@ test('a decline with no note says nothing about one', async () => {
   );
   const res = await post('/asks/decline', { id: 'n4', reason: 'later' });
   expect(await res.json()).toEqual({ ok: true });
+}, 30_000);
+
+test('text opened behind the board reaches it, and a burst of it nudges the page once', async () => {
+  for (let i = 0; i < 20; i++)
+    writeNudge(
+      {
+        id: `sealed-${i}`,
+        mrUrl: MR,
+        iid: 7,
+        from: 'bob',
+        receivedAt: Date.now(),
+        sealed: `YWdl${i}`,
+      },
+      db
+    );
+  writePeerReview(
+    {
+      mrUrl: MR,
+      iid: 7,
+      reviewer: 'bob',
+      status: 'error',
+      updatedAt: Date.now(),
+      receivedAt: Date.now(),
+      sealed: 'YWdlcmV2',
+    },
+    db
+  );
+  writeSentNudge(
+    {
+      nudgeId: 'n9',
+      mrUrl: MR,
+      iid: 7,
+      reviewer: 'bob',
+      sentAt: Date.now(),
+      resolution: {
+        result: 'rejected',
+        declined: true,
+        at: Date.now(),
+        sealed: 'YWdlb3V0',
+        sealedAs: outcomeBinding('bob', MR, 'n9'),
+      },
+    },
+    db
+  );
+  open = {
+    ok: true,
+    fields: {
+      title: 'Opened title',
+      reason: 'opened reason',
+      declineNote: 'opened note',
+    },
+  };
+  const stream = await fetch(`${board.origin}/events`);
+  const reader = stream.body!.getReader();
+  let frames = '';
+  void (async () => {
+    for (;;) {
+      const { value, done } = await reader.read().catch(() => ({
+        value: undefined,
+        done: true,
+      }));
+      if (done) return;
+      frames += new TextDecoder().decode(value);
+    }
+  })();
+  const data = async () =>
+    (await (await fetch(`${board.origin}/data.json`)).json()) as {
+      asks: { pending: { id: string; title?: string; textState?: string }[] };
+      mrs: {
+        peerReviews?: { reason?: string; sealed?: string }[];
+        sentNudge?: { declineNote?: string };
+      }[];
+    };
+  await data();
+  await Bun.sleep(2_000);
+  expect(frames.split('data: changed').length - 1).toBeLessThanOrEqual(2);
+  const now = await data();
+  const shown = now.asks.pending.filter(a => a.id.startsWith('sealed-'));
+  expect(shown).toHaveLength(20);
+  for (const a of shown) {
+    expect(a.title).toBe('Opened title');
+    expect(a.textState).toBeUndefined();
+  }
+  expect(now.mrs[0]!.peerReviews![0]).toMatchObject({
+    reason: 'opened reason',
+  });
+  expect(now.mrs[0]!.sentNudge).toMatchObject({ declineNote: 'opened note' });
+  expect(JSON.stringify(now)).not.toContain('YWdl');
+  await reader.cancel();
 }, 30_000);

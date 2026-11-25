@@ -324,7 +324,6 @@ import {
   wireReviewStatus,
   type AskKind,
   type DeclineReason,
-  type ReReviewRequestPayload,
   type ReviewStatePayload,
 } from './peer/envelope.ts';
 import { makeAskLauncher } from './peer/launch-ask.ts';
@@ -376,6 +375,7 @@ import {
   tokenMissingNotice,
 } from './peer/runtime.ts';
 import {
+  outcomePreparer,
   outcomePublisher,
   peerUsername,
   sealedAsk,
@@ -820,9 +820,16 @@ async function fetchReconcilerView(): Promise<ReconcilerView> {
 // restart.
 const inTeam = (): boolean => listOrgs().length > 0;
 const peerDeps = boardMaterializeDeps(line => console.error(line));
+let sealedNudge: ReturnType<typeof setTimeout> | null = null;
 const sealedReader = createSealedReader({
-  open: a => textOpen(a),
-  changed: () => sseNudge(),
+  open: a => textOpen(a, { retryBudgetMs: 0 }),
+  // Opening runs in bursts, and each nudge re-reads the whole board.
+  changed: () => {
+    sealedNudge ??= setTimeout(() => {
+      sealedNudge = null;
+      sseNudge();
+    }, RELAY_COALESCE_MS);
+  },
   now: Date.now,
 });
 const peering = makePeering({
@@ -875,14 +882,16 @@ function asksOn(): boolean {
 }
 
 const sealDeps: SealDeps = {
-  seal: a => textSeal(a),
+  // A person waits on this, and the message goes without its text meanwhile.
+  seal: a => textSeal(a, { timeoutMs: 10_000, retryBudgetMs: 3_000 }),
   self: () => peerUsername(config.defaultMember),
 };
 
-const publishOutcome = outcomePublisher(sealDeps, draft => {
+const prepareOutcome = outcomePreparer(sealDeps, draft => {
   enqueueOutbox(draft);
   void peering.tickNow();
 });
+const publishOutcome = outcomePublisher(prepareOutcome);
 
 /** The slice of the ask deps that needs no board snapshot, so the peer tick
     can decline waiting asks without touching GitLab. */
@@ -904,6 +913,7 @@ function askDeps(snapshot: { mrs: BoardMR[] }): AskActionDeps {
   return {
     asksOn,
     ...declineDeps(),
+    prepareOutcome,
     readReviewStates: () => readReviewStates(),
     readRespondStates: () => readRespondStates(),
     isOwnMr: mrUrl => {

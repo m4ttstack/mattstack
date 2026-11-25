@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { Database } from 'bun:sqlite';
@@ -8,7 +8,8 @@ import type { SealBinding, SealFields, SealResult } from '@mattstack/rt-client';
 import type { DraftEnvelope, ReviewStatePayload } from '../peer/envelope.ts';
 import { drainOutbox, enqueueOutbox, readOutbox } from '../peer/outbox.ts';
 import {
-  outcomePublisher,
+  outcomePreparer,
+  peerUsername,
   sealedAsk,
   sealedReviewSyncEnvelopes,
   sealFields,
@@ -159,7 +160,15 @@ describe('an outcome', () => {
     const queued: DraftEnvelope[] = [];
     return {
       queued,
-      run: outcomePublisher(t.deps, d => void queued.push(d)),
+      run: async (...a: Parameters<ReturnType<typeof outcomePreparer>>) => {
+        const prepared = await outcomePreparer(
+          t.deps,
+          d => void queued.push(d)
+        )(...a);
+        expect(queued).toEqual([]);
+        prepared.send();
+        return prepared.noteReason;
+      },
     };
   };
   const base = {
@@ -207,10 +216,11 @@ describe('an outcome', () => {
   test('with no text nothing is sealed', async () => {
     const t = sealing(sealed);
     const p = publish(t);
+    const q = publish(t);
     await p.run('bob', { ...base, result: 'launched' });
-    await p.run('bob', { ...base, reason: 'cooldown' });
+    await q.run('bob', { ...base, reason: 'cooldown' });
     expect(t.calls).toEqual([]);
-    expect(p.queued.map(d => d.payload)).toEqual([
+    expect([...p.queued, ...q.queued].map(d => d.payload)).toEqual([
       { ...base, result: 'launched' },
       { ...base, reason: 'cooldown' },
     ]);
@@ -236,6 +246,36 @@ describe('an outcome', () => {
       await p.run('bob', { ...base, reason: 'the database was down' })
     ).toBeUndefined();
     expect(p.queued[0]!.payload).toEqual(base);
+  });
+});
+
+describe('peerUsername', () => {
+  const realHome = process.env.HOME;
+  let home: string;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'peer-username-'));
+    process.env.HOME = home;
+  });
+  afterEach(() => {
+    process.env.HOME = realHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test('is the name recorded for the org, else the seat, else unknown', () => {
+    expect(peerUsername('seat')).toBe('seat');
+    expect(peerUsername('all')).toBeNull();
+    expect(peerUsername('')).toBeNull();
+    const orgDir = join(home, '.mattstack', 'orgs', 'acme', 'mattstack', 'org');
+    mkdirSync(orgDir, { recursive: true });
+    writeFileSync(join(orgDir, 'settings.org.jsonc'), '{}');
+    const teams = join(home, '.mattstack', 'rt', 'teams');
+    mkdirSync(teams, { recursive: true });
+    writeFileSync(
+      join(teams, 'acme.json'),
+      JSON.stringify({ forgeUsername: 'recorded' })
+    );
+    expect(peerUsername('seat')).toBe('recorded');
+    expect(peerUsername('all')).toBe('recorded');
   });
 });
 

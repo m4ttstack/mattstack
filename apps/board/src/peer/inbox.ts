@@ -20,7 +20,7 @@ import {
   ANNOUNCEMENT_MAX_AGE_MS,
   type KeptAnnouncement,
 } from './sealed-announcements.ts';
-import { outcomeBinding, reviewStateBinding } from './sealed.ts';
+import { outcomeBinding, reviewStateBinding, WIRE_REASONS } from './sealed.ts';
 
 export interface MaterializeDeps {
   isOrgAdmin(username: string): boolean;
@@ -60,6 +60,17 @@ export interface MaterializeDeps {
   reportAuth?: (state: 'ok' | 'unauthorized') => void;
 }
 
+/** Beside sealed text a plain reason is one of the fixed ones; any other comes
+    only from a board too old to seal. */
+function plainReason(p: {
+  reason?: string;
+  sealed?: string;
+}): string | undefined {
+  return p.sealed && p.reason && !WIRE_REASONS.has(p.reason)
+    ? undefined
+    : p.reason;
+}
+
 /** The board's entire inbound involvement: materialize, never decide. Every
     branch ends ack-safe -- malformed or unknown envelopes are logged and
     dropped so a bad message can't wedge the inbox forever. */
@@ -72,7 +83,13 @@ export function materializeEnvelope(
     const p = parseReviewStatePayload(e.payload);
     if (!p)
       return deps.log(`peer: malformed review-state from ${e.from} (${e.id})`);
-    deps.writePeerReview({ ...p, reviewer: e.from, receivedAt: e.receivedAt });
+    const reason = plainReason(p);
+    deps.writePeerReview({
+      ...p,
+      reason,
+      reviewer: e.from,
+      receivedAt: e.receivedAt,
+    });
     // A reviewing transition confirms any pending sent nudge for this MR: the
     // re-review actually started, whichever of state/outcome lands first.
     if (p.status === 'queued' || p.status === 'reviewing') {
@@ -102,7 +119,7 @@ export function materializeEnvelope(
         {
           result: finished,
           ...(p.status === 'done' && p.outcome ? { outcome: p.outcome } : {}),
-          ...(p.status !== 'done' && p.reason ? { reason: p.reason } : {}),
+          ...(p.status !== 'done' && reason ? { reason } : {}),
           ...(p.status !== 'done' && p.sealed
             ? { sealed: p.sealed, sealedAs: reviewStateBinding(e.from, p) }
             : {}),
@@ -177,7 +194,7 @@ export function materializeEnvelope(
       p.mrUrl,
       {
         result: p.result,
-        reason: p.reason,
+        reason: plainReason(p),
         ...(p.declined ? { declined: true as const } : {}),
         ...(p.sealed
           ? {
@@ -209,7 +226,8 @@ export function materializeEnvelope(
       return deps.keepAnnouncement({
         id: e.id,
         from: e.from,
-        receivedAt: e.receivedAt,
+        // The relay's clock: one ahead of ours would never grow old.
+        receivedAt: Math.min(e.receivedAt, now),
         sealed: p.sealed,
       });
     return deps.notifyAnnouncement(e.id, p, e.from);

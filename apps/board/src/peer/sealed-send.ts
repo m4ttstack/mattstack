@@ -46,7 +46,8 @@ export interface Sealing {
   unreachable: string[];
 }
 
-/** The username join and `rt team peer` register this board under. */
+/** The username join registers this board under, and `rt team peer` unless the
+    org's forge login had to stand in for both. */
 export function peerUsername(defaultMember: string): string | null {
   const recorded = activeTeam().username;
   if (recorded !== null) return recorded;
@@ -88,12 +89,11 @@ async function sealAs(
   binding: (self: string) => SealBinding,
   fields: SealFields
 ): Promise<Sealing> {
+  if (Object.keys(fields).length === 0)
+    return { unsent: false, unreachable: [] };
   const self = deps.self();
   return self === null
-    ? {
-        unsent: Object.keys(fields).length > 0,
-        unreachable: [],
-      }
+    ? { unsent: true, unreachable: [] }
     : sealFields(deps, to, binding(self), fields);
 }
 
@@ -145,12 +145,20 @@ export async function sealedAsk(
   };
 }
 
-/** Queues an ask's outcome with its text sealed. Answers why the person's
-    note did not go with it, or nothing when it did or there was none. */
-export function outcomePublisher(
+export interface PreparedOutcome {
+  /** Why the person's note does not go with it; absent when it does or there
+      is none. */
+  noteReason?: NoteReason;
+  /** Queues it, at once. */
+  send(): void;
+}
+
+/** An ask's outcome with its text sealed, ready to queue: sealing waits on the
+    daemon, and a caller that must record and send together prepares first. */
+export function outcomePreparer(
   deps: SealDeps,
   enqueue: (draft: DraftEnvelope) => void
-): (to: string, p: NudgeOutcomePayload) => Promise<NoteReason | undefined> {
+): (to: string, p: NudgeOutcomePayload) => Promise<PreparedOutcome> {
   return async (to, { reason, declineNote, sealed: _, ...facts }) => {
     const fixed = reason !== undefined && WIRE_REASONS.has(reason);
     const recipient = canonicalUsername(to);
@@ -160,15 +168,26 @@ export function outcomePublisher(
       from => outcomeBinding(from, facts.mrUrl, facts.nudgeId),
       given({ reason: fixed ? undefined : reason, declineNote })
     );
-    enqueue(
-      makeEnvelope(recipient, 'nudge-outcome', {
-        ...facts,
-        ...(fixed ? { reason } : {}),
-        ...sealedField(sealing),
-      } satisfies NudgeOutcomePayload)
-    );
-    return declineNote ? unsentWhy(sealing) : undefined;
+    const noteReason = declineNote ? unsentWhy(sealing) : undefined;
+    return {
+      ...(noteReason ? { noteReason } : {}),
+      send: () =>
+        enqueue(
+          makeEnvelope(recipient, 'nudge-outcome', {
+            ...facts,
+            ...(fixed ? { reason } : {}),
+            ...sealedField(sealing),
+          } satisfies NudgeOutcomePayload)
+        ),
+    };
   };
+}
+
+/** For an outcome with no note of a person's, which nothing waits to hear. */
+export function outcomePublisher(
+  prepare: ReturnType<typeof outcomePreparer>
+): (to: string, p: NudgeOutcomePayload) => Promise<void> {
+  return async (to, p) => (await prepare(to, p)).send();
 }
 
 /** `reviewSyncEnvelopes` with the reason sealed once for everyone told. A

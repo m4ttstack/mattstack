@@ -534,12 +534,12 @@ export function supportStop(a: Commands["support:stop"]["payload"], o: RtClientO
 }
 
 export function textSeal(a: Commands["text:seal"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["text:seal"]["data"]>> {
-  return rtCommand<Commands["text:seal"]["data"]>("text:seal", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 15_000 });
+  return rtCommand<Commands["text:seal"]["data"]>("text:seal", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 15_000, retryBudgetMs: o.retryBudgetMs });
 }
 
 /** Long enough for a keychain dialog to be answered, or to be given up on. */
 export function textOpen(a: Commands["text:open"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["text:open"]["data"]>> {
-  return rtCommand<Commands["text:open"]["data"]>("text:open", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 45_000 });
+  return rtCommand<Commands["text:open"]["data"]>("text:open", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 45_000, retryBudgetMs: o.retryBudgetMs });
 }
 
 export function chatSlackStart(a: Commands["chat:slack-start"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-start"]["data"]>> {

@@ -26,6 +26,7 @@ import {
 import { parkedPayload, stoppedPayload } from '../peer/park-report.ts';
 import { presenceEnvelopes, respondStateEnvelope } from '../peer/presence.ts';
 import {
+  outcomePreparer,
   outcomePublisher,
   sealedAsk,
   sealedReviewSyncEnvelopes,
@@ -88,7 +89,9 @@ async function everyEnvelope(deps: SealDeps): Promise<DraftEnvelope[]> {
         )
       ).draft
     );
-  const publish = outcomePublisher(deps, d => void out.push(d));
+  const publish = outcomePublisher(
+    outcomePreparer(deps, d => void out.push(d))
+  );
   for (const extra of [
     { reason: SECRET },
     { declined: true as const, declineNote: SECRET },

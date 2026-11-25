@@ -54,7 +54,9 @@ function askText(
 ): Pick<AskView, 'title' | 'sourceBranch' | 'note' | 'textState'> {
   if (!n.sealed) return n;
   const read = reader?.read(n.sealed, bindingOf(n)) ?? { state: 'pending' };
-  return read.state === 'open' ? read.fields : { textState: read.state };
+  if (read.state !== 'open') return { textState: read.state };
+  const { title, sourceBranch, note } = read.fields;
+  return { title, sourceBranch, note };
 }
 
 function view(n: NudgeState, reader: SealedReader | undefined): AskView {

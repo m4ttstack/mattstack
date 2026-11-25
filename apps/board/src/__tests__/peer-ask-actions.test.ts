@@ -53,10 +53,10 @@ function deps(over: Partial<AskActionDeps> = {}) {
       handled.push({ id, result, reason, ...opts });
       return true;
     },
-    publishOutcome: async (to, p) => {
-      published.push({ to, p });
-      return undefined;
-    },
+    prepareOutcome: async (to, p) => ({
+      send: () => void published.push({ to, p }),
+    }),
+    publishOutcome: async (to, p) => void published.push({ to, p }),
     readReviewStates: () => new Map(),
     readRespondStates: () => new Map(),
     isOwnMr: () => false,
@@ -231,6 +231,42 @@ describe('declineAsk', () => {
         },
       },
     ]);
+  });
+
+  test('its text is sealed before the ask is claimed, and it leaves with the claim', async () => {
+    const order: string[] = [];
+    const d = deps({
+      prepareOutcome: async () => {
+        order.push('seal');
+        return { send: () => void order.push('send') };
+      },
+      markNudgeHandled: () => {
+        order.push('claim');
+        return true;
+      },
+    });
+    await declineAsk('n1', { note: 'after standup' }, d);
+    expect(order).toEqual(['seal', 'claim', 'send']);
+  });
+
+  test('a claim another answer won sends nothing', async () => {
+    const d = deps({ markNudgeHandled: () => false });
+    expect(await declineAsk('n1', { note: 'x' }, d)).toMatchObject({
+      ok: false,
+      status: 409,
+    });
+    expect(d.published).toEqual([]);
+  });
+
+  test('a note that did not go is answered with why', async () => {
+    const d = deps({
+      prepareOutcome: async () => ({ noteReason: 'no-key', send() {} }),
+    });
+    expect(await declineAsk('n1', { note: 'x' }, d)).toEqual({
+      ok: true,
+      noteSent: false,
+      noteReason: 'no-key',
+    });
   });
 
   test('no reason picked sends none', async () => {
