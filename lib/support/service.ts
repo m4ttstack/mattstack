@@ -290,7 +290,7 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
 
   function noticeStatus(r: SupportRequest): void {
     const name = config()?.roster.find((e) => canonicalHandle(e.username) === r.peer)?.name ?? r.peer;
-    o.notify("Help request", statusNotice(r, name, r.persona ?? slackPersona().name), r.dmLink ?? undefined);
+    o.notify("Help request", statusNotice(r, name, r.persona ?? `${name}'s agent`), r.dmLink ?? undefined);
   }
 
   /** The limits on open chats are this Mac's own, so a chat left open here is one another Mac could open again. */

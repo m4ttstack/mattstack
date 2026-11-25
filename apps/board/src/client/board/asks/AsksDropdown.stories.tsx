@@ -16,6 +16,7 @@ import {
   RAE_ASK,
   ROSTER_PEOPLE,
   THREE_WAITING,
+  UNREAD,
 } from './asks.fixtures.ts';
 import { AsksButton } from './AsksButton.tsx';
 
@@ -110,6 +111,10 @@ export const ThreeWaiting: Story = {
       canvasElement.ownerDocument.querySelectorAll('.tui-ask-card')
     ).toHaveLength(3);
   },
+};
+
+export const UnreadNotes: Story = {
+  render: () => <Header asks={UNREAD} />,
 };
 
 export const DeclineOpen: Story = {

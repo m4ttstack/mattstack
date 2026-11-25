@@ -39,6 +39,7 @@ import {
 } from '../peer/peer-reviews.ts';
 import {
   ANNOUNCEMENT_MAX_AGE_MS,
+  ANNOUNCEMENT_UNREADABLE,
   keepAnnouncement,
   openKeptAnnouncements,
   SEALED_ANNOUNCEMENT_NS,
@@ -891,18 +892,18 @@ describe('announcements', () => {
     expect(keptRows()).toBe(3);
   });
 
-  test('a day later it shows the placeholder, once', async () => {
+  test('a day later it says it cannot be read, once', async () => {
     keepAnnouncement(kept(), db);
     const t = io(() => refused('unavailable'));
     await t.run(NOW + ANNOUNCEMENT_MAX_AGE_MS);
     expect(t.shown).toEqual([]);
     for (let i = 0; i < 2; i++) await t.run(NOW + ANNOUNCEMENT_MAX_AGE_MS + 1);
     expect(t.shown).toEqual([
-      { id: 'a1', ...ANNOUNCEMENT_PLACEHOLDER, from: 'admin1' },
+      { id: 'a1', ...ANNOUNCEMENT_UNREADABLE, from: 'admin1' },
     ]);
   });
 
-  test('one that can never open, or opens to nothing usable, shows the placeholder at once', async () => {
+  test('one that can never open, or opens to nothing usable, says so at once', async () => {
     for (const reply of [
       refused('not-for-this-key'),
       refused('mismatch'),
@@ -914,7 +915,7 @@ describe('announcements', () => {
       const t = io(() => reply);
       await t.run();
       expect(t.shown).toEqual([
-        { id: 'a1', ...ANNOUNCEMENT_PLACEHOLDER, from: 'admin1' },
+        { id: 'a1', ...ANNOUNCEMENT_UNREADABLE, from: 'admin1' },
       ]);
       expect(keptRows()).toBe(0);
     }

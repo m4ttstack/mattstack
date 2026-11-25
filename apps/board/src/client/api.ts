@@ -15,6 +15,7 @@ export interface ActionResult {
   body: {
     focused?: boolean;
     queued?: boolean;
+    noteReason?: 'no-key' | 'unavailable';
     linked?: boolean;
     status?: string;
     reactions?: string[];

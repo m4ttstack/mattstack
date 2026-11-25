@@ -110,7 +110,7 @@ describe("a request's card", () => {
   for (const [args, title, detail, action] of cases)
     test(JSON.stringify(args), () => {
       const r = request(...args);
-      const c = requestCard(r, 'Alex', 'Maude', [r]);
+      const c = requestCard(r, 'Alex', [r]);
       expect([c.title, c.detail, c.action?.kind]).toEqual([
         title,
         detail,
@@ -121,14 +121,20 @@ describe("a request's card", () => {
   test('a duplicate offers the one still going', () => {
     const r = request('already-waiting');
     const action = (other: Parameters<typeof request>[0]) =>
-      requestCard(r, 'Alex', 'Maude', [r, request(other)]).action?.kind;
+      requestCard(r, 'Alex', [r, request(other)]).action?.kind;
     expect(action('waiting')).toBe('show-it');
     expect(action('declined')).toBeUndefined();
   });
 
+  test('with no name from the host it is their agent, never this Mac’s own', () => {
+    const r = request('received', { persona: null });
+    expect(requestCard(r, 'Alex', [r]).title).toBe("Alex's agent is starting");
+    expect(pill(r, 'Alex').label).toBe("Alex's agent is starting");
+  });
+
   test('it names the agent the host answered as', () => {
     const r = request('received', { persona: 'Ada' });
-    expect(requestCard(r, 'Alex', 'Maude', [r]).title).toBe('Ada is starting');
+    expect(requestCard(r, 'Alex', [r]).title).toBe('Ada is starting');
   });
 });
 
@@ -184,8 +190,8 @@ describe('a refused send', () => {
 
 test('the button says where the request is', () => {
   const label = (...a: Parameters<typeof request>) =>
-    pill(request(...a), 'Alex', 'Maude').label;
-  expect(pill(null, 'Alex', 'Maude')).toEqual({
+    pill(request(...a), 'Alex').label;
+  expect(pill(null, 'Alex')).toEqual({
     tone: 'rest',
     label: 'Need help?',
   });
@@ -194,7 +200,7 @@ test('the button says where the request is', () => {
   expect(label('opening')).toBe('Maude is starting');
   expect(label('waiting')).toBe('Waiting for Alex');
   expect(label('failed')).toBe("Request didn't open");
-  expect(pill(request('opened', { dmLink: DM }), 'Alex', 'Maude')).toEqual({
+  expect(pill(request('opened', { dmLink: DM }), 'Alex')).toEqual({
     tone: 'ok',
     label: 'Maude is in Slack',
     href: DM,

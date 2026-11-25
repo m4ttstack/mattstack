@@ -204,9 +204,10 @@ phrases the board itself writes, such as `cooldown` or "busy right now"
 
 Sealed text is never sent in the clear instead. When a recipient has no key on
 the roster, or this Mac cannot seal, an ask, outcome, review state or support
-status goes without its text (`/nudge` and `/asks/decline` answer
-`noteSent: false`), and a support request or an announcement is refused. An org admin's `rt team members sync` records the
-keys in the roster (`mattstack.roster`), each as `agePublicKey`.
+status goes without its text, and the sender of a note is told (`/nudge` and
+`/asks/decline` answer `noteSent: false`). A support request or an announcement
+is refused instead. An org admin's `rt team members sync` records the keys in
+the roster (`mattstack.roster`), each as `agePublicKey`.
 
 What this does not do:
 

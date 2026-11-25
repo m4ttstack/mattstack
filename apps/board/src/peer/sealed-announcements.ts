@@ -11,6 +11,12 @@ import { deleteKvValue, listKvValues, setKvValue } from '../state/kv-blob.ts';
 import { openOnce, type OpenText, type SealedRead } from './sealed.ts';
 
 export const SEALED_ANNOUNCEMENT_NS = 'sealed-announcement';
+/** The placeholder it came with is for boards too old to open any. */
+export const ANNOUNCEMENT_UNREADABLE = {
+  title: ANNOUNCEMENT_PLACEHOLDER.title,
+  message:
+    "This Mac can't read it. Ask an org admin to run rt team members sync.",
+};
 export const ANNOUNCEMENT_MAX_AGE_MS = 24 * 60 * 60_000;
 
 export interface KeptAnnouncement {
@@ -31,7 +37,7 @@ export function keepAnnouncement(
 }
 
 /** Show every kept announcement that opens. One that never will, or has not
-    in a day, shows its placeholder instead. The board server and the triage
+    in a day, says it can't be read instead. The board server and the triage
     pass share this db: whichever deletes the row shows it. */
 export async function openKeptAnnouncements(
   deps: {
@@ -65,7 +71,7 @@ export async function openKeptAnnouncements(
           title: read.fields.title,
           message: read.fields.message,
         })) ||
-      ANNOUNCEMENT_PLACEHOLDER;
+      ANNOUNCEMENT_UNREADABLE;
     if (!deleteKvValue(SEALED_ANNOUNCEMENT_NS, id, db)) continue;
     try {
       await deps.notify(id, payload, a.from);

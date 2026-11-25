@@ -161,10 +161,12 @@ sends that same body.
 | Support status, rt cannot seal | The state goes without its reason, persona or link |
 | Announcement, some members have no key | It goes out; the sender sees how many cannot read it |
 | Announcement, rt cannot seal | It fails with a plain reason. Nothing is sent |
-| A received string can never open (wrong key, binding mismatch, damaged) | The ask shows with a short line that its note could not be read. Support answers with the existing "could not read your request" status (for a wrong key, after an hour, since the host's other Mac may hold it). An announcement shows its placeholder |
+| A received string can never open (wrong key, binding mismatch, damaged) | The ask shows with a short line that its note could not be read. Support answers with the existing "could not read your request" status (for a wrong key, after an hour, since the host's other Mac may hold it). An announcement says this Mac can't read it |
 
 The placeholder announcement reads "Announcement" and "Update mattstack to
-read this."
+read this.", which a board too old to open one shows. A board that can, on a Mac
+that cannot, says "This Mac can't read it. Ask an org admin to run rt team
+members sync."
 
 ### Before release
 

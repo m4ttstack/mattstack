@@ -26,6 +26,24 @@ const DOING: Record<AskKind, string> = {
 };
 
 /** What the card says the asker did, after their name. */
+/** Where an ask's words would be, when this Mac has not opened them. They may
+    be only the title and branch, so neither line speaks of a note. */
+export const TEXT_STATE_COPY = {
+  pending: 'Opening…',
+  unreadable: "This Mac couldn't open the details",
+} as const;
+
+/** Why a person's note did not go with their ask or their decline. */
+export function noteNotSent(
+  what: 'Sent' | 'Declined',
+  why: 'no-key' | 'unavailable',
+  first: string
+): string {
+  return why === 'no-key'
+    ? `${what} without your note. ${first} can't receive notes yet.`
+    : `${what} without your note. This Mac could not lock it.`;
+}
+
 export function askedPhrase(kind: AskKind): string {
   return ASKED[kind];
 }

@@ -7,6 +7,7 @@ import type { MrAction } from '../../mr-action.ts';
 import { forgeWord, mrNoun } from '../../mr-ref.ts';
 import type { ActionResult } from '../api.ts';
 import type { ActiveRun, AskKind } from '../types.ts';
+import { noteNotSent } from './asks/ask-copy.ts';
 import type { ToastHandle } from './launch-flow.ts';
 import { mrRef } from './MrLinks.tsx';
 import { NO_PEOPLE, type People } from './people.ts';
@@ -331,10 +332,13 @@ function postSpec(req: PostRequest, people: People): PostSpec {
         }),
         pending: mr =>
           `requesting ${ASK_NOUN[req.ask]} of ${mrRef(mr)} from ${name}…`,
-        done: (_mr, r) =>
-          r.body?.queued
+        done: (_mr, r) => {
+          const why = r.body?.noteReason;
+          if (why) return noteNotSent('Sent', why, name);
+          return r.body?.queued
             ? `switchboard unreachable... queued the ask to ${name}`
-            : undefined,
+            : undefined;
+        },
         // A 409 carries the relay's own reason in plain text; that is the
         // whole point of the failure, so it wins over the status.
         fail: (mr, r) =>
@@ -472,6 +476,16 @@ export async function runMany(
   });
   const parts: string[] = [];
   if (done.length) parts.push(plan.manyDone(done));
+  const noteReason = done.find(d => d.result.body?.noteReason)?.result.body
+    ?.noteReason;
+  if (req.kind === 'ask' && noteReason)
+    parts.push(
+      noteNotSent(
+        'Sent',
+        noteReason,
+        (deps.people ?? NO_PEOPLE).short(req.reviewer ?? '')
+      )
+    );
   if (unansweredRows[0])
     parts.push(noAnswer(on(unansweredRows), unansweredRows[0].result, true));
   if (failed.length) {

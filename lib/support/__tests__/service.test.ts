@@ -516,7 +516,7 @@ describe("the sender's side", () => {
     t.service.stop();
     t.arrive("status", "alex", "ada", "r1:opened", { requestId: "r1", state: "opened", at: 5 });
     await Bun.sleep(5);
-    expect(t.events.filter((e) => e.startsWith("notify"))).toEqual(["notify Maude messaged you in Slack -> slack://user?team=T1&id=U0HOST"]);
+    expect(t.events.filter((e) => e.startsWith("notify"))).toEqual(["notify alex's agent messaged you in Slack -> slack://user?team=T1&id=U0HOST"]);
     expect(getRequest("out", "alex", "r1", t.h.db)!.state).toBe("opened");
   });
 
