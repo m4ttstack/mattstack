@@ -230,6 +230,20 @@ describe('Story', () => {
     expect(itemOf('plan')).toHaveAttribute('aria-current', 'step');
   });
 
+  it('says so when the picked attempt recorded nothing', () => {
+    story([
+      planEntry(),
+      planEntry({
+        key: 'plan#2',
+        label: 'plan · attempt 2',
+        attempt: { ...planEntry().attempt, attempt: 2 },
+        fields: [],
+        gates: [],
+      }),
+    ]);
+    expect(screen.getByText('Nothing recorded in this attempt.')).toBeVisible();
+  });
+
   it('draws one stage alone with no list', () => {
     story([planEntry()]);
     expect(document.querySelector('nav')).toBeNull();

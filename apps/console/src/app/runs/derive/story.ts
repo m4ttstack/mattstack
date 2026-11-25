@@ -143,10 +143,20 @@ function durationOf(a: StageAttempt, now: number): number | null {
   return end == null ? null : Math.max(0, end - a.startedAt);
 }
 
+/** Whether the attempt left anything behind for the story to show. */
+export const tellsSomething = (e: StoryEntry) =>
+  e.fields.length > 0 ||
+  e.gates.length > 0 ||
+  e.holds.length > 0 ||
+  e.failure !== null ||
+  e.redirect !== null ||
+  e.evidence !== null;
+
 /** A work run's story: the attempt it is in now, with the fields written
     during it, and every other attempt that has something to tell, in run
     order. An attempt with no fields, decisions, holds, failure, redirect or
-    evidence is left out. */
+    evidence is left out, unless an earlier attempt of its stage is listed:
+    a clean retry left out would leave its stage reading as failed. */
 export function liveStory(input: StoryInput): LiveStory {
   const { stages, fields, decisions, gates, run, now } = input;
   const finished = run.status !== 'running';
@@ -237,20 +247,19 @@ export function liveStory(input: StoryInput): LiveStory {
     };
   });
 
+  const listedStages = new Set<string>();
+  const listed = entries.filter(e => {
+    const keep = tellsSomething(e) || listedStages.has(e.attempt.stage);
+    if (keep) listedStages.add(e.attempt.stage);
+    return keep;
+  });
+
   return {
     current,
     currentLabel: current ? label(current) : null,
     currentFields: current ? (placed.get(keyOf(current)) ?? []) : [],
     currentGates: current ? (gatesAt.get(keyOf(current)) ?? []) : [],
-    entries: entries.filter(
-      e =>
-        e.fields.length > 0 ||
-        e.gates.length > 0 ||
-        e.holds.length > 0 ||
-        e.failure !== null ||
-        e.redirect !== null ||
-        e.evidence !== null
-    ),
+    entries: listed,
   };
 }
 

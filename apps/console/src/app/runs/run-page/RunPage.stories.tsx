@@ -206,6 +206,39 @@ export const StoryEdges: S = {
   ),
 };
 
+export const StoryCleanRetry: S = {
+  render: () => (
+    <Story
+      repo={REPO}
+      runId={RUN}
+      label="Story so far"
+      evidenceField={null}
+      entries={[
+        entry({
+          key: 'provision#1',
+          label: 'provision · attempt 1',
+          attempt: {
+            ...entry({}).attempt,
+            stage: 'provision',
+            status: 'failed',
+          },
+          durationMs: MIN,
+          failure: {
+            reason: 'checkout failed: the forge is overloaded',
+            detailPath: null,
+          },
+        }),
+        entry({
+          key: 'provision#2',
+          label: 'provision · attempt 2',
+          attempt: { ...entry({}).attempt, stage: 'provision', attempt: 2 },
+          durationMs: MIN,
+        }),
+      ]}
+    />
+  ),
+};
+
 export const ReviewBlock: S = {
   render: () => (
     <Story

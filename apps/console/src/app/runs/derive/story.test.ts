@@ -135,6 +135,23 @@ describe('liveStory', () => {
     expect(story.entries.map(e => e.attempt.stage)).toEqual(['plan']);
   });
 
+  it('keeps a clean retry of a stage whose earlier attempt is listed', () => {
+    const story = liveStory(
+      input({
+        stages: [
+          st('provision', 1, 'failed', 0, 10, { reason: 'checkout failed' }),
+          st('provision', 2, 'done', 10, 20),
+          st('plan', 1, 'done', 20, 30),
+          st('implement', 1, 'running', 30, null),
+        ],
+      })
+    );
+    expect(story.entries.map(e => [e.label, e.attempt.status])).toEqual([
+      ['provision · attempt 1', 'failed'],
+      ['provision · attempt 2', 'done'],
+    ]);
+  });
+
   it('labels a re-run stage with its attempt, and carries failures and redirects', () => {
     const story = liveStory(
       input({

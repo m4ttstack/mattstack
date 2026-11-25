@@ -17,7 +17,12 @@ import { readEvidence } from '@mattstack/rt-client/evidence';
 import { formatDuration } from '../derive/duration';
 import { fieldLabel } from '../derive/fields';
 import type { StageAttempt } from '../derive/stages';
-import { splitRedirect, stageSummary, type StoryEntry } from '../derive/story';
+import {
+  splitRedirect,
+  stageSummary,
+  tellsSomething,
+  type StoryEntry,
+} from '../derive/story';
 import { Eyebrow } from '../Eyebrow';
 import { FailureExcerpt } from '../FailureExcerpt';
 import { EvidenceCard } from './EvidenceCard';
@@ -322,6 +327,11 @@ export function StagePane({
           <div className={classes.summary} />
           <StageDocLink stage={entry.attempt.stage} className={classes.doc} />
         </Group>
+      ) : null}
+      {!heading && !tellsSomething(entry) ? (
+        <Text {...VALUE_TYPE} c="dimmed">
+          Nothing recorded in this attempt.
+        </Text>
       ) : null}
       <FieldStrip fields={entry.fields.filter(isStripField)} />
       {entry.fields
