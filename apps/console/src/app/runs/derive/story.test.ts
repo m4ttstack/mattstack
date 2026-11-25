@@ -135,6 +135,32 @@ describe('liveStory', () => {
     expect(story.entries.map(e => e.attempt.stage)).toEqual(['plan']);
   });
 
+  it('lists provision by the branch and worktree it made, on the attempt that made them', () => {
+    const story = liveStory(
+      input({
+        stages: [
+          st('provision', 1, 'failed', 0, 10, { reason: 'checkout failed' }),
+          st('provision', 2, 'done', 10, 20),
+          st('gates', 1, 'done', 20, 30),
+          st('implement', 1, 'running', 30, null),
+        ],
+        fields: [
+          fld('ticket', 1),
+          fld('branch', 12),
+          fld('worktree', 12),
+          fld('extra.gates', 25),
+        ],
+      })
+    );
+    expect(story.entries.map(e => [e.label, e.fields.map(f => f.key)])).toEqual(
+      [
+        ['provision · attempt 1', []],
+        ['provision · attempt 2', ['branch', 'worktree']],
+        ['gates', ['extra.gates']],
+      ]
+    );
+  });
+
   it('keeps a clean retry of a stage whose earlier attempt is listed', () => {
     const story = liveStory(
       input({

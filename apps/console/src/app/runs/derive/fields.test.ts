@@ -1,7 +1,13 @@
 import type { RunFieldRow } from '@mattstack/rt-client';
 import { describe, expect, it } from 'vitest';
 
-import { fieldLabel, placeFields, shortPath, storyFields } from './fields';
+import {
+  fieldLabel,
+  placeFields,
+  shortPath,
+  storyFields,
+  workStoryFields,
+} from './fields';
 import type { StageAttempt } from './stages';
 
 const f = (key: string, at: number): RunFieldRow => ({
@@ -47,6 +53,22 @@ describe('storyFields', () => {
     expect(storyFields(keys.map(k => f(k, 1))).map(x => x.key)).toEqual([
       'approach',
       'plan-path',
+    ]);
+  });
+
+  it("keeps the gates stage's report among the extra fields", () => {
+    const keys = ['extra.gates', 'extra.task'];
+    expect(storyFields(keys.map(k => f(k, 1))).map(x => x.key)).toEqual([
+      'extra.gates',
+    ]);
+  });
+
+  it("keeps the branch and worktree in a work run's story", () => {
+    const keys = ['ticket', 'branch', 'worktree', 'mr', 'commits', 'approach'];
+    expect(workStoryFields(keys.map(k => f(k, 1))).map(x => x.key)).toEqual([
+      'branch',
+      'worktree',
+      'approach',
     ]);
   });
 
@@ -123,6 +145,7 @@ describe('fieldLabel', () => {
     ['approach', 'Approach'],
     ['evidence-plan', 'Evidence plan'],
     ['extra_gates', 'Extra gates'],
+    ['extra.gates', 'Gates'],
     ['ShipTarget', 'Ship target'],
     ['ci', 'CI'],
     ['mr', 'MR or PR'],

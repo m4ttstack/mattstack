@@ -10,7 +10,12 @@ import {
   type EvidenceRecord,
 } from '@mattstack/rt-client/evidence';
 
-import { fieldLabel, placeFields, storyFields } from './fields';
+import {
+  fieldLabel,
+  placeFields,
+  storyFields,
+  workStoryFields,
+} from './fields';
 import { gateStage, pickedText, questionAnswer } from './gates';
 import { answeredQuestionCount } from './record';
 import { stageAttempts, type StageAttempt } from './stages';
@@ -163,7 +168,7 @@ export function liveStory(input: StoryInput): LiveStory {
   const attempts = stageAttempts(stages, run, now).map(a =>
     finished && a.status === 'running' ? { ...a, status: 'done' as const } : a
   );
-  const placed = placeFields(storyFields(fields), attempts);
+  const placed = placeFields(workStoryFields(fields), attempts);
   const last = attempts.at(-1);
   const current =
     run.status === 'running' && last?.status === 'running' ? last : null;

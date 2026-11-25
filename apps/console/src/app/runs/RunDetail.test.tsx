@@ -245,7 +245,7 @@ describe('RunDetail: live work run', () => {
       [...story.querySelectorAll('[data-stage]')].map(e =>
         e.getAttribute('data-stage')
       )
-    ).toEqual(['plan']);
+    ).toEqual(['provision', 'plan', 'plan']);
     expect(story).toHaveTextContent('Backend gap-fill');
     expect(story).toHaveTextContent('Which approach?');
     expect(

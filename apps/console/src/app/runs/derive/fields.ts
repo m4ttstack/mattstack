@@ -21,12 +21,19 @@ export const SIDE_KEYS: ReadonlySet<string> = new Set([
   'commits',
 ]);
 
+/** Side keys a work run's story also shows, on the attempt that made them. */
+const WORKSPACE_KEYS: ReadonlySet<string> = new Set(['branch', 'worktree']);
+
+/** `extra.gates` is what the gates stage has to say; the other `extra.` keys
+    are the agent's own notes. */
+const GATES_REPORT = 'extra.gates';
+
 /** `evidence-cleared:<board>` is the evidence step's own check that a board
     is safe to attach; nothing a person reads. */
 function isPlumbing(key: string): boolean {
   return (
     PLUMBING_KEYS.has(key) ||
-    key.startsWith('extra.') ||
+    (key.startsWith('extra.') && key !== GATES_REPORT) ||
     key.startsWith('evidence-cleared:')
   );
 }
@@ -55,10 +62,26 @@ const hasValue = (f: RunFieldRow) =>
   f.value.trim() !== '' && f.value.trim() !== '-';
 
 export function storyFields(fields: RunFieldRow[]): RunFieldRow[] {
+  return fieldsWithout(fields, key => SIDE_KEYS.has(key));
+}
+
+/** A work run's story fields: the branch and worktree too, so provision
+    shows what it set up. */
+export function workStoryFields(fields: RunFieldRow[]): RunFieldRow[] {
+  return fieldsWithout(
+    fields,
+    key => SIDE_KEYS.has(key) && !WORKSPACE_KEYS.has(key)
+  );
+}
+
+function fieldsWithout(
+  fields: RunFieldRow[],
+  shownElsewhere: (key: string) => boolean
+): RunFieldRow[] {
   const shown = fields.filter(
     f =>
       !isPlumbing(f.key) &&
-      !SIDE_KEYS.has(f.key) &&
+      !shownElsewhere(f.key) &&
       f.key !== 'evidence' &&
       hasValue(f)
   );
@@ -78,6 +101,7 @@ export function fieldLabel(key: string): string {
   const known = LABELS[key.toLowerCase().replace(/[-_.\s]+/g, '')];
   if (known) return known;
   const words = key
+    .replace(/^extra\./, '')
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/[-_.]+/g, ' ')
     .trim()

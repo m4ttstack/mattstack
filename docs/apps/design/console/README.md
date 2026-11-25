@@ -294,6 +294,9 @@ difference once:
   on the review run), not the pipeline's 8.
 - The reviewed MR in the side card is a link to the MR; the board draws it as
   text.
+- A work run's story lists provision with the branch and worktree it made,
+  and gates with its report; the boards draw neither row, so the rows after
+  them sit lower.
 - A Decisions side-card row shows the pick's label, as the story's decision
   row does, with its stage tag whole and the pick truncating. The board
   words three run-live picks shorter there ("Both parcels and recipients",
