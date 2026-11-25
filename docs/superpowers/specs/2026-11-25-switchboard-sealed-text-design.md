@@ -138,6 +138,7 @@ sends that same body.
 - **Sending:** sealed before the message is queued, and before any database
   transaction that queues it, so the outbox holds no plain text. Rows queued by
   an older board are stripped of their text fields when drained.
+  Support statuses wait in rt's own database and are sealed as they leave.
 - **Board, receiving:** nothing waits. The ask or state is stored and acked as
   today with the sealed string on its row, and the text is opened when shown.
   A daemon that is down or a locked keychain means "not readable yet", and the
