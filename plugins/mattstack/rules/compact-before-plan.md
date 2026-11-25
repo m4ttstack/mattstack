@@ -29,6 +29,9 @@ The pane route: in a herdr pane, queue it with the `rt:herdr-inject` skill,
 and end the turn. Outside a pane, ask the user to type `/compact`.
 
 Inside a pipeline run, the stop hook refuses to end the turn mid-stage. By
-either route, call `run_hold` first with the reason (compacting before the
-plan), and start the continue line with resuming the run: `run_enter` with
-the run id, which lifts the hold.
+any route, call `run_hold` first with the reason (compacting before the
+plan), and put in the ledger and the continue line what lifts the hold:
+`run_enter` with the same `flags` and `skillDir` the run started with, and
+the run id in `resume` (passed as `runDb`, the run stays held). When
+the user types `/compact` themselves, nothing submits that line, so give it
+to them to paste afterwards.
