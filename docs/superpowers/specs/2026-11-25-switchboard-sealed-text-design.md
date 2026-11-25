@@ -169,7 +169,8 @@ read this."
 ### Before release
 
 An admin runs `rt team members sync` and looks at who is still without a key,
-since those people's notes will not arrive. `rt team status` shows who has one.
+since those people's notes will not arrive. `rt settings get mattstack.roster`
+shows who has one (an `agePublicKey`); `rt team status` does not.
 
 ### Keeping it true
 

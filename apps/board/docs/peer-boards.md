@@ -181,7 +181,41 @@ only: put it in `.env` as `SWITCHBOARD_TOKEN` yourself.
 
 ## Privacy
 
-The switchboard stores envelopes it never inspects. Payloads carry MR URLs,
-iids, statuses, usernames, and timestamps only, never titles, diff content, or
-credentials. Board endpoints, `/nudge` included, stay local-only whether or not
-peer features are configured.
+The switchboard carries envelopes: who wrote to whom, when, about which MR, and
+what state it is in. Text that people or agents write is sealed on the sender's
+Mac with `age`, to the keys the org's roster holds for its recipients, and only
+their Macs open it. The relay, and the person who runs it, cannot read it.
+
+| Message | The relay can read | Sealed |
+|---|---|---|
+| Asks (`review-request`, `re-review-request`, `respond-request`) | `mrUrl`, `iid` | title, branch, note |
+| `nudge-outcome` | `mrUrl`, `iid`, `nudgeId`, `result`, `declined`, a fixed reason | the decline note, any other reason |
+| `review-state` | `mrUrl`, `iid`, `status`, `outcome`, `updatedAt`, `nudgeId`, `parkedAt`, a fixed reason | any other reason |
+| `respond-state` | `mrUrl`, `iid`, `status`, `outcome`, `updatedAt`, `nudgeId` | it carries no text |
+| `announcement` | a placeholder title and message | the real ones |
+| Support request | `id`, `to`, `kind`, `sentAt`, `mac` | the whole request |
+| Support status | `requestId`, `state`, `at` | reason, persona, Slack link |
+
+Every envelope also carries its id, its type, its sender and its recipient, and
+the times it was sent and received. A fixed reason is one of the codes or
+phrases the board itself writes, such as `cooldown` or "busy right now"
+(`WIRE_REASONS` in `src/peer/sealed.ts`).
+
+Sealed text is never sent in the clear instead. When a recipient has no key on
+the roster, or this Mac cannot seal, the message goes without its text and the
+sender of a note is told. An org admin's `rt team members sync` records the
+keys in the roster (`mattstack.roster`), each as `agePublicKey`.
+
+What this does not do:
+
+- It does not hide who messages whom, about which MR, and when.
+- It does not prove who wrote an ask's note. Anyone can encrypt to a public
+  key, so the relay could invent one. Support messages carry the org's own
+  signature.
+- It does not protect an agent from what a teammate's text tells it to do.
+- It does not protect against the app itself: whoever ships mattstack ships the
+  code that encrypts. Nor does it encrypt text at rest on the recipient's Mac.
+
+Board endpoints, `/nudge` included, stay local-only whether or not peer
+features are configured. `src/__tests__/no-plain-text-on-the-wire.test.ts`
+fails when a payload gains a field that is neither a routing fact nor sealed.
