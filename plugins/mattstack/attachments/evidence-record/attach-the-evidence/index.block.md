@@ -22,10 +22,10 @@ flowchart TB
     run_field_get_cleared[/"run_field_get {runDb, key: evidence-cleared:<stem>}, for each board the upload carries"/]
     files_to_show{Any file to show?}
     files_left{Files left to show in this attach?}
-    run_budget_boards[/"run_budget {runDb, key: evidence:boards-openings:<first file of this opening>, limit: 3, stage}"/]
-    boards_openings_spent{boards-openings spent?}
     gate_evidence_boards
     boards_answer{boards answer?}
+    run_budget_boards[/"run_budget {runDb, key: evidence:boards-revisions:<first file of the opening that asked>, limit: 3, stage}"/]
+    boards_revisions_spent{boards-revisions spent?}
     revise_named_boards
     boards_revision_outcome{Board revision outcome?}
     evidence_attach[/"evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl}"/]
@@ -50,18 +50,18 @@ flowchart TB
     attach_failed(((Attach failed)))
     attach_evidence --> run_field_get_cleared
     run_field_get_cleared --> files_to_show
-    files_to_show -->|yes: the first 12 files to show| run_budget_boards
+    files_to_show -->|yes: the first 12 files to show| gate_evidence_boards
     files_to_show -->|no: every file a cleared board| evidence_attach
-    run_budget_boards --> boards_openings_spent
-    boards_openings_spent -->|no| gate_evidence_boards
-    boards_openings_spent -->|yes: nothing uploaded| attach_held
     gate_evidence_boards --> boards_answer
     boards_answer -->|proceed + clear| files_left
-    files_left -->|yes: the next 12| run_budget_boards
+    files_left -->|yes: the next 12| gate_evidence_boards
     files_left -->|no: every file shown and answered clear| evidence_attach
-    boards_answer -->|proceed + hide, or their words| revise_named_boards
+    boards_answer -->|proceed + hide, or their words| run_budget_boards
     boards_answer -->|hold| attach_held
     revise_named_boards --> boards_revision_outcome
+    run_budget_boards --> boards_revisions_spent
+    boards_revisions_spent -->|no| revise_named_boards
+    boards_revisions_spent -->|yes: nothing uploaded, their words quoted| attach_failed
     boards_revision_outcome -->|Recorded, or no board named: again from the first file| run_field_get_cleared
     boards_revision_outcome -->|Held at evidence-redaction, or Record held| attach_held
     boards_revision_outcome -->|Not revised: the failure quoted| attach_failed

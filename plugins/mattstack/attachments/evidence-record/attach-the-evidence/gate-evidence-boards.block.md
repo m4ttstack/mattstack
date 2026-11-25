@@ -18,9 +18,9 @@ Structured context): the source's `context` is a `boards@1` object.
   or `Waived: <its waiver>` for a waived capture, which goes up as shot.
 
 `gate_open` refuses a `boards@1` source with more than 12 boards, or
-one whose boards do not fit the pane prose budget. Each
-opening's `boards-openings` budget is keyed by its first file's name, so a long upload's
-later openings are not charged to the first.
+one whose boards do not fit the pane prose budget. Only an
+answer that asks for a change is charged (`boards-revisions`, keyed by the
+first file of the opening that asked), so a repeat attach costs nothing.
 
 | Question | Options | Shown when |
 |---|---|---|

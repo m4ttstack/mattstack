@@ -100,7 +100,7 @@ flowchart TB
     every_case_tried{Every named case tried?}
     owed_on_run{Owed evidence on the run?}
     run_field_set_owed[/"run_field_set {key: owed-evidence, value: <the list, each item captured this pass marked cleared at the pushed sha>, stage}"/]
-    after_captured{AFTER captured this pass?}
+    after_captured{AFTER captured since the loop was entered?}
     record_evidence
     record_outcome{Record outcome?}
     run_has_evidence{Run has an evidence record?}
@@ -110,7 +110,11 @@ flowchart TB
     run_field_get_review[/"run_field_get {key: review}"/]
     write_title_description
     mr_update_description[/"mr_update {mrUrl, title, description}"/]
-    owed_left{Any owed-evidence item not cleared at the pushed sha?}
+    owed_left{Any owed-evidence item neither settled nor put off at this pass's gate?}
+    gate_owed_evidence
+    run_field_set_owed_answer[/"run_field_set {key: owed-evidence, value: <the list, each answered item marked as its answer says>, stage}"/]
+    owed_capture_now{Any item answered capture it now?}
+    owed_put_off{Any owed-evidence item put off to an environment?}
     run_stage_fail[/"run_stage {action: fail, stage, reason}"/]
     run_hold[/"run_hold {stage, reason, decidedBy}"/]
     held_end_turn(((Held: end the turn naming run and stage)))
@@ -231,7 +235,7 @@ flowchart TB
     capture_after_case --> after_result
     after_result -->|captured, or Board ready| every_case_tried
     after_result -->|none named| owed_on_run
-    after_result -->|skipped: unbound, not a browser case| every_case_tried
+    after_result -->|skipped: unbound and not a browser case, or its environment is not up| every_case_tried
     after_result -->|the capture failed, or Not drawn: a failed brief or spent re-renders| run_budget_after_attempts
     after_result -->|Not drawn, a reason no retry fixes: go on without it| every_case_tried
     after_result -->|Held at evidence-redaction| run_hold
@@ -242,9 +246,11 @@ flowchart TB
     every_case_tried -->|yes| owed_on_run
     owed_on_run -->|yes| run_field_set_owed
     owed_on_run -->|"no: unset, or -"| after_captured
+    owed_on_run -->|the read errored twice: a failure| which_exit
     run_field_set_owed --> after_captured
     after_captured -->|yes| record_evidence
     after_captured -->|no| run_has_evidence
+    after_captured -->|no, in a loop a Capture it now answer entered: nothing new to attach| mr_view_url
     record_evidence --> record_outcome
     record_outcome -->|Recorded| attach_evidence
     record_outcome -->|Record held at evidence-waiver or evidence-redaction| run_hold
@@ -259,8 +265,15 @@ flowchart TB
     run_field_get_review --> write_title_description
     write_title_description --> mr_update_description
     mr_update_description --> owed_left
-    owed_left -->|"no: none owed, or every item cleared"| ship_done
-    owed_left -->|yes: hold, naming each item| run_hold
+    owed_left -->|yes| gate_owed_evidence
+    owed_left -->|no| owed_put_off
+    gate_owed_evidence -->|answered| run_field_set_owed_answer
+    gate_owed_evidence -->|hold| run_hold
+    run_field_set_owed_answer --> owed_capture_now
+    owed_capture_now -->|yes: each such item is a case again| browser_case
+    owed_capture_now -->|no: the description says the answers| mr_view_url
+    owed_put_off -->|no| ship_done
+    owed_put_off -->|yes: the developer's answer holds the run until it is up| run_hold
     run_stage_fail --> stage_failed
     run_hold --> held_end_turn
 ```

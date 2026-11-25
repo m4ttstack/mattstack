@@ -66,6 +66,8 @@ flowchart TB
     fix_round_changed{Did the fix round change code?}
     run_budget_rereview[/"run_budget {runDb, key: rereview-rounds, limit: <the re-review cap + 1>, stage}"/]
     rereview_spent{rereview-rounds spent?}
+    gate_rereview_spent
+    rereview_spent_answer{Re-review cap answer?}
     rereview_fix_round
     rereview_findings{Did the re-review raise findings?}
     hand_back_minor
@@ -170,7 +172,11 @@ flowchart TB
     fix_round_changed -->|yes| run_budget_rereview
     run_budget_rereview --> rereview_spent
     rereview_spent -->|no| rereview_fix_round
-    rereview_spent -->|yes: hold, naming the unreviewed fix round| run_hold
+    rereview_spent -->|yes: the cap is reached| gate_rereview_spent
+    gate_rereview_spent --> rereview_spent_answer
+    rereview_spent_answer -->|rereview| rereview_fix_round
+    rereview_spent_answer -->|hand back, or abandon| own_run_close_abandoned
+    rereview_spent_answer -->|hold| run_hold
     rereview_fix_round --> rereview_findings
     rereview_findings -->|yes: the same gate, on the re-review's draft| assemble_draft
     rereview_findings -->|no| own_run_close

@@ -110,6 +110,8 @@ flowchart TB
     run_field_set_hold_clear[/"run_field_set {runDb, key: hold, value: -, stage}"/]
     read_posted_threads_gh
     gh_read_complete{The GitHub read returned every thread due?}
+    gate_off_script_gh_read
+    gh_read_answer{GitHub read answer?}
     picks_need_push{Picks post or resolve a gate-1: fix row?}
     git_branch_current[/git branch --show-current/]
     git_rev_parse_push[/"git rev-parse --abbrev-ref @{push}"/]
@@ -126,6 +128,8 @@ flowchart TB
     resolve_result{GitHub resolve result?}
     github_fix_held{Any GitHub row held this pass?}
     gate_record_held[/"gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy, held}"/]
+    gate_off_script_gh_held
+    gh_held_answer{GitHub held threads answer?}
     run_field_set_hold_held[/"run_field_set {runDb, key: hold, value: held, stage: <stage>}"/]
     report_outcome
     verb_owns_run{This verb started or resumed the run?}
@@ -293,13 +297,12 @@ flowchart TB
     post_forge -->|GitHub: never respond_post_execute| read_posted_threads_gh
     respond_post_execute --> execute_result
     execute_result -->|held is empty| run_field_set_hold_clear
-    execute_result -->|a reply or resolve held| gate_off_script_forge
-    execute_result -->|only push, mismatch or read held| report_held_threads
+    execute_result -->|anything held| gate_off_script_forge
     execute_result -->|refused: a line names a field, a record or the tree| run_budget_execute_fix
     execute_result -->|refused: nothing a fix on this run can mend| gate_off_script_execute
     execute_result -->|tempted to push from the shell or force| stop_shell_push
     execute_result -->|tempted to reply or resolve by hand| stop_post_outside_execute
-    stop_shell_push --> report_held_threads
+    stop_shell_push --> gate_off_script_forge
     stop_post_outside_execute --> gate_off_script_forge
     run_budget_execute_fix --> execute_fix_spent
     execute_fix_spent -->|no| fix_execute_refusal
@@ -311,15 +314,20 @@ flowchart TB
     execute_refusal_answer -->|hold| run_hold
     execute_refusal_answer -->|hand back| own_run_failed_or_abandoned
     gate_off_script_forge --> forge_refusal_answer
-    forge_refusal_answer -->|take: the human posted or resolved by hand| respond_post_execute
+    forge_refusal_answer -->|take: the human posted, resolved or pushed by hand| respond_post_execute
     forge_refusal_answer -->|iterate: the cause is fixed| respond_post_execute
-    forge_refusal_answer -->|hold: the tool already set hold| report_held_threads
+    forge_refusal_answer -->|hold, threads held: the tool already set hold| report_held_threads
+    forge_refusal_answer -->|hold, nothing held| run_hold
     forge_refusal_answer -->|hand back| own_run_failed_or_abandoned
     report_held_threads --> threads_held_open
     run_field_set_hold_clear --> report_outcome
     read_posted_threads_gh --> gh_read_complete
     gh_read_complete -->|yes| picks_need_push
-    gh_read_complete -->|no, or an error: report it verbatim| run_field_set_hold_held
+    gh_read_complete -->|no, or an error| gate_off_script_gh_read
+    gate_off_script_gh_read --> gh_read_answer
+    gh_read_answer -->|take, or iterate: read again| read_posted_threads_gh
+    gh_read_answer -->|hold| run_field_set_hold_held
+    gh_read_answer -->|hand back| own_run_failed_or_abandoned
     picks_need_push -->|yes| git_branch_current
     picks_need_push -->|no: push nothing| next_github_thread
     git_branch_current --> git_rev_parse_push
@@ -345,7 +353,11 @@ flowchart TB
     resolve_result -->|an error: hold this thread, quoting it| next_github_thread
     github_fix_held -->|yes| gate_record_held
     github_fix_held -->|no| report_outcome
-    gate_record_held --> run_field_set_hold_held
+    gate_record_held --> gate_off_script_gh_held
+    gate_off_script_gh_held --> gh_held_answer
+    gh_held_answer -->|take, or iterate: the held threads alone, read again| read_posted_threads_gh
+    gh_held_answer -->|hold| run_field_set_hold_held
+    gh_held_answer -->|hand back| own_run_failed_or_abandoned
     report_outcome --> verb_owns_run
     verb_owns_run -->|yes: outcome done| run_close
     verb_owns_run -->|no: inherited, the caller closes| feedback_answered

@@ -11,6 +11,5 @@ node: execute_result
 - **`held` empty:** every due reply and resolve is done; clear `hold`,
   which an earlier pass or the tool may have set and the tool never
   clears.
-- **A `reply` or `resolve` entry in `held`:** one off-script gate for the
+- **Any entry in `held`**, whatever its `kind`: one off-script gate for the
   batch.
-- **Only `push`, `mismatch` or `read` entries:** report them.

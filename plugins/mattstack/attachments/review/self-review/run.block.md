@@ -35,7 +35,7 @@ the counted event, and its `<key> spent?` diamond reads `exhausted`:
 | `fix:<finding id>:<round>` | 3 | a fix attempt fails; `<round>` is 1, then 2 after the finding's reopened gate |
 | `verdict-rounds:<depth>` | 2 | a verdict check at that depth leaves problems |
 | `reopen:<finding id>` | 2 | the finding's fix budget is spent: the first charge opens the reopened gate, the second leaves the finding open |
-| `rereview-rounds` | the re-review cap + 1 | a fix round that changed code is about to be re-reviewed; charged before the dispatch, so the cap's worth of re-reviews run and the next changed round holds |
+| `rereview-rounds` | the re-review cap + 1 | a fix round that changed code is about to be re-reviewed; charged before the dispatch, so the cap's worth of re-reviews run and the next changed round opens the re-review cap gate |
 
 The **re-review cap** is the `review.rereviewRounds` setting. Read it once,
 before the first `rereview-rounds` charge, with

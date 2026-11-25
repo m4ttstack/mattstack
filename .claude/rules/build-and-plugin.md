@@ -12,8 +12,8 @@ paths:
 
 The mattstack skills plugin lives at `plugins/mattstack` and keeps its own
 Markdown and shell style, never rt's formatter. Its checks run in the
-`plugin-mattstack` job (certify, `rt skills check --strict`, the mcp-tools
-reference diff), which also fails a PR that changes the plugin without
+`plugin-mattstack` job (certify, `rt skills check --strict`, `scripts/ci/hold-edges.ts` (a graph
+edge into a hold must carry a human's answer), the mcp-tools reference diff), which also fails a PR that changes the plugin without
 bumping `.claude-plugin/plugin.json`'s version. After any MCP tool change,
 regenerate the reference: `bun cli.ts mcp tools --json | bun
 plugins/mattstack/scripts/gen-mcp-tools.ts >
