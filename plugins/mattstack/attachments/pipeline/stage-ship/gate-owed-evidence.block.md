@@ -13,7 +13,8 @@ capture that failed and its error, the environment that is not up, or that
 no tool here can make it. For an item captured at an earlier sha, it names
 that sha and lists `git diff --name-only <that sha>..<pushed sha>`.
 
-One question (write-in) per owed item, its id `owed-<finding id>`, its
+One question (write-in) per owed item, one already put off at this pass's
+gate left out, its id `owed-<finding id>`, its
 label the item's text:
 
 | Option | Shown when |
@@ -31,6 +32,8 @@ Apply each answer to its line (Graph notes, Owed evidence): `accept`
 checks it at the pushed sha, `followup` checks it as a follow-up, `later`
 leaves it open on its environment, `now` leaves it as it was. A write-in
 that names a method is `now` by that method; one that names an environment
-is `later` on it. An item answered `now` takes one more try, its spent
-`after-attempts` sending a failed one back here. Every other case counts
+is `later` on it. An item answered `now` is a hand-off of its own by the method its
+option named, with the get-ready pass run again, and takes one more try:
+its spent `after-attempts` sends a failed one back here, where each retry
+needs a new answer. Every other case counts
 as tried.
