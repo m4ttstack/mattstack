@@ -1,4 +1,4 @@
-import type { GateRow, RunSummary } from '@mattstack/rt-client';
+import type { GateRow, RunDecisionRow, RunSummary } from '@mattstack/rt-client';
 
 import { runIdOfGate } from '../../../shared/gate-run';
 import { decisionText } from './day';
@@ -27,6 +27,18 @@ export type PauseState = 'none' | 'pausing' | 'paused';
 export function pauseStateOf(run: RunSummary): PauseState {
   if (!run.hold) return 'none';
   return run.agent?.status === 'working' ? 'pausing' : 'paused';
+}
+
+/** Who set the run's pause: whoever decided its newest hold. A hold with no
+    decision reads as the console's. */
+export function pausedBy(decisions: RunDecisionRow[]): 'console' | 'agent' {
+  const latest = decisions
+    .filter(d => d.scope.startsWith('hold:'))
+    .reduce<RunDecisionRow | null>(
+      (last, d) => (!last || d.decided_at >= last.decided_at ? d : last),
+      null
+    );
+  return !latest || latest.decided_by === 'console' ? 'console' : 'agent';
 }
 
 /** The mode a run answers gates in: its `gate-mode` field, else the mode on

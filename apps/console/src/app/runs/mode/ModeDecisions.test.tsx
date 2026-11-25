@@ -1,6 +1,6 @@
 import '../../icons';
 
-import { StrictMode, type ReactNode } from 'react';
+import { StrictMode, type ComponentProps, type ReactNode } from 'react';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { GateRow } from '@mattstack/rt-client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -269,10 +269,21 @@ describe('ModePanel', () => {
 });
 
 describe('PausedBanner', () => {
-  it('names the step it stops after and the mode it stops answering for', () => {
+  const at = new Date(2026, 9, 8, 8, 44).getTime();
+  const banner = (over: Partial<ComponentProps<typeof PausedBanner>> = {}) =>
     wrap(
-      <PausedBanner pause="pausing" at={0} stage="watch-ci" mode="normal" />
+      <PausedBanner
+        pause="paused"
+        by="console"
+        hold={{ reason: 'paused from the console', at }}
+        stage="implement"
+        mode={null}
+        {...over}
+      />
     );
+
+  it('names the step it stops after and the mode it stops answering for', () => {
+    banner({ pause: 'pausing', stage: 'watch-ci', mode: 'normal' });
     expect(
       screen.getByText('Pausing from the console: it stops after watch-ci.')
     ).toBeTruthy();
@@ -281,6 +292,25 @@ describe('PausedBanner', () => {
         'Gates that open now ask you instead of the normal mode.'
       )
     ).toBeTruthy();
+  });
+
+  it('says nothing about gates when the run has no mode', () => {
+    banner();
+    expect(screen.getByTestId('paused-banner').textContent).toMatch(
+      /^Paused from the console at .*\. It stopped after implement\.$/
+    );
+  });
+
+  it("gives the agent's own pause its reason", () => {
+    banner({ by: 'agent', hold: { reason: 'Compacting first', at } });
+    expect(screen.getByTestId('paused-banner').textContent).toMatch(
+      /^Paused by the agent at .*, during implement\.Compacting first$/
+    );
+  });
+
+  it('draws nothing while the agent works through its own pause', () => {
+    banner({ by: 'agent', pause: 'pausing' });
+    expect(screen.queryByTestId('paused-banner')).toBeNull();
   });
 });
 

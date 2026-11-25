@@ -2,7 +2,13 @@ import type { GateRow, RunSummary } from '@mattstack/rt-client';
 import { describe, expect, it } from 'vitest';
 
 import { decisionText } from './day';
-import { modeFeed, modeOf, pauseStateOf, runModeOf } from './modeFeed';
+import {
+  modeFeed,
+  modeOf,
+  pausedBy,
+  pauseStateOf,
+  runModeOf,
+} from './modeFeed';
 
 describe('runModeOf', () => {
   const field = (value: string) => [{ key: 'gate-mode', value }];
@@ -35,6 +41,29 @@ describe('pauseStateOf', () => {
       pauseStateOf(run('r1', { hold, agent: { status: 'idle', pane: 'p' } }))
     ).toBe('paused');
     expect(pauseStateOf(run('r1', { hold }))).toBe('paused');
+  });
+});
+
+describe('pausedBy', () => {
+  const hold = (
+    decided_by: string,
+    decided_at: number,
+    scope = 'hold:plan:1'
+  ) => ({
+    contract: 'gate@1',
+    scope,
+    selection: '{"reason":"x"}',
+    decided_by,
+    decided_at,
+  });
+
+  it("is whoever decided the run's newest hold", () => {
+    expect(pausedBy([hold('console', 1), hold('pane', 2)])).toBe('agent');
+    expect(pausedBy([hold('pane', 1), hold('console', 2)])).toBe('console');
+  });
+
+  it('is the console when no hold was decided', () => {
+    expect(pausedBy([hold('pane', 1, 'plan')])).toBe('console');
   });
 });
 

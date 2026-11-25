@@ -8,7 +8,12 @@ import { formatDuration } from '../derive/duration';
 import { gateStage } from '../derive/gates';
 import { shepherdGate } from '../derive/lanes';
 import { heroLiveness } from '../derive/liveness';
-import { modeFeed, pauseStateOf, runModeOf } from '../derive/modeFeed';
+import {
+  modeFeed,
+  pausedBy,
+  pauseStateOf,
+  runModeOf,
+} from '../derive/modeFeed';
 import { liveCost } from '../derive/record';
 import { heldSpans } from '../derive/run';
 import { railStages, stageAttempts } from '../derive/stages';
@@ -247,7 +252,8 @@ export function RunPage({
         {pause !== 'none' && run.hold ? (
           <PausedBanner
             pause={pause}
-            at={run.hold.at}
+            by={pausedBy(decisions)}
+            hold={run.hold}
             stage={run.current_stage}
             mode={mode}
           />

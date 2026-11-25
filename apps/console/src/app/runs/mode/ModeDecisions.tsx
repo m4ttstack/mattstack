@@ -112,27 +112,30 @@ function GateRedoNote({
   );
 }
 
-/** The run page's notice while a console Pause is on its way or has
-    landed. */
+/** The run page's notice while a console Pause is on its way or has landed,
+    or once the agent has paused the run itself. An agent still working has
+    either not stopped yet or picked the run back up, so it gets no notice. */
 export function PausedBanner({
   pause,
-  at,
+  by,
+  hold,
   stage,
   mode,
 }: {
   pause: Exclude<PauseState, 'none'>;
-  at: number;
+  by: 'console' | 'agent';
+  hold: { reason: string; at: number };
   stage: string | null;
   mode: string | null;
 }) {
+  if (by === 'agent' && pause === 'pausing') return null;
   const where = stage ? ` after ${stage}` : '';
   const title =
-    pause === 'pausing'
-      ? `Pausing from the console: it stops${where}.`
-      : `Paused from the console at ${clock(at)}. It stopped${where}.`;
-  const asks = mode
-    ? `Gates that open now ask you instead of the ${mode} mode.`
-    : 'Gates that open now ask you.';
+    by === 'agent'
+      ? `Paused by the agent at ${clock(hold.at)}${stage ? `, during ${stage}` : ''}.`
+      : pause === 'pausing'
+        ? `Pausing from the console: it stops${where}.`
+        : `Paused from the console at ${clock(hold.at)}. It stopped${where}.`;
   return (
     <Alert
       color="yellow"
@@ -143,7 +146,12 @@ export function PausedBanner({
       <Text fz="sm" fw={600}>
         {title}
       </Text>
-      <Text fz="sm">{asks}</Text>
+      {by === 'agent' ? <Text fz="sm">{hold.reason}</Text> : null}
+      {mode ? (
+        <Text fz="sm">
+          {`Gates that open now ask you instead of the ${mode} mode.`}
+        </Text>
+      ) : null}
     </Alert>
   );
 }
