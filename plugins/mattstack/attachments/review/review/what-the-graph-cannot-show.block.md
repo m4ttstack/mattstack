@@ -23,9 +23,8 @@ label: Graph notes
   take): rt reads the latest post decision as what posted. Pass `gateId`
   for an answered gate, or the caller's selection as `answers` with its
   named `decidedBy`; the tool builds the record.
-- A hold is one `run_hold` (`reason` the human's words or the quoted
-  error, `decidedBy` the answer's by, `pane` for an error); then the turn
-  ends. A gate that comes back `closed` is a hold, reason "gate closed".
+- A hold is one `run_hold`, made only on a human's `hold` answer (`reason`
+  their words, `decidedBy` the answer's by); then the turn ends. A gate that comes back `closed` is a hold, reason "gate closed".
 - `run_close` takes `outcome: done` after the post record, or `abandoned`
   with `reason: <why; what already posted>` on a hand back.
 - A submit result of `published: true` with `replyErrors` (GitHub) takes
@@ -37,4 +36,3 @@ label: Graph notes
   `mr_reply_thread`, never a second submit. That is not the split-posting
   the STOP guards against. A reply that still fails is reported in the
   close with its error, apart from `resolveErrors`.
-- A fetch or diff that errors is a hold quoting the error.

@@ -38,15 +38,22 @@ flowchart TB
     own_run_record_target{Own review run: record the target?}
     record_target
     caller_decided_report{Caller handed a decided selection and the report it decided on?}
+    gate_off_script_selection
+    selection_off_answer{Missing selection off-script answer?}
     caller_framed_rereview{Caller framed a re-review?}
     take_earlier_threads
     threads_in_hand{Earlier threads in hand?}
+    gate_off_script_threads
+    threads_off_answer{Earlier threads off-script answer?}
     print_depth_block
     diff_forge{Review diff forge?}
     git_fetch_pr_head[/git fetch origin <targetBranch> +pull/<n>/head:refs/remotes/origin/pr-<n>/]
     git_diff_pr[/git diff origin/<targetBranch>...origin/pr-<n>/]
     git_fetch_mr_head[/git fetch origin <targetBranch> +refs/merge-requests/<iid>/head:refs/remotes/origin/mr-<iid>/]
     git_diff[/git diff origin/<targetBranch>...origin/mr-<iid>/]
+    diff_in_hand{Fetch and diff both clean?}
+    gate_off_script_diff
+    diff_off_answer{Review diff off-script answer?}
     head_checkout_in_hand{MR-head checkout in hand?}
     worktree_provision[/"worktree_provision {repoName, branch: <source branch>, reuse: true}"/]
     provision_returned_path{Review head worktree_provision returned a path?}
@@ -156,48 +163,64 @@ flowchart TB
     mr_for_branch --> branch_entry_found
     branch_entry_found -->|an iid| mr_view
     branch_entry_found -->|null: no open MR| mr_list_branch
-    branch_entry_found -->|an error: hold, quoting it| run_hold
+    branch_entry_found -->|an error: quoted in the gate| gate_which_target
     branch_entry_found -->|tempted to look it up with the forge CLI| stop_gitlab_branch_lookup
     stop_gitlab_branch_lookup --> mr_list_branch
     mr_list_branch --> branch_matches
     branch_matches -->|exactly one| mr_view
-    branch_matches -->|none: hold| run_hold
-    branch_matches -->|several, or truncated| gate_which_target
-    branch_matches -->|an error: hold, quoting it| run_hold
+    branch_matches -->|none, several, or truncated| gate_which_target
+    branch_matches -->|an error: quoted in the gate| gate_which_target
     mr_list_ticket --> ticket_matches
     ticket_matches -->|exactly one, untruncated| mr_view
     ticket_matches -->|none, several, or truncated| gate_which_target
     ticket_matches -->|an error: quoted in the gate| gate_which_target
     mr_view --> mr_view_found
     mr_view_found -->|yes| own_run_record_target
-    mr_view_found -->|an error: hold, quoting it| run_hold
+    mr_view_found -->|an error: quoted in the gate| gate_which_target
     mr_view_found -->|tempted to read it with the forge CLI| stop_gitlab_shell_reads
     stop_gitlab_shell_reads --> mr_view
     gate_which_target --> target_answer
-    target_answer -->|a target picked| target_form
-    target_answer -->|their text| run_budget_target_clarify
+    target_answer -->|a target not tried yet| target_form
+    target_answer -->|their text, or a target already tried| run_budget_target_clarify
     target_answer -->|next: hold| run_hold
     run_budget_target_clarify --> target_clarify_spent
     target_clarify_spent -->|no: resolve it| target_form
-    target_clarify_spent -->|yes: hold| run_hold
+    target_clarify_spent -->|yes: hand back what was tried| own_run_abandon
     own_run_record_target -->|yes| record_target
     own_run_record_target -->|no: inherited| caller_decided_report
     record_target --> caller_decided_report
     caller_decided_report -->|yes: post it; review nothing again| compose_review
-    caller_decided_report -->|yes, but a selected id the json lacks: hold, quoting it| run_hold
+    caller_decided_report -->|yes, but a selected id the json lacks| gate_off_script_selection
+    gate_off_script_selection --> selection_off_answer
+    selection_off_answer -->|take: review again, the handed selection dropped| caller_framed_rereview
+    selection_off_answer -->|iterate here: read the report again| caller_decided_report
+    selection_off_answer -->|hold| run_hold
+    selection_off_answer -->|hand back| own_run_abandon
     caller_decided_report -->|no| caller_framed_rereview
     caller_framed_rereview -->|yes| take_earlier_threads
     caller_framed_rereview -->|no| print_depth_block
     take_earlier_threads --> threads_in_hand
     threads_in_hand -->|yes, or none to judge| print_depth_block
-    threads_in_hand -->|no: the read errored| run_hold
+    threads_in_hand -->|no: the read errored| gate_off_script_threads
+    gate_off_script_threads --> threads_off_answer
+    threads_off_answer -->|take: a full review with no earlier threads| print_depth_block
+    threads_off_answer -->|iterate here: read them again| take_earlier_threads
+    threads_off_answer -->|hold| run_hold
+    threads_off_answer -->|hand back| own_run_abandon
     print_depth_block --> diff_forge
     diff_forge -->|GitHub| git_fetch_pr_head
     diff_forge -->|GitLab| git_fetch_mr_head
     git_fetch_mr_head --> git_diff
-    git_diff --> head_checkout_in_hand
+    git_diff --> diff_in_hand
     git_fetch_pr_head --> git_diff_pr
-    git_diff_pr --> head_checkout_in_hand
+    git_diff_pr --> diff_in_hand
+    diff_in_hand -->|yes| head_checkout_in_hand
+    diff_in_hand -->|no: a fetch or the diff errored| gate_off_script_diff
+    gate_off_script_diff --> diff_off_answer
+    diff_off_answer -->|take: the human put the diff in hand| head_checkout_in_hand
+    diff_off_answer -->|iterate here: fetch again| diff_forge
+    diff_off_answer -->|hold| run_hold
+    diff_off_answer -->|hand back| own_run_abandon
     head_checkout_in_hand -->|yes, or read depth| set_up_depth
     head_checkout_in_hand -->|no: verify or repro| worktree_provision
     head_checkout_in_hand -->|tempted to create one by hand| stop_checkout_without_provision
@@ -286,8 +309,7 @@ flowchart TB
     review_already_posted -->|no| mr_review_submit
     review_already_posted -->|yes, approval outstanding| gate_off_script_approve
     review_already_posted -->|yes, nothing outstanding| gate_record
-    review_already_posted -->|partly| gate_off_script_submit
-    review_already_posted -->|the read errored| run_hold
+    review_already_posted -->|partly, or the read errored| gate_off_script_submit
     mr_review_submit --> mr_review_submit_result
     mr_review_submit_result -->|published, approved as asked| gate_record
     mr_review_submit_result -->|published, approved: false on an approve| gate_off_script_approve

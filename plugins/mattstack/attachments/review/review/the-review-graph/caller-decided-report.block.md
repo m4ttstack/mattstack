@@ -17,7 +17,7 @@ block, fetch, diff, provision or dispatch nothing, and never rewrite the
 report or its json: a second pass forms new findings whose ids and
 anchors are not the ones the human picked. A selected finding id the json
 lacks means the selection was decided on another revision of the report:
-hold, quoting the missing ids, and never post a partial set. On a resumed
+the off-script gate, quoting the missing ids; never post a partial set. On a resumed
 run the post still reads the MR first (`This review already on the MR?`).
 No: a
 selection handed with no report, or none handed, goes on to the review.

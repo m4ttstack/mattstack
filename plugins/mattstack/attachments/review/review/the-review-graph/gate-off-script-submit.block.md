@@ -23,4 +23,5 @@ recorded as posted by the human.
 nothing from this review is up, never a blind resubmit. From `This review
 already on the MR?` with partly, it quotes the hold reason and which
 items the posted-already read found posted (`mr_posted_since` items on
-GitLab, the `mr_threads` text matches on GitHub).
+GitLab, the `mr_threads` text matches on GitHub); from a read that errored
+there, it quotes the error and reads as outcome unknown.
