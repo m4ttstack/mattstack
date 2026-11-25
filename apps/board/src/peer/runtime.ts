@@ -28,7 +28,7 @@ export interface PeeringHost {
   /** Whether this board takes asks; the tick tells the relay when it changes. */
   asksEnabled?: () => boolean;
   /** Called after each tick; a throw is logged, never raised. */
-  onTick?: () => void;
+  onTick?: () => void | Promise<void>;
   /** Outbox db to drain on each tick. Defaults to the shared state db, which
       is what production wants; tests must pin a temp db so a run never
       drains the real queue. */
@@ -77,7 +77,7 @@ export function makePeering(host: PeeringHost) {
         }
       }
       try {
-        host.onTick?.();
+        await host.onTick?.();
       } catch (err) {
         host.deps.log(
           `peer: tick hook failed: ${err instanceof Error ? err.message : err}`

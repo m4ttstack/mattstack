@@ -71,7 +71,8 @@ describe("sendAnnouncement", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe(`${SWITCHBOARD_URL}/envelopes`);
     expect(calls[0]!.headers.Authorization).toBe("Bearer board-token");
-    expect(JSON.parse(calls[0]!.body)).toMatchObject({ to: "*", type: "announcement", payload: { ...ANNOUNCEMENT_PLACEHOLDER, sealed: "YWdl" } });
+    const { id: _id, sentAt: _sentAt, ...rest } = JSON.parse(calls[0]!.body);
+    expect(rest).toEqual({ to: "*", type: "announcement", payload: { ...ANNOUNCEMENT_PLACEHOLDER, sealed: "YWdl" } });
   });
 
   test("the posted body holds neither the title nor the message, and an older board reads the placeholder", async () => {

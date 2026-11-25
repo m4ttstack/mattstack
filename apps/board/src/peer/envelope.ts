@@ -124,11 +124,12 @@ export function askWireType(kind: AskKind | undefined): string {
 }
 
 /** Draft the ask envelope for one of this board's own MRs. The wire type is
-    the only thing kind changes; both asks share ReReviewRequestPayload. */
+    the only thing kind changes; both asks share ReReviewRequestPayload. Its
+    text goes in sealed (see `sealedAsk`), so a draft takes none. */
 export function buildAskDraft(
   reviewer: string,
   kind: AskKind,
-  payload: ReReviewRequestPayload,
+  payload: Pick<ReReviewRequestPayload, 'mrUrl' | 'iid'>,
   now: number = Date.now()
 ): DraftEnvelope {
   return makeEnvelope(reviewer, askWireType(kind), payload, now);

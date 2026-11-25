@@ -53,7 +53,10 @@ function deps(over: Partial<AskActionDeps> = {}) {
       handled.push({ id, result, reason, ...opts });
       return true;
     },
-    publishOutcome: (to, p) => published.push({ to, p }),
+    publishOutcome: async (to, p) => {
+      published.push({ to, p });
+      return undefined;
+    },
     readReviewStates: () => new Map(),
     readRespondStates: () => new Map(),
     isOwnMr: () => false,
@@ -200,10 +203,10 @@ describe('acceptAsk', () => {
 });
 
 describe('declineAsk', () => {
-  test('publishes the chip words, the flag and the note', () => {
+  test('publishes the chip words, the flag and the note', async () => {
     const d = deps();
     expect(
-      declineAsk('n1', { reason: 'busy', note: 'after standup' }, d)
+      await declineAsk('n1', { reason: 'busy', note: 'after standup' }, d)
     ).toEqual({ ok: true });
     expect(d.handled).toEqual([
       {
@@ -230,9 +233,9 @@ describe('declineAsk', () => {
     ]);
   });
 
-  test('no reason picked sends none', () => {
+  test('no reason picked sends none', async () => {
     const d = deps();
-    declineAsk('n1', {}, d);
+    await declineAsk('n1', {}, d);
     expect(d.published[0]).toEqual({
       to: 'rae',
       p: {
@@ -245,23 +248,26 @@ describe('declineAsk', () => {
     });
   });
 
-  test('a handled ask cannot be declined', () => {
+  test('a handled ask cannot be declined', async () => {
     const d = deps({
       readNudges: () => [{ ...ask, handled: { at: 1, result: 'launched' } }],
     });
-    expect(declineAsk('n1', {}, d)).toMatchObject({ ok: false, status: 409 });
+    expect(await declineAsk('n1', {}, d)).toMatchObject({
+      ok: false,
+      status: 409,
+    });
   });
 });
 
 describe('declineWhileOff', () => {
-  test('answers every waiting ask with asks-off and leaves handled ones alone', () => {
+  test('answers every waiting ask with asks-off and leaves handled ones alone', async () => {
     const d = deps({
       readNudges: () => [
         ask,
         { ...ask, id: 'n2', handled: { at: 1, result: 'launched' } },
       ],
     });
-    expect(declineWhileOff(d)).toBe(1);
+    expect(await declineWhileOff(d)).toBe(1);
     expect(d.handled).toEqual([
       { id: 'n1', result: 'rejected', reason: 'asks-off' },
     ]);
@@ -281,7 +287,7 @@ describe('declineWhileOff', () => {
 });
 
 describe('declineRespondAsks', () => {
-  test('declines each waiting respond ask with the reason and leaves review asks pending', () => {
+  test('declines each waiting respond ask with the reason and leaves review asks pending', async () => {
     const respond: NudgeState = { ...ask, id: 'r1', kind: 'respond' };
     const d = deps({
       readNudges: () => [
@@ -295,7 +301,7 @@ describe('declineRespondAsks', () => {
         },
       ],
     });
-    expect(declineRespondAsks(d, FORGE_NOT_YET)).toBe(1);
+    expect(await declineRespondAsks(d, FORGE_NOT_YET)).toBe(1);
     expect(d.handled).toEqual([
       {
         id: 'r1',
@@ -379,21 +385,24 @@ describe('answers racing another process', () => {
     ).toEqual(['rejected']);
   });
 
-  test('decline and the asks-off sweep send nothing for an ask answered first elsewhere', () => {
+  test('decline and the asks-off sweep send nothing for an ask answered first elsewhere', async () => {
     const d = dbDeps();
     writeNudge(ask, d.db);
     const stale = readNudges(d.db);
     markNudgeHandled('n1', 'launched', 'always-allowed', d.db, NOW);
     d.readNudges = () => stale;
-    expect(declineAsk('n1', {}, d)).toMatchObject({ ok: false, status: 409 });
-    expect(declineWhileOff(d)).toBe(0);
+    expect(await declineAsk('n1', {}, d)).toMatchObject({
+      ok: false,
+      status: 409,
+    });
+    expect(await declineWhileOff(d)).toBe(0);
     expect(d.published).toEqual([]);
     expect(readNudges(d.db)[0]?.handled?.result).toBe('launched');
   });
 });
 
 describe('expireStaleAsks', () => {
-  test('expires waiting asks past the fresh window and tells each asker once', () => {
+  test('expires waiting asks past the fresh window and tells each asker once', async () => {
     const d = dbDeps();
     writeNudge(
       { ...ask, id: 'old', receivedAt: NOW - NUDGE_FRESH_MS - 1 },
@@ -409,8 +418,8 @@ describe('expireStaleAsks', () => {
       },
       d.db
     );
-    expect(expireStaleAsks(d, NOW)).toBe(1);
-    expect(expireStaleAsks(d, NOW)).toBe(0);
+    expect(await expireStaleAsks(d, NOW)).toBe(1);
+    expect(await expireStaleAsks(d, NOW)).toBe(0);
     expect(d.published).toEqual([
       {
         to: 'rae',

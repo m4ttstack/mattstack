@@ -8,6 +8,7 @@ import {
   listOrgs,
   readDiscussions,
   readProjectMRs,
+  textSeal,
 } from '@mattstack/rt-client';
 import {
   FORGE_NOT_YET,
@@ -38,10 +39,6 @@ import {
 } from '../src/peer/ask-actions.ts';
 import { openAskTitle } from '../src/peer/ask-inbox.ts';
 import { makeSwitchboardClient } from '../src/peer/client.ts';
-import {
-  makeEnvelope,
-  type NudgeOutcomePayload,
-} from '../src/peer/envelope.ts';
 import { runPeerTick } from '../src/peer/inbox.ts';
 import { makeAskLauncher, makeRepoForMrUrl } from '../src/peer/launch-ask.ts';
 import {
@@ -55,6 +52,7 @@ import {
   reviewerDisplayName,
 } from '../src/peer/nudges.ts';
 import { drainOutbox, enqueueOutbox } from '../src/peer/outbox.ts';
+import { outcomePublisher, peerUsername } from '../src/peer/sealed-send.ts';
 import { readRespondStates } from '../src/respond-state.ts';
 import { launchReReview, reviewLaunchForTab } from '../src/review-launch.ts';
 import {
@@ -311,10 +309,15 @@ try {
       reason,
       opts
     ) => markNudgeHandled(id, r, reason, undefined, undefined, opts);
-    const publishOutcome = (to: string, payload: NudgeOutcomePayload) =>
-      enqueueOutbox(makeEnvelope(to, 'nudge-outcome', payload));
+    const publishOutcome = outcomePublisher(
+      {
+        seal: a => textSeal(a),
+        self: () => peerUsername(boardConfig.defaultMember),
+      },
+      draft => enqueueOutbox(draft)
+    );
     if (peerMode && boardConfig.forge.kind === 'github') {
-      declineRespondAsks(
+      await declineRespondAsks(
         {
           readNudges,
           markNudgeHandled: markHandled,

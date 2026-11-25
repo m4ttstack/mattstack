@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite';
 
 import { getStateDb, runCriticalWrite } from '../state/index.ts';
 import type { DraftEnvelope } from './envelope.ts';
+import { stripPlainText } from './sealed-send.ts';
 
 export interface OutboxEntry {
   envelope: DraftEnvelope;
@@ -66,7 +67,8 @@ export async function drainOutbox(
   db: Database = getStateDb()
 ): Promise<{ sent: number; dropped: number; kept: number }> {
   const result = { sent: 0, dropped: 0, kept: 0 };
-  for (const entry of readOutbox(db)) {
+  for (const queued of readOutbox(db)) {
+    const entry = { ...queued, envelope: stripPlainText(queued.envelope) };
     const status = await send(entry.envelope);
     const cls = classifySend(status);
     if (cls === 'sent' || cls === 'drop') {
