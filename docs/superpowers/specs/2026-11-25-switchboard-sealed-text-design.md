@@ -155,13 +155,13 @@ sends that same body.
 |---|---|
 | Recipient has no key, or is not on the roster | The message goes without its text. The sender of a note sees "Sent without your note. <name> can't receive notes yet." |
 | rt cannot seal (daemon down, no `age`) | The message goes without its text. The sender of a note sees that it was not sent |
-| A state's or outcome's reason cannot be sealed | It goes without the reason, and says nothing: no person wrote it |
+| A state's or outcome's reason cannot be sealed | It goes without the reason, and says nothing: no person wrote it. A held review still says it was held |
 | Support request, host has no key | The form is disabled and says the host can't receive requests yet |
 | Support request, rt cannot seal | The send fails with a plain reason and can be retried |
 | Support status, rt cannot seal | The state goes without its reason, persona or link |
 | Announcement, some members have no key | It goes out; the sender sees how many cannot read it |
 | Announcement, rt cannot seal | It fails with a plain reason. Nothing is sent |
-| A received string can never open (wrong key, binding mismatch, damaged) | The ask shows with a short line that its note could not be read. Support answers with the existing "could not read your request" status. An announcement shows its placeholder |
+| A received string can never open (wrong key, binding mismatch, damaged) | The ask shows with a short line that its note could not be read. Support answers with the existing "could not read your request" status (for a wrong key, after an hour, since the host's other Mac may hold it). An announcement shows its placeholder |
 
 The placeholder announcement reads "Announcement" and "Update mattstack to
 read this."

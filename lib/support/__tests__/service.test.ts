@@ -366,6 +366,10 @@ describe("this Mac's own key", () => {
   });
 
   test("a wrong key or a failed read is looked at again each time, and a right one is kept", async () => {
+    const failed = await asked(new Error("locked"));
+    failed.t.world.state.holds = true;
+    await failed.again();
+    expect(failed.seen).toEqual(["locked", true]);
     const wrong = await asked(false);
     wrong.t.world.state.holds = true;
     await wrong.again();

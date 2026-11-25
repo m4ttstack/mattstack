@@ -1,6 +1,7 @@
 import { tmpdir } from "os";
 import { join } from "path";
 import { readdirSync, readFileSync, statSync } from "fs";
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { SUPPORT_AWAY_MS, SUPPORT_MACHINE_HOLD_MS, SUPPORT_TTL_MS, type SupportDraft, type SupportHostState, type SupportMissing } from "../../../../packages/rt-client/src/support.ts";
 import { UserActionableError } from "../../../errors.ts";
@@ -404,11 +405,14 @@ describe("support:send", () => {
 
   test("a body that cannot be kept is not sent, since its retry could not match it", async () => {
     const h = harness();
-    h.db.exec("CREATE TRIGGER boom BEFORE INSERT ON kv WHEN NEW.ns = 'support-sealed' BEGIN SELECT RAISE(ABORT, 'disk full'); END;");
-    const r = await send(h).catch((err: unknown) => err);
-    expect(r).not.toMatchObject({ ok: true });
+    h.db.exec("PRAGMA busy_timeout = 1");
+    const other = new Database(h.db.filename);
+    other.exec("BEGIN IMMEDIATE");
+    expect(await send(h)).toMatchObject({ ok: false, failure: { code: "support-not-sealed" } });
     expect(h.sent).toEqual([]);
-    expect(listRequests("out", undefined, h.db)).toEqual([]);
+    other.exec("ROLLBACK");
+    other.close();
+    expect((await send(h)).ok).toBe(true);
   });
 
   test("a kept body goes once the relay has the request, whichever version it took, and after 7 days", async () => {

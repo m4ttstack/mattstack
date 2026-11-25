@@ -8,6 +8,7 @@ import {
 import {
   buildAskDraft,
   canonicalUsername,
+  HELD_REASON,
   makeEnvelope,
   type AskKind,
   type DraftEnvelope,
@@ -191,14 +192,20 @@ export function outcomePublisher(
 }
 
 /** `reviewSyncEnvelopes` with the reason sealed once for everyone told. A
-    reason that cannot be sealed is dropped: no person wrote it. */
+    reason that cannot be sealed is dropped, but an error still says it was a
+    hold: without that it reads as an agent that failed. */
 export async function sealedReviewSyncEnvelopes(
   deps: SealDeps,
   input: Parameters<typeof reviewSyncEnvelopes>[0]
 ): Promise<DraftEnvelope[]> {
   const { reason, sealed: _, ...facts } = input.payload;
   const fixed = reason !== undefined && WIRE_REASONS.has(reason);
-  const plain: ReviewStatePayload = fixed ? { ...facts, reason } : facts;
+  const said = fixed
+    ? reason
+    : reason && facts.status === 'error'
+      ? HELD_REASON
+      : undefined;
+  const plain: ReviewStatePayload = said ? { ...facts, reason: said } : facts;
   const envelopes = reviewSyncEnvelopes({ ...input, payload: plain });
   if (fixed || !reason || envelopes.length === 0) return envelopes;
   const sealing = await sealAs(

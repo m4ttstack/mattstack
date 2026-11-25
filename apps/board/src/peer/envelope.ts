@@ -58,6 +58,10 @@ export interface ReviewStatePayload {
   sealed?: string;
 }
 
+/** What a hold is called where its own words are not: the only thing that
+    tells it from an agent that failed. */
+export const HELD_REASON = 'review held';
+
 /** A review lane's status as a peer board receives it. `held` goes out as
     `error` with its reason: a board older than `held` would store it and
     leave the asker with no ending. */
@@ -66,7 +70,7 @@ export function wireReviewStatus(
   message: string | undefined
 ): { status: string; reason?: string } {
   if (status === 'held')
-    return { status: 'error', reason: message || 'review held' };
+    return { status: 'error', reason: message || HELD_REASON };
   return { status };
 }
 

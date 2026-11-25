@@ -5,7 +5,11 @@ import type { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import type { SealBinding, SealFields, SealResult } from '@mattstack/rt-client';
-import type { DraftEnvelope, ReviewStatePayload } from '../peer/envelope.ts';
+import {
+  wireReviewStatus,
+  type DraftEnvelope,
+  type ReviewStatePayload,
+} from '../peer/envelope.ts';
 import { drainOutbox, enqueueOutbox, readOutbox } from '../peer/outbox.ts';
 import {
   outcomePreparer,
@@ -299,7 +303,7 @@ describe('a review state', () => {
     const t = sealing(() => sealed(['outsider']));
     const envelopes = await sealedReviewSyncEnvelopes(t.deps, input);
     expect(envelopes.map(e => e.to)).toEqual(['outsider', 'bob', 'cy']);
-    const { reason: _, ...facts } = payload;
+    const facts = { ...payload, reason: 'review held' };
     expect(envelopes.map(e => e.payload)).toEqual([
       { ...facts, sealed: 'YWdl', nudgeId: 'n1' },
       { ...facts, sealed: 'YWdl' },
@@ -312,6 +316,30 @@ describe('a review state', () => {
         fields: { reason: payload.reason! },
       },
     ]);
+  });
+
+  test('an error keeps a fixed word for a hold, whether or not its own words go', async () => {
+    for (const t of [
+      sealing(() => sealed(['outsider'])),
+      sealing(() => refused('no-recipients')),
+      sealing(down),
+    ]) {
+      const envelopes = await sealedReviewSyncEnvelopes(t.deps, {
+        ...input,
+        payload: {
+          mrUrl: MR,
+          iid: 7,
+          ...wireReviewStatus('held', 'closing this one'),
+          updatedAt: 5,
+        },
+      });
+      for (const e of envelopes)
+        expect(e.payload).toMatchObject({
+          status: 'error',
+          reason: 'review held',
+        });
+      expect(JSON.stringify(envelopes)).not.toContain('closing');
+    }
   });
 
   test('a reason that cannot be sealed is dropped and the state goes out', async () => {
@@ -327,6 +355,7 @@ describe('a review state', () => {
         mrUrl: MR,
         iid: 7,
         status: 'error',
+        reason: 'review held',
         updatedAt: 5,
       });
     }

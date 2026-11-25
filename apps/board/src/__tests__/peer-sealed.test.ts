@@ -568,6 +568,15 @@ describe('outcomes', () => {
     }
   });
 
+  test('beside sealed text only a fixed plain reason counts', () => {
+    expect(
+      outcome({ sealed: 'YWdl', reason: 'made up' }).resolution!.reason
+    ).toBeUndefined();
+    expect(
+      outcome({ sealed: 'YWdl', reason: 'cooldown' }).resolution!.reason
+    ).toBe('cooldown');
+  });
+
   test('a sealed reason shows once opened', () => {
     const n = outcome({ sealed: 'YWdl' });
     expect(
@@ -683,6 +692,7 @@ describe('review states', () => {
           updatedAt: 5,
           nudgeId: 'n1',
           sealed: 'YWdl',
+          reason: 'made up',
         },
       }),
       {
@@ -694,6 +704,7 @@ describe('review states', () => {
       10
     );
     const n = readSentNudges(db).get(MR)!;
+    expect(n.resolution).not.toHaveProperty('reason');
     expect(n.resolution).toMatchObject({
       result: 'failed',
       sealed: 'YWdl',

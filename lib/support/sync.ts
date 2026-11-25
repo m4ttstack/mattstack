@@ -85,7 +85,7 @@ const MAX_PAGES = 20;
 const REASON_MAX = 500;
 const PERSONA_MAX = 60;
 const UNREADABLE = "the host's mattstack could not read your request";
-const UNPROVED_MAX = 1000;
+const SIGHTINGS_MAX = 1000;
 /** The most one sighting counts for: a longer gap since the last one is time asleep. */
 const SIGHTING_MS = 60_000;
 
@@ -162,7 +162,19 @@ function parseStatusFacts(v: Record<string, unknown> | null): Omit<StatusBody, k
 
 export function createSupportSync(deps: SyncDeps): SupportSync {
   const { db, log } = deps;
-  const unproved = new Map<string, { lastSeen: number; waited: number }>();
+  type Sightings = Map<string, { lastSeen: number; waited: number }>;
+  const unproved: Sightings = new Map();
+  const unopened: Sightings = new Map();
+
+  /** How long this Mac, awake, has been seeing it, counting from its first sighting. */
+  function seeAgain(seen: Sightings, key: string): { first: boolean; waited: number } {
+    const now = deps.now();
+    const last = seen.get(key);
+    const waited = last ? last.waited + Math.max(0, Math.min(now - last.lastSeen, SIGHTING_MS)) : 0;
+    if (!last && seen.size >= SIGHTINGS_MAX) seen.clear();
+    seen.set(key, { lastSeen: now, waited });
+    return { first: last === undefined, waited };
+  }
   const flushing = createChain();
   let nextFlush: Promise<void> | null = null;
 
@@ -179,13 +191,10 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
       log.warn({ from: m.from, id: m.id, kind: m.kind, age }, "support: a message signed too long ago, or ahead of time, was dropped");
       return "drop";
     }
-    const seen = unproved.get(key);
-    const waited = seen ? seen.waited + Math.max(0, Math.min(now - seen.lastSeen, SIGHTING_MS)) : 0;
+    const { first, waited } = seeAgain(unproved, key);
     const about = { from: m.from, id: m.id, kind: m.kind, named, signed };
     if (waited < (named || signed ? PROOF_SETTLE_MS : STRANGER_SETTLE_MS)) {
-      if (!seen) log.warn(about, "support: a message is not proved to come from the org yet");
-      if (!seen && unproved.size >= UNPROVED_MAX) unproved.clear();
-      unproved.set(key, { lastSeen: now, waited });
+      if (first) log.warn(about, "support: a message is not proved to come from the org yet");
       return "wait";
     }
     unproved.delete(key);
@@ -193,15 +202,21 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
     return "drop";
   }
 
-  /** The request, `unreadable` when no Mac ever will read it, or `wait` when this one cannot yet: the key is locked, or is on the person's other Mac. */
+  /** The request, `unreadable` when no Mac ever will read it, or `wait` when this one cannot yet: its key is locked, or the person's other Mac may hold the one it was sealed to. */
   async function openRequest(m: SupportMessage): Promise<RequestBody | "unreadable" | "wait"> {
     const sealed = sealedOf(parseJson(m.body));
     if (sealed === null) return "unreadable";
     const opened = await deps.sealedText.open(sealed, supportBinding("request", m.id, m.from));
-    if (opened.ok) return parseRequestBody(opened.fields.body ?? "") ?? "unreadable";
-    if (opened.reason === "mismatch" || opened.reason === "damaged") return "unreadable";
-    log.debug({ from: m.from, id: m.id, reason: opened.reason }, "support: a request cannot be opened on this Mac yet");
-    return "wait";
+    const key = `${m.from} ${m.id}`;
+    if (opened.ok || opened.reason === "mismatch" || opened.reason === "damaged") {
+      unopened.delete(key);
+      return opened.ok ? (parseRequestBody(opened.fields.body ?? "") ?? "unreadable") : "unreadable";
+    }
+    const { first, waited } = seeAgain(unopened, key);
+    if (first) log.warn({ from: m.from, id: m.id, reason: opened.reason }, "support: a request cannot be opened on this Mac yet");
+    if (opened.reason === "unavailable" || waited < PROOF_SETTLE_MS) return "wait";
+    unopened.delete(key);
+    return "unreadable";
   }
 
   /** True when the message may be acked. */

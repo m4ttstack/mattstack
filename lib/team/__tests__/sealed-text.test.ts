@@ -259,14 +259,48 @@ describe.skipIf(noAge)("sealed text", () => {
     expect(ageKey.reads).toBe(2);
   });
 
-  test("a Mac with no key yet is looked at again at once", async () => {
+  test("a Mac with no key yet is looked at once a minute", async () => {
     const a = mint();
     const sealed = await sealedTo({ ada: a.pub });
+    let now = 1_000;
     let answer = ABSENT;
-    const s = make({ ageKey: keychain(() => answer) });
-    expect(await s.open(sealed, binding)).toEqual(unavailable);
+    const ageKey = keychain(() => answer);
+    const s = make({ ageKey, now: () => now, roster: () => [{ username: "ada", agePublicKey: a.pub }] });
+    for (let i = 0; i < 5; i++) expect(await s.open(sealed, binding)).toEqual(unavailable);
+    expect(await s.holdsKeyOf("ada")).toBe(false);
+    expect(ageKey.reads).toBe(1);
     answer = { code: 0, stdout: `${a.secret}\n`, stderr: "" };
+    now += 60_000;
     expect(await s.open(sealed, binding)).toMatchObject({ ok: true });
+  });
+
+  test("a key that keeps failing is asked for less and less often, down to every 10 minutes", async () => {
+    let now = 0;
+    const ageKey = keychain(() => LOCKED);
+    const s = make({ ageKey, now: () => now });
+    const readAt: number[] = [];
+    for (; now < 60 * 60_000; now += 10_000) {
+      const before = ageKey.reads;
+      await s.open("YWdl", binding);
+      if (ageKey.reads > before) readAt.push(now / 60_000);
+    }
+    expect(readAt).toEqual([0, 1, 3, 7, 15, 25, 35, 45, 55]);
+  });
+
+  test("what went wrong is left on this Mac, with no text and no key in it", async () => {
+    const a = mint();
+    const said: string[] = [];
+    const warn = (message: string, context: Record<string, unknown>) => void said.push(`${message} ${JSON.stringify(context, (_k, v) => (v instanceof Error ? v.message : v))}`);
+    const roster = () => [{ username: "ada", agePublicKey: a.pub }];
+    await make({ warn, roster, ageBin: () => null }).seal(["ada"], binding, { note: "SECRET" });
+    await make({ warn, roster, ageBin: () => wrapper("echo 'age: error: low order point' >&2; exit 1") }).seal(["ada"], binding, { note: "SECRET" });
+    await make({ warn, roster: () => { throw new Error("no store"); } }).seal(["ada"], binding, { note: "SECRET" });
+    await make({ warn, ageKey: keychain(() => LOCKED) }).open("YWdl", binding);
+    expect(said).toHaveLength(4);
+    expect(said[1]).toContain("low order point");
+    expect(said[3]).toContain("keychain");
+    expect(said.join()).not.toContain("SECRET");
+    expect(said.join()).not.toContain("AGE-SECRET-KEY");
   });
 
   test("holdsKeyOf compares this Mac's key with the roster's", async () => {

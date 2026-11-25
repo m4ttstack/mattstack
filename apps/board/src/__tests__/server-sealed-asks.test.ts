@@ -390,7 +390,9 @@ test('text opened behind the board reaches it, and a burst of it nudges the page
     };
   await data();
   await Bun.sleep(2_000);
-  expect(frames.split('data: changed').length - 1).toBeLessThanOrEqual(2);
+  const nudges = frames.split('data: changed').length - 1;
+  expect(nudges).toBeGreaterThanOrEqual(1);
+  expect(nudges).toBeLessThanOrEqual(2);
   const now = await data();
   const shown = now.asks.pending.filter(a => a.id.startsWith('sealed-'));
   expect(shown).toHaveLength(20);

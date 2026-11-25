@@ -394,6 +394,35 @@ describe("pulling requests", () => {
     }
   });
 
+  test("a request sealed to a key this Mac does not hold is answered once it has had an hour to move to the Mac that does", async () => {
+    arrive();
+    world.state.open = { ok: false, reason: "not-for-this-key" };
+    const s = sync();
+    await s.pull("request");
+    await awake(s, PROOF_SETTLE_MS - 60_000);
+    expect(acked).toEqual([]);
+    expect(pendingStatuses(db)).toEqual([]);
+    clock += 12 * 60 * 60_000;
+    await s.pull("request");
+    expect(acked).toEqual(["ada r1"]);
+    expect(pendingStatuses(db).map((p) => p.id)).toEqual(["r1:failed"]);
+    expect(events.filter((e) => e === "warn")).toHaveLength(2);
+  });
+
+  test("a locked key keeps a request waiting however long it takes, and is warned about once", async () => {
+    arrive();
+    world.state.open = { ok: false, reason: "unavailable" };
+    const s = sync();
+    await s.pull("request");
+    await awake(s, 2 * PROOF_SETTLE_MS);
+    expect(acked).toEqual([]);
+    expect(pendingStatuses(db)).toEqual([]);
+    expect(events.filter((e) => e === "warn")).toHaveLength(1);
+    world.state.open = null;
+    await s.pull("request");
+    expect(acked).toEqual(["ada r1"]);
+  });
+
   test("text is opened only once the message is proved to come from the org", async () => {
     arrive({ id: "forged", key: FOREIGN });
     arrive({ id: "off-roster", from: "zed" });

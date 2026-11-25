@@ -5,7 +5,7 @@ import type {
   textOpen,
 } from '@mattstack/rt-client';
 import { FORGE_NOT_YET } from '../config.ts';
-import { canonicalUsername, DECLINE_REASONS } from './envelope.ts';
+import { canonicalUsername, DECLINE_REASONS, HELD_REASON } from './envelope.ts';
 
 /** What a sealed ask, outcome or review state is bound to: opened on any
     other message, it is refused. */
@@ -54,7 +54,7 @@ export const WIRE_REASONS: ReadonlySet<string> = new Set([
   'asks-off',
   'launch-failed',
   'pane closed',
-  'review held',
+  HELD_REASON,
   'abandoned',
   'superseded',
   'pruned',

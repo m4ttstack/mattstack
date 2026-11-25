@@ -14,6 +14,7 @@ import { currentOrg } from "../../packages/rt-client/src/settings/stores.ts";
 import { findBundledTool } from "../bundled-tool.ts";
 import { createRealAgeKeySeam, readAgeKey, type AgeKeySeam } from "../home/age-key.ts";
 import { runCapture } from "../subprocess.ts";
+import { warn } from "../ui/warn.ts";
 import { canonicalHandle } from "./board-peers.ts";
 import { isValidAgePublicKey } from "./members.ts";
 
@@ -24,6 +25,8 @@ export interface SealedTextDeps {
   ageKey: AgeKeySeam;
   roster(): { username: string; agePublicKey?: unknown }[];
   now(): number;
+  /** Its context never holds text or a key. */
+  warn?(message: string, context: Record<string, unknown>): void;
 }
 
 export interface SealedText {
@@ -39,6 +42,7 @@ const VERSION = 1;
 const AGE_TIMEOUT_MS = 10_000;
 const KEY_HELD_MS = 5 * 60_000;
 const KEY_RETRY_MS = 60_000;
+const KEY_RETRY_MAX_MS = 10 * 60_000;
 const ARMOR = /^-----BEGIN AGE ENCRYPTED FILE-----\s+([A-Za-z0-9+/=\s]+)-----END AGE ENCRYPTED FILE-----\s*$/;
 
 const UNAVAILABLE = { ok: false, reason: "unavailable" } as const;
@@ -71,27 +75,34 @@ function unwrap(plaintext: string, binding: SealBinding): OpenResult {
 
 export function createSealedText(deps: SealedTextDeps): SealedText {
   let held: { key: string; at: number } | null = null;
-  let failed: { err: unknown; at: number } | null = null;
+  let missed: { err: unknown; at: number; wait: number } | null = null;
   let reading: Promise<string | null> | null = null;
 
   async function readKey(): Promise<string | null> {
     try {
       const found = await readAgeKey(deps.ageKey);
-      failed = null;
-      if (!("key" in found)) return null;
+      if (!("key" in found)) {
+        missed = { err: null, at: deps.now(), wait: KEY_RETRY_MS };
+        return null;
+      }
+      missed = null;
       held = { key: found.key, at: deps.now() };
       return found.key;
     } catch (err) {
-      failed = { err, at: deps.now() };
+      missed = { err, at: deps.now(), wait: missed?.err ? Math.min(missed.wait * 2, KEY_RETRY_MAX_MS) : KEY_RETRY_MS };
+      deps.warn?.("this Mac's key could not be read", { err });
       throw err;
     }
   }
 
-  /** Null when this Mac has no key; rejects when it could not be read. A failed read can raise a dialog and wait on it, so it is not tried again for a minute. */
+  /** Null when this Mac has no key; rejects when it could not be read. A failed read can raise a dialog and wait on it, so the next waits a minute, then longer each time it fails again. */
   async function privateKey(): Promise<string | null> {
     if (held && deps.now() - held.at <= KEY_HELD_MS) return held.key;
     held = null;
-    if (failed && deps.now() - failed.at < KEY_RETRY_MS) throw failed.err;
+    if (missed && deps.now() - missed.at < missed.wait) {
+      if (missed.err) throw missed.err;
+      return null;
+    }
     reading ??= readKey().finally(() => {
       reading = null;
     });
@@ -125,10 +136,12 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
     async seal(to, binding, fields) {
       try {
         const age = deps.ageBin();
-        if (!age) return UNAVAILABLE;
         const roster = deps.roster();
         // A store that cannot be read gives an empty roster, which says nothing about who has a key.
-        if (roster.length === 0) return UNAVAILABLE;
+        if (!age || roster.length === 0) {
+          deps.warn?.("text could not be sealed", { type: binding.type, age: age !== null, roster: roster.length });
+          return UNAVAILABLE;
+        }
         const byUser = keysByUser(roster);
         const recipients = new Set<string>();
         const unreachable = new Set<string>();
@@ -140,11 +153,15 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
         if (recipients.size === 0) return { ok: false, reason: "no-recipients" };
         const { type, subject } = binding;
         const stdin = JSON.stringify({ v: VERSION, type, from: canonicalHandle(binding.from), subject, fields });
-        const run = await runCapture([age, "-a", ...[...recipients].flatMap((key) => ["-r", key])], { stdin, timeoutMs: AGE_TIMEOUT_MS });
+        const run = await runCapture([age, "-a", ...[...recipients].flatMap((key) => ["-r", key])], { stdin, stderr: "pipe", timeoutMs: AGE_TIMEOUT_MS });
         const body = run.exitCode === 0 ? ARMOR.exec(run.stdout)?.[1] : undefined;
-        if (!body) return UNAVAILABLE;
+        if (!body) {
+          deps.warn?.("text could not be sealed", { type, exitCode: run.exitCode, timedOut: run.timedOut === true, stderr: run.stderr.split("\n")[0] });
+          return UNAVAILABLE;
+        }
         return { ok: true, sealed: body.replace(/\s+/g, ""), unreachable: [...unreachable] };
-      } catch {
+      } catch (err) {
+        deps.warn?.("text could not be sealed", { type: binding.type, err });
         return UNAVAILABLE;
       }
     },
@@ -153,11 +170,12 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
       try {
         const age = deps.ageBin();
         if (!age) return UNAVAILABLE;
-        const key = await privateKey();
+        const key = await privateKey().catch(() => null);
         if (!key) return UNAVAILABLE;
         const opened = await decrypt(age, key, Buffer.from(sealed, "base64"));
         return opened.ok ? unwrap(opened.plaintext, binding) : opened;
-      } catch {
+      } catch (err) {
+        deps.warn?.("sealed text could not be opened", { type: binding.type, err });
         return UNAVAILABLE;
       }
     },
@@ -186,5 +204,6 @@ export function realSealedText(org?: string): SealedText {
       return from === null ? [] : readOrgRoster(from);
     },
     now: () => Date.now(),
+    warn: (message, context) => warn("sealed-text", message, { context }),
   });
 }
