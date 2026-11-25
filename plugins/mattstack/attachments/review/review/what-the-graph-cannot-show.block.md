@@ -27,8 +27,9 @@ label: Graph notes
   their words, `decidedBy` the answer's by) or a gate a surface closed
   (`reason` "gate closed"); then the turn ends. On a
   resumed run with no post record, every hold's reason (a `closed` one too)
-  also repeats what the latest hold said is posted and whether the approval
-  is outstanding.
+  also says what this pass's answer, submit or read shows is posted and
+  whether the approval is outstanding, else repeats what the latest hold
+  said.
 - `run_close` takes `outcome: done` after the post record, or `abandoned`
   with `reason: <why; what already posted>` on a hand back.
 - A submit result of `published: true` with `replyErrors` (GitHub) takes

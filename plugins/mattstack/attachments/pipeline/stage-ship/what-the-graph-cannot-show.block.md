@@ -41,7 +41,7 @@ label: Graph notes
   - `- [x] follow-up: <what to capture> (<finding id>)` once moved to a
     follow-up.
 
-  An unset field (the error is `no field owed-evidence`) or `-` owes
+  An unset field (the error ends `is not set on this run`) or `-` owes
   nothing; any other error is a failed read, never read as unset: call once
   more, then take the failure edge quoting it. A follow-up
   is settled for good. A mark at an earlier sha (an accepted
