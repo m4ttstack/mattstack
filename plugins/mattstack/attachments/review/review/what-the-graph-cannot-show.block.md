@@ -24,7 +24,11 @@ label: Graph notes
   for an answered gate, or the caller's selection as `answers` with its
   named `decidedBy`; the tool builds the record.
 - A hold is one `run_hold`, made only on a human's `hold` answer (`reason`
-  their words, `decidedBy` the answer's by); then the turn ends. A gate that comes back `closed` is a hold, reason "gate closed".
+  their words, `decidedBy` the answer's by); then the turn ends. A
+  gate that comes back `closed` is a hold, reason "gate closed". On a
+  resumed run with no post record, every hold's reason (a `closed` one too)
+  also repeats what the latest hold said is posted and whether the approval
+  is outstanding.
 - `run_close` takes `outcome: done` after the post record, or `abandoned`
   with `reason: <why; what already posted>` on a hand back.
 - A submit result of `published: true` with `replyErrors` (GitHub) takes
