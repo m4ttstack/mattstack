@@ -54,7 +54,7 @@ flowchart TB
     files_to_show -->|no: every file a cleared board| evidence_attach
     run_budget_boards --> boards_openings_spent
     boards_openings_spent -->|no| gate_evidence_boards
-    boards_openings_spent -->|yes: nothing uploaded| attach_held
+    boards_openings_spent -->|yes: nothing uploaded, the files still waiting named| attach_failed
     gate_evidence_boards --> boards_answer
     boards_answer -->|proceed + clear| files_left
     files_left -->|yes: the next 12| run_budget_boards

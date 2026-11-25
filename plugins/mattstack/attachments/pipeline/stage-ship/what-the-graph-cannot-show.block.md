@@ -18,7 +18,8 @@ label: Graph notes
   report the `holder` and stop, releasing nothing; that lease is someone
   else's.
 - `hold` records `run_hold`: `reason` their words or the gate,
-  `decidedBy` as the answer recorded it.
+  `decidedBy` as the answer recorded it. Every path into it starts at a
+  human's answer; a decision still pending is a gate.
 - **`targetBranch`** is what `branch_stack` resolved; a default branch is
   read from git, never guessed. `mr_create` takes it as `targetBranch`, with `draft` unless the gate
   said ready, on both forges. The rebase
@@ -30,18 +31,27 @@ label: Graph notes
   targets when its `targetBranch` differs from the resolved one, and says
   squash is unset when asked and never applied.
 - **Owed evidence.** `owed-evidence` is the list self-review left for this
-  stage, one item per line: `- [ ] <what to capture> (<finding id>)`
-  while owed, `- [x] <short sha>: <what to capture> (<finding id>)` once
-  captured on that pushed sha. An unset field (`run_field_get` errors) or
-  `-` owes nothing. Every item not marked at the sha this pass pushed is
-  owed: a CI fix or any other commit since its mark moves the pushed sha,
-  so it is captured again. Each owed item is a case in the AFTER loop, its
-  own `id` (`owed-<finding id>`) and its text as `label`, captured like any
-  other case the domain names; its capture never moves to the
-  description as a promise. The write after the loop keeps every item and
-  marks only those captured this pass. An item still owed after the loop
-  holds the stage once the description is written, naming each item; this
-  stage never finishes with one owed.
+  stage, one item per line:
+  - `- [ ] <what to capture> (<finding id>)` while owed;
+  - `- [ ] on <environment>: <what to capture> (<finding id>)` once put off
+    to an environment;
+  - `- [x] <short sha>: <what to capture> (<finding id>)` once captured on
+    that pushed sha, `<pushed sha> accepted from <earlier sha>` in place of
+    the sha when the developer accepted the earlier capture;
+  - `- [x] follow-up: <what to capture> (<finding id>)` once moved to a
+    follow-up.
+
+  An unset field (`run_field_get` errors) or `-` owes nothing. A follow-up
+  is settled for good. Every other item not marked at the sha this pass
+  pushed is owed: a CI fix or any other commit since its mark moves the
+  pushed sha, so it is captured again. Each owed item is a case in the
+  AFTER loop, its own `id` (`owed-<finding id>`, lowercase) and its text as `label`,
+  captured like any other case the domain names, on its environment when
+  it names one. The write after the loop keeps every item and marks only
+  those captured this pass; only an answer at `Gate owed-evidence` settles
+  an item any other way, or puts one off. A put-off lasts until this pass
+  ends: the resume captures the item, and one still owed then is asked
+  about again.
 - **Revising a board.** A board revision asked at a gate (a note at the
   ship gate, say) runs browser-evidence's Revise a board steps 1 to 5.
   Steps 6 and 7 are this graph's own boxes: `Record the evidence
