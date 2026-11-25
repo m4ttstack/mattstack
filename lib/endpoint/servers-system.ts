@@ -18,10 +18,12 @@ export interface ServerSystem {
   sleep(ms: number): Promise<void>;
 }
 
+const READ_TIMEOUT_MS = 10_000;
+
 export const realServerSystem: ServerSystem = {
   run: runCapture,
   worktrees: async ({ identity, root }) => {
-    const listed = await listWorktreesAsync(root);
+    const listed = await listWorktreesAsync(root, AbortSignal.timeout(READ_TIMEOUT_MS));
     if (!listed) return null;
     const { listRestorableEntries } = await import("../worktree/restore.ts");
     // Git lists the main checkout first.
@@ -40,12 +42,15 @@ const lsofRan = (read: RunResult) => read.exitCode === 0 || read.exitCode === 1;
 
 /** Null when any read failed, so a caller never mistakes that for nothing running. */
 export async function readServerSnapshot(repo: ServerRepo, system: ServerSystem = realServerSystem): Promise<ServerSnapshot | null> {
-  const [ps, commandRead, cwdRead, listenerRead, worktrees] = await Promise.all([
+  const [cwdRead, listenerRead, worktrees] = await Promise.all([
+    system.run(["lsof", "-d", "cwd", "-Fpn"], { timeoutMs: READ_TIMEOUT_MS }),
+    system.run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN"], { timeoutMs: READ_TIMEOUT_MS }),
+    system.worktrees(repo),
+  ]);
+  // Last, because these are the pids that get signalled.
+  const [ps, commandRead] = await Promise.all([
     system.run(["ps", "-A", "-o", "pid=,ppid=,etime=,lstart=,args="], { timeoutMs: 5_000, env: { ...childEnv(), LC_ALL: "C" } }),
     system.run(["ps", "-A", "-o", "pid=,comm="], { timeoutMs: 5_000 }),
-    system.run(["lsof", "-d", "cwd", "-Fpn"], { timeoutMs: 10_000 }),
-    system.run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN"], { timeoutMs: 10_000 }),
-    system.worktrees(repo),
   ]);
   const commands = parsePidValueMap(commandRead.stdout);
   const procs = parseServerProcs(ps.stdout, commands);

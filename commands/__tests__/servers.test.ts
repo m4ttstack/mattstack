@@ -458,20 +458,23 @@ describe("realServersDeps.rules", () => {
   });
 });
 
-test("the real gate needs a TTY on both ends and no RT_BATCH", () => {
-  const saved = { stdin: process.stdin.isTTY, stdout: process.stdout.isTTY, batch: process.env.RT_BATCH };
-  const set = (stdin: boolean, stdout: boolean, batch?: string) => {
+test("the real gate needs a TTY on all three streams and no RT_BATCH", () => {
+  const saved = { stdin: process.stdin.isTTY, stdout: process.stdout.isTTY, stderr: process.stderr.isTTY, batch: process.env.RT_BATCH };
+  const set = (stdin: boolean, stdout: boolean, stderr: boolean, batch?: string) => {
     Object.defineProperty(process.stdin, "isTTY", { value: stdin, configurable: true, writable: true });
     Object.defineProperty(process.stdout, "isTTY", { value: stdout, configurable: true, writable: true });
+    Object.defineProperty(process.stderr, "isTTY", { value: stderr, configurable: true, writable: true });
     if (batch === undefined) delete process.env.RT_BATCH;
     else process.env.RT_BATCH = batch;
     return realServersDeps.canAsk();
   };
   try {
-    expect([set(true, true), set(true, true, "1"), set(false, true), set(true, false)]).toEqual([true, false, false, false]);
+    expect([set(true, true, true), set(true, true, true, "1"), set(false, true, true), set(true, false, true), set(true, true, false)])
+      .toEqual([true, false, false, false, false]);
   } finally {
     Object.defineProperty(process.stdin, "isTTY", { value: saved.stdin, configurable: true, writable: true });
     Object.defineProperty(process.stdout, "isTTY", { value: saved.stdout, configurable: true, writable: true });
+    Object.defineProperty(process.stderr, "isTTY", { value: saved.stderr, configurable: true, writable: true });
     if (saved.batch === undefined) delete process.env.RT_BATCH;
     else process.env.RT_BATCH = saved.batch;
   }

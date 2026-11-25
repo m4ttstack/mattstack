@@ -153,8 +153,8 @@ export const realServersDeps: ServersDeps = {
     return (await picked)?.map(Number) ?? null;
   },
   stop: stopServers,
-  // stdout too, so `rt servers | grep api` lists.
-  canAsk: () => Boolean(process.stdin.isTTY && process.stdout.isTTY) && !process.env.RT_BATCH,
+  // stdout and stderr too, so `rt servers | grep api` and `rt servers 2>log` list.
+  canAsk: () => Boolean(process.stdin.isTTY && process.stdout.isTTY && process.stderr.isTTY) && !process.env.RT_BATCH,
   sleep: (ms, cancel) =>
     new Promise((resolve) => {
       const timer = setTimeout(resolve, ms);

@@ -78,6 +78,26 @@ describe("readServerSnapshot", () => {
     expect(await read({ worktrees: null })).toBeNull();
   });
 
+  test("the process table is read last, so the pids are the freshest part", async () => {
+    const order: string[] = [];
+    const { system } = readSystem();
+    const slow = async <T>(name: string, value: Promise<T>): Promise<T> => {
+      await Bun.sleep(5);
+      order.push(name);
+      return value;
+    };
+    await readServerSnapshot(REPO, {
+      ...system,
+      run: (argv, opts) => {
+        if (argv[0] === "ps") order.push("ps");
+        return argv[0] === "ps" ? system.run(argv, opts) : slow(argv[0], system.run(argv, opts));
+      },
+      worktrees: (repo) => slow("git", system.worktrees(repo)),
+    });
+    expect(order.slice(0, 3).sort()).toEqual(["git", "lsof", "lsof"]);
+    expect(order.slice(3)).toEqual(["ps", "ps"]);
+  });
+
   test("a listener read that exits 1 with no output is no listeners, not a failure", async () => {
     expect((await read({ listeners: { stdout: "", stderr: "", exitCode: 1 } }))!.listeners.size).toBe(0);
   });

@@ -78,6 +78,17 @@ test("a ticket id found only in the MR title groups by that ticket", () => {
   expect(groups.map((g) => [g.key, g.title])).toEqual([["WEB-250", "Retry exports"]]);
 });
 
+test("a word in an MR title that is no ticket groups nothing", () => {
+  const groups = groupServers([server("api", "calm-marble", "fix-encoding"), server("api", "tall-fern", "hash-check")], enriched(
+    { tree: "calm-marble", branch: "fix-encoding", linearId: "UTF-8", mr: mr(501, "Read files as UTF-8") },
+    { tree: "tall-fern", branch: "hash-check", linearId: "UTF-8", mr: mr(502, "Log UTF-8 names") },
+  ));
+  expect(groups.map((g) => [g.key, g.ticketId, g.title])).toEqual([
+    ["fix-encoding", null, "Read files as UTF-8"],
+    ["hash-check", null, "Log UTF-8 names"],
+  ]);
+});
+
 test("no ticket: the MR's title, else the branch", () => {
   const groups = groupServers([server("api", "calm-marble", "export-retry"), server("api", "sample-app", "main")], enriched(
     { tree: "calm-marble", branch: "export-retry", mr: mr(430, "Retry the export job on timeout") },

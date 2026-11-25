@@ -1,4 +1,7 @@
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import type { RoleConfig } from "../config.ts";
 import {
   ancestorPids,
@@ -369,6 +372,30 @@ test("a role's port held inside another server's tree is not left behind", () =>
     { pid: 21, ppid: 20, args: "node all-in-one.js", cwd: WEB, ports: [4001, 10400] },
   ]), rules([{ worktree: TREE, role: "web", port: 4001 }, { worktree: TREE, role: "api", port: 10400 }]));
   expect(found.map((s) => [s.role, s.leftBehind])).toEqual([["web", false]]);
+});
+
+describe("another repo's checkout inside this one", () => {
+  let dir: string;
+  beforeEach(() => { dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-nested-"))); });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  const anyApi: ServerRules = { ...rules(), rules: [{ command: "doppler", repo: "sample-app", repoRemote: null, matches: [{ cwdGlob: "**/apps/api", role: "api" }] }] };
+
+  test("its servers are not this repo's, running or left behind", () => {
+    mkdirSync(join(dir, "vendor", "other", ".git"), { recursive: true });
+    const cwd = join(dir, "vendor", "other", "apps", "api");
+    const trees = [{ path: dir, branch: "main" }];
+    expect(findServers(snap([{ pid: 10, ppid: 1, args: API_RUN, cwd }], trees), anyApi)).toEqual([]);
+    expect(findServers(
+      snap([{ pid: 13, ppid: 1, args: "node src/server", cwd, ports: [10400] }], trees),
+      { ...anyApi, claims: [{ worktree: dir, role: "api", port: 10400, ts: "2026-11-24T20:45:47.000Z" }] },
+    )).toEqual([]);
+  });
+
+  test("a folder of this repo's own at the same depth still counts", () => {
+    mkdirSync(join(dir, ".git"), { recursive: true });
+    const found = findServers(snap([{ pid: 10, ppid: 1, args: API_RUN, cwd: join(dir, "vendor", "apps", "api") }], [{ path: dir, branch: "main" }]), anyApi);
+    expect(found.map((s) => s.role)).toEqual(["api"]);
+  });
 });
 
 test("ancestors run nearest first and stop below pid 1", () => {

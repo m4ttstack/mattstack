@@ -1,4 +1,5 @@
-import { basename } from "path";
+import { existsSync } from "fs";
+import { basename, dirname, join } from "path";
 import { agentNameOf, isUserOrAgentProcess, type KillCandidate } from "../daemon/worktree-process-kill.ts";
 import { canon } from "../fs-canon.ts";
 import type { EndpointClaim } from "../state/index.ts";
@@ -117,6 +118,14 @@ function sessionName(proc: ServerProc): string | null {
   return agentNameOf(asCandidate(proc)) ?? (INTERACTIVE_SHELL.test(proc.args) ? "shell" : null);
 }
 
+/** A submodule or another clone checked out inside the tree: git reads it as its own repo, so the shim matched no rule there. */
+function inNestedRepo(cwd: string, treeRoot: string): boolean {
+  for (let dir = cwd; dir.length > treeRoot.length; dir = dirname(dir)) {
+    if (existsSync(join(dir, ".git"))) return true;
+  }
+  return false;
+}
+
 /** Sorted by worktree name, role, port. */
 export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: ServerRules): RunningServer[] {
   const byPid = new Map(snapshot.procs.map((p) => [p.pid, p]));
@@ -134,7 +143,10 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
   const trees = [...listed, ...[...unlisted].map(([real, path]) => ({ path, branch: null, removed: true, real }))]
     .sort((a, b) => b.real.length - a.real.length);
   type Tree = (typeof trees)[number];
-  const treeOf = (cwd: string) => trees.find((t) => cwd === t.real || cwd.startsWith(`${t.real}/`));
+  const treeOf = (cwd: string) => {
+    const tree = trees.find((t) => cwd === t.real || cwd.startsWith(`${t.real}/`));
+    return tree && !inNestedRepo(cwd, tree.real) ? tree : undefined;
+  };
 
   const repoRules = rules.map((rule) => ({ ...rule, repoRemote: null }));
   const matched = new Map<number, { role: string; tree: Tree }>();

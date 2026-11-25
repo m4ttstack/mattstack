@@ -27,8 +27,12 @@ const startedAt = (server: RunningServer) => Date.parse(server.startTime);
 
 /** `enriched` is keyed by worktree path. */
 export function groupServers(servers: RunningServer[], enriched: Map<string, EnrichedBranch>): ServerGroup[] {
-  const ticketIdOf = (s: RunningServer) =>
-    s.branch === null ? null : enriched.get(s.worktree.path)?.linearId || extractLinearId(s.branch);
+  // An id found only in an MR title counts once a ticket answers to it: any WORD-123 in a title reads as one.
+  const ticketIdOf = (s: RunningServer) => {
+    if (s.branch === null) return null;
+    const found = enriched.get(s.worktree.path);
+    return extractLinearId(s.branch) ?? (found?.ticket ? found.linearId : null);
+  };
 
   const byKey = new Map<string, RunningServer[]>();
   for (const s of servers) {
