@@ -451,6 +451,8 @@ jobs:
           { grep -rl --null -E "$DOT" --include='*.md' . || [ $? -eq 1 ]; } \
             | { grep -zvE '^(\./)?(skills|plugin/skills|attachments)/' || [ $? -eq 1 ]; } \
             | sort -z | xargs -0 -r python3 "$CHECK"
+      - name: No engine graph parks a run with nothing asked
+        run: bun scripts/ci/hold-edges.ts plugins/mattstack/attachments
       # Engine graphs are split across block files, so only compiled output holds a whole graph. The plugin's own
       # roster compiles just shepherdr and the writing styles; a real compile against tests/graph-roster.jsonc
       # writes every other graph-bearing engine (work pulls in the stages, the engines pull in their includes).
