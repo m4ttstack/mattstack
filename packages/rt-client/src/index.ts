@@ -13,6 +13,7 @@ export {
 export type {
   SupportDirection, SupportDraft, SupportHostState, SupportHostView, SupportKind, SupportMessage, SupportMissing, SupportOrg, SupportPart, SupportRequest, SupportSent, SupportState,
 } from "./support.ts";
+export type { OpenResult, SealBinding, SealFields, SealResult } from "./sealed-text.ts";
 
 export {
   readProjectMRs,
@@ -78,6 +79,8 @@ export {
   supportMine,
   supportSend,
   supportStop,
+  textOpen,
+  textSeal,
   eventsHead,
   eventsEmit,
   eventsWait,

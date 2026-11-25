@@ -37,6 +37,8 @@ import { realMilestoneDeps } from "./handlers/slack-milestones.ts";
 import { slackOpenSeams } from "./handlers/slack-open-seams.ts";
 import { slackDeskNotify } from "./slack-lifecycle.ts";
 import { slackRoomPoster } from "./handlers/chat.ts";
+import { createSealedTextHandlers } from "./handlers/sealed-text.ts";
+import { realSealedText } from "../team/sealed-text.ts";
 import { createSupportService, type SupportService } from "../support/service.ts";
 import { slackClientFromSecrets } from "../slack/daemon-client.ts";
 import { realHerdrRunnerFor } from "../slack/support-pane.ts";
@@ -254,6 +256,7 @@ export function buildRoutedHandlers(opts: {
     }),
   );
   opts.onSlackOpenDeps?.(slackOpen);
+  const sealedText = realSealedText();
   const support = createSupportService({
     db: opts.stateDb,
     log: ctx.log,
@@ -379,6 +382,7 @@ export function buildRoutedHandlers(opts: {
     ...chatHandlers,
     ...createSlackChatHandlers({ db: opts.stateDb, emitEvent, log: ctx.log, open: slackOpen, milestones: slackOpen.milestones }),
     ...support.handlers,
+    ...createSealedTextHandlers({ sealedText }),
     ...agentHandlers,
     ...paneHandlers,
     ...createEndpointHandlers({ log: ctx.log, repoIndex: ctx.repoIndex }),
