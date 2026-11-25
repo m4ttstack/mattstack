@@ -1,0 +1,195 @@
+import type { CommandContext } from "../lib/command-tree.ts";
+import { loadEndpointConfig } from "../lib/endpoint/config.ts";
+import { groupServers, mrText, serverMatch, type GroupedServer, type ServerGroup } from "../lib/endpoint/server-groups.ts";
+import { ancestorPids, findServers, type RunningServer, type ServerRules, type ServerSnapshot } from "../lib/endpoint/servers.ts";
+import { readServerSnapshot, stopServers } from "../lib/endpoint/servers-system.ts";
+import { loadInterceptRules } from "../lib/endpoint/shim.ts";
+import { loadClaims } from "../lib/endpoint/store.ts";
+import { enrichBranches, type EnrichedBranch } from "../lib/enrich.ts";
+import { repoLabel } from "../lib/repo-label.ts";
+import { parseIdentity } from "../lib/settings/identity.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block, PickRow, Segment } from "../lib/ui/protocol.ts";
+import { withTransientStep } from "../lib/ui/transient-step.ts";
+import { formatUptime } from "../lib/uptime.ts";
+
+type Enriched = Map<string, EnrichedBranch>;
+
+export interface ServersDeps {
+  rules(identity: string): ServerRules;
+  snapshot(repoRoot: string): Promise<ServerSnapshot | null>;
+  /** Keyed by worktree path. */
+  enrich(servers: RunningServer[], remoteUrl: string | undefined): Promise<Enriched>;
+  /** The root pids to stop, or null when nothing was picked. */
+  pick(label: string, servers: RunningServer[], enriched: Promise<Enriched>): Promise<number[] | null>;
+  stop: typeof stopServers;
+  canAsk(): boolean;
+  /** Settles early when `cancel` aborts, so a lookup that answers first leaves no timer holding the process open. */
+  sleep(ms: number, cancel: AbortSignal): Promise<void>;
+}
+
+const LIST_ENRICH_DEADLINE_MS = 3_000;
+const READ_FAILED = "rt could not read what is running";
+
+const portText = (s: RunningServer) => (s.port === null ? "no port" : `:${s.port}`);
+
+export function serverHints(s: RunningServer): string[] {
+  return [
+    s.agent === null ? null : `${s.agent === "claude" ? "Claude" : s.agent} session`,
+    s.listening ? null : "not listening",
+    s.leftBehind ? "left behind" : null,
+  ].filter((hint) => hint !== null);
+}
+
+function groupRoot(group: ServerGroup): Array<string | Segment> {
+  const parts: Segment[] = [];
+  if (group.ticketId) parts.push(out.key(group.ticketId));
+  if (group.ticket?.stateName) parts.push(out.dim(`[${group.ticket.stateName}]`));
+  if (group.title !== group.ticketId) parts.push(group.ticketId ? { text: group.title } : out.key(group.title));
+  if (group.detached) parts.push(out.dim("detached"));
+  if (group.mr) parts.push(out.dim(mrText(group.mr)));
+  return parts.flatMap((part, i) => (i === 0 ? [part] : ["  ", part]));
+}
+
+function serverCells({ server, branch, mr }: GroupedServer): Array<string | Segment> {
+  const rest = [branch, mr && mrText(mr), serverHints(server).join(", ")].filter(Boolean).join("  ");
+  return [server.role, portText(server), out.dim(formatUptime(server.etime)), ...(rest ? [out.dim(rest)] : [])];
+}
+
+export function serverBlocks(label: string, groups: ServerGroup[]): Block[] {
+  if (groups.length === 0) return [out.line("off", "No dev servers are running here", label)];
+  return [out.section(label, undefined, ...groups.map((group) => out.tree(groupRoot(group), group.servers.map(serverCells))))];
+}
+
+function jsonServer(s: RunningServer) {
+  const { role, port, listening, worktree, branch, pid, pids, leftBehind, agent } = s;
+  return { role, port, listening, worktree, branch, pid, pids, startedAt: new Date(s.startTime).toISOString(), leftBehind, agent };
+}
+
+export function branchesOf(servers: RunningServer[]): Array<{ path: string; branch: string }> {
+  const byPath = new Map(servers.flatMap((s) => (s.branch === null ? [] : [[s.worktree.path, s.branch] as const])));
+  return [...byPath].map(([path, branch]) => ({ path, branch }));
+}
+
+function pickRows(groups: ServerGroup[]): PickRow[] {
+  return groups.flatMap((group) => group.servers.map((row) => ({
+    value: String(row.server.pid),
+    match: serverMatch(group, row),
+    group: group.title,
+    left: [{ text: `${row.server.role} ${portText(row.server)}`, bold: true, column: true }],
+    right: [{ text: formatUptime(row.server.etime), tone: "dim" }],
+  })));
+}
+
+export const realServersDeps: ServersDeps = {
+  rules: (identity) => {
+    const id = parseIdentity(identity);
+    return {
+      rules: loadInterceptRules().filter((rule) => rule.repo === identity),
+      roles: loadEndpointConfig({ repoIdentity: id?.kind === "remote" ? id.id : null, repoName: identity }).roles,
+      claims: loadClaims(identity),
+    };
+  },
+  snapshot: readServerSnapshot,
+  enrich: async (servers, remoteUrl) => {
+    const branches = branchesOf(servers);
+    if (branches.length === 0) return new Map();
+    return new Map((await enrichBranches(branches, remoteUrl, { silent: true })).map((eb) => [eb.path, eb]));
+  },
+  pick: async (_label, servers) => {
+    const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
+    const picked = await filterableMultiselect(
+      { message: "Select servers to stop (or esc to exit)", options: [] },
+      { rows: pickRows(groupServers(servers, new Map())) },
+    );
+    return picked?.map(Number) ?? null;
+  },
+  stop: stopServers,
+  // stdout too, so `rt servers | grep api` lists.
+  canAsk: () => Boolean(process.stdin.isTTY && process.stdout.isTTY) && !process.env.RT_BATCH,
+  sleep: (ms, cancel) =>
+    new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      cancel.addEventListener("abort", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    }),
+};
+
+async function enrichedWithin(deps: ServersDeps, lookup: Promise<Enriched>): Promise<Enriched> {
+  const cancel = new AbortController();
+  return Promise.race([
+    lookup.finally(() => cancel.abort()),
+    deps.sleep(LIST_ENRICH_DEADLINE_MS, cancel.signal).then((): Enriched => new Map()),
+  ]);
+}
+
+export async function serversCommand(args: string[], ctx: CommandContext, deps: ServersDeps = realServersDeps): Promise<void> {
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  const { identity, repoRoot, remoteUrl } = ctx.identity!;
+  const label = repoLabel(identity);
+  const read = () => {
+    const snapshot = () => deps.snapshot(repoRoot);
+    return json ? snapshot() : withTransientStep("Looking for running servers", snapshot);
+  };
+  const failRead = () => {
+    if (json) out.json({ ok: false, error: READ_FAILED });
+    else out.fail({ title: READ_FAILED, why: "The process list did not answer." });
+    process.exitCode = 1;
+  };
+
+  const rules = deps.rules(identity);
+  if (rules.rules.length === 0) {
+    if (json) out.json({ ok: true, repo: identity, servers: [] });
+    else out.print(out.line("off", "rt does not intercept any commands here", label));
+    return;
+  }
+
+  const snapshot = await read();
+  if (!snapshot) return failRead();
+  const servers = findServers(snapshot, rules);
+  if (json) {
+    out.json({ ok: true, repo: identity, servers: servers.map(jsonServer) });
+    return;
+  }
+  if (servers.length === 0) {
+    out.print(...serverBlocks(label, []));
+    return;
+  }
+
+  const lookup = deps.enrich(servers, remoteUrl || undefined).catch((): Enriched => new Map());
+  if (!deps.canAsk()) {
+    out.print(...serverBlocks(label, groupServers(servers, await enrichedWithin(deps, lookup))));
+    return;
+  }
+
+  let enriched: Enriched = new Map();
+  void lookup.then((answer) => { enriched = answer; });
+  const picked = await deps.pick(label, servers, lookup);
+  if (!picked || picked.length === 0) {
+    out.print(out.line("skipped", "Nothing selected"));
+    return;
+  }
+
+  // Read again: the picker can sit open for minutes, and a pid can be reused.
+  const now = await read();
+  if (!now) return failRead();
+  const spare = new Set([process.pid, ...ancestorPids(now.procs, process.pid)]);
+  const chosen = servers.filter((s) => picked.includes(s.pid));
+  const outcomes = await withTransientStep("Stopping servers", () => deps.stop(chosen, findServers(now, rules), spare));
+
+  const titles = new Map(groupServers(servers, enriched).flatMap((group) => group.servers.map((row) => [row.server.pid, group.title] as const)));
+  const done: Block[] = [];
+  const failures: out.FailureInput[] = [];
+  for (const { server, result, why } of outcomes) {
+    const where = [server.port === null ? null : portText(server), titles.get(server.pid)].filter(Boolean).join(", ");
+    if (result === "stopped") done.push(out.line("done", `Stopped ${server.role}`, where));
+    else if (result === "gone") done.push(out.line("skipped", `${server.role} had already stopped`, where));
+    else failures.push({ title: `Could not stop ${server.role}`, hint: where, why });
+  }
+  if (done.length > 0) out.print(...done);
+  for (const failure of failures) out.fail(failure);
+  if (failures.length > 0) process.exitCode = 1;
+}

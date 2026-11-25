@@ -17,6 +17,7 @@ import { repoLabel } from "../lib/repo-label.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, PickRow, PickSegment } from "../lib/ui/protocol.ts";
 import { withTransientStep } from "../lib/ui/transient-step.ts";
+import { formatUptime } from "../lib/uptime.ts";
 
 // ─── Data fetching ───────────────────────────────────────────────────────────
 
@@ -49,27 +50,6 @@ async function getPortData(): Promise<{ entries: PortEntry[]; source: "daemon" |
 function folderPath(entry: PortEntry): string {
   const wtName = entry.worktree ? basename(entry.worktree) : (entry.repo ? repoLabel(entry.repo) : "unknown");
   return entry.relativeDir && entry.relativeDir !== "." ? `${wtName}/${entry.relativeDir}` : wtName;
-}
-
-function formatUptime(etime: string): string {
-  const trimmed = etime.trim();
-  if (!trimmed || trimmed === "unknown") return "?";
-
-  const parts = trimmed.split(/[-:]/);
-  if (parts.length === 2) {
-    const mins = parseInt(parts[0]!, 10);
-    if (mins === 0) return `${parts[1]}s`;
-    return `${mins}m`;
-  }
-  if (parts.length === 3) {
-    if (trimmed.includes("-")) return `${parts[0]}d`;
-    const hours = parseInt(parts[0]!, 10);
-    const mins = parseInt(parts[1]!, 10);
-    if (hours === 0) return `${mins}m`;
-    return `${hours}h${mins > 0 ? `${mins}m` : ""}`;
-  }
-  if (parts.length === 4) return `${parts[0]}d`;
-  return trimmed;
 }
 
 const NOTHING_LISTENING = "Nothing is listening in your repos";

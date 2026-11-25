@@ -1142,6 +1142,16 @@ export const TREE: Record<string, CommandNode> = {
     ],
   },
 
+  servers: {
+    description: "See this repo's running dev servers and stop them",
+    module: "./commands/servers.ts",
+    fn: "serversCommand",
+    context: "repo",
+    args: [
+      { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the running servers as JSON and stop nothing" },
+    ],
+  },
+
   sdm: {
     description: "Connect to databases through StrongDM",
     subcommands: {
