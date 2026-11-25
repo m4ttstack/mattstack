@@ -20,8 +20,8 @@ import { gateStage } from './gates';
 import { runKind, type RunKind } from './kind';
 import { heroLiveness, type HeroLiveness, type HeroTone } from './liveness';
 import { ciLabel } from './page';
+import { railHolds } from './pause';
 import { answeredQuestionCount, recordEnd } from './record';
-import { heldSpans } from './run';
 import { railStages, stageAttempts, type RailStage } from './stages';
 
 export type RunsFilter = 'all' | 'live' | 'waiting' | 'done';
@@ -314,7 +314,7 @@ export function laneFacts({
       ? railStages(
           detail.fields.find(f => f.key === 'pipeline-stages')?.value ?? null,
           stageAttempts(detail.stages, run, now),
-          heldSpans(detail.stages, detail.decisions, detail.fields),
+          railHolds(run, detail.stages, detail.decisions, detail.fields),
           mine ? gateStage(mine, detail.stages) : null,
           now
         )

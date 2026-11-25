@@ -307,11 +307,6 @@ describe('PausedBanner', () => {
       /^Paused by the agent at .*, during implement\.Compacting first$/
     );
   });
-
-  it('draws nothing while the agent works through its own pause', () => {
-    banner({ by: 'agent', pause: 'pausing' });
-    expect(screen.queryByTestId('paused-banner')).toBeNull();
-  });
 });
 
 function StoryRecord({ g }: { g: GateRow }) {

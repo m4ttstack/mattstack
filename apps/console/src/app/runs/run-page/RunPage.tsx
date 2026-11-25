@@ -8,14 +8,9 @@ import { formatDuration } from '../derive/duration';
 import { gateStage } from '../derive/gates';
 import { shepherdGate } from '../derive/lanes';
 import { heroLiveness } from '../derive/liveness';
-import {
-  modeFeed,
-  pausedBy,
-  pauseStateOf,
-  runModeOf,
-} from '../derive/modeFeed';
+import { modeFeed, runModeOf } from '../derive/modeFeed';
+import { pausedBy, pauseStateOf, railHolds } from '../derive/pause';
 import { liveCost } from '../derive/record';
-import { heldSpans } from '../derive/run';
 import { railStages, stageAttempts } from '../derive/stages';
 import { Eyebrow } from '../Eyebrow';
 import { ModePanel, ModeRunContext, PausedBanner } from '../mode/ModeDecisions';
@@ -144,14 +139,14 @@ export function RunPage({
   const { live, answerable, handoff, mine } = facts;
   const modeRows = modeFeed([run], gates)[0]?.rows ?? [];
   const mode = runModeOf(fields, modeRows);
-  const pause = pauseStateOf(run);
+  const pause = pauseStateOf(run, decisions);
 
   const rail =
     kind === 'work'
       ? railStages(
           fields.find(f => f.key === 'pipeline-stages')?.value ?? null,
           stageAttempts(stages, run, now),
-          heldSpans(stages, decisions, fields),
+          railHolds(run, stages, decisions, fields),
           mine ? gateStage(mine, stages) : null,
           now
         )
@@ -274,6 +269,7 @@ export function RunPage({
                 mode={mode}
                 rows={modeRows}
                 canControl={live}
+                canPause={live && !run.hold}
                 pause={pause}
                 stage={run.current_stage}
                 defaultOpen
