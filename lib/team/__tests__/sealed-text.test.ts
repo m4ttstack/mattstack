@@ -149,6 +149,22 @@ describe.skipIf(noAge)("sealed text", () => {
     }
   });
 
+  test("text that quotes age's own words is still damaged", async () => {
+    const a = mint();
+    const s = make({ ageKey: holding(a) });
+    const header = (line: string) => Buffer.from(`age-encryption.org/v1\n${line}\n--- x\n`).toString("base64");
+    for (const bad of [
+      Buffer.from("/dev/stdin\n").toString("base64"),
+      Buffer.from("failed to open input file\n").toString("base64"),
+      header("/dev/stdin"),
+      header("no identity matched any of the recipients"),
+      header("-> age: error: no identity matched any of the recipients"),
+      header('-> reading "/dev/stdin"'),
+    ]) {
+      expect(await s.open(bad, binding)).toEqual({ ok: false, reason: "damaged" });
+    }
+  });
+
   test("a plaintext that is not ours is damaged", async () => {
     const a = mint();
     const encrypt = (text: string) =>
@@ -172,6 +188,9 @@ describe.skipIf(noAge)("sealed text", () => {
     expect(await make({ ageKey: keychain(() => Promise.reject(new AgeKeyTimeoutError("slow"))) }).open(sealed, binding)).toEqual(unavailable);
     expect(await make({ ageKey: keychain(() => ({ code: 0, stdout: "not a key", stderr: "" })) }).open(sealed, binding)).toEqual(unavailable);
     expect(await make({ ageBin: () => wrapper("kill -9 $$"), ageKey: holding(a) }).open(sealed, binding)).toEqual(unavailable);
+    for (const body of ["exit 1", "echo 'cannot launch age' >&2; exit 1"]) {
+      expect(await make({ ageBin: () => wrapper(body), ageKey: holding(a) }).open(sealed, binding)).toEqual(unavailable);
+    }
   });
 
   test("sealing with no age, a failing age or no store is unavailable", async () => {
@@ -182,6 +201,7 @@ describe.skipIf(noAge)("sealed text", () => {
     expect(await make({ roster, ageBin: () => wrapper("exit 0") }).seal(["ada"], binding, { note: "x" })).toEqual(unavailable);
     expect(await make({ roster, ageBin: () => wrapper("cat") }).seal(["ada"], binding, { note: "x" })).toEqual(unavailable);
     expect(await make({ roster: () => { throw new Error("no store"); } }).seal(["ada"], binding, { note: "x" })).toEqual(unavailable);
+    expect(await make({ roster: () => [] }).seal(["ada"], binding, { note: "x" })).toEqual(unavailable);
   });
 
   test("the private key reaches no argv or file", async () => {

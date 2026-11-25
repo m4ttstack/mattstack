@@ -47,6 +47,13 @@ function isFields(v: unknown): v is SealFields {
   return v !== null && typeof v === "object" && !Array.isArray(v) && Object.values(v).every((x) => typeof x === "string");
 }
 
+/** `age` quotes the ciphertext's own bytes in its errors, escaped so they never start a line: only a line it begins itself is believed. */
+function whyNotOpened(stderr: string): Extract<OpenResult, { ok: false }> {
+  if (/^age: error: no identity matched any of the recipients/m.test(stderr)) return { ok: false, reason: "not-for-this-key" };
+  if (/^age: error: (reading "\/dev\/stdin"|failed to open input file)/m.test(stderr)) return UNAVAILABLE;
+  return /^age: error: /m.test(stderr) ? DAMAGED : UNAVAILABLE;
+}
+
 function unwrap(plaintext: string, binding: SealBinding): OpenResult {
   let parsed: unknown;
   try {
@@ -85,9 +92,9 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
     return reading;
   }
 
-  function keysByUser(): Map<string, Set<string>> {
+  function keysByUser(roster = deps.roster()): Map<string, Set<string>> {
     const keys = new Map<string, Set<string>>();
-    for (const { username, agePublicKey } of deps.roster()) {
+    for (const { username, agePublicKey } of roster) {
       const handle = canonicalHandle(username);
       if (!handle || typeof agePublicKey !== "string" || !isValidAgePublicKey(agePublicKey)) continue;
       keys.set(handle, (keys.get(handle) ?? new Set()).add(agePublicKey));
@@ -102,10 +109,7 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
       writeFileSync(file, ciphertext, { mode: 0o600 });
       const run = await runCapture([age, "-d", "-i", "/dev/stdin", file], { stdin: key, stderr: "pipe", timeoutMs: AGE_TIMEOUT_MS });
       if (run.exitCode === 0) return { ok: true, plaintext: run.stdout };
-      if (/no identity matched/.test(run.stderr)) return { ok: false, reason: "not-for-this-key" };
-      // age itself exits 1: any other code is a launch or a kill, and a key or file it could not read is this Mac's trouble, not the text's.
-      if (run.exitCode !== 1 || /\/dev\/stdin|failed to open input file/.test(run.stderr)) return UNAVAILABLE;
-      return DAMAGED;
+      return whyNotOpened(run.stderr);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -116,7 +120,10 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
       try {
         const age = deps.ageBin();
         if (!age) return UNAVAILABLE;
-        const byUser = keysByUser();
+        const roster = deps.roster();
+        // A store that cannot be read gives an empty roster, which says nothing about who has a key.
+        if (roster.length === 0) return UNAVAILABLE;
+        const byUser = keysByUser(roster);
         const recipients = new Set<string>();
         const unreachable = new Set<string>();
         for (const handle of to.map(canonicalHandle)) {
