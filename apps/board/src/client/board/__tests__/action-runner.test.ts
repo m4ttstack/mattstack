@@ -420,6 +420,7 @@ test('dispatchRowAction routes one-row requests to their handlers', async () => 
     dropReview: m => calls.push(`drop review !${m.iid}`),
     postSlack: m => calls.push(`post !${m.iid}`),
     slackPosts: m => calls.push(`slack posts !${m.iid}`),
+    help: m => calls.push(`help !${m.iid}`),
   };
   const { deps, events } = fakeDeps();
   dispatchRowAction({ kind: 'copy' }, mr(7), {}, deps, h);
@@ -441,6 +442,7 @@ test('dispatchRowAction routes one-row requests to their handlers', async () => 
   dispatchRowAction({ kind: 'stand-down', on: true }, mr(7), {}, deps, h);
   dispatchRowAction({ kind: 'drop-review' }, mr(7), {}, deps, h);
   dispatchRowAction({ kind: 'slack-posts' }, mr(7), {}, deps, h);
+  dispatchRowAction({ kind: 'help' }, mr(7), {}, deps, h);
   await dispatchRowAction(
     { kind: 'ask', ask: 'review' },
     mr(7),
@@ -455,6 +457,7 @@ test('dispatchRowAction routes one-row requests to their handlers', async () => 
     'stand-down true !7',
     'drop review !7',
     'slack posts !7',
+    'help !7',
   ]);
   expect(events).toContain(
     `post /nudge {"mrUrl":"${mr(7).webUrl}","iid":7,"reviewer":"jo","kind":"review"}`

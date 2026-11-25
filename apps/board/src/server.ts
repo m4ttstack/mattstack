@@ -2555,8 +2555,6 @@ const httpServer = Bun.serve({
       }
     }
 
-    // The review sheet's file diffs come through the daemon's own forge
-    // access, so they need none of the board's tokens below.
     if (pathname === '/support' || pathname.startsWith('/support/'))
       return supportRoute(req, {
         isLocal: r => isLocalRequest(r, server) && hasLocalOrigin(r),
@@ -2575,6 +2573,8 @@ const httpServer = Bun.serve({
         context: a => supportContext(a),
         send: a => supportSend(a),
       });
+    // The review sheet's file diffs come through the daemon's own forge
+    // access, so they need none of the board's tokens below.
     if (pathname === '/review/file-diff')
       return fileDiffRoute(req, {
         isLocal: r => isLocalRequest(r, server),

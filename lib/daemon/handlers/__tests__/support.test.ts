@@ -2,12 +2,13 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { readdirSync, readFileSync, statSync } from "fs";
 import { describe, expect, test } from "bun:test";
-import { SUPPORT_AWAY_MS, SUPPORT_TTL_MS, type SupportDraft, type SupportHostState } from "../../../../packages/rt-client/src/support.ts";
+import { SUPPORT_AWAY_MS, SUPPORT_TTL_MS, type SupportDraft, type SupportHostState, type SupportMissing } from "../../../../packages/rt-client/src/support.ts";
 import { UserActionableError } from "../../../errors.ts";
 import { openStateDb } from "../../../state/db.ts";
 import { getRequest, insertRequest, listRequests, type SupportRequest, type SupportState } from "../../../state/support-store.ts";
 import type { SupportConfig } from "../../../support/config.ts";
 import type { SupportSend } from "../../../support/relay.ts";
+import { SUPPORT_MAX_OPEN } from "../../../support/host.ts";
 import { supportMac } from "../../../support/proof.ts";
 import { createSupportHandlers, type SupportHandlerDeps } from "../support.ts";
 import type { HandlerContext } from "../types.ts";
@@ -31,7 +32,9 @@ function harness() {
     host: { accepting: true, lastSeenAt: 1_800_000_000_000 } as SupportHostState | null,
     send: "ok" as SupportSend,
     slackUserId: "U0ADA" as string | null | Error,
-    missing: [] as string[],
+    missing: [] as SupportMissing[],
+    mayChange: false,
+    openChats: 0,
     setHost: "ok" as "ok" | "other-machine" | "failed",
     setup: ["account.slack-support"] as string[] | null,
     holdsRole: true,
@@ -70,6 +73,10 @@ function harness() {
       return state.slackUserId;
     },
     readiness: async () => state.missing,
+    mayChange: () => state.mayChange,
+    openChats: () => state.openChats,
+    persona: () => "Maude",
+    repos: () => ["git.example.com/acme/app"],
     setAccepting: (on) => void events.push(`setting ${on}`),
     published: (on) => void events.push(`published ${on}`),
     drain: async () => void events.push("drain"),
@@ -160,7 +167,7 @@ describe("support:availability", () => {
   };
 
   test("ready, and says who answers", async () => {
-    expect(await availability(harness())).toEqual({ state: "ready", host: "Alex Doe", away: false });
+    expect(await availability(harness())).toEqual({ state: "ready", host: "Alex Doe", away: false, persona: "Maude" });
   });
 
   test("hidden: no org, support off, no host, host not accepting, or this person is the host", async () => {
@@ -188,7 +195,7 @@ describe("support:availability", () => {
     for (const [set, reason] of cases) {
       const h = harness();
       set(h);
-      expect(await availability(h)).toEqual({ state: "disabled", reason, host: "Alex Doe" });
+      expect(await availability(h)).toEqual({ state: "disabled", reason, host: "Alex Doe", persona: "Maude" });
     }
   });
 
@@ -477,14 +484,56 @@ describe("support:host and support:accept", () => {
   const asHost = (h: ReturnType<typeof harness>, accepting = false) =>
     void (h.state.config = { ...h.state.config!, me: "alex", isHost: true, accepts: accepting, acceptHere: accepting });
 
+  const need = (text: string, fix: SupportMissing["fix"] = null): SupportMissing => ({ text, label: text, fix });
+  const view = async (h: ReturnType<typeof harness>) => {
+    const r = await h.handlers["support:host"]({});
+    if (!r.ok) throw new Error(r.error);
+    return r.data;
+  };
+
   test("the host reads what is missing; nobody else is asked", async () => {
     const h = harness();
-    h.state.missing = ["Set your chat name"];
-    expect(await h.handlers["support:host"]({})).toEqual({ ok: true, data: { isHost: false, accepting: false, missing: [] } });
+    h.state.missing = [need("Set your chat name", "chat-name")];
+    h.state.openChats = 1;
+    h.request({ id: "w", direction: "in", peer: "ada", state: "waiting" });
+    const nobody = { isHost: false, enabled: true, accepting: false, missing: [], needs: [], otherMac: false, open: 0, cap: SUPPORT_MAX_OPEN, waiting: 0, persona: "Maude", repos: [], org: null };
+    expect(await view(h)).toEqual(nobody);
     asHost(h, true);
-    expect(await h.handlers["support:host"]({})).toEqual({ ok: true, data: { isHost: true, accepting: true, missing: ["Set your chat name"] } });
+    expect(await view(h)).toEqual({ ...nobody, isHost: true, accepting: true, missing: ["Set your chat name"], needs: h.state.missing, open: 1, waiting: 1 });
     h.state.holdsRole = false;
-    expect(await h.handlers["support:host"]({})).toMatchObject({ data: { accepting: false } });
+    expect(await view(h)).toMatchObject({ accepting: false, otherMac: true });
+  });
+
+  test("the host's other Mac is named only while the relay holds one", async () => {
+    const h = harness();
+    asHost(h);
+    expect((await view(h)).otherMac).toBe(true);
+    h.state.host = { accepting: false, lastSeenAt: null };
+    expect((await view(h)).otherMac).toBe(false);
+    h.state.host = null;
+    expect((await view(h)).otherMac).toBe(false);
+  });
+
+  test("the repos to choose from come only with the repo still to choose", async () => {
+    const h = harness();
+    asHost(h);
+    expect((await view(h)).repos).toEqual([]);
+    h.state.missing = [need("Choose the repo the support agent works in", "repo")];
+    expect((await view(h)).repos).toEqual(["git.example.com/acme/app"]);
+  });
+
+  test("someone who may change the org reads its switch, and whether the host is answering", async () => {
+    const h = harness();
+    h.state.mayChange = true;
+    const people = h.state.config!.roster;
+    expect((await view(h)).org).toEqual({ host: "Alex", hasKey: true, people, answering: true });
+    h.state.host = { accepting: false, lastSeenAt: null };
+    h.state.keyMissing = true;
+    expect((await view(h)).org).toEqual({ host: "Alex", hasKey: false, people, answering: false });
+    h.state.relay = false;
+    expect((await view(h)).org).toMatchObject({ answering: null });
+    h.state.config = { ...h.state.config!, host: null, enabled: false };
+    expect(await view(h)).toMatchObject({ enabled: false, org: { host: null, answering: null } });
   });
 
   test("accept refuses for anyone but the host", async () => {
@@ -500,7 +549,7 @@ describe("support:host and support:accept", () => {
   test("accept refuses with each missing piece named", async () => {
     const h = harness();
     asHost(h);
-    h.state.missing = ["Set your chat name", "Slack did not answer"];
+    h.state.missing = [need("Set your chat name"), need("Slack did not answer")];
     const r = await h.handlers["support:accept"]({ on: true });
     expect(!r.ok && r.failure?.message).toBe("Set your chat name. Slack did not answer.");
     expect(h.events).toEqual([]);

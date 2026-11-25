@@ -17,6 +17,7 @@ vi.mock('@mattstack/rt-client', () => ({
   chatSlackPeople: vi.fn(),
   chatSlackStart: vi.fn(),
   chatSlackResume: vi.fn(),
+  supportStop: vi.fn(),
   serializeIdentity: (id: { kind: string; id: string }) =>
     `${id.kind}:${encodeURIComponent(id.id)}`,
   parseIdentity: (wire: string) =>
@@ -1562,11 +1563,59 @@ test('slack-resume carries the daemon refusal', async () => {
   );
 });
 
-test('start and resume under fixtures never reach the daemon', async () => {
+const stop = (conversation: unknown) =>
+  routes.request('/api/chat/slack-stop', {
+    method: 'POST',
+    headers: JSON_PAGE,
+    body: JSON.stringify({ conversation }),
+  });
+
+test('slack-stop says whether the teammate was told', async () => {
+  for (const told of [true, false]) {
+    vi.mocked(rt.supportStop).mockResolvedValueOnce({
+      ok: true,
+      data: { told },
+    });
+    const res = await stop(7);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ told });
+  }
+  expect(vi.mocked(rt.supportStop).mock.calls[0]![0]).toEqual({
+    conversation: 7,
+  });
+});
+
+test('slack-stop needs a whole-number conversation', async () => {
+  for (const conversation of [undefined, 'x', 1.5])
+    expect((await stop(conversation)).status).toBe(400);
+  expect(rt.supportStop).not.toHaveBeenCalled();
+});
+
+test('slack-stop carries the daemon refusal, and a silent daemon is a 502', async () => {
+  vi.mocked(rt.supportStop).mockResolvedValueOnce({
+    ok: false,
+    error: 'support: that chat is already closed',
+    failure: {
+      code: 'support-stop',
+      message: 'that chat is already closed',
+    },
+  });
+  const refused = await stop(7);
+  expect(refused.status).toBe(409);
+  expect((await refused.json()).error).toBe('that chat is already closed');
+  vi.mocked(rt.supportStop).mockResolvedValueOnce({
+    ok: false,
+    error: 'rt daemon unreachable',
+  });
+  expect((await stop(7)).status).toBe(502);
+});
+
+test('start, resume and stop under fixtures never reach the daemon', async () => {
   process.env.CHAT_FIXTURES = '1';
   for (const [path, body] of [
     ['/api/chat/slack-start', { person: 'U0A', brief: 'x' }],
     ['/api/chat/slack-resume', { conversation: 7 }],
+    ['/api/chat/slack-stop', { conversation: 7 }],
   ] as const) {
     const res = await routes.request(path, {
       method: 'POST',
@@ -1624,12 +1673,13 @@ const FORGED: [string, Record<string, string>][] = [
 ];
 
 test.each(FORGED)(
-  'start and resume refuse %s with a 403, before any daemon call',
+  'start, resume and stop refuse %s with a 403, before any daemon call',
   async (_name, headers) => {
     setRepo('github.com/acme/support');
     for (const [path, body] of [
       ['/api/chat/slack-start', { person: 'U0A', brief: 'x' }],
       ['/api/chat/slack-resume', { conversation: 7 }],
+      ['/api/chat/slack-stop', { conversation: 7 }],
     ] as const) {
       const res = await routes.request(path, {
         method: 'POST',
@@ -1640,6 +1690,7 @@ test.each(FORGED)(
     }
     expect(rt.chatSlackStart).not.toHaveBeenCalled();
     expect(rt.chatSlackResume).not.toHaveBeenCalled();
+    expect(rt.supportStop).not.toHaveBeenCalled();
   }
 );
 
@@ -1652,11 +1703,12 @@ test.each(FORGED)(
   }
 );
 
-test('start and resume refuse a local request with no Origin and no Sec-Fetch-Site, as a pane shell sends', async () => {
+test('start, resume and stop refuse a local request with no Origin and no Sec-Fetch-Site, as a pane shell sends', async () => {
   setRepo('github.com/acme/support');
   for (const [path, body] of [
     ['/api/chat/slack-start', { person: 'U0A', brief: 'x' }],
     ['/api/chat/slack-resume', { conversation: 7 }],
+    ['/api/chat/slack-stop', { conversation: 7 }],
   ] as const) {
     const res = await routes.request(path, {
       method: 'POST',
@@ -1667,6 +1719,7 @@ test('start and resume refuse a local request with no Origin and no Sec-Fetch-Si
   }
   expect(rt.chatSlackStart).not.toHaveBeenCalled();
   expect(rt.chatSlackResume).not.toHaveBeenCalled();
+  expect(rt.supportStop).not.toHaveBeenCalled();
 });
 
 test('a same-origin fetch that names itself only by Sec-Fetch-Site passes', async () => {

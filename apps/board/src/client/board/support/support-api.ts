@@ -12,7 +12,10 @@ async function read<T>(path: string): Promise<T | null> {
   }
 }
 
-export const getSupport = () => read<SupportRead>('/support');
+export const getSupport = () =>
+  read<Partial<SupportRead>>('/support').then(r =>
+    r?.availability ? (r as SupportRead) : null
+  );
 
 export const getRequests = () =>
   read<{ requests: HelpRequest[] }>('/support/mine').then(

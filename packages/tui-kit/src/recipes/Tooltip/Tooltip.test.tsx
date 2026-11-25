@@ -176,6 +176,7 @@ describe('Tooltip (browser)', () => {
     const triggerRect = trigger.getBoundingClientRect();
     const cardRect = (await settledCard()).getBoundingClientRect();
 
+    expect(cardInBody()?.dataset.side).toBe('bottom');
     expect(cardRect.left).toBe(triggerRect.left);
     expect(cardRect.top).toBeGreaterThan(triggerRect.bottom);
     // The gap is `--sb-tooltip-gap` (0.15rem + 8px, 10.4px at the 16px test
@@ -183,6 +184,29 @@ describe('Tooltip (browser)', () => {
     // sub-pixel rounding cannot make it brittle.
     expect(cardRect.top - triggerRect.bottom).toBeGreaterThan(10);
     expect(cardRect.top - triggerRect.bottom).toBeLessThan(11);
+
+    await screen.getByTestId('tip').unhover();
+  });
+
+  it('the card opens above a trigger at the bottom of the window', async () => {
+    const screen = await renderWithTheme(
+      <div style={{ position: 'fixed', bottom: 0, left: 20 }}>
+        <Tooltip data-testid="tip" tip="above">
+          child
+        </Tooltip>
+      </div>
+    );
+
+    await screen.getByTestId('tip').hover();
+    await expect.poll(() => cardInBody(), { timeout: 1000 }).not.toBeNull();
+
+    const card = await settledCard();
+    const gap =
+      rootOf(screen.container).getBoundingClientRect().top -
+      card.getBoundingClientRect().bottom;
+    expect(card.dataset.side).toBe('top');
+    expect(gap).toBeGreaterThan(10);
+    expect(gap).toBeLessThan(11);
 
     await screen.getByTestId('tip').unhover();
   });
