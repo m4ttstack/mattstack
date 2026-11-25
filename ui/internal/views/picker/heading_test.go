@@ -84,6 +84,16 @@ func TestGroupHeadingPaintsHexAndDropsControlBytes(t *testing.T) {
 	}
 }
 
+func TestGroupHeadingLiftsAColorThatWouldNotRead(t *testing.T) {
+	req := headedRequest()
+	req.GroupHeadings["WEB-214"] = protocol.PickGroupHeading{Left: []protocol.PickSegment{{Text: "[Done]", Hex: "#5E6AD2"}}}
+	m := New(req)
+	m.width = 60
+	if line := headingLine(t, m, "[Done]"); strings.Contains(line, "38;2;94;106;210") {
+		t.Fatalf("a dark state color should be lifted, not painted raw: %q", line)
+	}
+}
+
 func TestUpdateSwapsHeadingsWithTheCursorAndMarksKept(t *testing.T) {
 	m := New(headedRequest())
 	m.width = 60

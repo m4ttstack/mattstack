@@ -21,8 +21,8 @@ export interface ServersDeps {
   snapshot(repo: ServerRepo): Promise<ServerSnapshot | null>;
   /** Keyed by worktree path. */
   enrich(servers: RunningServer[], remoteUrl: string | undefined): Promise<Enriched>;
-  /** The root pids to stop, or null when nothing was picked. */
-  pick(label: string, servers: RunningServer[], enriched: Promise<Enriched>): Promise<number[] | null>;
+  /** The root pids to stop, or null when nothing was picked. Opens on what has landed. */
+  pick(label: string, servers: RunningServer[], lookup: Lookup): Promise<number[] | null>;
   stop: typeof stopServers;
   canAsk(): boolean;
   /** Settles early when `cancel` aborts, so a lookup that answers first leaves no timer holding the process open. */
@@ -30,7 +30,14 @@ export interface ServersDeps {
   exit(code: number): void;
 }
 
+export interface Lookup {
+  answer: Promise<Enriched>;
+  landed: Enriched | null;
+}
+
 const LIST_ENRICH_DEADLINE_MS = 3_000;
+/** Longer than the list's: a person is watching a spinner, and the picker opens without the data after this. */
+const PICK_ENRICH_DEADLINE_MS = 10_000;
 const READ_FAILED = "rt could not read what is running";
 /** The width rt cd pads its ticket states to. */
 const STATE_WIDTH = 15;
@@ -131,9 +138,9 @@ export const realServersDeps: ServersDeps = {
     if (branches.length === 0) return new Map();
     return new Map((await enrichBranches(branches, remoteUrl, { silent: true })).map((eb) => [eb.path, eb]));
   },
-  pick: async (label, servers, enriched) => {
+  pick: async (label, servers, lookup) => {
     const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
-    const first = pickView(groupServers(servers, new Map()));
+    const first = pickView(groupServers(servers, lookup.landed ?? new Map()));
     let handle: PickHandle | undefined;
     const picked = filterableMultiselect(
       {
@@ -147,9 +154,11 @@ export const realServersDeps: ServersDeps = {
       },
       { rows: first.rows, actions: [STOP_ACTION], onOpen: (opened) => { handle = opened; } },
     );
-    void enriched.then((answer) => {
-      if (answer.size > 0) handle?.update(pickView(groupServers(servers, answer)));
-    });
+    if (!lookup.landed) {
+      void lookup.answer.then((answer) => {
+        if (answer.size > 0) handle?.update(pickView(groupServers(servers, answer)));
+      });
+    }
     return (await picked)?.map(Number) ?? null;
   },
   stop: stopServers,
@@ -166,21 +175,16 @@ export const realServersDeps: ServersDeps = {
   exit: (code) => process.exit(code),
 };
 
-interface Lookup {
-  answer: Promise<Enriched>;
-  landed: Enriched | null;
-}
-
 function startLookup(deps: ServersDeps, servers: RunningServer[], remoteUrl: string | undefined): Lookup {
   const lookup: Lookup = { answer: deps.enrich(servers, remoteUrl).catch((): Enriched => new Map()), landed: null };
   void lookup.answer.then((answer) => { lookup.landed = answer; });
   return lookup;
 }
 
-async function enrichedWithin(deps: ServersDeps, lookup: Lookup): Promise<Enriched> {
+async function enrichedWithin(deps: ServersDeps, lookup: Lookup, ms: number): Promise<Enriched> {
   const cancel = new AbortController();
   try {
-    return await Promise.race([lookup.answer, deps.sleep(LIST_ENRICH_DEADLINE_MS, cancel.signal).then((): Enriched => new Map())]);
+    return await Promise.race([lookup.answer, deps.sleep(ms, cancel.signal).then((): Enriched => new Map())]);
   } finally {
     cancel.abort();
   }
@@ -237,7 +241,8 @@ export async function serversCommand(args: string[], ctx: CommandContext, deps: 
 
   const lookup = startLookup(deps, servers, remoteUrl || undefined);
   const pickAndStop = async () => {
-    const picked = await deps.pick(label, servers, lookup.answer);
+    await withTransientStep("Loading tickets and merge requests", () => enrichedWithin(deps, lookup, PICK_ENRICH_DEADLINE_MS));
+    const picked = await deps.pick(label, servers, lookup);
     if (!picked || picked.length === 0) {
       out.print(out.line("skipped", "Nothing selected"));
       return;
@@ -253,7 +258,7 @@ export async function serversCommand(args: string[], ctx: CommandContext, deps: 
   };
 
   if (deps.canAsk()) await pickAndStop();
-  else out.print(...serverBlocks(label, groupServers(servers, await enrichedWithin(deps, lookup))));
+  else out.print(...serverBlocks(label, groupServers(servers, await enrichedWithin(deps, lookup, LIST_ENRICH_DEADLINE_MS))));
   // A forge lookup has no timeout of its own, and a pending one holds the process open.
   if (!lookup.landed) deps.exit(Number(process.exitCode ?? 0));
 }

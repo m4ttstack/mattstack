@@ -80,18 +80,21 @@ func TestPickerTokens(t *testing.T) {
 	}
 }
 
-// relLuminance is the WCAG relative luminance of a color, used below only to
-// pin a direction (lighter/darker), never an exact contrast ratio.
-func relLuminance(c color.Color) float64 {
-	r, g, b, _ := c.RGBA()
-	lin := func(v uint32) float64 {
-		f := float64(v) / 65535
-		if f <= 0.04045 {
-			return f / 12.92
+func TestReadableLiftsADarkColorAndLeavesABrightOneAlone(t *testing.T) {
+	for _, hex := range []string{"#5E6AD2", "#0F783C", "#1E1E1E", "#95A2B3", "#EB5757"} {
+		got := Readable(lipgloss.Color(hex))
+		if c := contrast(relLuminance(got), relLuminance(Bg)); c < readableContrast {
+			t.Errorf("%s became %s, only %.1f:1 on Bg", hex, Hex(got), c)
 		}
-		return math.Pow((f+0.055)/1.055, 2.4)
 	}
-	return 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b)
+	if got := Hex(Readable(lipgloss.Color("#F2C94C"))); got != "#F2C94C" {
+		t.Errorf("a color that already reads must not change, got %s", got)
+	}
+	lifted := Readable(lipgloss.Color("#5E6AD2"))
+	r, g, b, _ := lifted.RGBA()
+	if !(b > r && b > g) {
+		t.Errorf("a lifted indigo must still lean blue, got %s", Hex(lifted))
+	}
 }
 
 // TestTopBarBgIsLighterThanBg pins the direction, not just a value: a dark
@@ -145,13 +148,6 @@ func dist(a, b color.Color) int {
 	br, bg, bb, _ := b.RGBA()
 	d := func(x, y uint32) int { v := int(x>>8) - int(y>>8); return v * v }
 	return d(ar, br) + d(ag, bg) + d(ab, bb)
-}
-
-func contrast(a, b float64) float64 {
-	if a < b {
-		a, b = b, a
-	}
-	return (a + 0.05) / (b + 0.05)
 }
 
 func TestLightDiffTintsArePaleAndKeepTheirHue(t *testing.T) {

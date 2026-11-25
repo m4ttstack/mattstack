@@ -238,14 +238,27 @@ func groupHeaderLine(group string) string {
 // groupHeadingLine paints a caller's heading across width: its right side
 // whole at the edge, its left clipped to what remains.
 func groupHeadingLine(h protocol.PickGroupHeading, width int) string {
-	right := ansi.Truncate(previewSegs(h.Right), max(width-2, 0), "…")
+	right := ansi.Truncate(previewSegs(readableSegs(h.Right)), max(width-2, 0), "…")
 	avail := width - 2 - lipgloss.Width(right)
 	if right != "" {
 		avail--
 	}
-	left := ansi.Truncate(previewSegs(h.Left), max(avail, 0), "…")
+	left := ansi.Truncate(previewSegs(readableSegs(h.Left)), max(avail, 0), "…")
 	fill := max(width-2-lipgloss.Width(left)-lipgloss.Width(right), 0)
 	return onBg.Render("  ") + left + onBg.Render(strings.Repeat(" ", fill)) + right
+}
+
+// readableSegs lifts each hex segment to a color that reads on the picker's
+// background.
+func readableSegs(segs []protocol.PickSegment) []protocol.PickSegment {
+	out := make([]protocol.PickSegment, len(segs))
+	for i, seg := range segs {
+		if seg.Hex != "" {
+			seg.Hex = theme.Hex(theme.Readable(lipgloss.Color(seg.Hex)))
+		}
+		out[i] = seg
+	}
+	return out
 }
 
 // thumbStyle/restStyle are this view's own two ThumbCell arguments: Panel

@@ -15,7 +15,7 @@ import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
 import { installFakePick } from "../../lib/ui/pick-fake.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { branchesOf, realServersDeps, serverBlocks, serverHints, serversCommand, type ServersDeps } from "../servers.ts";
+import { branchesOf, realServersDeps, serverBlocks, serverHints, serversCommand, type Lookup, type ServersDeps } from "../servers.ts";
 
 const IDENTITY = "remote:example.com%2Facme%2Fsample-app";
 const TREE = "/trees/calm-marble";
@@ -164,7 +164,7 @@ function harness(over: Over = {}) {
   const snapshots = [...(over.snapshots ?? [SNAPSHOT, SNAPSHOT])];
   const calls = {
     snapshot: 0, enrich: 0, pick: 0, stop: 0, slept: [] as number[], spare: new Set<number>(), picked: [] as RunningServer[],
-    fresh: null as FreshServers | null, exits: [] as number[], cancelled: false,
+    fresh: null as FreshServers | null, exits: [] as number[], cancelled: false, landedAtPick: undefined as Lookup["landed"] | undefined,
   };
   const deps: ServersDeps = {
     rules: () => over.rules ?? RULES,
@@ -176,8 +176,9 @@ function harness(over: Over = {}) {
       calls.enrich++;
       return over.enrich ? over.enrich() : Promise.resolve(ENRICHED);
     },
-    pick: async () => {
+    pick: async (_label, _servers, lookup) => {
       calls.pick++;
+      calls.landedAtPick = lookup.landed;
       return over.pick ?? null;
     },
     stop: async (picked, fresh, spare) => {
@@ -248,11 +249,12 @@ describe("serversCommand", () => {
   test("a lookup still running when the output is done is not waited on, and the exit code stands", async () => {
     const listed = harness({ enrich: NEVER, deadlinePasses: true });
     await listed.run();
-    const escaped = harness({ enrich: NEVER, canAsk: true, pick: null });
+    const slow = { enrich: NEVER, deadlinePasses: true, canAsk: true };
+    const escaped = harness({ ...slow, pick: null });
     await escaped.run();
-    const stopped = harness({ enrich: NEVER, canAsk: true, pick: [10] });
+    const stopped = harness({ ...slow, pick: [10] });
     await stopped.run();
-    const failed = harness({ enrich: NEVER, canAsk: true, pick: [10], outcomes: ([s]) => [{ server: s!, result: "failed", why: "It did not stop." }] });
+    const failed = harness({ ...slow, pick: [10], outcomes: ([s]) => [{ server: s!, result: "failed", why: "It did not stop." }] });
     await failed.run();
     expect([listed, escaped, stopped, failed].map((h) => h.calls.exits)).toEqual([[0], [0], [0], [1]]);
   });
@@ -315,10 +317,23 @@ describe("serversCommand", () => {
     expect(process.exitCode).toBe(1);
   });
 
-  test("the picker opens before ticket data arrives", async () => {
-    const { run, calls } = harness({ canAsk: true, enrich: NEVER, pick: null });
+  test("the picker waits for ticket data and opens on it", async () => {
+    let answer!: (data: Map<string, EnrichedBranch>) => void;
+    const { run, calls } = harness({ canAsk: true, enrich: () => new Promise((resolve) => { answer = resolve; }), pick: null });
+    const done = run();
+    await Bun.sleep(5);
+    expect(calls.pick).toBe(0);
+    answer(ENRICHED);
+    await done;
+    expect(calls.landedAtPick).toBe(ENRICHED);
+    expect(calls.cancelled).toBe(true);
+  });
+
+  test("a lookup slower than ten seconds opens the picker without it", async () => {
+    const { run, calls } = harness({ canAsk: true, enrich: NEVER, deadlinePasses: true, pick: null });
     await run();
-    expect(calls.pick).toBe(1);
+    expect(calls.slept).toEqual([10_000]);
+    expect([calls.pick, calls.landedAtPick]).toEqual([1, null]);
   });
 
   test("picking re-reads, then stops the picked ones and names each by port and title", async () => {
@@ -346,7 +361,7 @@ describe("serversCommand", () => {
   });
 
   test("a stop while ticket data is still missing is named by its branch", async () => {
-    const { run } = harness({ canAsk: true, pick: [10], enrich: NEVER });
+    const { run } = harness({ canAsk: true, pick: [10], enrich: NEVER, deadlinePasses: true });
     await run();
     expect(io.stdout()).toBe("[ok] Stopped web  :4001, web-214-login-rate-limit\n");
   });
@@ -403,17 +418,28 @@ describe("realServersDeps.pick", () => {
     fake = undefined;
   });
   const SERVERS = [server({ pid: 10, role: "web", port: 4001 }), server({ pid: 20, port: 10401 })];
+  const CANCELLED = [{ kind: "result" as const, result: { action: "cancel", value: null, query: "" } }];
+  const landed = (data: Map<string, EnrichedBranch>): Lookup => ({ answer: Promise.resolve(data), landed: data });
+  const late = (data: Map<string, EnrichedBranch>): Lookup => ({ answer: Promise.resolve(data), landed: null });
 
   test("the filter is exact, so marking what it shows never marks a near match", async () => {
     fake = installFakePick([{ kind: "result", result: { action: "select", value: null, values: ["20"], query: "" } }]);
-    expect(await realServersDeps.pick("sample-app", SERVERS, Promise.resolve(new Map()))).toEqual([20]);
+    expect(await realServersDeps.pick("sample-app", SERVERS, landed(new Map()))).toEqual([20]);
     expect(fake.calls[0]!.request).toMatchObject({ multi: true, exact: true, breadcrumb: ["rt", "servers", "sample-app"] });
     expect(fake.calls[0]!.request.actions!.map((a) => [a.id, a.label, a.key])).toEqual([["select", "stop", "enter"]]);
   });
 
-  test("it opens on what is known at once, and ticket data lands as one update", async () => {
-    fake = installFakePick([{ kind: "result", result: { action: "cancel", value: null, query: "" } }]);
-    expect(await realServersDeps.pick("sample-app", SERVERS, Promise.resolve(ENRICHED))).toBeNull();
+  test("it opens on the ticket data that landed, and nothing redraws after", async () => {
+    fake = installFakePick(CANCELLED);
+    expect(await realServersDeps.pick("sample-app", SERVERS, landed(ENRICHED))).toBeNull();
+    const { request, updates } = fake.calls[0]!;
+    expect(request.groupHeadings!["WEB-214"]!.left.at(-1)).toEqual({ text: "Add a login rate limit", bold: true });
+    expect(updates).toEqual([]);
+  });
+
+  test("ticket data that was too slow lands as one update over the same rows", async () => {
+    fake = installFakePick(CANCELLED);
+    await realServersDeps.pick("sample-app", SERVERS, late(ENRICHED));
     const { request, updates } = fake.calls[0]!;
     expect(request.groupHeadings!["WEB-214"]!.left.map((s) => s.text)).toEqual(["WEB-214", "  web-214-login-rate-limit"]);
     expect(updates).toHaveLength(1);
@@ -421,9 +447,9 @@ describe("realServersDeps.pick", () => {
     expect(updates[0]!.rows!.map((r) => r.value)).toEqual(request.rows.map((r) => r.value));
   });
 
-  test("a lookup that found nothing leaves the first rows standing", async () => {
-    fake = installFakePick([{ kind: "result", result: { action: "cancel", value: null, query: "" } }]);
-    await realServersDeps.pick("sample-app", SERVERS, Promise.resolve(new Map()));
+  test("a late lookup that found nothing leaves the rows standing", async () => {
+    fake = installFakePick(CANCELLED);
+    await realServersDeps.pick("sample-app", SERVERS, late(new Map()));
     expect(fake.calls[0]!.updates).toEqual([]);
   });
 });

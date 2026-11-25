@@ -37,7 +37,7 @@ of the work each server belongs to.
 - Killing an agent session, a shell or a process of another repo.
 - Reading "nothing running" while a server from this repo still holds its port.
 - A stop that a respawning watcher undoes on the next file save.
-- Waiting on a ticket or MR lookup before the picker opens.
+- A hung ticket or MR lookup keeping the picker or the prompt from coming back.
 
 ## Constraints
 
@@ -100,10 +100,16 @@ listening", "left behind"), and uptime pinned right.
 - **The filter** matches role, port, ticket id, state, title, branch, MR title
   and MR state, so typing "done" or "merged" then ctrl-a marks finished work.
 
-The picker opens at once with the ticket id or branch as each heading (`S3`),
-and the titles and MR data land in place, as `rt cd` does. Marks, filter and
-cursor survive, since they are keyed by row value. A failed lookup leaves the
-first headings standing.
+The picker waits for the ticket and MR data behind a spinner ("Loading tickets
+and merge requests"), so it opens complete. A lookup still running after ten
+seconds opens it with the ticket id or branch as each heading (`S3`), and the
+titles and MR data land in place when they arrive. Marks, filter and cursor
+survive, since they are keyed by row value. A failed lookup leaves the first
+headings standing.
+
+The filter is exact, not fuzzy: ctrl-a marks everything it shows, so a near
+match would be stopped. A state tag keeps the tracker's hue, lifted until it
+reads on the picker's background.
 
 Off a terminal the same groups print as a list (`S7`), waiting at most three
 seconds for the data. A slower lookup never holds the command open, here or

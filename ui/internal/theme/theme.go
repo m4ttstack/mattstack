@@ -5,6 +5,7 @@ package theme
 import (
 	"fmt"
 	"image/color"
+	"math"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -210,6 +211,45 @@ var (
 func Hex(c color.Color) string {
 	r, g, b, _ := c.RGBA()
 	return fmt.Sprintf("#%02X%02X%02X", r>>8, g>>8, b>>8)
+}
+
+// relLuminance is the WCAG relative luminance of a color.
+func relLuminance(c color.Color) float64 {
+	r, g, b, _ := c.RGBA()
+	lin := func(v uint32) float64 {
+		f := float64(v) / 65535
+		if f <= 0.04045 {
+			return f / 12.92
+		}
+		return math.Pow((f+0.055)/1.055, 2.4)
+	}
+	return 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b)
+}
+
+func contrast(a, b float64) float64 {
+	if a < b {
+		a, b = b, a
+	}
+	return (a + 0.05) / (b + 0.05)
+}
+
+// readableContrast is well over the 4.5 text minimum, since a
+// terminal's own background can sit lighter than Bg.
+const readableContrast = 7.0
+
+// Readable lifts a color rt did not choose (a tracker's own state color)
+// toward white until it reads on Bg.
+func Readable(c color.Color) color.Color {
+	r, g, b, _ := c.RGBA()
+	for step := 0; step <= 20; step++ {
+		t := float64(step) / 20
+		lift := func(v uint32) uint8 { return uint8(math.Round(float64(v>>8) + (255-float64(v>>8))*t)) }
+		lifted := color.RGBA{R: lift(r), G: lift(g), B: lift(b), A: 255}
+		if contrast(relLuminance(lifted), relLuminance(Bg)) >= readableContrast {
+			return lifted
+		}
+	}
+	return Text
 }
 
 // Huh returns the huh theme that makes its four fields paint with rt's tokens.
