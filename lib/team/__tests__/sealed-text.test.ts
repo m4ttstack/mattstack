@@ -5,6 +5,7 @@ import { join } from "path";
 import { findBundledTool } from "../../bundled-tool.ts";
 import { AgeKeyTimeoutError, type AgeExecResult, type AgeKeySeam } from "../../home/age-key.ts";
 import { childEnv } from "../../subprocess.ts";
+import { SEAL_MAX_BYTES } from "../../daemon/handlers/sealed-text.ts";
 import { createSealedText, realSealedText, type SealBinding, type SealedTextDeps } from "../sealed-text.ts";
 
 const AGE = findBundledTool("age");
@@ -42,6 +43,9 @@ const holding = (key: Key) => keychain(() => ({ code: 0, stdout: `${key.secret}\
 const ABSENT: AgeExecResult = { code: 44, stdout: "", stderr: "The specified item could not be found in the keychain." };
 const LOCKED: AgeExecResult = { code: 36, stdout: "", stderr: "User interaction is not allowed." };
 
+/** An age stanza for one more recipient, in base64. */
+const RECIPIENT_BYTES = 140;
+
 const binding: SealBinding = { type: "review-request", from: "dev1", subject: "https://forge.example/mr/7 e-1" };
 
 describe.skipIf(noAge)("sealed text", () => {
@@ -78,6 +82,14 @@ describe.skipIf(noAge)("sealed text", () => {
     if (!result.ok) throw new Error(result.reason);
     return result.sealed;
   }
+
+  test("the most text the daemon takes, sealed to the most people, is no longer than it opens", async () => {
+    const pub = mint().pub;
+    const people = Array.from({ length: 200 }, (_, i) => `dev${i}`);
+    const roster = people.map((username) => ({ username, agePublicKey: pub }));
+    const many = await make({ roster: () => roster }).seal(people, binding, { note: "x".repeat(SEAL_MAX_BYTES) });
+    expect(many.ok && many.sealed.length + people.length * RECIPIENT_BYTES).toBeLessThan(256 * 1024);
+  });
 
   test("seals for every recipient and each opens it", async () => {
     const [a, b] = [mint(), mint()];
@@ -309,6 +321,14 @@ describe.skipIf(noAge)("sealed text", () => {
       for (const [i, cause] of ['"age":false', "low order point", "no store", "keychain unreachable", "no key", '"age":false', "cannot launch"].entries()) expect(said[i]).toContain(cause);
       expect(said.join()).not.toContain("SECRET");
       expect(said.join()).not.toContain("AGE-SECRET-KEY");
+    });
+
+    test("is one cause however often, though each try has a folder of its own", async () => {
+      const a = mint();
+      const { said, warn } = listen();
+      const o = make({ warn, ageKey: holding(a), ageBin: () => wrapper('for last; do :; done; echo "age: error: failed to open input file \\"$last\\"" >&2; exit 1') });
+      for (let i = 0; i < 4; i++) expect(await o.open("YWdl", binding)).toEqual(unavailable);
+      expect(said).toHaveLength(1);
     });
 
     test("is said once until it changes or clears", async () => {

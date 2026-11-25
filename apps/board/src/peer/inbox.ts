@@ -41,7 +41,8 @@ export interface MaterializeDeps {
       result: NudgeResult | 'confirmed' | 'parked';
     },
     /** Who sent the report: only the teammate that was asked can answer. */
-    from?: string
+    from?: string,
+    nudgeId?: string
   ): void;
   finishSentNudge(
     mrUrl: string,
@@ -59,6 +60,8 @@ export interface MaterializeDeps {
       health without the tick knowing what it is used for. */
   reportAuth?: (state: 'ok' | 'unauthorized') => void;
 }
+
+class NotKept extends Error {}
 
 /** Beside sealed text a plain reason is one of the fixed ones; any other comes
     only from a board too old to seal. */
@@ -206,7 +209,8 @@ export function materializeEnvelope(
             : {}),
         at: now,
       },
-      e.from
+      e.from,
+      p.nudgeId
     );
     return;
   }
@@ -222,14 +226,19 @@ export function materializeEnvelope(
       return deps.log(
         `peer: dropping announcement from ${e.from}, not an org admin (${e.id})`
       );
-    if (p.sealed)
-      return deps.keepAnnouncement({
-        id: e.id,
-        from: e.from,
-        // The relay's clock: one ahead of ours would never grow old.
-        receivedAt: Math.min(e.receivedAt, now),
-        sealed: p.sealed,
-      });
+    if (p.sealed) {
+      try {
+        return deps.keepAnnouncement({
+          id: e.id,
+          from: e.from,
+          // The relay's clock: one ahead of ours would never grow old.
+          receivedAt: Math.min(e.receivedAt, now),
+          sealed: p.sealed,
+        });
+      } catch (err) {
+        throw new NotKept(String(err));
+      }
+    }
     return deps.notifyAnnouncement(e.id, p, e.from);
   }
   deps.log(
@@ -243,7 +252,8 @@ export function materializeEnvelope(
     called as `void runPeerTick(...)` from an interval, so it swallows and logs
     rather than rejecting into an unhandled rejection. Every fetched id is
     acked, malformed and unknown alike: they were logged, and leaving them
-    pending would wedge the inbox forever. */
+    pending would wedge the inbox forever. Only an announcement this board
+    could not keep is left for the next tick. */
 export async function runPeerTick(
   client: SwitchboardClient,
   deps: MaterializeDeps,
@@ -275,19 +285,24 @@ async function exchange(
     }
     if (!envelopes) return;
     deps.reportAuth?.('ok');
+    const acks: string[] = [];
     for (const e of envelopes) {
       // Payload parse failures are already handled inside; this catches a
       // throwing store write (fs errors). One bad envelope must not skip the
       // batch's ack, or the batch redelivers and re-throws forever.
       try {
         await materializeEnvelope(e, deps);
+        acks.push(e.id);
       } catch (err) {
+        // An announcement is only on the relay until it is kept, and is dropped
+        // as stale there after a day, so it cannot redeliver forever.
+        if (!(err instanceof NotKept)) acks.push(e.id);
         deps.log(
           `peer: materialize failed for ${e.id} from ${e.from}: ${err instanceof Error ? err.message : err}`
         );
       }
     }
-    await client.ack(envelopes.map(e => e.id));
+    await client.ack(acks);
   } catch (err) {
     deps.log(`peer: tick failed: ${err instanceof Error ? err.message : err}`);
   }

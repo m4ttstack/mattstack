@@ -165,6 +165,33 @@ describe('runPeerTick', () => {
     expect(client.acked).toEqual([['bad', 'alien']]);
   });
 
+  test('an announcement that could not be kept is not acked, so the relay sends it again', async () => {
+    const outbox = freshDb();
+    const sealed = (id: string) =>
+      envelope({
+        id,
+        type: 'announcement',
+        receivedAt: Date.now(),
+        payload: { title: 'T', message: 'M', sealed: 'YWdl' },
+      });
+    const client = fakeClient([
+      sealed('a'),
+      envelope({ id: 'b' }),
+      sealed('c'),
+    ]);
+    await runPeerTick(
+      client,
+      {
+        ...fakeDeps(),
+        keepAnnouncement(a) {
+          if (a.id === 'a') throw new Error('database is locked');
+        },
+      },
+      outbox
+    );
+    expect(client.acked).toEqual([['b', 'c']]);
+  });
+
   test("a throwing materialize doesn't stop the batch or skip the ack", async () => {
     const outbox = freshDb();
     const client = fakeClient([

@@ -9,6 +9,8 @@ import type { CommandResult } from "./types.ts";
 const MAX_NAMES = 200;
 const MAX_FIELD_BYTES = 16 * 1024;
 const MAX_SEALED_LENGTH = 256 * 1024;
+/** Everything sealed, as JSON: in base64 and with a stanza for each of `MAX_NAMES` people it stays under `MAX_SEALED_LENGTH`. */
+export const SEAL_MAX_BYTES = 150 * 1024;
 
 function refuse(message: string) {
   return { ok: false as const, error: `text: ${message}`, failure: { code: "text-invalid", message } };
@@ -34,6 +36,7 @@ export function createSealedTextHandlers(deps: { sealedText: SealedText }): {
       if (!Array.isArray(to) || to.length > MAX_NAMES || !to.every((n): n is string => typeof n === "string")) return refuse(`Name up to ${MAX_NAMES} people.`);
       if (!isBinding(binding)) return refuse("Say which message the text belongs to.");
       if (!isFields(fields)) return refuse(`Each field is text of up to ${MAX_FIELD_BYTES} bytes.`);
+      if (Buffer.byteLength(JSON.stringify({ binding, fields })) > SEAL_MAX_BYTES) return refuse("That is too much text.");
       return { ok: true, data: await deps.sealedText.seal(to, binding, fields) };
     },
 

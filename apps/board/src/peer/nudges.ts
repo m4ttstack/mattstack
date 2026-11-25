@@ -251,13 +251,16 @@ export function resolveSentNudge(
   mrUrl: string,
   resolution: SentNudgeResolution,
   db: Database = getStateDb(),
-  reviewer?: string
+  reviewer?: string,
+  /** The ask an outcome answers: a late one for an earlier ask is ignored. */
+  nudgeId?: string
 ): void {
   runCriticalWrite('sent nudge resolve', () => {
     const tx = db.transaction(() => {
       const prev = readSentNudgeRow(mrUrl, db);
       if (!prev) return;
       if (reviewer !== undefined && prev.reviewer !== reviewer) return;
+      if (nudgeId !== undefined && prev.nudgeId !== nudgeId) return;
       const was = prev.resolution?.result;
       const progress =
         resolution.result === 'confirmed' || resolution.result === 'parked';

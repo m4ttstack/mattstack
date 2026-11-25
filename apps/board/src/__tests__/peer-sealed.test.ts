@@ -531,8 +531,8 @@ describe('outcomes', () => {
       }),
       {
         ...real,
-        resolveSentNudge: (mrUrl, r, from) =>
-          resolveSentNudge(mrUrl, r, db, from),
+        resolveSentNudge: (mrUrl, r, from, nudgeId) =>
+          resolveSentNudge(mrUrl, r, db, from, nudgeId),
       },
       10
     );
@@ -576,6 +576,11 @@ describe('outcomes', () => {
     expect(
       outcome({ sealed: 'YWdl', reason: 'cooldown' }).resolution!.reason
     ).toBe('cooldown');
+  });
+
+  test('an outcome of an earlier ask never lands on the one sent after it', () => {
+    const n = outcome({ nudgeId: 'n0', sealed: 'YWdl' });
+    expect(n).toEqual(sent);
   });
 
   test('a sealed reason shows once opened', () => {
@@ -881,6 +886,33 @@ describe('announcements', () => {
     expect(keptRows()).toBe(1);
     reply = opened({ title: 'Update rt', message: 'Today please' });
     await t.run(NOW + 60_000);
+    expect(t.shown).toHaveLength(1);
+  });
+
+  test('one past its day is tried on its own before it is given up', async () => {
+    keepAnnouncement(kept({ id: 'a1' }), db);
+    keepAnnouncement(
+      kept({ id: 'a2', receivedAt: NOW - ANNOUNCEMENT_MAX_AGE_MS }),
+      db
+    );
+    let first = true;
+    const t = io(() => {
+      const reply = first
+        ? refused('unavailable')
+        : opened({ title: 'T', message: 'M' });
+      first = false;
+      return reply;
+    });
+    await t.run(NOW + 1);
+    expect(t.shown.map(a => [a.id, a.title])).toEqual([['a2', 'T']]);
+    expect(keptRows()).toBe(1);
+  });
+
+  test('a redelivery does not restart its day', async () => {
+    keepAnnouncement(kept(), db);
+    keepAnnouncement(kept({ receivedAt: NOW + ANNOUNCEMENT_MAX_AGE_MS }), db);
+    const t = io(() => refused('unavailable'));
+    await t.run(NOW + ANNOUNCEMENT_MAX_AGE_MS + 1);
     expect(t.shown).toHaveLength(1);
   });
 

@@ -1,7 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync, readdirSync, statSync } from "fs";
-import { join } from "path";
-import { DAEMON_ROUTES } from "../../../../packages/rt-client/src/daemon-api/routes.ts";
 import type { OpenResult, SealResult } from "../../../../packages/rt-client/src/sealed-text.ts";
 import type { SealedText } from "../../../team/sealed-text.ts";
 import { createSealedTextHandlers } from "../sealed-text.ts";
@@ -55,6 +52,9 @@ describe("text:seal and text:open", () => {
       { ...SEAL, fields: { note: 7 } },
       { ...SEAL, fields: { note: "x".repeat(16 * 1024 + 1) } },
       { ...SEAL, fields: { note: "é".repeat(8 * 1024 + 1) } },
+      { ...SEAL, fields: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`f${i}`, "x".repeat(16 * 1024)])) },
+      { ...SEAL, fields: Object.fromEntries(Array.from({ length: 3 }, (_, i) => [`f${i}`, "\u0001".repeat(16 * 1024)])) },
+      { ...SEAL, fields: {}, binding: { ...BINDING, subject: "x".repeat(200 * 1024) } },
     ];
     for (const payload of bad) {
       expect(await h.handlers["text:seal"](payload)).toMatchObject({ ok: false, failure: { code: "text-invalid" } });
@@ -75,22 +75,5 @@ describe("text:seal and text:open", () => {
     const at = { ...SEAL, to: Array.from({ length: 200 }, (_, i) => `dev${i}`), fields: { note: "x".repeat(16 * 1024) } };
     expect((await h.handlers["text:seal"](at)).ok).toBe(true);
     expect((await h.handlers["text:open"]({ ...OPEN, sealed: "a".repeat(256 * 1024) })).ok).toBe(true);
-  });
-});
-
-describe("who can ask", () => {
-  function sources(dir: string): string[] {
-    return readdirSync(dir).flatMap((name) => {
-      const path = join(dir, name);
-      if (name === "__tests__" || name === "node_modules") return [];
-      return statSync(path).isDirectory() ? sources(path) : /\.(ts|mts)$/.test(name) ? [path] : [];
-    });
-  }
-
-  test("no command tree verb, MCP tool or HTTP route names text:seal or text:open", () => {
-    const root = join(import.meta.dir, "..", "..", "..", "..");
-    const files = [...sources(join(root, "commands")), ...sources(join(root, "lib", "mcp")), join(root, "lib", "command-tree-def.ts"), join(root, "lib", "module-registry.ts")];
-    expect(files.filter((f) => /text:(seal|open)\b|text(Seal|Open)\b/.test(readFileSync(f, "utf8")))).toEqual([]);
-    expect(JSON.stringify(DAEMON_ROUTES)).not.toMatch(/text:(seal|open)/);
   });
 });

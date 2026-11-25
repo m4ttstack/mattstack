@@ -7,7 +7,12 @@ import {
   type AnnouncementPayload,
 } from '@mattstack/rt-client';
 import { getStateDb, runCriticalWrite } from '../state/index.ts';
-import { deleteKvValue, listKvValues, setKvValue } from '../state/kv-blob.ts';
+import {
+  deleteKvValue,
+  getKvValue,
+  listKvValues,
+  setKvValue,
+} from '../state/kv-blob.ts';
 import { openOnce, type OpenText, type SealedRead } from './sealed.ts';
 
 export const SEALED_ANNOUNCEMENT_NS = 'sealed-announcement';
@@ -26,14 +31,16 @@ export interface KeptAnnouncement {
   sealed: string;
 }
 
-/** Kept before its envelope is acked, so a restart loses none. */
+/** Kept before its envelope is acked, so a restart loses none. A redelivery
+    does not restart its day. */
 export function keepAnnouncement(
   a: KeptAnnouncement,
   db: Database = getStateDb()
 ): void {
-  runCriticalWrite('sealed announcement write', () =>
-    setKvValue(SEALED_ANNOUNCEMENT_NS, a.id, a, db)
-  );
+  runCriticalWrite('sealed announcement write', () => {
+    if (getKvValue(SEALED_ANNOUNCEMENT_NS, a.id, null, db) === null)
+      setKvValue(SEALED_ANNOUNCEMENT_NS, a.id, a, db);
+  });
 }
 
 /** Show every kept announcement that opens. One that never will, or has not
@@ -53,18 +60,17 @@ export async function openKeptAnnouncements(
   db: Database = getStateDb()
 ): Promise<void> {
   // One that cannot open yet means none can, and each try can wait on a dialog.
+  // One past its day is still tried: this is its last.
   let stuck = false;
   for (const [id, value] of listKvValues(SEALED_ANNOUNCEMENT_NS, db)) {
     const a = value as KeptAnnouncement;
-    const read: SealedRead = stuck
-      ? { state: 'pending' }
-      : await openOnce(deps.open, a.sealed, announcementBinding(id, a.from));
+    const expired = now - a.receivedAt > ANNOUNCEMENT_MAX_AGE_MS;
+    const read: SealedRead =
+      stuck && !expired
+        ? { state: 'pending' }
+        : await openOnce(deps.open, a.sealed, announcementBinding(id, a.from));
     stuck ||= read.state === 'pending';
-    if (
-      read.state === 'pending' &&
-      now - a.receivedAt <= ANNOUNCEMENT_MAX_AGE_MS
-    )
-      continue;
+    if (read.state === 'pending' && !expired) continue;
     const payload =
       (read.state === 'open' &&
         parseAnnouncementPayload({

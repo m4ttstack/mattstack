@@ -61,8 +61,13 @@ function whyNotOpened(stderr: string): Extract<OpenResult, { ok: false }> {
   return /^age: error: /m.test(stderr) ? DAMAGED : UNAVAILABLE;
 }
 
+/** Each open has a folder of its own, which would make every failure a new cause. */
+function withoutTempFolder(text: string): string {
+  return text.replace(/rt-sealed-\w+/g, "rt-sealed");
+}
+
 function ageFailure(run: RunResult): Record<string, unknown> {
-  return { exitCode: run.exitCode, timedOut: run.timedOut === true, stderr: run.stderr.split("\n")[0]!.slice(0, 200) };
+  return { exitCode: run.exitCode, timedOut: run.timedOut === true, stderr: withoutTempFolder(run.stderr.split("\n")[0]!).slice(0, 200) };
 }
 
 function unwrap(plaintext: string, binding: SealBinding): OpenResult {
@@ -200,7 +205,7 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
         said.delete("open");
         return unwrap(opened.plaintext, binding);
       } catch (err) {
-        say("open", "sealed text could not be opened", { err: String(err) });
+        say("open", "sealed text could not be opened", { err: withoutTempFolder(String(err)) });
         return UNAVAILABLE;
       }
     },

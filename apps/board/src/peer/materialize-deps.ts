@@ -51,8 +51,8 @@ export function boardMaterializeDeps(
   return {
     writePeerReview,
     writeNudge,
-    resolveSentNudge: (mrUrl, resolution, from) =>
-      resolveSentNudge(mrUrl, resolution, undefined, from),
+    resolveSentNudge: (mrUrl, resolution, from, nudgeId) =>
+      resolveSentNudge(mrUrl, resolution, undefined, from, nudgeId),
     finishSentNudge: (mrUrl, finish, ifSentBefore, nudgeId, from) =>
       finishSentNudge(mrUrl, finish, ifSentBefore, undefined, nudgeId, from),
     log,

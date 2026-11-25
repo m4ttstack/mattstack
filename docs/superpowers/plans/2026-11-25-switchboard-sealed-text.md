@@ -241,5 +241,5 @@ export const WIRE_REASONS: ReadonlySet<string>;   // every code and display word
 
 ### Before release
 
-- [ ] An admin runs `rt team members sync` and checks `rt team status` for who still has no key. Matt's step.
+- [ ] An admin runs `rt team members sync` and checks `rt settings get mattstack.roster` for who still has no `agePublicKey`. Matt's step.
 - [ ] Two real Macs exchange an ask, a decline note and a support request.

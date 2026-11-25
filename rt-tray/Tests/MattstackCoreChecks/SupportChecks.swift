@@ -264,6 +264,9 @@ let supportChecks: [Check] = [
             c.expectEqual(card.title, title)
             c.expectEqual(card.detail, detail, title)
         }
+        var named = request("received")
+        named.persona = "Ada"
+        c.expectEqual(HelpCards.request(named, host: "Alex").title, "Ada is starting")
     },
     Check("Help: a refusal never claims nothing was sent when it may have been") { c in
         for (code, title) in [("support-unreachable", "Nothing was sent"), ("support-slack", "Nothing was sent"), ("support-text", "Nothing was sent"), ("support-new", "Nothing was sent"),
