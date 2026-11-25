@@ -23,6 +23,10 @@ type Envelope = {
   error?: { code?: unknown; message?: unknown; why?: unknown; next?: unknown }
 }
 
+// Compile marks where each part came from; an agent needs the parts, not
+// the marks, and the room counts against what Claude Code keeps whole.
+const PART_MARKER_RE = /^[ \t]*<!-- part: .*-->\n/gm
+
 /** Pieces of at most `max` characters, cut at line ends; a line longer than `max` is cut at `max`. */
 export function splitPieces(text: string, max = MAX_PIECE): string[] {
   const pieces: string[] = []
@@ -106,10 +110,11 @@ async function loadSkill($: EngineInterface, input: { skill?: unknown; dir?: unk
     const fix = typeof env.error?.next === 'string' ? ` Run ${env.error.next}, then call load_skill again.` : ''
     return { deny: `${message}${why}${fix}` }
   }
-  const pieces = splitPieces(env.body)
+  const body = env.body.replace(PART_MARKER_RE, '')
+  const pieces = splitPieces(body)
   const stale = typeof env.staleBecause === 'string' ? `; served the last good render: ${env.staleBecause}` : ''
   return {
-    result: `Loaded ${String(env.id)} (pack ${String(env.packVersion)}, mattstack ${String(env.mattstack)}): ${env.body.length} characters in ${pieces.length} parts${stale}. Its full text follows as context: follow it as the skill. Where it says this skill's directory, use ${dir}.`,
+    result: `Loaded ${String(env.id)} (pack ${String(env.packVersion)}, mattstack ${String(env.mattstack)}): ${body.length} characters in ${pieces.length} parts${stale}. Its full text follows as context: follow it as the skill. Where it says this skill's directory, use ${dir}.`,
     context: pieces,
   }
 }

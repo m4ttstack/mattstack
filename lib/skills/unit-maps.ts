@@ -351,6 +351,9 @@ export function pointerErrorsIn(units: ScannedUnit[], table: UnitTable, fileExis
 /** Claude Code keeps one tool call's attached context whole up to this many characters. */
 export const RENDERED_BODY_LIMIT = 200_000;
 
+/** The lines load_skill leaves out (plugins/mattstack/hooks/load-skill.ts). */
+const PART_MARKER_RE = /^[ \t]*<!-- part: .*-->\n/gm;
+
 /**
  * A unit's own top-level `scripts/` (`skills/<unit>/scripts/`,
  * `attachments/<unit>/scripts/` or `attachments/<group>/<unit>/scripts/`).
@@ -376,8 +379,9 @@ export function renderedTreeErrors(root: string): BlockDiagnostic[] {
     if (inUnitScripts(root, file)) continue;
     const text = readTextUnlessBinary(join(root, file));
     if (text === null) continue;
-    if (leafOf(file) === UNIT_SKILL_MD && text.length > RENDERED_BODY_LIMIT) {
-      out.push({ file, line: 1, col: 1, code: "body-too-large", message: `this skill renders to ${text.length} characters, over the 200,000 a load_skill call keeps whole` });
+    const served = leafOf(file) === UNIT_SKILL_MD ? text.replace(PART_MARKER_RE, "").length : 0;
+    if (served > RENDERED_BODY_LIMIT) {
+      out.push({ file, line: 1, col: 1, code: "body-too-large", message: `this skill renders to ${served} characters, over the 200,000 a load_skill call keeps whole` });
     }
     for (const { line, col, token } of leftoverTokens(text)) {
       out.push({ file, line, col, code: "leftover-token", message: `${token} is left in a rendered file; compile writes each pointer there as an @key` });

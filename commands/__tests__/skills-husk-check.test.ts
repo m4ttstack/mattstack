@@ -134,6 +134,20 @@ describe("check on a husk pack", () => {
     expect(exitCode).toBe(1);
   });
 
+  test("check measures a rendered body without its part markers, as load_skill serves it", async () => {
+    const s = seedHuskPack();
+    await compile(s.flags);
+    const policy = join(s.pack, "attachments", "plan-policy", "SKILL.md");
+    const source = readFileSync(policy, "utf8");
+    writeFileSync(policy, source.replace("policy text", "x".repeat(250_000)));
+    await compile(s.flags);
+    const over = Number((await check(s.flags)).json.renderErrors?.[0]?.message.match(/\d+/)?.[0]);
+    writeFileSync(policy, source.replace("policy text", "x".repeat(250_000 - (over - 200_000))));
+    await compile(s.flags);
+    expect((await renderOf(s)).get("attachments/stage-plan/SKILL.md")!.length).toBeGreaterThan(200_000);
+    expect((await check(s.flags)).json.renderErrors).toBeUndefined();
+  });
+
   test("check fails a leftover token in a rendered references file", async () => {
     const s = seedHuskPack();
     put(join(s.pack, "attachments", "helper", "SKILL.md"), "---\nname: helper\ndescription: helper\n---\nHelper.\n");
