@@ -1,9 +1,11 @@
 import { Database } from 'bun:sqlite';
 
+import type { SealBinding } from '@mattstack/rt-client';
 import { getStateDb, persistOrWarn, runCriticalWrite } from '../state/index.ts';
 import { ASK_HISTORY_MS } from './ask-inbox.ts';
 import type { AskKind, NudgeResult } from './envelope.ts';
 import { NUDGE_NO_RESPONSE_MS } from './presence.ts';
+import type { SealedReader } from './sealed.ts';
 
 export { NUDGE_NO_RESPONSE_MS };
 
@@ -23,6 +25,8 @@ export interface NudgeState {
   kind?: AskKind;
   title?: string;
   sourceBranch?: string;
+  /** The note, title and branch as they arrived, opened when shown. */
+  sealed?: string;
   /** Set once the desktop notification for this ask has fired. */
   notifiedAt?: number;
   handled?: {
@@ -187,6 +191,10 @@ export interface SentNudgeResolution {
   at: number;
   declined?: true;
   declineNote?: string;
+  /** The decline note or a free-text reason as it arrived, opened when shown,
+      and the message it is bound to. */
+  sealed?: string;
+  sealedAs?: SealBinding;
 }
 
 /** Write a sent nudge, replacing any prior row for the same MR -- a board
@@ -284,7 +292,10 @@ export const SENT_FINISH_KEEP_MS = 24 * 60 * 60_000;
     is not the answer to this ask. */
 export function finishSentNudge(
   mrUrl: string,
-  finish: Pick<SentNudgeResolution, 'outcome' | 'reason' | 'at'> & {
+  finish: Pick<
+    SentNudgeResolution,
+    'outcome' | 'reason' | 'at' | 'sealed' | 'sealedAs'
+  > & {
     result: 'done' | 'failed' | 'stopped';
   },
   ifSentBefore: number,
@@ -416,19 +427,28 @@ export interface SentNudgeView {
   finishedAt?: number;
 }
 
-export function sentNudgeView(n: SentNudge, now: number): SentNudgeView | null {
+export function sentNudgeView(
+  n: SentNudge,
+  now: number,
+  reader?: SealedReader
+): SentNudgeView | null {
   const r = n.resolution;
   if (r?.result === 'stopped' || isFinishedStale(n, now)) return null;
+  const read =
+    r?.sealed && r.sealedAs ? reader?.read(r.sealed, r.sealedAs) : undefined;
+  const fields = read?.state === 'open' ? read.fields : undefined;
+  const reason = fields?.reason ?? r?.reason;
+  const declineNote = r?.sealed ? fields?.declineNote : r?.declineNote;
   const finished = r?.result === 'done' || r?.result === 'failed';
   return {
     display: sentNudgeDisplay(n, now),
     reviewer: n.reviewer,
     kind: n.kind,
     sentAt: n.sentAt,
-    ...(r?.reason ? { reason: r.reason } : {}),
+    ...(reason ? { reason } : {}),
     ...(r?.outcome ? { outcome: r.outcome } : {}),
     ...(r?.declined ? { declined: true as const } : {}),
-    ...(r?.declineNote ? { declineNote: r.declineNote } : {}),
+    ...(declineNote ? { declineNote } : {}),
     ...(r ? { resolvedAt: r.at } : {}),
     ...(finished && r ? { finishedAt: r.at } : {}),
   };

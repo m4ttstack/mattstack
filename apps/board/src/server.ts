@@ -43,6 +43,7 @@ import {
   supportContext,
   supportMine,
   supportSend,
+  textOpen,
   type ForgeFileDiffData,
   type ForgeGetData,
   type GateRow,
@@ -375,6 +376,7 @@ import {
   tickOnPeerInbox,
   tokenMissingNotice,
 } from './peer/runtime.ts';
+import { createSealedReader } from './peer/sealed.ts';
 import {
   foldSlackMatch,
   NO_SLACK_MATCH,
@@ -812,6 +814,11 @@ async function fetchReconcilerView(): Promise<ReconcilerView> {
 // restart.
 const inTeam = (): boolean => listOrgs().length > 0;
 const peerDeps = boardMaterializeDeps(line => console.error(line));
+const sealedReader = createSealedReader({
+  open: a => textOpen(a),
+  changed: () => sseNudge(),
+  now: Date.now,
+});
 const peering = makePeering({
   makeClient: makeSwitchboardClient,
   deps: peerDeps,
@@ -929,7 +936,7 @@ function asksPayload(snapshot: { mrs: BoardMR[] }, now: number = Date.now()) {
         : {}),
     };
   };
-  const inbox = buildAskInbox(readNudges(), now);
+  const inbox = buildAskInbox(readNudges(), now, sealedReader);
   return {
     pending: inbox.pending.map(card),
     history: inbox.history.map(card),
@@ -968,10 +975,10 @@ function attachPeerState<T extends { webUrl?: string | null }>(
   now: number = Date.now()
 ): Array<T & PeerAttachments> {
   const sent = readSentNudges();
-  return attachPeerReviews(mrs, readPeerReviews()).map(mr => {
+  return attachPeerReviews(mrs, readPeerReviews(), sealedReader).map(mr => {
     if (!mr.webUrl) return mr;
     const s = sent.get(mr.webUrl);
-    const view = s ? sentNudgeView(s, now) : null;
+    const view = s ? sentNudgeView(s, now, sealedReader) : null;
     const reviewerName = s
       ? reviewerDisplayName(s.reviewer, config.members, memberNames)
       : undefined;

@@ -36,6 +36,7 @@ import {
   declineRespondAsks,
   type AskActionDeps,
 } from '../src/peer/ask-actions.ts';
+import { openAskTitle } from '../src/peer/ask-inbox.ts';
 import { makeSwitchboardClient } from '../src/peer/client.ts';
 import {
   makeEnvelope,
@@ -43,7 +44,10 @@ import {
 } from '../src/peer/envelope.ts';
 import { runPeerTick } from '../src/peer/inbox.ts';
 import { makeAskLauncher, makeRepoForMrUrl } from '../src/peer/launch-ask.ts';
-import { boardMaterializeDeps } from '../src/peer/materialize-deps.ts';
+import {
+  boardMaterializeDeps,
+  openInTick,
+} from '../src/peer/materialize-deps.ts';
 import {
   markNudgeHandled,
   markNudgeNotified,
@@ -350,7 +354,10 @@ try {
             const fromName =
               reviewerDisplayName(n.from, boardConfig.members, new Map()) ??
               n.from;
-            const { title, message } = askNotice(n, fromName);
+            const { title, message } = askNotice(
+              { ...n, title: await openAskTitle(n, openInTick) },
+              fromName
+            );
             await notifyEscalation(title, message, 'rt', {
               url: base ? boardAskLink(base, n.id) : null,
               category: 'peer-ask',

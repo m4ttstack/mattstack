@@ -54,6 +54,8 @@ export interface ReviewStatePayload {
   reason?: string;
   /** On a `parked`: the reviewer board's clock when its gate parked. */
   parkedAt?: number;
+  /** The reason, sealed to the board it went to. */
+  sealed?: string;
 }
 
 /** A review lane's status as a peer board receives it. `held` goes out as
@@ -74,6 +76,9 @@ export interface ReReviewRequestPayload {
   note?: string;
   title?: string;
   sourceBranch?: string;
+  /** The note, title and branch, sealed to the teammate that was asked. The
+      plain ones come only from a board older than this. */
+  sealed?: string;
 }
 
 export interface NudgeOutcomePayload {
@@ -86,6 +91,8 @@ export interface NudgeOutcomePayload {
   /** A person declined, as opposed to a board rule refusing. */
   declined?: true;
   declineNote?: string;
+  /** The decline note and any free-text reason, sealed to the asker. */
+  sealed?: string;
 }
 
 /** Switchboard usernames are GitLab usernames, canonicalized. One board per username. */
@@ -108,6 +115,14 @@ export function makeEnvelope(
   };
 }
 
+export function askWireType(kind: AskKind | undefined): string {
+  return kind === 'review'
+    ? 'review-request'
+    : kind === 'respond'
+      ? 'respond-request'
+      : 're-review-request';
+}
+
 /** Draft the ask envelope for one of this board's own MRs. The wire type is
     the only thing kind changes; both asks share ReReviewRequestPayload. */
 export function buildAskDraft(
@@ -116,13 +131,7 @@ export function buildAskDraft(
   payload: ReReviewRequestPayload,
   now: number = Date.now()
 ): DraftEnvelope {
-  const type =
-    kind === 'review'
-      ? 'review-request'
-      : kind === 'respond'
-        ? 'respond-request'
-        : 're-review-request';
-  return makeEnvelope(reviewer, type, payload, now);
+  return makeEnvelope(reviewer, askWireType(kind), payload, now);
 }
 
 export function parseDraftEnvelope(body: unknown): DraftEnvelope | null {
@@ -152,6 +161,10 @@ export function parseEnvelope(v: unknown): Envelope | null {
   return { ...draft, from: canonicalUsername(from), receivedAt };
 }
 
+function isSealed(v: unknown): v is string | undefined {
+  return v === undefined || typeof v === 'string';
+}
+
 function mrBase(p: unknown): { mrUrl: string; iid: number } | null {
   if (!p || typeof p !== 'object') return null;
   const { mrUrl, iid } = p as Record<string, unknown>;
@@ -163,10 +176,9 @@ function mrBase(p: unknown): { mrUrl: string; iid: number } | null {
 export function parseReviewStatePayload(p: unknown): ReviewStatePayload | null {
   const base = mrBase(p);
   if (!base) return null;
-  const { status, outcome, updatedAt, nudgeId, reason, parkedAt } = p as Record<
-    string,
-    unknown
-  >;
+  const { status, outcome, updatedAt, nudgeId, reason, parkedAt, sealed } =
+    p as Record<string, unknown>;
+  if (!isSealed(sealed)) return null;
   if (typeof status !== 'string' || !status) return null;
   if (outcome !== undefined && typeof outcome !== 'string') return null;
   if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt)) return null;
@@ -185,6 +197,7 @@ export function parseReviewStatePayload(p: unknown): ReviewStatePayload | null {
     nudgeId: nudgeId as string | undefined,
     reason: reason as string | undefined,
     ...(parkedAt !== undefined ? { parkedAt } : {}),
+    ...(sealed !== undefined ? { sealed } : {}),
   };
 }
 
@@ -193,7 +206,8 @@ export function parseReReviewRequestPayload(
 ): ReReviewRequestPayload | null {
   const base = mrBase(p);
   if (!base) return null;
-  const { note, title, sourceBranch } = p as Record<string, unknown>;
+  const { note, title, sourceBranch, sealed } = p as Record<string, unknown>;
+  if (!isSealed(sealed)) return null;
   if (note !== undefined && typeof note !== 'string') return null;
   if (title !== undefined && typeof title !== 'string') return null;
   if (sourceBranch !== undefined && typeof sourceBranch !== 'string')
@@ -203,6 +217,7 @@ export function parseReReviewRequestPayload(
     note: note as string | undefined,
     title: title as string | undefined,
     sourceBranch: sourceBranch as string | undefined,
+    ...(sealed !== undefined ? { sealed } : {}),
   };
 }
 
@@ -218,10 +233,9 @@ export function parseNudgeOutcomePayload(
 ): NudgeOutcomePayload | null {
   const base = mrBase(p);
   if (!base) return null;
-  const { nudgeId, result, reason, declined, declineNote } = p as Record<
-    string,
-    unknown
-  >;
+  const { nudgeId, result, reason, declined, declineNote, sealed } =
+    p as Record<string, unknown>;
+  if (!isSealed(sealed)) return null;
   if (typeof nudgeId !== 'string' || !nudgeId) return null;
   if (
     typeof result !== 'string' ||
@@ -238,5 +252,6 @@ export function parseNudgeOutcomePayload(
     reason: reason as string | undefined,
     ...(declined === true ? { declined: true as const } : {}),
     ...(typeof declineNote === 'string' ? { declineNote } : {}),
+    ...(sealed !== undefined ? { sealed } : {}),
   };
 }

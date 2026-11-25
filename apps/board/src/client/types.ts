@@ -281,6 +281,8 @@ export interface AskCardData {
   title?: string;
   sourceBranch?: string;
   note?: string;
+  /** Why the title, branch and note are not here. */
+  textState?: 'pending' | 'unreadable';
   receivedAt: number;
   handled?: {
     at: number;

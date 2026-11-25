@@ -107,6 +107,7 @@ function fakeDeps(): MaterializeDeps & {
     logs,
     isOrgAdmin: () => true,
     async notifyAnnouncement() {},
+    keepAnnouncement() {},
     writePeerReview(s) {
       peerReviews.push(s);
       return true;

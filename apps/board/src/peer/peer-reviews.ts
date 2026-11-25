@@ -9,6 +9,7 @@ import {
   listKvValues,
   setKvValue,
 } from '../state/kv-blob.ts';
+import { reviewStateBinding, type SealedReader } from './sealed.ts';
 
 /** A peer's review status for one MR, as materialized from an inbound
     review-state envelope. Multiple reviewers can each have their own state
@@ -21,6 +22,8 @@ export interface PeerReviewState {
   outcome?: string;
   /** The peer's own words for an error or a stop. */
   reason?: string;
+  /** The reason as it arrived, opened when shown. */
+  sealed?: string;
   /** On a `parked`: the reviewer board's clock when its gate parked. */
   parkedAt?: number;
   updatedAt: number;
@@ -222,15 +225,28 @@ export function prunePeerReviews(
   });
 }
 
+function shown(s: PeerReviewState, reader?: SealedReader): PeerReviewState {
+  const { sealed, ...rest } = s;
+  if (!sealed) return rest;
+  const read = reader?.read(sealed, reviewStateBinding(s.reviewer, s));
+  return read?.state === 'open' && read.fields.reason
+    ? { ...rest, reason: read.fields.reason }
+    : rest;
+}
+
 /** Attach each MR's peer review states (matched by webUrl) as a
-    `peerReviews` field. Non-mutating. */
+    `peerReviews` field, their sealed reasons opened. Non-mutating. */
 export function attachPeerReviews<T extends { webUrl?: string | null }>(
   mrs: T[],
-  peerReviews: Map<string, PeerReviewState[]>
+  peerReviews: Map<string, PeerReviewState[]>,
+  reader?: SealedReader
 ): Array<T & { peerReviews?: PeerReviewState[] }> {
   return mrs.map(mr =>
     mr.webUrl && peerReviews.has(mr.webUrl)
-      ? { ...mr, peerReviews: peerReviews.get(mr.webUrl) }
+      ? {
+          ...mr,
+          peerReviews: peerReviews.get(mr.webUrl)!.map(s => shown(s, reader)),
+        }
       : mr
   );
 }

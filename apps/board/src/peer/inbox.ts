@@ -13,11 +13,14 @@ import {
   type Envelope,
   type NudgeResult,
 } from './envelope.ts';
-import type { NudgeState } from './nudges.ts';
+import type { NudgeState, SentNudgeResolution } from './nudges.ts';
 import { drainOutbox } from './outbox.ts';
 import type { PeerReviewState } from './peer-reviews.ts';
-
-const ANNOUNCEMENT_MAX_AGE_MS = 24 * 60 * 60_000;
+import {
+  ANNOUNCEMENT_MAX_AGE_MS,
+  type KeptAnnouncement,
+} from './sealed-announcements.ts';
+import { outcomeBinding, reviewStateBinding } from './sealed.ts';
 
 export interface MaterializeDeps {
   isOrgAdmin(username: string): boolean;
@@ -27,28 +30,25 @@ export interface MaterializeDeps {
     payload: AnnouncementPayload,
     from: string
   ): Promise<void>;
+  keepAnnouncement(a: KeptAnnouncement): void;
+  /** Tries the kept announcements; runs at the end of every tick. */
+  openAnnouncements?: () => Promise<void>;
   writePeerReview(s: PeerReviewState): unknown;
   writeNudge(n: NudgeState): void;
   resolveSentNudge(
     mrUrl: string,
-    resolution: {
+    resolution: Omit<SentNudgeResolution, 'result' | 'outcome'> & {
       result: NudgeResult | 'confirmed' | 'parked';
-      reason?: string;
-      declined?: true;
-      declineNote?: string;
-      at: number;
     },
     /** Who sent the report: only the teammate that was asked can answer. */
     from?: string
   ): void;
   finishSentNudge(
     mrUrl: string,
-    finish: {
-      result: 'done' | 'failed' | 'stopped';
-      outcome?: string;
-      reason?: string;
-      at: number;
-    },
+    finish: Pick<
+      SentNudgeResolution,
+      'outcome' | 'reason' | 'at' | 'sealed' | 'sealedAs'
+    > & { result: 'done' | 'failed' | 'stopped' },
     ifSentBefore: number,
     nudgeId?: string,
     from?: string
@@ -103,6 +103,9 @@ export function materializeEnvelope(
           result: finished,
           ...(p.status === 'done' && p.outcome ? { outcome: p.outcome } : {}),
           ...(p.status !== 'done' && p.reason ? { reason: p.reason } : {}),
+          ...(p.status !== 'done' && p.sealed
+            ? { sealed: p.sealed, sealedAs: reviewStateBinding(e.from, p) }
+            : {}),
           at: now,
         },
         p.updatedAt,
@@ -146,9 +149,14 @@ export function materializeEnvelope(
       mrUrl: p.mrUrl,
       iid: p.iid,
       from: e.from,
-      note: p.note,
-      ...(p.title ? { title: p.title } : {}),
-      ...(p.sourceBranch ? { sourceBranch: p.sourceBranch } : {}),
+      // Sealed text replaces the plain fields, so only an older board's count.
+      ...(p.sealed
+        ? { sealed: p.sealed }
+        : {
+            note: p.note,
+            ...(p.title ? { title: p.title } : {}),
+            ...(p.sourceBranch ? { sourceBranch: p.sourceBranch } : {}),
+          }),
       receivedAt: e.receivedAt,
       materializedAt: now,
       // Absence means re-review, so rows written before kinds existed keep
@@ -171,7 +179,14 @@ export function materializeEnvelope(
         result: p.result,
         reason: p.reason,
         ...(p.declined ? { declined: true as const } : {}),
-        ...(p.declineNote ? { declineNote: p.declineNote } : {}),
+        ...(p.sealed
+          ? {
+              sealed: p.sealed,
+              sealedAs: outcomeBinding(e.from, p.mrUrl, p.nudgeId),
+            }
+          : p.declineNote
+            ? { declineNote: p.declineNote }
+            : {}),
         at: now,
       },
       e.from
@@ -190,6 +205,13 @@ export function materializeEnvelope(
       return deps.log(
         `peer: dropping announcement from ${e.from}, not an org admin (${e.id})`
       );
+    if (p.sealed)
+      return deps.keepAnnouncement({
+        id: e.id,
+        from: e.from,
+        receivedAt: e.receivedAt,
+        sealed: p.sealed,
+      });
     return deps.notifyAnnouncement(e.id, p, e.from);
   }
   deps.log(
@@ -205,6 +227,21 @@ export function materializeEnvelope(
     acked, malformed and unknown alike: they were logged, and leaving them
     pending would wedge the inbox forever. */
 export async function runPeerTick(
+  client: SwitchboardClient,
+  deps: MaterializeDeps,
+  outboxDb?: Database
+): Promise<void> {
+  await exchange(client, deps, outboxDb);
+  try {
+    await deps.openAnnouncements?.();
+  } catch (err) {
+    deps.log(
+      `peer: announcements failed: ${err instanceof Error ? err.message : err}`
+    );
+  }
+}
+
+async function exchange(
   client: SwitchboardClient,
   deps: MaterializeDeps,
   outboxDb?: Database

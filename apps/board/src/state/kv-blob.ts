@@ -31,12 +31,15 @@ export function setKvValue(
   ).run(ns, key, JSON.stringify(value), Date.now());
 }
 
+/** Whether this call deleted it. */
 export function deleteKvValue(
   ns: string,
   key: string,
   db: Database = getStateDb()
-): void {
-  db.query('DELETE FROM kv WHERE ns = ? AND k = ?').run(ns, key);
+): boolean {
+  return (
+    db.query('DELETE FROM kv WHERE ns = ? AND k = ?').run(ns, key).changes > 0
+  );
 }
 
 /** Every value in one namespace, keyed by its key, for a store that holds a
