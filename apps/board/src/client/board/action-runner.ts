@@ -7,7 +7,7 @@ import type { MrAction } from '../../mr-action.ts';
 import { forgeWord, mrNoun } from '../../mr-ref.ts';
 import type { ActionResult } from '../api.ts';
 import type { ActiveRun, AskKind } from '../types.ts';
-import { noteNotSent } from './asks/ask-copy.ts';
+import { noteNotSent, whyNoNote } from './asks/ask-copy.ts';
 import type { ToastHandle } from './launch-flow.ts';
 import { mrRef } from './MrLinks.tsx';
 import { NO_PEOPLE, type People } from './people.ts';
@@ -334,10 +334,13 @@ function postSpec(req: PostRequest, people: People): PostSpec {
           `requesting ${ASK_NOUN[req.ask]} of ${mrRef(mr)} from ${name}…`,
         done: (_mr, r) => {
           const why = r.body?.noteReason;
-          if (why) return noteNotSent('Sent', why, name);
-          return r.body?.queued
+          const queued = r.body?.queued
             ? `switchboard unreachable... queued the ask to ${name}`
             : undefined;
+          if (!why) return queued;
+          return queued
+            ? `${queued}. ${noteNotSent('Queued', why, name)}`
+            : noteNotSent('Sent', why, name);
         },
         // A 409 carries the relay's own reason in plain text; that is the
         // whole point of the failure, so it wins over the status.
@@ -476,15 +479,15 @@ export async function runMany(
   });
   const parts: string[] = [];
   if (done.length) parts.push(plan.manyDone(done));
-  const noteReason = done.find(d => d.result.body?.noteReason)?.result.body
-    ?.noteReason;
-  if (req.kind === 'ask' && noteReason)
+  const wordless = done.filter(d => d.result.body?.noteReason);
+  if (wordless[0])
     parts.push(
-      noteNotSent(
-        'Sent',
-        noteReason,
-        (deps.people ?? NO_PEOPLE).short(req.reviewer ?? '')
-      )
+      `${iids(wordless.map(d => d.mr))} went without your note, ${whyNoNote(
+        wordless[0].result.body!.noteReason!,
+        (deps.people ?? NO_PEOPLE).short(
+          req.kind === 'ask' ? (req.reviewer ?? '') : ''
+        )
+      )}`
     );
   if (unansweredRows[0])
     parts.push(noAnswer(on(unansweredRows), unansweredRows[0].result, true));

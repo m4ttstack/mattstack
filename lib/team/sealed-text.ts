@@ -13,7 +13,7 @@ import { readOrgRoster } from "../../packages/rt-client/src/settings/active-team
 import { currentOrg } from "../../packages/rt-client/src/settings/stores.ts";
 import { findBundledTool } from "../bundled-tool.ts";
 import { createRealAgeKeySeam, readAgeKey, type AgeKeySeam } from "../home/age-key.ts";
-import { runCapture } from "../subprocess.ts";
+import { runCapture, type RunResult } from "../subprocess.ts";
 import { warn } from "../ui/warn.ts";
 import { canonicalHandle } from "./board-peers.ts";
 import { isValidAgePublicKey } from "./members.ts";
@@ -25,9 +25,11 @@ export interface SealedTextDeps {
   ageKey: AgeKeySeam;
   roster(): { username: string; agePublicKey?: unknown }[];
   now(): number;
-  /** Its context never holds text or a key. */
-  warn?(message: string, context: Record<string, unknown>): void;
+  warn?: SealedTextWarn;
 }
+
+/** Its context never holds text or a key. */
+export type SealedTextWarn = (message: string, context: Record<string, unknown>) => void;
 
 export interface SealedText {
   seal(to: readonly string[], binding: SealBinding, fields: SealFields): Promise<SealResult>;
@@ -59,6 +61,10 @@ function whyNotOpened(stderr: string): Extract<OpenResult, { ok: false }> {
   return /^age: error: /m.test(stderr) ? DAMAGED : UNAVAILABLE;
 }
 
+function ageFailure(run: RunResult): Record<string, unknown> {
+  return { exitCode: run.exitCode, timedOut: run.timedOut === true, stderr: run.stderr.split("\n")[0]!.slice(0, 200) };
+}
+
 function unwrap(plaintext: string, binding: SealBinding): OpenResult {
   let parsed: unknown;
   try {
@@ -77,20 +83,31 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
   let held: { key: string; at: number } | null = null;
   let missed: { err: unknown; at: number; wait: number } | null = null;
   let reading: Promise<string | null> | null = null;
+  const said = new Map<"key" | "seal" | "open", string>();
+
+  /** Once per cause, until it changes or clears: callers try again for hours. */
+  function say(what: "key" | "seal" | "open", message: string, context: Record<string, unknown>): void {
+    const cause = JSON.stringify(context);
+    if (said.get(what) === cause) return;
+    said.set(what, cause);
+    deps.warn?.(message, context);
+  }
 
   async function readKey(): Promise<string | null> {
     try {
       const found = await readAgeKey(deps.ageKey);
       if (!("key" in found)) {
         missed = { err: null, at: deps.now(), wait: KEY_RETRY_MS };
+        say("key", "this Mac has no key", { absent: true });
         return null;
       }
       missed = null;
+      said.delete("key");
       held = { key: found.key, at: deps.now() };
       return found.key;
     } catch (err) {
       missed = { err, at: deps.now(), wait: missed?.err ? Math.min(missed.wait * 2, KEY_RETRY_MAX_MS) : KEY_RETRY_MS };
-      deps.warn?.("this Mac's key could not be read", { err });
+      say("key", "this Mac's key could not be read", { err: String(err) });
       throw err;
     }
   }
@@ -126,7 +143,9 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
       writeFileSync(file, ciphertext, { mode: 0o600 });
       const run = await runCapture([age, "-d", "-i", "/dev/stdin", file], { stdin: key, stderr: "pipe", timeoutMs: AGE_TIMEOUT_MS });
       if (run.exitCode === 0) return { ok: true, plaintext: run.stdout };
-      return whyNotOpened(run.stderr);
+      const why = whyNotOpened(run.stderr);
+      if (why.reason === "unavailable") say("open", "sealed text could not be opened", ageFailure(run));
+      return why;
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -139,7 +158,7 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
         const roster = deps.roster();
         // A store that cannot be read gives an empty roster, which says nothing about who has a key.
         if (!age || roster.length === 0) {
-          deps.warn?.("text could not be sealed", { type: binding.type, age: age !== null, roster: roster.length });
+          say("seal", "text could not be sealed", { age: age !== null, roster: roster.length });
           return UNAVAILABLE;
         }
         const byUser = keysByUser(roster);
@@ -156,12 +175,13 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
         const run = await runCapture([age, "-a", ...[...recipients].flatMap((key) => ["-r", key])], { stdin, stderr: "pipe", timeoutMs: AGE_TIMEOUT_MS });
         const body = run.exitCode === 0 ? ARMOR.exec(run.stdout)?.[1] : undefined;
         if (!body) {
-          deps.warn?.("text could not be sealed", { type, exitCode: run.exitCode, timedOut: run.timedOut === true, stderr: run.stderr.split("\n")[0] });
+          say("seal", "text could not be sealed", ageFailure(run));
           return UNAVAILABLE;
         }
+        said.delete("seal");
         return { ok: true, sealed: body.replace(/\s+/g, ""), unreachable: [...unreachable] };
       } catch (err) {
-        deps.warn?.("text could not be sealed", { type: binding.type, err });
+        say("seal", "text could not be sealed", { err: String(err) });
         return UNAVAILABLE;
       }
     },
@@ -169,13 +189,18 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
     async open(sealed, binding) {
       try {
         const age = deps.ageBin();
-        if (!age) return UNAVAILABLE;
+        if (!age) {
+          say("open", "sealed text could not be opened", { age: false });
+          return UNAVAILABLE;
+        }
         const key = await privateKey().catch(() => null);
         if (!key) return UNAVAILABLE;
         const opened = await decrypt(age, key, Buffer.from(sealed, "base64"));
-        return opened.ok ? unwrap(opened.plaintext, binding) : opened;
+        if (!opened.ok) return opened;
+        said.delete("open");
+        return unwrap(opened.plaintext, binding);
       } catch (err) {
-        deps.warn?.("sealed text could not be opened", { type: binding.type, err });
+        say("open", "sealed text could not be opened", { err: String(err) });
         return UNAVAILABLE;
       }
     },
@@ -195,7 +220,7 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
 }
 
 /** `org` defaults to the one this Mac reads settings from, asked for at each use. */
-export function realSealedText(org?: string): SealedText {
+export function realSealedText(org?: string, log: SealedTextWarn = (message, context) => warn("sealed-text", message, { context })): SealedText {
   return createSealedText({
     ageBin: () => findBundledTool("age"),
     ageKey: createRealAgeKeySeam(),
@@ -204,6 +229,6 @@ export function realSealedText(org?: string): SealedText {
       return from === null ? [] : readOrgRoster(from);
     },
     now: () => Date.now(),
-    warn: (message, context) => warn("sealed-text", message, { context }),
+    warn: log,
   });
 }

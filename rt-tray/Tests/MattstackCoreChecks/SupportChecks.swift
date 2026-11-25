@@ -188,7 +188,7 @@ let supportChecks: [Check] = [
         c.expectEqual(await MainActor.run { m.shown?.id }, "old")
         daemon.mineReply = .value([request("opened", id: "old", sentAt: 1, dmLink: dm)])
         await m.refreshRequests()
-        c.expectEqual(await MainActor.run { m.card?.title }, "Maude messaged you in Slack")
+        c.expectEqual(await MainActor.run { m.card?.title }, "Alex's agent messaged you in Slack")
         await m.opened()
         c.expectEqual(await MainActor.run { m.shown }, nil, "a settled one is not news twice")
     },
@@ -248,11 +248,11 @@ let supportChecks: [Check] = [
         for (r, title, detail) in [
             (request("sent"), "Asked Alex's agent", nil),
             (request("sent", away: true), "Alex's Mac is away", "Your request will wait up to 7 days"),
-            (request("received"), "Maude is starting", "Alex's Mac has it"),
-            (request("opening"), "Maude is starting", "Alex's Mac has it"),
+            (request("received"), "Alex's agent is starting", "Alex's Mac has it"),
+            (request("opening"), "Alex's agent is starting", "Alex's Mac has it"),
             (request("waiting"), "Alex needs to OK this one", "It will wait"),
             (request("already-waiting"), "You already have a request waiting", nil),
-            (request("opened"), "Maude messaged you in Slack", nil),
+            (request("opened"), "Alex's agent messaged you in Slack", nil),
             (request("already-open"), "You already have a chat open", nil),
             (request("declined"), "Alex declined this one", "Message Alex directly"),
             (request("not-accepting"), "Alex isn't taking requests", "Message Alex directly"),
@@ -260,7 +260,7 @@ let supportChecks: [Check] = [
             (request("failed", reason: "no Slack account"), "Your request didn't open", "no Slack account"),
             (request("expired"), "It was never picked up after 7 days", "Ask again, or message Alex"),
         ] as [(HelpRequest, String, String?)] {
-            let card = HelpCards.request(r, host: "Alex", bot: "Maude")
+            let card = HelpCards.request(r, host: "Alex")
             c.expectEqual(card.title, title)
             c.expectEqual(card.detail, detail, title)
         }

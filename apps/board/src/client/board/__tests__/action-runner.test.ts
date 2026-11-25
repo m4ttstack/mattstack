@@ -254,10 +254,19 @@ test('an ask whose note did not go says so, alone and in bulk', async () => {
     const one = fakeDeps(reply);
     await runOne(ask, mr(7), one.deps);
     expect(one.events).toContain(`done ${said}`);
-    const many = fakeDeps(reply);
-    await runMany(ask, [mr(7), mr(8)], many.deps);
-    expect(many.events.join('\n')).toContain(said);
+    const queued = fakeDeps(() => ok({ noteReason, queued: true }));
+    await runOne(ask, mr(7), queued.deps);
+    expect(queued.events).toContain(
+      `done switchboard unreachable... queued the ask to kim. ${said.replace('Sent', 'Queued')}`
+    );
   }
+  const many = fakeDeps(p => ok(p.iid === 8 ? { noteReason: 'no-key' } : {}));
+  await runMany(ask, [mr(7), mr(8), mr(9)], many.deps);
+  const toast = many.events.find(e => e.includes('without your note'))!;
+  expect(toast).toContain(
+    "!8 went without your note, kim can't receive notes yet"
+  );
+  expect(toast).not.toContain('!7 went');
 });
 
 test('a delivered ask settles its pending toast as asked', async () => {

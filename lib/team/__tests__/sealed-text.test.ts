@@ -5,7 +5,7 @@ import { join } from "path";
 import { findBundledTool } from "../../bundled-tool.ts";
 import { AgeKeyTimeoutError, type AgeExecResult, type AgeKeySeam } from "../../home/age-key.ts";
 import { childEnv } from "../../subprocess.ts";
-import { createSealedText, type SealBinding, type SealedTextDeps } from "../sealed-text.ts";
+import { createSealedText, realSealedText, type SealBinding, type SealedTextDeps } from "../sealed-text.ts";
 
 const AGE = findBundledTool("age");
 const KEYGEN = findBundledTool("age-keygen");
@@ -287,20 +287,61 @@ describe.skipIf(noAge)("sealed text", () => {
     expect(readAt).toEqual([0, 1, 3, 7, 15, 25, 35, 45, 55]);
   });
 
-  test("what went wrong is left on this Mac, with no text and no key in it", async () => {
-    const a = mint();
-    const said: string[] = [];
-    const warn = (message: string, context: Record<string, unknown>) => void said.push(`${message} ${JSON.stringify(context, (_k, v) => (v instanceof Error ? v.message : v))}`);
-    const roster = () => [{ username: "ada", agePublicKey: a.pub }];
-    await make({ warn, roster, ageBin: () => null }).seal(["ada"], binding, { note: "SECRET" });
-    await make({ warn, roster, ageBin: () => wrapper("echo 'age: error: low order point' >&2; exit 1") }).seal(["ada"], binding, { note: "SECRET" });
-    await make({ warn, roster: () => { throw new Error("no store"); } }).seal(["ada"], binding, { note: "SECRET" });
-    await make({ warn, ageKey: keychain(() => LOCKED) }).open("YWdl", binding);
-    expect(said).toHaveLength(4);
-    expect(said[1]).toContain("low order point");
-    expect(said[3]).toContain("keychain");
-    expect(said.join()).not.toContain("SECRET");
-    expect(said.join()).not.toContain("AGE-SECRET-KEY");
+  describe("what went wrong", () => {
+    const listen = () => {
+      const said: string[] = [];
+      return { said, warn: (message: string, context: Record<string, unknown>) => void said.push(`${message} ${JSON.stringify(context)}`) };
+    };
+
+    test("is left on this Mac with its cause, and no text or key", async () => {
+      const a = mint();
+      const { said, warn } = listen();
+      const sealed = await sealedTo({ ada: a.pub }, { note: "SECRET" });
+      const roster = () => [{ username: "ada", agePublicKey: a.pub }];
+      await make({ warn, roster, ageBin: () => null }).seal(["ada"], binding, { note: "SECRET" });
+      await make({ warn, roster, ageBin: () => wrapper("echo 'age: error: low order point' >&2; exit 1") }).seal(["ada"], binding, { note: "SECRET" });
+      await make({ warn, roster: () => { throw new Error("no store"); } }).seal(["ada"], binding, { note: "SECRET" });
+      await make({ warn, ageKey: keychain(() => LOCKED) }).open(sealed, binding);
+      await make({ warn, ageKey: keychain(() => ABSENT) }).open(sealed, binding);
+      await make({ warn, ageKey: holding(a), ageBin: () => null }).open(sealed, binding);
+      await make({ warn, ageKey: holding(a), ageBin: () => wrapper("echo 'cannot launch' >&2; exit 1") }).open(sealed, binding);
+      expect(said).toHaveLength(7);
+      for (const [i, cause] of ['"age":false', "low order point", "no store", "keychain unreachable", "no key", '"age":false', "cannot launch"].entries()) expect(said[i]).toContain(cause);
+      expect(said.join()).not.toContain("SECRET");
+      expect(said.join()).not.toContain("AGE-SECRET-KEY");
+    });
+
+    test("is said once until it changes or clears", async () => {
+      const a = mint();
+      const { said, warn } = listen();
+      const roster = () => [{ username: "ada", agePublicKey: a.pub }];
+      let bin: string | null = null;
+      const s = make({ warn, roster, ageBin: () => bin });
+      const seal = () => s.seal(["ada"], binding, { note: "x" });
+      for (let i = 0; i < 5; i++) await seal();
+      expect(said).toHaveLength(1);
+      bin = wrapper("exit 3");
+      for (let i = 0; i < 5; i++) await seal();
+      expect(said).toHaveLength(2);
+      bin = AGE;
+      await seal();
+      bin = null;
+      await seal();
+      expect(said).toHaveLength(3);
+
+      const locked = listen();
+      let now = 0;
+      const o = make({ warn: locked.warn, ageKey: keychain(() => LOCKED), now: () => now });
+      for (; now < 4 * 60 * 60_000; now += 30_000) await o.open("YWdl", binding);
+      expect(locked.said).toHaveLength(1);
+    });
+
+    test("reaches the log the daemon gives the real one", async () => {
+      const { said, warn } = listen();
+      await realSealedText("no-such-org", warn).seal(["ada"], binding, { note: "x" });
+      expect(said).toHaveLength(1);
+      expect(said[0]).toContain('"roster":0');
+    });
   });
 
   test("holdsKeyOf compares this Mac's key with the roster's", async () => {

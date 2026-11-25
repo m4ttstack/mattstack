@@ -202,21 +202,21 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
     return "drop";
   }
 
-  /** The request, `unreadable` when no Mac ever will read it, or `wait` when this one cannot yet: its key is locked, or the person's other Mac may hold the one it was sealed to. */
-  async function openRequest(m: SupportMessage): Promise<RequestBody | "unreadable" | "wait"> {
+  /** The request, `unreadable` (and why) when no Mac ever will read it, or `wait` when this one cannot yet: its key is locked, or the person's other Mac may hold the one it was sealed to. */
+  async function openRequest(m: SupportMessage): Promise<RequestBody | "wait" | { unreadable: string }> {
     const sealed = sealedOf(parseJson(m.body));
-    if (sealed === null) return "unreadable";
+    if (sealed === null) return { unreadable: "not sealed" };
     const opened = await deps.sealedText.open(sealed, supportBinding("request", m.id, m.from));
     const key = `${m.from} ${m.id}`;
     if (opened.ok || opened.reason === "mismatch" || opened.reason === "damaged") {
       unopened.delete(key);
-      return opened.ok ? (parseRequestBody(opened.fields.body ?? "") ?? "unreadable") : "unreadable";
+      return opened.ok ? (parseRequestBody(opened.fields.body ?? "") ?? { unreadable: "not a request" }) : { unreadable: opened.reason };
     }
     const { first, waited } = seeAgain(unopened, key);
     if (first) log.warn({ from: m.from, id: m.id, reason: opened.reason }, "support: a request cannot be opened on this Mac yet");
     if (opened.reason === "unavailable" || waited < PROOF_SETTLE_MS) return "wait";
     unopened.delete(key);
-    return "unreadable";
+    return { unreadable: opened.reason };
   }
 
   /** True when the message may be acked. */
@@ -224,8 +224,8 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
     if (getRequest("in", m.from, m.id, db)) return true;
     const body = await openRequest(m);
     if (body === "wait") return false;
-    if (body === "unreadable") {
-      log.warn({ from: m.from, id: m.id }, "support: a request could not be read");
+    if ("unreadable" in body) {
+      log.warn({ from: m.from, id: m.id, reason: body.unreadable }, "support: a request could not be read");
       const status: StatusBody = { requestId: m.id, state: "failed", at: deps.now(), reason: UNREADABLE };
       queueStatus({ id: `${m.id}:failed`, to: m.from, body: JSON.stringify(status) }, deps.now(), db);
       return true;

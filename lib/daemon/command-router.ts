@@ -256,7 +256,7 @@ export function buildRoutedHandlers(opts: {
     }),
   );
   opts.onSlackOpenDeps?.(slackOpen);
-  const sealedText = realSealedText();
+  const sealedText = realSealedText(undefined, (message, context) => ctx.log.warn(context, `sealed text: ${message}`));
   const support = createSupportService({
     db: opts.stateDb,
     log: ctx.log,

@@ -72,8 +72,9 @@ public enum HelpCards {
         return url
     }
 
-    public static func request(_ r: HelpRequest, host: String, bot defaultBot: String, othersOpen: Bool = false) -> HelpCard {
-        let bot = r.persona ?? defaultBot
+    public static func request(_ r: HelpRequest, host: String, othersOpen: Bool = false) -> HelpCard {
+        // Only the host's Mac names its bot, and a status can arrive without its words.
+        let bot = r.persona ?? "\(host)'s agent"
         let direct = "Message \(host) directly"
         let slack = slackLink(r.dmLink).map(HelpCard.Action.openSlack)
         switch r.state {
@@ -172,7 +173,7 @@ public final class HelpRequestModel: ObservableObject {
             return HelpCards.refusal(code: refused.code, message: refused.message, host: refused.host, waiting: requests.contains(where: \.isOpen))
         }
         guard let shown else { return nil }
-        return HelpCards.request(shown, host: shown.hostFirstName ?? host, bot: availability.bot,
+        return HelpCards.request(shown, host: shown.hostFirstName ?? host,
                                  othersOpen: requests.contains { $0.isOpen && $0.id != shown.id })
     }
     public var cardText: String { refused == nil ? (shown?.text ?? "") : words }
