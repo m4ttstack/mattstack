@@ -15,12 +15,13 @@ waiting, with an `error`, or answered by a listener another worktree owns
 (`listener.ownsClaim` false), the way the domain rules say (its
 dev-servers procedure); then `dev_endpoints` reads them again. Start only
 this worktree's servers, never another worktree's. One pass starts every
-role not answering, so `server-starts` counts passes: each such role gets
-both starts.
+role not answering, so `server-starts` counts the stage's passes, shared
+by every role: two passes at most. A role that stops answering after a pass
+gets only the passes left, perhaps none, before the gate.
 
 | Thought | Reality |
 |---|---|
 | "The servers are not running; I'll ask the developer to start them" | Starting them is the stage's step, not a question. Start them. |
-| "A gate is opening anyway, so I'll mention the servers there" | The gate hears about a server only after two starts failed. |
+| "A gate is opening anyway, so I'll mention the servers there" | The gate hears about a server only after the stage's start passes are spent. |
 
 {{props.rules}}

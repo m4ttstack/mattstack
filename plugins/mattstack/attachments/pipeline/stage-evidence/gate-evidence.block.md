@@ -18,8 +18,8 @@ ticket, or scope beyond the ticket. Pass it even when the step has a
 recommendation.
 
 One sentence above the form: what the plan asks for and what is unknown,
-naming any dev-server role still not answering after the stage's two
-starts, with what each start did. The developer never starts a server:
+naming any dev-server role still not answering after the stage's start
+passes, with what each start did. The developer never starts a server:
 **Try again** (or an `iterate`) on such a role starts it again and re-runs
 `dev_endpoints`, twice at most (`gate-iterates`); the third fails the
 stage, naming the roles.
@@ -27,7 +27,7 @@ stage, naming the roles.
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
 | the domain's intake | as the domain words them; an open-ended one is free text in the form | the domain declares them |
-| `servers` | **Try again (Recommended)** / **Go on without it** / **Hand back** | a dev-server role is still not answering after the stage's two starts |
+| `servers` | **Try again (Recommended)** / **Go on without it** / **Hand back** | a dev-server role is still not answering after the stage's start passes |
 | `source` (write-in) | **Proceed with `<source>` (Recommended)** / **Switch to local** | the data source is not local |
 | `fallback` (write-in) | **Capture again** / **Hand back** once three captures have failed; when the gate reopens from an unfixable Not drawn, **Hand back** / **Go on without this BEFORE** (no **Capture again**) | the gate reopened from failed captures |
 

@@ -16,7 +16,7 @@ in `waiting` (claimed, never answered), or reports unclaimed, with an
 `error`, or answered by a listener another worktree owns
 (`listener.ownsClaim` false), is started by this stage (Start or restart
 every role that is not answering), never handed to the developer. Only a
-role still not answering after two starts goes in the evidence gate's
-sentence, so the gate opens with no intake question.
+role still not answering after the stage's start passes goes in the
+evidence gate's sentence, so the gate opens with no intake question.
 
 {{props.rules}}
