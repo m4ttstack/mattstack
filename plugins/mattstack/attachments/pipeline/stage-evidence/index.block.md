@@ -34,8 +34,8 @@ flowchart TB
     needs_dev_servers{Domain needs dev servers or another rt read?}
     dev_endpoints[/"dev_endpoints {tree: <worktree>, roles: <the domain's roles>}"/]
     stop_guessed_ports[STOP: ports come only from dev_endpoints]:::stop
-    role_waiting{Any role waiting or unclaimed?}
-    run_budget_server_starts[/"run_budget {runDb, key: evidence:server-starts, limit: 2, stage: evidence}"/]
+    role_waiting{Any role waiting, unclaimed, errored, or answered by a listener another worktree owns?}
+    run_budget_server_starts[/"run_budget {runDb, key: evidence:server-starts, limit: 3, stage: evidence}"/]
     server_starts_spent{server-starts spent?}
     start_servers
     stop_ask_to_start[STOP: never ask the developer to start a dev server]:::stop

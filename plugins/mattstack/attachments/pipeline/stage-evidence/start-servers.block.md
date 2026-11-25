@@ -11,9 +11,12 @@ props:
 
 Starting this worktree's dev servers is this stage's job. Start each role
 `dev_endpoints` reported unclaimed, and restart each one it reported
-waiting, with an `error`, or served by another worktree, the way the
-domain rules say (its dev-servers procedure); then `dev_endpoints` reads
-them again. Start only this worktree's servers, never another worktree's.
+waiting, with an `error`, or answered by a listener another worktree owns
+(`listener.ownsClaim` false), the way the domain rules say (its
+dev-servers procedure); then `dev_endpoints` reads them again. Start only
+this worktree's servers, never another worktree's. One pass starts every
+role not answering, so `server-starts` counts passes: each such role gets
+both starts.
 
 | Thought | Reality |
 |---|---|
