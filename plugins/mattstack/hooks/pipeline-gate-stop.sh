@@ -126,12 +126,13 @@ mine = [g for g in d["gates"] if isinstance(g, dict) and g.get("status") in ("op
 print(len(mine))
 ' "$RUN_ID" 2>/dev/null)" && [ "${OPEN_GATES:-0}" -gt 0 ] && exit 0
 
-# A Stop with a backgrounded MCP call or an async agent still pending is not
-# a prose ending: the task's notification re-invokes the pane. The scan runs
-# only once a run is open, and every failure of it (no transcript, a bad line,
-# out of time) keeps today's block. Only the transcript's tail is read: a
-# task's removal is always written after its launch, so a launch inside the
-# window has its removal there too, and one outside it is unseen and blocks.
+# A Stop with a backgrounded MCP call or an async agent (launched, or resumed
+# with SendMessage) still pending is not a prose ending: the task's
+# notification re-invokes the pane. The scan runs only once a run is open, and
+# every failure of it (no transcript, a bad line, out of time) keeps today's
+# block. Only the transcript's tail is read: a task's removal is always
+# written after its launch, so a launch inside the window has its removal
+# there too, and one outside it is unseen and blocks.
 TRANSCRIPT="$(printf '%s' "$INPUT" | python3 -c '
 import json, sys
 try:
@@ -158,7 +159,7 @@ deadline = time.monotonic() + budget
 
 MCP = re.compile(r"moved to the background as task ([A-Za-z0-9_-]+)")
 TASK_ID = re.compile(r"<task-id>([A-Za-z0-9_-]+)</task-id>")
-NEEDLES = (b"background as task", b"async_launched", b"<task-id>", b"TaskStop")
+NEEDLES = (b"background as task", b"async_launched", b"resumedAgentId", b"<task-id>", b"TaskStop")
 
 def when(d):
     t = str(d.get("timestamp") or "")[:19]
@@ -185,6 +186,10 @@ with open(path, "rb") as f:
             if isinstance(tur, dict) and tur.get("status") == "async_launched" and tur.get("agentId"):
                 pending[tur["agentId"]] = when(d)
                 continue
+            # SendMessage restarts a finished agent under its own id.
+            if isinstance(tur, dict) and tur.get("success") is True and tur.get("resumedAgentId"):
+                pending[tur["resumedAgentId"]] = when(d)
+                continue
             for item in tur if isinstance(tur, list) else []:
                 text = item.get("text") if isinstance(item, dict) and item.get("type") == "text" else None
                 m = MCP.search(text) if isinstance(text, str) and text.startswith("MCP tool ") else None
@@ -210,6 +215,6 @@ PY
 fi
 
 cat >&2 <<EOF
-Run \`$RUN_ID\` is \`running\` in stage \`$STAGE\`. A turn cannot end here in prose. Five exits: continue the stage; open the decision with gate_ask or gate_open, passing runDb and stage \`$STAGE\` (the tool writes the run's gate field, and waiting-gate when its paneAction is wait), then act on that paneAction per gate-protocol; park it with run_hold; close it (the close gate, then run_close with done, failed or abandoned); or, at a gate already open whose paneAction was wait, fire the background rt gate wait per gate-protocol and end the turn. If the user asked you something mid-run, the answer is the sentence before the gate.
+Run \`$RUN_ID\` is \`running\` in stage \`$STAGE\`. A turn cannot end here in prose. Five exits: continue the stage; open the decision with gate_ask or gate_open, passing runDb and stage \`$STAGE\` (the tool writes the run's gate field, and waiting-gate when its paneAction is wait), then act on that paneAction per gate-protocol; park it with run_hold; close it (the close gate, then run_close with done, failed or abandoned); or, at a gate already open whose paneAction was wait, fire the background rt gate wait per gate-protocol and end the turn. Waiting on a running background subagent or MCP call needs no exit, and never run_hold: such a turn ends by itself, so this block means none was found running. If the user asked you something mid-run, the answer is the sentence before the gate.
 EOF
 exit 2
