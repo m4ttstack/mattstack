@@ -1,0 +1,286 @@
+import { expect, test } from "bun:test";
+import type { RoleConfig } from "../config.ts";
+import {
+  ancestorPids,
+  findServers,
+  interceptCommandOf,
+  parseServerProcs,
+  type ServerRules,
+  type ServerSnapshot,
+} from "../servers.ts";
+
+const LSTART = "Tue Nov 24 14:45:47 2026";
+
+test("a ps row splits into pid, ppid, etime, start time and the full command line", () => {
+  expect(parseServerProcs(`  101     1 18:00:00 ${LSTART}     rt intercept run doppler -- run -- parcel src/index.html\nnot a row\n`)).toEqual([
+    { pid: 101, ppid: 1, etime: "18:00:00", startTime: LSTART, args: "rt intercept run doppler -- run -- parcel src/index.html" },
+  ]);
+});
+
+test("a single-digit day in the start time is kept with one space", () => {
+  expect(parseServerProcs("  102   101 05:12 Sun Nov  1 04:05:06 2026     node server.js")[0]!.startTime).toBe("Sun Nov 1 04:05:06 2026");
+});
+
+test("an intercepted command is read from the installed rt and from a source checkout", () => {
+  const want = { command: "doppler", args: ["run", "--", "parcel"] };
+  expect(interceptCommandOf("rt intercept run doppler -- run -- parcel")).toEqual(want);
+  expect(interceptCommandOf("/Applications/mattstack.app/Contents/MacOS/rt intercept run doppler -- run -- parcel")).toEqual(want);
+  expect(interceptCommandOf("/Users/me/.bun/bin/bun run --preload=/Users/me/restore-cwd.ts /code/rt/cli.ts intercept run doppler -- run -- parcel")).toEqual(want);
+});
+
+test("an intercepted command with no arguments has none", () => {
+  expect(interceptCommandOf("rt intercept run doppler --")).toEqual({ command: "doppler", args: [] });
+});
+
+test("a shell, an agent or a search holding the same words is not an intercepted command", () => {
+  expect(interceptCommandOf("/bin/zsh -c eval 'rt intercept run doppler -- run -- parcel'")).toBeNull();
+  expect(interceptCommandOf("grep intercept run doppler -- run")).toBeNull();
+  expect(interceptCommandOf("rt intercept status")).toBeNull();
+});
+
+const MAIN = "/code/sample-app";
+const TREE = "/trees/calm-marble";
+
+function role(over: Partial<RoleConfig>): RoleConfig {
+  return { pool: [], needs: [], preserveEnv: [], env: {}, ...over };
+}
+
+function rules(claims: Array<{ worktree: string; role: string; port: number; pid?: number }> = []): ServerRules {
+  return {
+    rules: [{
+      command: "doppler",
+      repo: "sample-app",
+      repoRemote: "https://example.com/sample-app.git",
+      matches: [
+        { cwdGlob: "apps/api{,/**}", argPattern: "src/server", role: "api" },
+        { cwdGlob: "apps/web{,/**}", argPattern: "parcel", role: "web" },
+        { cwdGlob: "apps/docs{,/**}", argPattern: "parcel", role: "docs" },
+      ],
+    }],
+    roles: { api: role({ pool: [10400, 10401] }), web: role({ pool: [4001], needs: ["api"] }), docs: role({ fixedPort: 4002 }) },
+    claims: claims.map((c) => ({ ...c, ts: "2026-11-24T20:45:47.000Z" })),
+  };
+}
+
+interface Row { pid: number; ppid: number; args: string; cwd: string; ports?: number[] }
+
+function snap(rows: Row[], worktrees: ServerSnapshot["worktrees"] = [
+  { path: MAIN, branch: "main" },
+  { path: TREE, branch: "feature/login" },
+]): ServerSnapshot {
+  return {
+    procs: rows.map(({ pid, ppid, args }) => ({ pid, ppid, args, etime: "18:00:00", startTime: LSTART })),
+    cwds: new Map(rows.map((r) => [r.pid, r.cwd])),
+    listeners: new Map(rows.filter((r) => r.ports).map((r) => [r.pid, r.ports!])),
+    worktrees,
+  };
+}
+
+const API_RUN = "rt intercept run doppler -- run -- node src/server";
+const WEB_RUN = "rt intercept run doppler -- run -- parcel src/index.html";
+
+function apiTree(cwd: string, ports: number[] = [], ppid = 1): Row[] {
+  return [
+    { pid: 10, ppid, args: API_RUN, cwd },
+    { pid: 11, ppid: 10, args: "doppler run -- node src/server", cwd },
+    { pid: 12, ppid: 11, args: "node watch.js", cwd },
+    { pid: 13, ppid: 12, args: "node src/server", cwd, ...(ports.length ? { ports } : {}) },
+  ];
+}
+
+const API = `${TREE}/apps/api`;
+const WEB = `${TREE}/apps/web`;
+
+test("a server is its whole tree, its role and the port claimed for it", () => {
+  const found = findServers(snap(apiTree(API, [9229, 10400])), rules([{ worktree: TREE, role: "api", port: 10400 }]));
+  expect(found).toEqual([{
+    role: "api", port: 10400, listening: true, worktree: { path: TREE, name: "calm-marble" }, branch: "feature/login",
+    pid: 10, pids: [10, 11, 12, 13], startTime: LSTART, etime: "18:00:00", leftBehind: false, agent: null,
+  }]);
+});
+
+test("a one-off run of the same tool matches no rule and is left out", () => {
+  expect(findServers(snap([{ pid: 10, ppid: 1, args: "rt intercept run doppler -- secrets", cwd: API }]), rules())).toEqual([]);
+});
+
+test("a process in another repo's folder is left out", () => {
+  expect(findServers(snap(apiTree("/code/other/apps/api", [10400])), rules())).toEqual([]);
+});
+
+test("a folder that only starts with a worktree's path is not inside it", () => {
+  expect(findServers(snap(apiTree(`${TREE}-old/apps/api`, [10400])), rules())).toEqual([]);
+});
+
+test("a fixed-port role shows with no claim row", () => {
+  const found = findServers(snap([
+    { pid: 10, ppid: 1, args: WEB_RUN, cwd: `${TREE}/apps/docs` },
+    { pid: 11, ppid: 10, args: "parcel src/index.html", cwd: `${TREE}/apps/docs`, ports: [1234, 4002] },
+  ]), rules());
+  expect(found[0]).toMatchObject({ role: "docs", port: 4002, listening: true });
+});
+
+test("a needed role's claim is not a server of its own", () => {
+  const found = findServers(snap([
+    { pid: 20, ppid: 1, args: WEB_RUN, cwd: WEB },
+    { pid: 21, ppid: 20, args: "parcel src/index.html", cwd: WEB, ports: [4001] },
+  ]), rules([{ worktree: TREE, role: "web", port: 4001, pid: 20 }, { worktree: TREE, role: "api", port: 10400, pid: 20 }]));
+  expect(found.map((s) => s.role)).toEqual(["web"]);
+});
+
+test("a run with no claim takes the lowest port its tree listens on", () => {
+  const found = findServers(snap(apiTree(API, [4100, 9229])), rules());
+  expect(found[0]).toMatchObject({ port: 4100, listening: true });
+});
+
+test("a claim from another worktree is not this server's port", () => {
+  const found = findServers(snap(apiTree(API, [4100, 10400])), rules([{ worktree: MAIN, role: "api", port: 10400 }]));
+  expect(found[0]!.port).toBe(4100);
+});
+
+test("a tree that listens on nothing shows its claimed port as not listening", () => {
+  const found = findServers(snap(apiTree(API)), rules([{ worktree: TREE, role: "api", port: 10400 }]));
+  expect(found[0]).toMatchObject({ port: 10400, listening: false });
+});
+
+test("a tree with no port and no claim has a null port", () => {
+  expect(findServers(snap(apiTree(API)), rules())[0]).toMatchObject({ port: null, listening: false });
+});
+
+test("a detached worktree's server is listed with no branch", () => {
+  const found = findServers(snap(apiTree(API, [10400]), [{ path: MAIN, branch: "main" }, { path: TREE, branch: null }]), rules());
+  expect(found.map((s) => [s.worktree.name, s.branch])).toEqual([["calm-marble", null]]);
+});
+
+test("a tree nested in the main checkout owns its own server", () => {
+  const nested = `${MAIN}/.worktrees/fix`;
+  const found = findServers(snap(apiTree(`${nested}/apps/api`, [10400]), [{ path: MAIN, branch: "main" }, { path: nested, branch: "fix" }]), rules());
+  expect(found.map((s) => [s.worktree.path, s.branch])).toEqual([[nested, "fix"]]);
+});
+
+test("the same intercepted command nested in itself is one server", () => {
+  const found = findServers(snap([
+    ...apiTree(API).slice(0, 2),
+    { pid: 12, ppid: 11, args: API_RUN, cwd: API },
+    { pid: 13, ppid: 12, args: "node src/server", cwd: API, ports: [10400] },
+  ]), rules());
+  expect(found.map((s) => [s.pid, s.pids, s.port])).toEqual([[10, [10, 11, 12, 13], 10400]]);
+});
+
+test("a nested server of another role is its own row and its pids leave the outer tree", () => {
+  const found = findServers(snap([
+    ...apiTree(API).slice(0, 2),
+    { pid: 20, ppid: 11, args: WEB_RUN, cwd: WEB },
+    { pid: 21, ppid: 20, args: "parcel src/index.html", cwd: WEB, ports: [4001] },
+  ]), rules());
+  expect(found.map((s) => [s.role, s.pids, s.port])).toEqual([["api", [10, 11], null], ["web", [20, 21], 4001]]);
+});
+
+test("the same role in two worktrees is two servers, sorted by worktree name", () => {
+  const found = findServers(snap([
+    { pid: 30, ppid: 1, args: API_RUN, cwd: `${MAIN}/apps/api`, ports: [10400] },
+    { pid: 10, ppid: 1, args: API_RUN, cwd: API, ports: [10401] },
+  ]), rules());
+  expect(found.map((s) => [s.worktree.name, s.pid])).toEqual([["calm-marble", 10], ["sample-app", 30]]);
+});
+
+test("a live agent above the server is named", () => {
+  const found = findServers(snap([
+    { pid: 5, ppid: 1, args: "claude --resume x", cwd: TREE },
+    { pid: 6, ppid: 5, args: "/bin/zsh -c eval 'rt intercept run doppler -- run -- node src/server'", cwd: API },
+    ...apiTree(API, [10400], 6),
+  ]), rules());
+  expect(found.map((s) => [s.pid, s.agent])).toEqual([[10, "claude"]]);
+});
+
+test("an agent inside a tree, and everything under it, is not in the tree's pids", () => {
+  const found = findServers(snap([
+    ...apiTree(API).slice(0, 2),
+    { pid: 12, ppid: 11, args: "claude --resume x", cwd: API },
+    { pid: 13, ppid: 12, args: "node helper.js", cwd: API, ports: [10400] },
+  ]), rules([{ worktree: TREE, role: "api", port: 10400 }]));
+  expect(found.map((s) => [s.pids, s.port, s.listening])).toEqual([[[10, 11], 10400, false]]);
+});
+
+test("a server whose rt process is gone is left behind, from the topmost process in the same folder", () => {
+  const found = findServers(
+    snap(apiTree(API, [10400]).slice(1).map((r) => (r.pid === 11 ? { ...r, ppid: 1 } : r))),
+    rules([{ worktree: TREE, role: "api", port: 10400 }]),
+  );
+  expect(found).toEqual([{
+    role: "api", port: 10400, listening: true, worktree: { path: TREE, name: "calm-marble" }, branch: "feature/login",
+    pid: 11, pids: [11, 12, 13], startTime: LSTART, etime: "18:00:00", leftBehind: true, agent: null,
+  }]);
+});
+
+test("a left-behind tree never climbs into the process that started other servers", () => {
+  const found = findServers(snap([
+    { pid: 9, ppid: 1, args: "turbo run dev", cwd: TREE },
+    { pid: 11, ppid: 9, args: "doppler run -- node src/server", cwd: API },
+    { pid: 13, ppid: 11, args: "node src/server", cwd: API, ports: [10400] },
+    { pid: 15, ppid: 9, args: "node other.js", cwd: TREE },
+  ]), rules([{ worktree: TREE, role: "api", port: 10400 }]));
+  expect(found.map((s) => [s.pid, s.pids])).toEqual([[11, [11, 13]]]);
+});
+
+test("a left-behind tree never climbs into a shell in the same folder", () => {
+  const found = findServers(snap([
+    { pid: 8, ppid: 1, args: "-zsh", cwd: API },
+    { pid: 13, ppid: 8, args: "node src/server", cwd: API, ports: [10400] },
+  ]), rules([{ worktree: TREE, role: "api", port: 10400 }]));
+  expect(found.map((s) => [s.pid, s.pids])).toEqual([[13, [13]]]);
+});
+
+test("two listeners of one left-behind tree are one row", () => {
+  const found = findServers(snap([
+    { pid: 11, ppid: 1, args: "doppler run -- node src/server", cwd: API },
+    { pid: 13, ppid: 11, args: "node src/server", cwd: API, ports: [10400] },
+    { pid: 14, ppid: 11, args: "node src/server", cwd: API, ports: [10400] },
+  ]), rules([{ worktree: TREE, role: "api", port: 10400 }]));
+  expect(found.map((s) => [s.pid, s.pids])).toEqual([[11, [11, 13, 14]]]);
+});
+
+test("a left-behind fixed port counts only from that role's folder", () => {
+  const found = findServers(snap([
+    { pid: 30, ppid: 1, args: "node serve.js", cwd: `${TREE}/apps/docs`, ports: [4002] },
+    { pid: 31, ppid: 1, args: "node serve.js", cwd: API, ports: [4002] },
+  ]), rules());
+  expect(found.map((s) => [s.role, s.port, s.pid, s.leftBehind])).toEqual([["docs", 4002, 30, true]]);
+});
+
+test("an agent or shell holding a role's port is never a server", () => {
+  const found = findServers(snap([
+    { pid: 40, ppid: 1, args: "claude --resume x", cwd: API, ports: [10400] },
+    { pid: 41, ppid: 1, args: "-zsh", cwd: `${TREE}/apps/docs`, ports: [4002] },
+  ]), rules([{ worktree: TREE, role: "api", port: 10400 }]));
+  expect(found).toEqual([]);
+});
+
+test("a listener on a claimed port from another worktree is not that claim's server", () => {
+  const found = findServers(
+    snap([{ pid: 13, ppid: 1, args: "node src/server", cwd: `${MAIN}/apps/api`, ports: [10400] }]),
+    rules([{ worktree: TREE, role: "api", port: 10400 }]),
+  );
+  expect(found).toEqual([]);
+});
+
+test("a role's port held inside another server's tree is not left behind", () => {
+  const found = findServers(snap([
+    { pid: 20, ppid: 1, args: WEB_RUN, cwd: WEB },
+    { pid: 21, ppid: 20, args: "node all-in-one.js", cwd: WEB, ports: [4001, 10400] },
+  ]), rules([{ worktree: TREE, role: "web", port: 4001 }, { worktree: TREE, role: "api", port: 10400 }]));
+  expect(found.map((s) => [s.role, s.leftBehind])).toEqual([["web", false]]);
+});
+
+test("ancestors run nearest first and stop below pid 1", () => {
+  const { procs } = snap([
+    { pid: 5, ppid: 1, args: "a", cwd: "/" },
+    { pid: 6, ppid: 5, args: "b", cwd: "/" },
+    { pid: 7, ppid: 6, args: "c", cwd: "/" },
+  ]);
+  expect(ancestorPids(procs, 7)).toEqual([6, 5]);
+});
+
+test("a ppid loop ends the ancestor walk", () => {
+  const { procs } = snap([{ pid: 5, ppid: 6, args: "a", cwd: "/" }, { pid: 6, ppid: 5, args: "b", cwd: "/" }]);
+  expect(ancestorPids(procs, 5)).toEqual([6]);
+});

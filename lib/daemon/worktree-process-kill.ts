@@ -100,6 +100,10 @@ function isSparedFromWorkload(proc: KillCandidate): boolean {
   );
 }
 
+export function agentNameOf(proc: KillCandidate): string | null {
+  return processNames(proc).find((n) => DEFAULT_AI_AGENT_NAMES.has(n)) ?? null;
+}
+
 /** An agent session, shell, multiplexer or editor: the user's, never workload. */
 export function isUserOrAgentProcess(proc: KillCandidate): boolean {
   const names = processNames(proc);
