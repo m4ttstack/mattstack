@@ -15,9 +15,11 @@ waiting, with an `error`, or answered by a listener another worktree owns
 (`listener.ownsClaim` false), the way the domain rules say (its
 dev-servers procedure); then `dev_endpoints` reads them again. Start only
 this worktree's servers, never another worktree's. One pass starts every
-role not answering, so `server-starts` counts the stage's passes, shared
-by every role: two passes at most. A role that stops answering after a pass
-gets only the passes left, perhaps none, before the gate.
+role not answering, so `server-starts` counts the stage's passes before
+the gate, shared by every role: two at most. A Try again at the gate runs
+one more pass, counted by `gate-iterates` instead. A role that stops
+answering after a pass gets only the passes left, perhaps none, before the
+gate.
 
 | Thought | Reality |
 |---|---|
