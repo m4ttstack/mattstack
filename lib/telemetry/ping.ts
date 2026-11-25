@@ -1,6 +1,7 @@
 /**
  * The version ping: what this Mac reports about the rt it runs, and nothing
- * else. Every field is read on its own, so one reader that throws leaves that
+ * else. It names the org, its packs, the person's forge username and the fixed
+ * legacy folders; never a repo, host, path, branch, file or command. Every field is read on its own, so one reader that throws leaves that
  * field null or empty and never drops the ping.
  */
 
@@ -20,7 +21,7 @@ import { ENGINE_PACK_REF } from "../skills/installed-plugins.ts";
 import { installedVersionFor, type PluginListEntry } from "../skills/sources.ts";
 import { markerState } from "../team/org-marker.ts";
 import { readTeamLocal } from "../team/team-local.ts";
-import type { CloneHealth, StaleSkill } from "./clone-health.ts";
+import type { CloneHealth } from "./clone-health.ts";
 import { readInstallId } from "./install-id.ts";
 
 export interface TelemetryPing {
@@ -36,15 +37,15 @@ export interface TelemetryPing {
   legacyDirs: string[];
   /** `clone` only from the daemon's ping, null when it could not be read. */
   orgs: { org: string; layout: number | null; clone?: CloneHealth | null }[];
-  /** `stale` only from the daemon's ping: the skills this Mac reads as waiting for compile. */
-  packs: { id: string; version: string | null; stale?: StaleSkill[] | null }[];
+  /** `staleCount` only from the daemon's ping: how many skills this Mac reads as waiting for compile. `stale` is always null, for a relay older than the count. */
+  packs: { id: string; version: string | null; stale?: null; staleCount?: number | null }[];
   appUpdate: AppUpdateStatus | null;
 }
 
 /** What the daemon adds to a ping so a clone in a bad state can be diagnosed from the relay. */
 export interface PingHealthDeps {
   cloneHealth(slug: string): Promise<CloneHealth | null>;
-  staleSkills(packName: string): Promise<StaleSkill[] | null>;
+  staleCount(packName: string): Promise<number | null>;
 }
 
 /** What the app's updater last did, as the tray writes it (`UpdateStatus.swift`). */
@@ -149,12 +150,12 @@ export async function collectPing(p: Probes, health?: PingHealthDeps): Promise<T
     return Promise.all(
       [...byId.keys()].sort().map(async (id) => {
         const entry = { id, version: installedVersion(id) };
-        return health ? { ...entry, stale: await field("stale", null, () => health.staleSkills(byId.get(id)!)) } : entry;
+        return health ? { ...entry, stale: null, staleCount: await field("staleCount", null, () => health.staleCount(byId.get(id)!)) } : entry;
       }),
     );
   });
 
-  return fitPing({
+  return {
     installId,
     usernames,
     appVersion: await field("appVersion", null, () => readAppVersion(p)),
@@ -171,29 +172,5 @@ export async function collectPing(p: Probes, health?: PingHealthDeps): Promise<T
     orgs,
     packs,
     appUpdate: await field("appUpdate", null, () => readAppUpdate(p)),
-  });
-}
-
-/** Under the relay's 64 KB body cap, with room for headers. */
-const PING_BUDGET_BYTES = 60_000;
-
-const bytesOf = (ping: TelemetryPing): number => Buffer.byteLength(JSON.stringify(ping));
-
-/**
- * The relay drops a whole ping over its cap, so the optional detail gives way
- * first: dirty paths shrink to 10 per clone, then to none, then the stale
- * lists go. Counts (`dirtyCount`) always stay true.
- */
-export function fitPing(ping: TelemetryPing, budget: number = PING_BUDGET_BYTES): TelemetryPing {
-  if (bytesOf(ping) <= budget) return ping;
-  const withDirty = (keep: number): TelemetryPing => ({
-    ...ping,
-    orgs: ping.orgs.map((o) => (o.clone ? { ...o, clone: { ...o.clone, dirty: o.clone.dirty.slice(0, keep) } } : o)),
-  });
-  for (const keep of [10, 0]) {
-    const trimmed = withDirty(keep);
-    if (bytesOf(trimmed) <= budget) return trimmed;
-  }
-  const bare = withDirty(0);
-  return { ...bare, packs: bare.packs.map((p) => (p.stale ? { ...p, stale: null } : p)) };
+  };
 }
