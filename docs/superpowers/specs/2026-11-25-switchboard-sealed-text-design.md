@@ -38,18 +38,25 @@ routing facts. They stay readable.
 | Message | Sealed | Stays readable |
 |---|---|---|
 | Asks (`review-request`, `re-review-request`, `respond-request`) | `title`, `sourceBranch`, `note` | `mrUrl`, `iid` |
-| `nudge-outcome` | `declineNote`; `reason` unless it is a fixed code | `mrUrl`, `iid`, `nudgeId`, `result`, `declined`, a fixed reason code |
-| `review-state`, `respond-state` | `reason` unless it is a fixed code | `mrUrl`, `iid`, `status`, `outcome`, `updatedAt`, `nudgeId`, `parkedAt` |
+| `nudge-outcome` | `declineNote`; `reason` unless it is one of the fixed strings | `mrUrl`, `iid`, `nudgeId`, `result`, `declined`, a fixed reason |
+| `review-state` | `reason` unless it is one of the fixed strings | `mrUrl`, `iid`, `status`, `outcome`, `updatedAt`, `nudgeId`, `parkedAt` |
 | `announcement` | `title`, `message` | a fixed placeholder title and message |
-| Support request and status | the whole `body` | `id`, `to`, `kind`, `sentAt`, `mac` |
+| Support request | the whole `body` | `id`, `to`, `kind`, `sentAt`, `mac` |
+| Support status | `reason`, `persona`, `dmLink` | `requestId`, `state`, `at` |
 
-Team invites are already sealed and do not change.
+The fixed strings are the codes and display words the code itself writes, such
+as `cooldown` and "busy right now" (an older board shows those words as they
+arrive). `respond-state` carries no text. Team invites are already sealed and
+do not change.
 
 ## Constraints
 
-- Every member who joined through an invite has an age key in their keychain,
-  and the org roster (`mattstack.roster[].agePublicKey`) holds its public half.
-  A roster entry with no key belongs to someone who has not finished joining.
+- A person's key is `mattstack.roster[].agePublicKey` in the org store. An admin's
+  `rt team members sync` records it after the person joins, so a roster entry
+  can be without one: not joined, joined but not synced, added by hand, or
+  skipped by sync. 8 of 20 entries in one real org have a key today.
+- The roster holds one key per person. The relay's inbox is per person too, so
+  today two Macs on one username already take messages from each other.
 - The private key is only ever read through `AgeKeySeam`
   (`lib/home/age-key.ts`), and a keychain dialog must never hang a tick.
 - The board, its cron triage and the rt CLI all send. Only rt reads keys.
@@ -99,10 +106,19 @@ once for ten keys, and each envelope carries the same string.
 ### The binding
 
 `age` has no associated data, so the binding goes inside the sealed text: a
-version, the message type, the sender's username, and the MR address (or the
-support request id, or the announcement id). Open refuses a string whose
-binding does not match the envelope it arrived in, so the relay cannot move one
-message's text onto another message.
+version, the message type, the sender's username, and what names this one
+message:
+
+| Message | Bound to |
+|---|---|
+| Ask | MR address and envelope id |
+| `nudge-outcome` | MR address and `nudgeId` |
+| `review-state` | MR address, `status` and `updatedAt`, the same across its fan-out |
+| `announcement` | envelope id |
+| Support request, status | the message id |
+
+Open refuses a string whose binding does not match the message it arrived in,
+so the relay cannot put one message's text on another, on the same MR or not.
 
 ### On the wire
 
@@ -111,27 +127,48 @@ never sent again. A receiving board ignores those plain fields from now on,
 except that it still shows them from an older sender until the version ping
 shows no older boards; after that the reading code goes too.
 
-Support's `body` becomes the sealed string. The existing signature covers it
-unchanged, so the host checks the signature before it opens anything.
+A support request's `body` becomes the sealed string. The existing signature
+covers it, so the host checks the signature before it opens anything. `age`
+output differs each time and the relay refuses a second body under one id, so
+the sender's Mac keeps the sealed body until the relay accepts it and a retry
+sends that same body.
+
+### When each side seals and opens
+
+- **Sending:** sealed before the message is queued, and before any database
+  transaction that queues it, so the outbox holds no plain text. Rows queued by
+  an older board are stripped of their text fields when drained.
+- **Board, receiving:** nothing waits. The ask or state is stored and acked as
+  today with the sealed string on its row, and the text is opened when shown.
+  A daemon that is down or a locked keychain means "not readable yet", and the
+  next look tries again.
+- **Announcement:** kept and retried each tick for its existing 24 hours, then
+  shown as its placeholder.
+- **Support request, receiving:** stays on the relay unacked until it opens, up
+  to the queue's 7 days. The host's readiness check includes that this Mac's key
+  is the one the roster holds.
 
 ### When sealing is not possible
 
 | Case | What happens |
 |---|---|
-| Recipient has no key | The ask goes without its text. The sender sees "Sent without your note: <name> has not finished joining." |
-| rt cannot seal (daemon down, no `age`) | The ask goes without its text, and the sender sees that the note was not sent |
-| Support, host has no key | The form is disabled and says the host has not finished joining |
-| Support, rt cannot seal | The send fails with a plain reason and can be retried |
+| Recipient has no key, or is not on the roster | The message goes without its text. The sender of a note sees "Sent without your note. <name> can't receive notes yet." |
+| rt cannot seal (daemon down, no `age`) | The message goes without its text. The sender of a note sees that it was not sent |
+| A state's or outcome's reason cannot be sealed | It goes without the reason, and says nothing: no person wrote it |
+| Support request, host has no key | The form is disabled and says the host can't receive requests yet |
+| Support request, rt cannot seal | The send fails with a plain reason and can be retried |
+| Support status, rt cannot seal | The state goes without its reason, persona or link |
 | Announcement, some members have no key | It goes out; the sender sees how many cannot read it |
 | Announcement, rt cannot seal | It fails with a plain reason. Nothing is sent |
-| A received string will not open | The ask still shows, with a short line that its note could not be read. Support answers the sender with the existing "could not read your request" status. An announcement shows its placeholder |
+| A received string can never open (wrong key, binding mismatch, damaged) | The ask shows with a short line that its note could not be read. Support answers with the existing "could not read your request" status. An announcement shows its placeholder |
 
 The placeholder announcement reads "Announcement" and "Update mattstack to
 read this."
 
-A locked keychain is not a failure to read: the message waits and the next tick
-tries again, as support's unproved messages do today. It becomes unreadable
-only after that wait runs out.
+### Before release
+
+An admin runs `rt team members sync` and looks at who is still without a key,
+since those people's notes will not arrive. `rt team status` shows who has one.
 
 ### Keeping it true
 
@@ -150,17 +187,21 @@ recipients, and the limits listed under Non-goals.
 
 Its own PR, independent of the rest. The version ping stops sending changed
 file paths, branch and upstream names and commit ids from the org settings
-clone, and the names of stale skills. It keeps counts, the pull state, the
-yes/no flags and the times, plus whether the clone is on its data branch. Org
-name and forge username stay. The wire shape stays readable by the deployed
-relay (empty lists and nulls), the relay's page drops those columns, and the
-relay clears the old values from stored rows when it starts. The comment
-"no repos, hostnames, paths or commands" becomes true.
+clone, and the names and causes of stale skills. It keeps counts, the pull
+state, the yes/no flags and the times, and gains a stale-skill count and whether
+the clone is on its data branch. Org, pack ids, the fixed legacy folder names
+and forge username stay. Old fields go out as empty lists and nulls so the
+deployed relay still parses them; the new ones are blank until it is redeployed.
+`/telemetry/clones.json` and `rt telemetry clones` shrink to what is left. The
+relay clears the old values from `telemetry_macs` and `telemetry_clone_events`
+when it starts. The comment "no repos, hostnames, paths or commands" becomes
+true, with the org name listed as the exception. The cost is less to diagnose a
+stuck clone from; the person's own `rt` still shows it all.
 
 ## Left to the builder
 
 - Command names, the sealed string's encoding, and where the code sits.
-- Whether opened text is cached beside the ask row or opened on each read.
+- Whether opened text is cached in memory or opened on each read.
 - Reading the key once per tick or holding it briefly, within the keychain
   constraint above.
 - Exact wording of the lines a person sees, within rt's copy rules.
@@ -173,5 +214,6 @@ relay clears the old values from stored rows when it starts. The comment
   with no plain text leaving the new one.
 - A recipient with no key, a dead daemon and a missing `age` each send an ask
   with no text and tell the sender.
-- A sealed string copied onto another MR's ask does not open.
+- A sealed string copied onto another ask, on the same MR or another, does not
+  open.
 - The allowlist test fails when a text field is added to a payload.
