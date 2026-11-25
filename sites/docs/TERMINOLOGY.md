@@ -27,4 +27,6 @@ Add a row when a page introduces a concept.
 | The branch of the org repo that holds the org's data | data branch | settings branch, config branch |
 | A branch an org admin's clone uses to try an org change | trial branch | test branch, staging branch |
 | The cropped, labelled image Fast Browser composes from a capture as a run's evidence | evidence board | board (alone), annotated screenshot, composite |
+| A question sent from mattstack to the org's support host | help request, or request once it is clear | ticket, support ask |
+| The person whose Mac answers the org's help requests | host | support agent, operator |
 | Running a superpowers plan where the session builds each task and a fresh reviewer checks each group | Native with reviews | inline with reviews, hybrid mode |
