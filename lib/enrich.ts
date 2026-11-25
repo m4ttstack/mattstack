@@ -310,10 +310,14 @@ const CHECKS_WORDS: Record<string, { text: string; tone: string }> = {
 
 const MR_STATE_WORDS: Record<string, string> = { opened: "open", merged: "merged", closed: "closed" };
 
+export function mrStateWord(mr: MRInfo): string {
+  return MR_STATE_WORDS[mr.state] ?? mr.state;
+}
+
 /** The MR as `rt worktree list` words it; a merged or closed MR's checks can no longer change, so they are left off. */
-function mrSegments(mr: MRInfo): PickSegment[] {
+export function mrSegments(mr: MRInfo): PickSegment[] {
   const marker = mr.provider === "github" ? "#" : "!";
-  const parts: PickSegment[] = [{ text: `${marker}${mr.iid} ${MR_STATE_WORDS[mr.state] ?? mr.state}`, tone: "dim" }];
+  const parts: PickSegment[] = [{ text: `${marker}${mr.iid} ${mrStateWord(mr)}`, tone: "dim" }];
   const checks = !MR_TERMINAL_STATES.has(mr.state) && mr.pipeline ? CHECKS_WORDS[mr.pipeline.status] : undefined;
   if (checks) parts.push({ text: "  " }, { ...checks });
   return parts;
