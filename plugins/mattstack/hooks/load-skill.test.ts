@@ -89,6 +89,16 @@ test('tool.call returns result and context', async ($, on) => {
   expect(w.runs).toEqual([{ argv: ['rt', 'skills', 'render', 'acme:work', '--dir', DIR, '--json'], timeoutMs: 60_000 }])
 })
 
+test("the served text leaves out compile's part markers, and the count is of what is served", async ($, on) => {
+  const marked = '---\nname: work\n---\n\n<!-- part: block:work source=mattstack:work path=a.block.md lines=1-9 -->\n# work\n\n  <!-- part: section:notes source=acme:pack/sections/notes.md path=pack/sections/notes.md lines=1-2 -->\n  Do the work. <!-- part: inline stays -->\n'
+  const served = '---\nname: work\n---\n\n# work\n\n  Do the work. <!-- part: inline stays -->\n'
+  world(on, { rt: { exitCode: 0, stdout: JSON.stringify({ ...ENVELOPE, body: marked }) } })
+  await start($)
+  const called = await $.tool.call({ tool: TOOL, skill: 'acme:work', dir: DIR })
+  expect(called.context).toEqual([served])
+  expect(called.result).toContain(`${served.length} characters in 1 parts`)
+})
+
 test('a stale render says so in the result', async ($, on) => {
   world(on, { rt: { exitCode: 0, stdout: JSON.stringify({ ...ENVELOPE, staleBecause: 'bindings.jsonc: acme:nope cannot be filled' }) } })
   await start($)
