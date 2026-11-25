@@ -107,6 +107,14 @@ export interface SupportHostView {
   org: SupportOrg | null;
 }
 
+/** A request as its sender's button and window read it. */
+export interface SupportSent extends SupportRequest {
+  /** Sent, and the host's Mac has not answered within 2 minutes. */
+  away: boolean;
+  /** The name of the person it went to, who may not be the host now. */
+  host: string;
+}
+
 export const SUPPORT_BODY_MAX_BYTES = 64 * 1024;
 /** The body is JSON inside the request's JSON, so every quote in it can double. */
 export const SUPPORT_REQUEST_MAX_BYTES = 2 * SUPPORT_BODY_MAX_BYTES + 4 * 1024;
@@ -115,6 +123,8 @@ export const SUPPORT_TEXT_MAX = 8000;
 export const SUPPORT_PART_MAX = 2000;
 export const SUPPORT_PARTS_MAX = 12;
 export const SUPPORT_AWAY_MS = 2 * 60_000;
+/** A Mac silent this long no longer keeps another from answering. */
+export const SUPPORT_MACHINE_HOLD_MS = 10 * 60_000;
 
 /** SQLite turns a lone surrogate into other characters, so an id holding one could be stored and never acked. */
 const ID = /^[A-Za-z0-9._:-]{1,200}$/;

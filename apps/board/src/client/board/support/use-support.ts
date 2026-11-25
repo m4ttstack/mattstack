@@ -11,6 +11,7 @@ import {
 import {
   byPartOrder,
   currentRequest,
+  hostOf,
   isOpen,
   type HelpMr,
   type HelpRequest,
@@ -49,6 +50,8 @@ function newId(): string {
 
 export interface Help {
   read: SupportRead;
+  /** The host's first name, kept after they stop answering. */
+  host: string;
   request: HelpRequest | null;
   requests: readonly HelpRequest[];
   open: boolean;
@@ -76,6 +79,7 @@ export interface Help {
 /** The help button's state; null while the board has no one to ask. */
 export function useSupport(local: boolean): Help | null {
   const [read, setRead] = useState<SupportRead | null>(null);
+  const [host, setHost] = useState('');
   const [requests, setRequests] = useState<HelpRequest[]>([]);
   const [seen, setSeen] = useState<string[]>(loadSeen);
   const [open, setOpenState] = useState(false);
@@ -98,7 +102,11 @@ export function useSupport(local: boolean): Help | null {
     let live = true;
     const load = () => {
       if (document.hidden) return;
-      void getSupport().then(r => live && r && setRead(r));
+      void getSupport().then(r => {
+        if (!live || !r) return;
+        setRead(r);
+        setHost(h => hostOf(r.availability) || h);
+      });
     };
     load();
     const timer = setInterval(load, SETTLED_POLL_MS);
@@ -191,9 +199,13 @@ export function useSupport(local: boolean): Help | null {
     setSending(true);
     setError(null);
     void sendRequest({ id: attempt.current.id, text: words, parts })
-      .then(async err => {
-        await refreshRequests();
-        if (err) return setError(err);
+      .then(async sent => {
+        if ('error' in sent) {
+          await refreshRequests();
+          return setError(sent.error);
+        }
+        const { request: stored } = sent;
+        setRequests(rs => [stored, ...rs.filter(r => r.id !== stored.id)]);
         attempt.current = null;
         setText('');
         setMr(null);
@@ -202,9 +214,11 @@ export function useSupport(local: boolean): Help | null {
       .finally(() => setSending(false));
   }, [sending, parts, text, refreshRequests]);
 
-  if (!read || (!offered && !request)) return null;
+  // What someone is writing or reading stays while its card is open.
+  if (!read || (!offered && !request && !open)) return null;
   return {
     read,
+    host,
     request,
     requests,
     open,

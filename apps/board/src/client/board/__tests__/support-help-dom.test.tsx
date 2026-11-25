@@ -36,9 +36,9 @@ const realFetch = globalThis.fetch;
 /** A board server that answers from here and keeps what it is sent. */
 const server = {
   read: READY as unknown,
-  mine: [] as HelpRequest[],
+  mine: [] as HelpRequest[] | null,
   parts: [VERSIONS] as unknown,
-  send: (): Response => Response.json({ request: {} }),
+  send: (): Response => Response.json({ request: request('sent') }),
   asked: [] as { path: string; body: Record<string, unknown> | null }[],
 };
 
@@ -46,7 +46,7 @@ beforeEach(() => {
   server.read = READY;
   server.mine = [];
   server.parts = [VERSIONS];
-  server.send = () => Response.json({ request: {} });
+  server.send = () => Response.json({ request: request('sent') });
   server.asked = [];
   localStorage.clear();
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
@@ -59,7 +59,9 @@ beforeEach(() => {
           ? Response.json({}, { status: 502 })
           : Response.json(server.read);
       case '/support/mine':
-        return Response.json({ requests: server.mine });
+        return server.mine === null
+          ? Response.json({}, { status: 502 })
+          : Response.json({ requests: server.mine });
       case '/support/context':
         return server.parts === null
           ? Response.json({}, { status: 502 })
@@ -154,10 +156,8 @@ test('the form shows who answers and what goes with it, and sends only what is l
   });
   await write(`  ${WORDS} `);
   await click(button('Leave out Versions'));
-  server.send = () => {
-    server.mine = [request('sent')];
-    return Response.json({ request: {} });
-  };
+  // What was sent shows without the list being read again.
+  server.mine = null;
   await click(button('Ask Maude'));
   expect(sends()).toHaveLength(1);
   expect(sends()[0]!.body).toMatchObject({ text: WORDS, parts: [MR_PART] });
@@ -207,6 +207,59 @@ test('a send nobody answered never says nothing was sent', async () => {
   await click(button('Ask Maude'));
   expect(text()).toContain('rt did not answer');
   expect(text()).not.toContain('Nothing was sent');
+});
+
+test('words rt will not take come back to be shortened', async () => {
+  server.send = () =>
+    Response.json(
+      { code: 'support-too-long', message: 'That is too long to send.' },
+      { status: 409 }
+    );
+  await mount();
+  await click(pillOf()!);
+  await write(WORDS);
+  await click(button('Ask Maude'));
+  await click(button('Edit'));
+  expect(document.querySelector('textarea')!.value).toBe(WORDS);
+});
+
+test('a request keeps the name and the DM of the person it went to', async () => {
+  server.read = {
+    ...READY,
+    availability: { ...READY.availability, host: 'Bea Finch' },
+  };
+  server.mine = [
+    request('not-accepting', {
+      hostDm: 'https://slack.com/app_redirect?channel=U0OLD',
+    }),
+  ];
+  await mount();
+  await click(pillOf()!);
+  expect(text()).toContain("Alex isn't taking requests");
+  const link = [...document.querySelectorAll('a')].find(
+    a => a.textContent === 'Message Alex'
+  )!;
+  expect(link.href).toBe('https://slack.com/app_redirect?channel=U0OLD');
+});
+
+test('a host who stops answering keeps the open form, and their name on its refusal', async () => {
+  server.send = () =>
+    Response.json(
+      { code: 'support-not-accepting', message: 'x' },
+      { status: 409 }
+    );
+  await mount();
+  await click(pillOf()!);
+  await write(WORDS);
+  server.read = { ...READY, availability: { state: 'hidden' } };
+  await React.act(async () => {
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await settle();
+  await click(button('Ask Maude'));
+  expect(text()).toContain("Alex isn't taking requests");
+  await click(button('Close'));
+  expect(pillOf()).toBe(null);
 });
 
 test('an opened chat is a link into Slack, and following it puts the button back', async () => {

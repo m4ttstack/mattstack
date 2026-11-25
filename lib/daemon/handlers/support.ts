@@ -9,6 +9,7 @@ import type { Database } from "bun:sqlite";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import {
   SUPPORT_AWAY_MS,
+  SUPPORT_MACHINE_HOLD_MS,
   SUPPORT_PARTS_MAX,
   SUPPORT_PART_MAX,
   SUPPORT_TEXT_MAX,
@@ -16,7 +17,9 @@ import {
   supportBodyTooLarge,
   type SupportMissing,
   type SupportPart,
+  type SupportHostState,
   type SupportRequest,
+  type SupportSent,
   type SupportState,
 } from "../../../packages/rt-client/src/support.ts";
 import { UserActionableError } from "../../errors.ts";
@@ -125,10 +128,11 @@ const SEND_REFUSALS: Record<Exclude<SupportSend, "ok" | "changed">, (host: strin
 
 const CHANGED: [code: string, message: string] = ["changed", "Your first version of this was already sent, so that is the one they will read."];
 
-function hostName(cfg: SupportConfig): string {
-  const host = cfg.host ?? "";
-  return cfg.roster.find((e) => canonicalHandle(e.username) === canonicalHandle(host))?.name ?? host;
+function nameOf(cfg: SupportConfig | null, username: string): string {
+  return cfg?.roster.find((e) => canonicalHandle(e.username) === canonicalHandle(username))?.name ?? username;
 }
+
+const hostName = (cfg: SupportConfig): string => nameOf(cfg, cfg.host ?? "");
 
 /** A request the host never finished with stops counting once the relay has forgotten it. Returns the ones that just expired. */
 export function expireSent(db: Database, now: number): SupportRequest[] {
@@ -152,7 +156,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
     const already = getRequest("out", to, id, db);
     if (already) {
       const same = already.text === text && JSON.stringify(already.parts) === JSON.stringify(parts);
-      return same ? { ok: true, data: { request: already } } : refuse(...CHANGED);
+      return same ? { ok: true, data: { request: asSent(already) } } : refuse(...CHANGED);
     }
     expireSent(db, deps.now());
     if (listRequests("out", OPEN, db).some((r) => r.peer === to && r.org === cfg.orgRemote)) return refuse("already-waiting", "You already have a request waiting.");
@@ -186,8 +190,18 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
     insertRequest(request, db);
     deps.poke();
     if (result === "changed") return refuse(...CHANGED);
-    return { ok: true, data: { request: { ...request, updatedAt: sentAt } } };
+    return { ok: true, data: { request: asSent({ ...request, updatedAt: sentAt }) } };
   }
+
+  const asSent = (r: SupportRequest): SupportSent => ({
+    ...r,
+    away: r.state === "sent" && deps.now() - r.sentAt > SUPPORT_AWAY_MS,
+    host: nameOf(deps.config(), r.peer),
+  });
+
+  /** A Mac that went silent keeps its flag on the relay, and no longer stops another from taking over. */
+  const heldElsewhere = (relay: SupportHostState | null): boolean =>
+    relay?.accepting === true && relay.lastSeenAt !== null && deps.now() - relay.lastSeenAt < SUPPORT_MACHINE_HOLD_MS;
 
   return {
     "support:availability": async (): Promise<CommandResult<"support:availability">> => {
@@ -249,7 +263,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
       const requests = listRequests("out", undefined, db)
         .reverse()
         .slice(0, SHOWN)
-        .map((r: SupportRequest) => ({ ...r, away: r.state === "sent" && deps.now() - r.sentAt > SUPPORT_AWAY_MS }));
+        .map(asSent);
       return { ok: true, data: { requests } };
     },
 
@@ -269,7 +283,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
           accepting,
           missing: needs.map((m) => m.text),
           needs,
-          otherMac: isHost && !accepting && onRelay?.accepting === true,
+          otherMac: isHost && !deps.holdsRole() && heldElsewhere(onRelay),
           open: isHost ? deps.openChats() : 0,
           cap: SUPPORT_MAX_OPEN,
           waiting: isHost ? listRequests("in", ["waiting"], db).length : 0,

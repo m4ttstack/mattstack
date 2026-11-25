@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { SUPPORT_TEXT_MAX } from '@mattstack/rt-client';
 import {
+  askedOf,
   byPartOrder,
   currentRequest,
   firstName,
@@ -39,14 +40,13 @@ describe('the request the button speaks for', () => {
     expect(currentRequest([news, open], none, NOW)).toBe(open);
   });
 
-  test('else the newest settled one nobody has looked at, for a day', () => {
-    const old = request('opened', { id: 'old', sentAt: NOW - 5 });
-    const news = request('declined', { id: 'news', sentAt: NOW });
+  test('else the one that settled last, for a day, and never an older one', () => {
+    const old = request('opened', { id: 'old', updatedAt: NOW - 5 });
+    const news = request('declined', { id: 'news', sentAt: NOW - 9 });
     const current = (seen: string[], now = NOW) =>
       currentRequest([old, news], new Set(seen), now);
     expect(current([])).toBe(news);
-    expect(current(['news'])).toBe(old);
-    expect(current(['news', 'old'])).toBe(null);
+    expect(current(['news'])).toBe(null);
     expect(current([], NOW + DAY)).toBe(null);
     expect(currentRequest([], none, NOW)).toBe(null);
   });
@@ -160,6 +160,8 @@ describe('a refused send', () => {
       'Trying again never sends it twice',
       'try-again',
     ],
+    ['support-text', 'Nothing was sent', 'Connect Slack first', 'edit'],
+    ['support-too-long', 'Nothing was sent', 'Connect Slack first', 'edit'],
     ['support-other', 'Nothing was sent', 'Connect Slack first', 'try-again'],
   ];
   for (const [code, title, detail, action] of cases)
@@ -215,6 +217,11 @@ test("a host's link is followed only into Slack", () => {
     'https://user@evil.example/slack.com/',
   ])
     expect(slackLink(bad)).toBe(null);
+});
+
+test('a request is named for the person it went to', () => {
+  expect(askedOf(request('sent'))).toBe('Alex');
+  expect(askedOf(request('sent', { host: undefined as never }))).toBe('alex');
 });
 
 test('who answers, by first name', () => {

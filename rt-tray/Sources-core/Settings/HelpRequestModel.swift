@@ -1,6 +1,8 @@
 import Foundation
 import Combine
 
+private func helpFirstName(_ name: String) -> String { name.split(separator: " ").first.map(String.init) ?? name }
+
 /// The daemon's `support:availability` answer.
 public struct HelpAvailability: Decodable, Equatable, Sendable {
     /// "hidden", "disabled" or "ready". A String, so a newer rt's state hides rather than fails.
@@ -16,7 +18,7 @@ public struct HelpAvailability: Decodable, Equatable, Sendable {
     public var isOffered: Bool { state == "ready" || state == "disabled" }
     public var isReady: Bool { state == "ready" }
     public var bot: String { persona ?? "Maude" }
-    public var hostFirstName: String { host?.split(separator: " ").first.map(String.init) ?? "" }
+    public var hostFirstName: String { host.map(helpFirstName) ?? "" }
 }
 
 public struct HelpPart: Codable, Equatable, Sendable, Identifiable {
@@ -37,18 +39,21 @@ public struct HelpRequest: Decodable, Equatable, Sendable, Identifiable {
     public var dmLink: String?
     public var sentAt: Double
     public var away: Bool?
+    /// The name of the person it went to, who may not be the host now.
+    public var host: String?
     public init(id: String, text: String, state: String, reason: String? = nil, persona: String? = nil,
-                dmLink: String? = nil, sentAt: Double = 0, away: Bool? = nil) {
+                dmLink: String? = nil, sentAt: Double = 0, away: Bool? = nil, host: String? = nil) {
         self.id = id; self.text = text; self.state = state; self.reason = reason; self.persona = persona
-        self.dmLink = dmLink; self.sentAt = sentAt; self.away = away
+        self.dmLink = dmLink; self.sentAt = sentAt; self.away = away; self.host = host
     }
+    public var hostFirstName: String? { host.map(helpFirstName) }
     public var isOpen: Bool { ["sent", "received", "opening", "waiting"].contains(state) }
 }
 
 /// What a request's window says; the board's card says the same (`support-model.ts`).
 public struct HelpCard: Equatable, Sendable {
     public enum Mark: Equatable, Sendable { case working, done, clock, moon, failed }
-    public enum Action: Equatable, Sendable { case openSlack(URL), askAgain, tryAgain, showIt }
+    public enum Action: Equatable, Sendable { case openSlack(URL), askAgain, tryAgain, showIt, edit }
     public var mark: Mark
     public var title: String
     public var detail: String?
@@ -96,15 +101,18 @@ public enum HelpCards {
             return HelpCard(mark: .failed, title: "\(host) isn't taking requests", detail: "Message \(host) directly")
         case "support-unreachable": return HelpCard(mark: .failed, title: "Nothing was sent", detail: "The relay did not answer", action: .tryAgain)
         case "support-slack": return HelpCard(mark: .failed, title: "Nothing was sent", detail: "Slack did not answer", action: .tryAgain)
+        case "support-text", "support-too-long":
+            return HelpCard(mark: .failed, title: "Nothing was sent", detail: plain(message), action: .edit)
         case "support-changed":
             return HelpCard(mark: .failed, title: "Your first version was already sent", detail: "That is the one they will read")
         case "no-answer":
             return HelpCard(mark: .failed, title: "rt did not answer", detail: "Trying again never sends it twice", action: .tryAgain)
         default:
-            let plain = message.hasSuffix(".") ? String(message.dropLast()) : message
-            return HelpCard(mark: .failed, title: "Nothing was sent", detail: plain, action: .tryAgain)
+            return HelpCard(mark: .failed, title: "Nothing was sent", detail: plain(message), action: .tryAgain)
         }
     }
+
+    private static func plain(_ message: String) -> String { message.hasSuffix(".") ? String(message.dropLast()) : message }
 }
 
 public protocol HelpCommanding: Sendable {
@@ -128,7 +136,13 @@ public final class HelpRequestModel: ObservableObject {
     @Published public private(set) var partsFailed = false
     /// The parts unticked, by key.
     @Published public private(set) var left: Set<String> = []
-    @Published public var text = ""
+    /// rt's SUPPORT_TEXT_MAX, counted as rt counts it.
+    public static let textMax = 8000
+    @Published public var text = "" {
+        didSet { if text.utf16.count > Self.textMax { text = Self.cut(text) } }
+    }
+    /// The host's first name, kept after they stop answering.
+    @Published public private(set) var host = ""
     @Published public private(set) var isSending = false
     @Published public private(set) var shown: HelpRequest?
     @Published public private(set) var refused: (code: String, message: String)?
@@ -147,28 +161,36 @@ public final class HelpRequestModel: ObservableObject {
     private var words: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     public var canSend: Bool { !isSending && parts != nil && !words.isEmpty }
 
+    private static func cut(_ text: String) -> String {
+        var end = text.utf16.index(text.startIndex, offsetBy: textMax)
+        end = text.rangeOfComposedCharacterSequence(at: end).lowerBound
+        return String(text[..<end])
+    }
+
     public var card: HelpCard? {
-        let host = availability.hostFirstName
         if let refused {
             return HelpCards.refusal(code: refused.code, message: refused.message, host: host, waiting: requests.contains(where: \.isOpen))
         }
         guard let shown else { return nil }
-        return HelpCards.request(shown, host: host, bot: availability.bot,
+        return HelpCards.request(shown, host: shown.hostFirstName ?? host, bot: availability.bot,
                                  othersOpen: requests.contains { $0.isOpen && $0.id != shown.id })
     }
     public var cardText: String { refused == nil ? (shown?.text ?? "") : words }
 
     public func refreshAvailability() async {
-        if case .value(let a) = await daemon.availability() { availability = a }
+        guard case .value(let a) = await daemon.availability() else { return }
+        availability = a
+        if !a.hostFirstName.isEmpty { host = a.hostFirstName }
     }
 
     /// The window opened: a request still going is what it shows.
     public func opened() async {
         shown = nil
         refused = nil
-        await loadParts()
+        async let loaded: Void = loadParts()
         await refreshRequests()
         if shown == nil { shown = requests.first(where: \.isOpen) }
+        await loaded
     }
 
     public func loadParts() async {
@@ -211,6 +233,8 @@ public final class HelpRequestModel: ObservableObject {
         refused = nil
         shown = requests.first(where: \.isOpen)
     }
+
+    public func edit() { refused = nil }
 
     public func askAgain() {
         text = shown?.text ?? text

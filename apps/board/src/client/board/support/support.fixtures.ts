@@ -85,6 +85,8 @@ export function request(
     receivedAt: NOW,
     updatedAt: NOW,
     away: false,
+    host: 'Alex Moreau',
+    hostDm: READY.hostDm,
     ...extra,
   };
 }

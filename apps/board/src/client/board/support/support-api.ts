@@ -32,16 +32,20 @@ export async function getParts(
   return r.ok ? (r.body as unknown as { parts: SupportPart[] }).parts : null;
 }
 
-/** The refusal, or null once it was sent. */
+/** What rt stored, or why it was not sent. */
 export async function sendRequest(a: {
   id: string;
   text: string;
   parts: SupportPart[];
-}): Promise<SendError | null> {
+}): Promise<{ request: HelpRequest } | { error: SendError }> {
   const r = await postAction('/support/send', a);
-  if (r.ok) return null;
-  const body = r.body as unknown as Partial<SendError> | null;
-  return body?.code && body.message
-    ? { code: body.code, message: body.message }
-    : { code: 'no-answer', message: 'rt did not answer' };
+  const body = r.body as unknown as
+    (Partial<SendError> & { request?: HelpRequest }) | null;
+  if (r.ok && body?.request) return { request: body.request };
+  return {
+    error:
+      body?.code && body.message
+        ? { code: body.code, message: body.message }
+        : { code: 'no-answer', message: 'rt did not answer' },
+  };
 }

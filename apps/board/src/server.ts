@@ -2561,8 +2561,8 @@ const httpServer = Bun.serve({
         fromPage: fromOperatorPage,
         requireJson: requireJsonBody,
         boardVersion: pkg.version,
-        hostDm: () => {
-          const host = getSetting<string>('support.host').value;
+        hostDm: username => {
+          const host = username ?? getSetting<string>('support.host').value;
           const id = host && slackMatch.ids.get(canonicalUsername(host));
           return id
             ? `https://slack.com/app_redirect?channel=${encodeURIComponent(id)}`

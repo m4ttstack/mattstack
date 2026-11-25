@@ -41,8 +41,8 @@ private final class FakeHelp: HelpCommanding, @unchecked Sendable {
 private let versions = HelpPart(key: "versions", label: "Versions", value: "rt 1")
 private let setupRows = HelpPart(key: "setup", label: "Setup rows that need attention", value: "accounts.slack")
 private let dm = "slack://user?team=T0ACME&id=U0ALEX"
-private func request(_ state: String, id: String = "r", sentAt: Double = 0, dmLink: String? = nil, away: Bool = false, reason: String? = nil) -> HelpRequest {
-    HelpRequest(id: id, text: "no rows", state: state, reason: reason, dmLink: dmLink, sentAt: sentAt, away: away)
+private func request(_ state: String, id: String = "r", sentAt: Double = 0, dmLink: String? = nil, away: Bool = false, reason: String? = nil, host: String? = "Alex Moreau") -> HelpRequest {
+    HelpRequest(id: id, text: "no rows", state: state, reason: reason, dmLink: dmLink, sentAt: sentAt, away: away, host: host)
 }
 
 @MainActor
@@ -192,6 +192,40 @@ let supportChecks: [Check] = [
         await m.opened()
         c.expectEqual(await MainActor.run { m.shown }, nil, "a settled one is not news twice")
     },
+    Check("Help: a request keeps the name of the person it went to, whoever is the host now") { c in
+        let daemon = FakeHelp()
+        daemon.mineReply = .value([request("sent", host: "Bea Finch")])
+        let m = await help(daemon)
+        c.expectEqual(await MainActor.run { m.card?.title }, "Asked Bea's agent")
+        daemon.mineReply = .value([request("sent", host: nil)])
+        await m.refreshRequests()
+        c.expectEqual(await MainActor.run { m.card?.title }, "Asked Alex's agent")
+    },
+    Check("Help: a host who stops answering keeps their name on the card") { c in
+        let daemon = FakeHelp()
+        let m = await help(daemon)
+        daemon.available = .value(.hidden)
+        daemon.sendReply = .refused(code: "support-not-accepting", message: "x")
+        await m.refreshAvailability()
+        await MainActor.run { m.text = "no rows" }
+        await m.send()
+        c.expectEqual(await MainActor.run { m.card?.title }, "Alex isn't taking requests")
+    },
+    Check("Help: the words stop at rt's limit, never inside a character, and a refused length can be edited") { c in
+        let daemon = FakeHelp()
+        daemon.sendReply = .refused(code: "support-too-long", message: "That is too long to send.")
+        let m = await help(daemon)
+        let max = HelpRequestModel.textMax
+        await MainActor.run { m.text = String(repeating: "a", count: max) }
+        c.expectEqual(await MainActor.run { m.text.utf16.count }, max)
+        await MainActor.run { m.text = String(repeating: "a", count: max - 1) + "👩‍👩‍👧b" }
+        c.expectEqual(await MainActor.run { m.text }, String(repeating: "a", count: max - 1))
+        await m.send()
+        c.expectEqual(await MainActor.run { m.card?.action }, .edit)
+        await MainActor.run { m.edit() }
+        c.expectEqual(await MainActor.run { m.card }, nil)
+        c.expect(await MainActor.run { !m.text.isEmpty })
+    },
     Check("Help: asking again brings the words back") { c in
         let daemon = FakeHelp()
         daemon.mineReply = .value([request("sent")])
@@ -225,7 +259,7 @@ let supportChecks: [Check] = [
         }
     },
     Check("Help: a refusal never claims nothing was sent when it may have been") { c in
-        for (code, title) in [("support-unreachable", "Nothing was sent"), ("support-slack", "Nothing was sent"), ("support-text", "Nothing was sent"),
+        for (code, title) in [("support-unreachable", "Nothing was sent"), ("support-slack", "Nothing was sent"), ("support-text", "Nothing was sent"), ("support-new", "Nothing was sent"),
                               ("support-changed", "Your first version was already sent"), ("no-answer", "rt did not answer"),
                               ("support-not-accepting", "Alex isn't taking requests")] {
             c.expectEqual(HelpCards.refusal(code: code, message: "Say more.", host: "Alex", waiting: false).title, title, code)

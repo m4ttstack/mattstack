@@ -1,8 +1,11 @@
 /** What the help button and its card say about a request, as data. */
 import type { SupportPart } from '@mattstack/rt-client';
-import type { SupportAvailability, SupportRequests } from '../../../support.ts';
+import type {
+  SupportAvailability,
+  SupportSentRequest,
+} from '../../../support.ts';
 
-export type HelpRequest = SupportRequests[number];
+export type HelpRequest = SupportSentRequest;
 export type Tone = 'work' | 'wait' | 'ok' | 'bad';
 export type CardIcon = 'spin' | 'check' | 'clock' | 'moon' | 'x';
 
@@ -11,6 +14,7 @@ export type CardAction =
   | { kind: 'message-host' }
   | { kind: 'ask-again' }
   | { kind: 'try-again' }
+  | { kind: 'edit' }
   | { kind: 'show-it' };
 
 export interface Card {
@@ -37,19 +41,19 @@ const NEWS_MS = 24 * 60 * 60_000;
 
 export const isOpen = (r: HelpRequest) => OPEN.has(r.state);
 
-/** The request the button speaks for: one still going, else the newest
-    settled one nobody has looked at yet. */
+/** The request the button speaks for: the newest still going, else the one
+    that settled last, until someone has looked at it. */
 export function currentRequest(
   requests: readonly HelpRequest[],
   seen: ReadonlySet<string>,
   now: number
 ): HelpRequest | null {
-  const newest = [...requests].sort((a, b) => b.sentAt - a.sentAt);
-  return (
-    newest.find(isOpen) ??
-    newest.find(r => !seen.has(r.id) && now - r.updatedAt < NEWS_MS) ??
-    null
-  );
+  const open = requests.filter(isOpen).sort((a, b) => b.sentAt - a.sentAt)[0];
+  if (open) return open;
+  const last = [...requests].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  return last && !seen.has(last.id) && now - last.updatedAt < NEWS_MS
+    ? last
+    : null;
 }
 
 /** A host's link is followed only into Slack. */
@@ -61,6 +65,9 @@ export function slackLink(link: string | null): string | null {
 }
 
 export const firstName = (host: string) => host.trim().split(/\s+/)[0] ?? host;
+
+/** Who a request went to; a daemon older than the board does not name them. */
+export const askedOf = (r: HelpRequest) => firstName(r.host || r.peer);
 
 const openSlack = (r: HelpRequest): CardAction | undefined => {
   const href = slackLink(r.dmLink);
@@ -200,6 +207,15 @@ export function sendErrorCard(
         title: 'Nothing was sent',
         detail: 'Slack did not answer',
         action: { kind: 'try-again' },
+      };
+    case 'support-text':
+    case 'support-too-long':
+      return {
+        icon: 'x',
+        tone: 'bad',
+        title: 'Nothing was sent',
+        detail: err.message.replace(/\.$/, ''),
+        action: { kind: 'edit' },
       };
     case 'support-changed':
       return {

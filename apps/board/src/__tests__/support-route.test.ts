@@ -19,9 +19,11 @@ function route(over: Partial<SupportRouteDeps> = {}) {
     fromPage: fromOperatorPage,
     requireJson: requireJsonBody,
     boardVersion: '0.1.8',
-    hostDm: () => 'https://slack.com/app_redirect?channel=U0ALEX',
+    hostDm: (username = 'ALEX') =>
+      `https://slack.com/app_redirect?channel=U0${username}`,
     availability: async () => ({ ok: true, data: READY }),
-    mine: async () => ({ ok: true, data: { requests: [] } }),
+    mine: async () =>
+      ({ ok: true, data: { requests: [{ id: 'r1', peer: 'BEA' }] } }) as never,
     context: async a => {
       calls.push(['context', a]);
       return {
@@ -33,7 +35,10 @@ function route(over: Partial<SupportRouteDeps> = {}) {
     },
     send: async a => {
       calls.push(['send', a]);
-      return { ok: true, data: { request: { id: a.id } } } as never;
+      return {
+        ok: true,
+        data: { request: { id: a.id, peer: 'BEA' } },
+      } as never;
     },
     ...over,
   };
@@ -58,6 +63,7 @@ function route(over: Partial<SupportRouteDeps> = {}) {
   return { calls, call, post };
 }
 
+const BEA = 'https://slack.com/app_redirect?channel=U0BEA';
 const ASK = { id: 'r1', text: 'no rows', parts: [] };
 
 describe('reading', () => {
@@ -80,6 +86,13 @@ describe('reading', () => {
       availability: { state: 'hidden' },
       persona: 'Maude',
       hostDm: null,
+    });
+  });
+
+  test('each request opens a DM with the person it went to', async () => {
+    const r = await route().call('/support/mine');
+    expect(await r.json()).toEqual({
+      requests: [{ id: 'r1', peer: 'BEA', hostDm: BEA }],
     });
   });
 
@@ -107,7 +120,9 @@ describe('sending', () => {
   test('passes the request on, and hands back what rt stored', async () => {
     const { calls, post } = route();
     const r = await post('/support/send', ASK);
-    expect(await r.json()).toEqual({ request: { id: 'r1' } });
+    expect(await r.json()).toEqual({
+      request: { id: 'r1', peer: 'BEA', hostDm: BEA },
+    });
     expect(calls).toEqual([['send', ASK]]);
   });
 

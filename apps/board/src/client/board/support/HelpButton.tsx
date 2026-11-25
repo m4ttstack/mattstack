@@ -12,8 +12,7 @@ import {
 import { Button, Popover, Tooltip } from '@mattstack/tui-kit';
 import { HelpForm } from './HelpForm.tsx';
 import {
-  firstName,
-  hostOf,
+  askedOf,
   isOpen,
   pill,
   requestCard,
@@ -50,6 +49,7 @@ export function StatusCard({
   onAskAgain,
   onTryAgain,
   onShowIt,
+  onEdit,
   onFollow,
 }: {
   card: Card;
@@ -60,6 +60,7 @@ export function StatusCard({
   onAskAgain?: () => void;
   onTryAgain?: () => void;
   onShowIt?: () => void;
+  onEdit?: () => void;
   /** A link out of the card was followed. */
   onFollow?: () => void;
 }) {
@@ -100,6 +101,7 @@ export function StatusCard({
         onAskAgain={onAskAgain}
         onTryAgain={onTryAgain}
         onShowIt={onShowIt}
+        onEdit={onEdit}
         onFollow={onFollow}
       />
     </div>
@@ -113,6 +115,7 @@ function CardActions({
   onAskAgain,
   onTryAgain,
   onShowIt,
+  onEdit,
   onFollow,
 }: Pick<
   Parameters<typeof StatusCard>[0],
@@ -122,6 +125,7 @@ function CardActions({
   | 'onAskAgain'
   | 'onTryAgain'
   | 'onShowIt'
+  | 'onEdit'
   | 'onFollow'
 >) {
   const action = card.action;
@@ -169,6 +173,9 @@ function CardActions({
     case 'show-it':
       control = button('Show it', false, onShowIt);
       break;
+    case 'edit':
+      control = button('Edit', true, onEdit);
+      break;
   }
   return control && <div className="tui-help-acts">{control}</div>;
 }
@@ -177,8 +184,7 @@ export function HelpButton({ help }: { help: Help }) {
   const { read, request, open, setOpen } = help;
   const first = useRef<HTMLTextAreaElement>(null);
   const a = read.availability;
-  const host = request ? hostOf(a) || firstName(request.peer) : hostOf(a);
-  const face = pill(request, host, read.persona);
+  const face = pill(request, request ? askedOf(request) : '', read.persona);
   const disabled = !request && a.state === 'disabled' ? a.reason : null;
 
   const trigger = (
@@ -222,27 +228,28 @@ export function HelpButton({ help }: { help: Help }) {
   const close = () => setOpen(false);
   const body = help.error ? (
     <StatusCard
-      card={sendErrorCard(help.error, host, help.requests.some(isOpen))}
+      card={sendErrorCard(help.error, help.host, help.requests.some(isOpen))}
       words={help.text}
-      host={host}
+      host={help.host}
       hostDm={read.hostDm}
       onClose={close}
       onTryAgain={help.send}
       onShowIt={help.clearError}
+      onEdit={help.clearError}
     />
   ) : request ? (
     <StatusCard
-      card={requestCard(request, host, read.persona, help.requests)}
+      card={requestCard(request, askedOf(request), read.persona, help.requests)}
       words={request.text}
-      host={host}
-      hostDm={read.hostDm}
+      host={askedOf(request)}
+      hostDm={request.hostDm}
       onClose={close}
       onAskAgain={() => help.askAgain(request.text)}
       onShowIt={() => help.markSeen(request.id)}
       onFollow={close}
     />
   ) : (
-    <HelpForm help={help} host={host} inputRef={first} onClose={close} />
+    <HelpForm help={help} host={help.host} inputRef={first} onClose={close} />
   );
 
   return (

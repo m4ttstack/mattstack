@@ -2,7 +2,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { readdirSync, readFileSync, statSync } from "fs";
 import { describe, expect, test } from "bun:test";
-import { SUPPORT_AWAY_MS, SUPPORT_TTL_MS, type SupportDraft, type SupportHostState, type SupportMissing } from "../../../../packages/rt-client/src/support.ts";
+import { SUPPORT_AWAY_MS, SUPPORT_MACHINE_HOLD_MS, SUPPORT_TTL_MS, type SupportDraft, type SupportHostState, type SupportMissing } from "../../../../packages/rt-client/src/support.ts";
 import { UserActionableError } from "../../../errors.ts";
 import { openStateDb } from "../../../state/db.ts";
 import { getRequest, insertRequest, listRequests, type SupportRequest, type SupportState } from "../../../state/support-store.ts";
@@ -478,6 +478,26 @@ describe("support:mine", () => {
     h.request({ id: "c", direction: "in" });
     expect((await mine(h)).map((r) => r.id)).toEqual(["b", "a"]);
   });
+
+  test("each is named for the person it went to, whoever is the host now", async () => {
+    const h = harness();
+    h.request({ id: "a", peer: "alex" });
+    h.request({ id: "gone", peer: "gone" });
+    h.state.config = { ...h.state.config!, host: "ada" };
+    const names = async () => (await mine(h)).map((r) => r.host).sort();
+    expect(await names()).toEqual(["Alex Doe", "gone"]);
+    h.state.config = null;
+    expect(await names()).toEqual(["alex", "gone"]);
+  });
+
+  test("a send, and its retry, read the same as the list", async () => {
+    const h = harness();
+    for (let i = 0; i < 2; i++) {
+      const r = await h.handlers["support:send"](ASK);
+      expect(r).toMatchObject({ ok: true, data: { request: { id: "r1", host: "Alex Doe", away: false } } });
+    }
+    expect(h.sent).toHaveLength(1);
+  });
 });
 
 describe("support:host and support:accept", () => {
@@ -504,14 +524,20 @@ describe("support:host and support:accept", () => {
     expect(await view(h)).toMatchObject({ accepting: false, otherMac: true });
   });
 
-  test("the host's other Mac is named only while the relay holds one", async () => {
+  test("the host's other Mac is named only while the relay would keep this one out", async () => {
     const h = harness();
     asHost(h);
-    expect((await view(h)).otherMac).toBe(true);
-    h.state.host = { accepting: false, lastSeenAt: null };
-    expect((await view(h)).otherMac).toBe(false);
-    h.state.host = null;
-    expect((await view(h)).otherMac).toBe(false);
+    expect((await view(h)).otherMac, "this Mac holds the role itself").toBe(false);
+    h.state.holdsRole = false;
+    const other = async (host: SupportHostState | null) => {
+      h.state.host = host;
+      return (await view(h)).otherMac;
+    };
+    expect(await other({ accepting: true, lastSeenAt: h.state.now - SUPPORT_MACHINE_HOLD_MS + 1 })).toBe(true);
+    expect(await other({ accepting: true, lastSeenAt: h.state.now - SUPPORT_MACHINE_HOLD_MS })).toBe(false);
+    expect(await other({ accepting: true, lastSeenAt: null })).toBe(false);
+    expect(await other({ accepting: false, lastSeenAt: h.state.now })).toBe(false);
+    expect(await other(null)).toBe(false);
   });
 
   test("the repos to choose from come only with the repo still to choose", async () => {

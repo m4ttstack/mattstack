@@ -63,7 +63,10 @@ and `meta.action` `support`, which lives 7 days and is reconciled on every
 `support:stop` are a person's alone: no CLI verb, MCP tool or `rt_verb` route
 may call them, and the mod denies the plain shell spellings. That stops
 accidents and misled panes, not a determined one: the daemon takes any caller
-on its socket. `lib/support/enable.ts` is the org's own switch, run by
+on its socket. The person's surfaces are the board's `/support` routes
+(`apps/board/src/support.ts`), the app's Ask window and Settings > Team over
+the socket, and the chat viewer's `POST /api/chat/slack-stop`; the two HTTP
+writes need `fromOperatorPage`. `lib/support/enable.ts` is the org's own switch, run by
 `rt team support on|off` and by `support:enable`, which the console calls when
 an admin turns `support.enabled` on: a plain settings write makes no support
 key, and the `org.support-key` setup row is what catches one. A settings read

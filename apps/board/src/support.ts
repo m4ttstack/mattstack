@@ -1,9 +1,17 @@
 /** The board's side of a help request: what the form may show, and the one
     route that sends it. rt owns every check; these pass its answers on. */
-import type { Commands, RtResponse, SupportPart } from '@mattstack/rt-client';
+import type {
+  Commands,
+  RtResponse,
+  SupportPart,
+  SupportSent,
+} from '@mattstack/rt-client';
 
 export type SupportAvailability = Commands['support:availability']['data'];
-export type SupportRequests = Commands['support:mine']['data']['requests'];
+export interface SupportSentRequest extends SupportSent {
+  /** Opens a Slack DM with the person it went to, when the board knows them. */
+  hostDm: string | null;
+}
 
 export interface SupportRead {
   availability: SupportAvailability;
@@ -20,9 +28,10 @@ export interface SupportRouteDeps {
   fromPage: (req: Request) => boolean;
   requireJson: (req: Request) => Response | null;
   boardVersion: string;
-  hostDm: () => string | null;
+  /** For one person, or the host now. */
+  hostDm: (username?: string) => string | null;
   availability: () => Promise<RtResponse<SupportAvailability>>;
-  mine: () => Promise<RtResponse<{ requests: SupportRequests }>>;
+  mine: () => Promise<RtResponse<{ requests: SupportSent[] }>>;
   context: (
     a: Commands['support:context']['payload']
   ) => Promise<RtResponse<{ parts: SupportPart[] }>>;
@@ -48,6 +57,10 @@ export async function supportRoute(
 ): Promise<Response> {
   if (!deps.isLocal(req)) return json({ error: 'local only' }, 403);
   const { pathname } = new URL(req.url);
+  const shown = (r: SupportSent): SupportSentRequest => ({
+    ...r,
+    hostDm: deps.hostDm(r.peer),
+  });
   if (pathname === '/support/send' && !deps.fromPage(req))
     return json({ error: 'only from the board' }, 403);
 
@@ -56,7 +69,7 @@ export async function supportRoute(
     if (pathname === '/support/mine') {
       const res = await deps.mine();
       return res.ok && res.data
-        ? json({ requests: res.data.requests })
+        ? json({ requests: res.data.requests.map(shown) })
         : refusal(res);
     }
     const res = await deps.availability();
@@ -92,7 +105,7 @@ export async function supportRoute(
       body as unknown as Commands['support:send']['payload']
     );
     return res.ok && res.data
-      ? json({ request: res.data.request })
+      ? json({ request: shown(res.data.request) })
       : refusal(res);
   }
   return json({ error: 'not found' }, 404);

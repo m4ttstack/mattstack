@@ -4,7 +4,7 @@
  * its functions against this map so a new command only needs an entry here
  * plus one function, never a change to the transport itself.
  */
-import type { SupportHostView, SupportPart, SupportRequest } from "./support.ts";
+import type { SupportHostView, SupportPart, SupportSent } from "./support.ts";
 import type { EvidenceAddress, EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
 import type { ApprovalRuleLite, PullRequest, MRDetail, MergeQueueStatus, Pipeline, PipelineJob } from "@mattstack/glance";
 import type { z } from "zod";
@@ -925,8 +925,8 @@ export interface Commands {
   /** What a request can attach, for a form to show before it is sent. */
   "support:context": { payload: { mr?: { url: string; state: string }; board?: string; app?: string }; data: { parts: SupportPart[] } };
   /** A person's alone, from a form that showed every part. A retry reuses `id`; changed words need a new one. */
-  "support:send": { payload: { id: string; text: string; parts: SupportPart[] }; data: { request: SupportRequest } };
-  "support:mine": { payload: Record<string, never>; data: { requests: (SupportRequest & { /** Sent, and the host's Mac has not answered within 2 minutes. */ away: boolean })[] } };
+  "support:send": { payload: { id: string; text: string; parts: SupportPart[] }; data: { request: SupportSent } };
+  "support:mine": { payload: Record<string, never>; data: { requests: SupportSent[] } };
   "support:host": { payload: Record<string, never>; data: SupportHostView };
   /** A person's alone. */
   "support:accept": { payload: { on: boolean }; data: { accepting: boolean } };

@@ -76,6 +76,7 @@ function help(
 ): Help {
   return {
     read: o.read ?? READY,
+    host: 'Alex',
     request: o.request ?? null,
     requests: o.request ? [o.request] : [],
     open: o.open ?? false,
@@ -209,6 +210,24 @@ export const Statuses: Story = {
         <StatusCard
           card={sendErrorCard(
             { code: 'support-unreachable', message: '' },
+            'Alex',
+            false
+          )}
+          words={WORDS}
+          host="Alex"
+          hostDm={READY.hostDm}
+          onClose={noop}
+        />
+      ),
+      popup(
+        'too-long',
+        <StatusCard
+          card={sendErrorCard(
+            {
+              code: 'support-too-long',
+              message:
+                'That is too long to send. Shorten it, or remove something attached.',
+            },
             'Alex',
             false
           )}

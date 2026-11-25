@@ -14,7 +14,7 @@ final class HelpWindow: NSObject, NSWindowDelegate {
     func show() {
         let w = window ?? make()
         w.title = "Ask \(model.availability.bot)"
-        if !w.isVisibleOrAppHidden {
+        if !(w.isVisibleOrAppHidden || w.isMiniaturized) {
             w.center()
             Task { await model.opened() }
         }
@@ -54,6 +54,7 @@ private struct HelpWindowContent: View {
     var body: some View {
         HelpForm(
             availability: model.availability,
+            host: model.host,
             text: $model.text,
             parts: model.parts,
             partsFailed: model.partsFailed,
@@ -68,6 +69,7 @@ private struct HelpWindowContent: View {
                 send: { Task { await model.send() } },
                 askAgain: model.askAgain,
                 showIt: model.showIt,
+                edit: model.edit,
                 close: close
             )
         )
@@ -80,12 +82,14 @@ struct HelpFormActions {
     var send: () -> Void = {}
     var askAgain: () -> Void = {}
     var showIt: () -> Void = {}
+    var edit: () -> Void = {}
     var close: () -> Void = {}
 }
 
 /// The window as a function of its state, so a snapshot can draw it.
 struct HelpForm: View {
     let availability: HelpAvailability
+    let host: String
     @Binding var text: String
     let parts: [HelpPart]?
     let partsFailed: Bool
@@ -111,7 +115,7 @@ struct HelpForm: View {
     @ViewBuilder private var form: some View {
         HStack(spacing: 8) {
             Circle().fill(availability.away == true ? Color.orange : Color.green).frame(width: 8, height: 8)
-            Text(availability.away == true ? "\(availability.hostFirstName)'s Mac is away" : "\(availability.hostFirstName)'s Mac answers in Slack")
+            Text(availability.away == true ? "\(host)'s Mac is away" : "\(host)'s Mac answers in Slack")
                 .foregroundStyle(.secondary)
         }
         TextEditor(text: $text)
@@ -212,6 +216,7 @@ struct HelpForm: View {
             case .askAgain: primary("Ask again", actions.askAgain)
             case .tryAgain: primary("Try again", actions.send)
             case .showIt: Button("Show it", action: actions.showIt)
+            case .edit: primary("Edit", actions.edit)
             case nil: EmptyView()
             }
         }
@@ -252,7 +257,7 @@ enum HelpWindowSnapshot {
         let ready = HelpAvailability(state: "ready", host: "Alex Moreau", away: false, persona: "Maude")
         let away = HelpAvailability(state: "ready", host: "Alex Moreau", away: true, persona: "Maude")
         func form(_ a: HelpAvailability, _ text: String, _ card: HelpCard? = nil) -> HelpForm {
-            HelpForm(availability: a, text: .constant(text), parts: parts, partsFailed: false, left: [], isSending: false,
+            HelpForm(availability: a, host: a.hostFirstName, text: .constant(text), parts: parts, partsFailed: false, left: [], isSending: false,
                      canSend: !text.isEmpty, card: card, cardText: words, actions: HelpFormActions())
         }
         func card(_ state: String, away: Bool = false, dm: String? = nil, reason: String? = nil) -> HelpCard {
