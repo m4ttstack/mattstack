@@ -1,7 +1,7 @@
 /**
  * The version ping: what this Mac reports about the rt it runs, and nothing
- * else. It names the org, its packs and the person's forge username; never a
- * repo, host, path, branch, file or command. Every field is read on its own, so one reader that throws leaves that
+ * else. It names the org, its packs, the person's forge username and the fixed
+ * legacy folders; never a repo, host, path, branch, file or command. Every field is read on its own, so one reader that throws leaves that
  * field null or empty and never drops the ping.
  */
 

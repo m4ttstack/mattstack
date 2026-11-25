@@ -120,6 +120,7 @@ export interface TelemetrySnapshot {
 
 const RUNNING_WINDOW_MS = 60 * 60_000;
 const RETENTION_MS = 90 * 24 * 60 * 60_000;
+const REWRITE_BATCH = 100;
 
 type MacDbRow = {
   install_id: string;
@@ -138,6 +139,7 @@ type UpdateDbRow = {
 
 const MAX_ENTRIES = 256;
 const MAX_STRING = 128;
+const MAX_STALE = 100_000;
 const STALE_PULL_MS = 6 * 60 * 60_000;
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -225,9 +227,12 @@ function staleCountOf(
   pack: Record<string, unknown>
 ): number | null | undefined {
   const { stale, staleCount } = pack;
-  if (staleCount !== undefined) return isCount(staleCount) ? staleCount : null;
+  if (staleCount !== undefined)
+    return isCount(staleCount) && staleCount <= MAX_STALE ? staleCount : null;
   if (stale === undefined) return undefined;
-  return Array.isArray(stale) ? stale.length : null;
+  return Array.isArray(stale) && stale.length <= MAX_ENTRIES
+    ? stale.length
+    : null;
 }
 
 /** What is wrong with one clone, in words for the telemetry page; empty when healthy. */
@@ -417,44 +422,63 @@ export class TelemetryStore {
   }
 
   /** Rows a relay older than this kept name files, branches and skills. A row
-      that does not read is dropped rather than kept with them. */
+      that does not read is dropped rather than kept with them. Idempotent, and
+      never the reason the relay does not start. */
   private dropNames(): void {
-    // Overwrites what it frees, so the names are gone from the file too.
-    this.db.run('PRAGMA secure_delete = ON');
-    this.db.transaction(() => {
-      const macs = this.db
-        .query<{ install_id: string; ping: string }, []>(
-          `SELECT install_id, ping FROM telemetry_macs`
+    try {
+      this.db.run('PRAGMA secure_delete = ON');
+      const macs = this.rewrite('telemetry_macs', 'install_id', 'ping', text =>
+        parsePing(parsed(text))
+      );
+      const events = this.rewrite(
+        'telemetry_clone_events',
+        'id',
+        'state',
+        text => cloneStateOf(parsed(text))
+      );
+      // secure_delete spares what was freed before it was on, and the names
+      // were rewritten hourly: only a rebuilt file is free of them.
+      const free = this.db
+        .query<{ freelist_count: number }, []>(`PRAGMA freelist_count`)
+        .get();
+      if (macs + events > 0 || (free?.freelist_count ?? 0) > 0)
+        this.db.run('VACUUM');
+    } catch (err) {
+      console.error('telemetry: old names could not be cleared', err);
+    }
+  }
+
+  /** In batches: a hostile sender can grow a table past what fits in memory. */
+  private rewrite(
+    table: string,
+    key: string,
+    column: string,
+    keep: (text: string) => unknown
+  ): number {
+    let changed = 0;
+    let after: string | number = key === 'id' ? 0 : '';
+    for (;;) {
+      const rows = this.db
+        .query<{ k: string | number; text: string }, [string | number, number]>(
+          `SELECT ${key} AS k, ${column} AS text FROM ${table} WHERE ${key} > ? ORDER BY ${key} LIMIT ?`
         )
-        .all();
-      for (const { install_id, ping } of macs) {
-        const kept = parsePing(parsed(ping));
-        if (!kept)
-          this.db.run(`DELETE FROM telemetry_macs WHERE install_id = ?`, [
-            install_id,
-          ]);
-        else if (JSON.stringify(kept) !== ping)
-          this.db.run(
-            `UPDATE telemetry_macs SET ping = ? WHERE install_id = ?`,
-            [JSON.stringify(kept), install_id]
-          );
-      }
-      const events = this.db
-        .query<{ id: number; state: string }, []>(
-          `SELECT id, state FROM telemetry_clone_events`
-        )
-        .all();
-      for (const { id, state } of events) {
-        const kept = cloneStateOf(parsed(state));
-        if (!kept)
-          this.db.run(`DELETE FROM telemetry_clone_events WHERE id = ?`, [id]);
-        else if (JSON.stringify(kept) !== state)
-          this.db.run(
-            `UPDATE telemetry_clone_events SET state = ? WHERE id = ?`,
-            [JSON.stringify(kept), id]
-          );
-      }
-    })();
+        .all(after, REWRITE_BATCH);
+      if (rows.length === 0) return changed;
+      this.db.transaction(() => {
+        for (const { k, text } of rows) {
+          const kept = keep(text);
+          if (kept && JSON.stringify(kept) === text) continue;
+          changed++;
+          if (!kept) this.db.run(`DELETE FROM ${table} WHERE ${key} = ?`, [k]);
+          else
+            this.db.run(`UPDATE ${table} SET ${column} = ? WHERE ${key} = ?`, [
+              JSON.stringify(kept),
+              k,
+            ]);
+        }
+      })();
+      after = rows.at(-1)!.k;
+    }
   }
 
   /** False only for an install id the table has not seen while it is full. */

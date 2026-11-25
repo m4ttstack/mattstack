@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 
@@ -300,6 +303,27 @@ describe('clone health on the telemetry page', () => {
     expect(html).toContain('Clone health');
     expect(html).toContain('behind origin by 2');
   });
+
+  test('the stale column counts for a Mac of either version', () => {
+    const stale = (sent: object) => {
+      const s = store();
+      s.record(
+        {
+          ...ping(),
+          orgs: [{ org: 'acme', layout: 5, clone: { ...CLONE, behind: 2 } }],
+          packs: [{ id: 'web@acme', version: null, ...sent }],
+        } as TelemetryPing,
+        'dev1',
+        T0
+      );
+      const html = renderTelemetryPage(s.snapshot(T0));
+      const row = html.slice(html.indexOf('behind origin by 2'));
+      return row.slice(0, row.indexOf('</tr>'));
+    };
+    expect(stale({ staleCount: 37 })).toContain('<td>37</td>');
+    expect(stale({ stale: OLD_STALE })).toContain('<td>2</td>');
+    expect(stale({})).toContain('<td>0</td>');
+  });
 });
 
 describe('rows kept by a relay older than this', () => {
@@ -375,6 +399,86 @@ describe('rows kept by a relay older than this', () => {
     const s = new TelemetryStore(db);
     expect(s.snapshot(T0).macs.map(m => m.installId)).toEqual(['install-a']);
     expect(s.cloneReport(T0).events).toEqual([]);
+  });
+
+  test('leave no name in the file, not even in pages freed before', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'telemetry-'));
+    try {
+      const file = join(dir, 'relay.db');
+      const db = new Database(file);
+      new TelemetryStore(db);
+      db.run('PRAGMA secure_delete = OFF');
+      for (let round = 0; round < 20; round++)
+        for (let mac = 0; mac < 5; mac++) {
+          const ping = {
+            ...OLD_PING,
+            installId: `install-${mac}`,
+            orgs: [
+              {
+                org: 'acme',
+                layout: 5,
+                clone: {
+                  ...OLD_CLONE,
+                  dirty: Array.from(
+                    { length: 10 + ((round * 7) % 30) },
+                    (_, i) => ({
+                      path: `SECRET/${round}/${mac}/${i}/${'x'.repeat(200)}.md`,
+                      status: 'M',
+                    })
+                  ),
+                },
+              },
+            ],
+          };
+          db.run(
+            `INSERT INTO telemetry_macs (install_id, ping, last_seen) VALUES (?, ?, ?)
+             ON CONFLICT (install_id) DO UPDATE SET ping = excluded.ping`,
+            [ping.installId, JSON.stringify(ping), T0]
+          );
+        }
+      db.run(`DELETE FROM telemetry_macs WHERE install_id = 'install-4'`);
+      db.close();
+      const inFile = () =>
+        readFileSync(file, 'latin1').split('SECRET').length - 1;
+      expect(inFile()).toBeGreaterThan(100);
+      const reopened = new Database(file);
+      const s = new TelemetryStore(reopened);
+      expect(s.snapshot(T0).macs).toHaveLength(4);
+      reopened.close();
+      expect(inFile()).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('are read in batches, every one of them', () => {
+    const db = oldDb();
+    for (let i = 0; i < 250; i++)
+      db.run(
+        `INSERT INTO telemetry_clone_events (install_id, at, state) VALUES ('install-a', ?, ?)`,
+        [T0 + i, JSON.stringify({ clones: { acme: oldState }, stale: {} })]
+      );
+    const s = new TelemetryStore(db);
+    expect(
+      JSON.stringify(db.query('SELECT state FROM telemetry_clone_events').all())
+    ).not.toContain('SECRET');
+    expect(s.cloneReport(T0, 'dev1').events).toHaveLength(251);
+  });
+
+  test('that cannot be cleared never stop the relay', () => {
+    const db = oldDb();
+    db.run(
+      `CREATE TRIGGER stuck BEFORE UPDATE ON telemetry_macs BEGIN SELECT RAISE(ABORT, 'stuck'); END`
+    );
+    const said: unknown[] = [];
+    const real = console.error;
+    console.error = (...a: unknown[]) => void said.push(a[0]);
+    try {
+      expect(() => new TelemetryStore(db)).not.toThrow();
+    } finally {
+      console.error = real;
+    }
+    expect(said).toEqual(['telemetry: old names could not be cleared']);
   });
 
   test('a second open changes nothing', () => {

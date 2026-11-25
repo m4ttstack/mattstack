@@ -31,13 +31,13 @@ export type PullState =
   | "unknown";
 
 export interface CloneHealth {
-  /** Always null, for a relay older than `onDataBranch`, which refuses a clone without it; so too the next three and `dirty`. */
+  /** Always null: a relay older than `onDataBranch` refuses a clone that lacks these four or `dirty`. */
   branch: null;
   dataBranch: null;
   head: null;
   upstream: null;
   /** Null when rt does not know the org's data branch. */
-  onDataBranch?: boolean | null;
+  onDataBranch: boolean | null;
   behind: number | null;
   ahead: number | null;
   lastPullAt: string | null;

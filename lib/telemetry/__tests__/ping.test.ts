@@ -8,7 +8,7 @@ import { MIGRATION_IDS } from "../../setup/migrations/ids.ts";
 import { rtVersion } from "../../setup/update.ts";
 import { ENGINE_PACK_REF } from "../../skills/installed-plugins.ts";
 import type { PluginListEntry } from "../../skills/sources.ts";
-import { buildCloneHealth } from "../clone-health.ts";
+import { buildCloneHealth, makePingHealth } from "../clone-health.ts";
 import { collectPing, readPingVersions, runningInVirtualMachine } from "../ping.ts";
 import { parsePing } from "./fixtures/deployed-parse-ping.ts";
 
@@ -314,6 +314,19 @@ describe("collectPing with clone health", () => {
       dirtySince: "2026-11-17T08:00:00.000Z",
     });
     expect(ping.packs).toEqual([{ id: "acme-pack@acme", version: "1.4.0", stale: null, staleCount: 2 }]);
+    expect(JSON.stringify(ping)).not.toContain("SECRET");
+  });
+
+  test("a skill rt calls stale is counted and never named", async () => {
+    const p = world([{ slug: "acme", layout: 4, packs: ["acme-pack"] }]);
+    const report = { verbs: [{ name: "SECRET-skill", status: "stale", staleBecause: ["SECRET-cause"] }], attachments: [] };
+    const health = makePingHealth({
+      probes: { ...p, exec: async () => ({ code: 1, stdout: JSON.stringify(report), stderr: "" }) },
+      rtArgv: ["rt"],
+      status: () => [],
+    });
+    const ping = await collectPing(p, health);
+    expect(ping.packs).toEqual([{ id: "acme-pack@acme", version: null, stale: null, staleCount: 1 }]);
     expect(JSON.stringify(ping)).not.toContain("SECRET");
   });
 
