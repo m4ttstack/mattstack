@@ -37,6 +37,7 @@ import { childEnv } from "../subprocess.ts";
 import { readBoardSwitchboardToken } from "../team/board-token.ts";
 import { canonicalHandle } from "../team/board-peers.ts";
 import { realMembersSeams } from "../team/members.ts";
+import { realSealedText, type SealedText } from "../team/sealed-text.ts";
 import { roleFor } from "../team/roles.ts";
 import { readPingVersions } from "../telemetry/ping.ts";
 import { createChain } from "./chain.ts";
@@ -78,6 +79,7 @@ export interface SupportSeams {
   now(): number;
   config(): SupportConfig | null;
   keys(cfg: SupportConfig): Promise<SupportKeys | null>;
+  sealedText: SealedText;
   relay(): Promise<SupportRelay | null>;
   boardToken(): Promise<string | null>;
   defaultRepo(): string | null;
@@ -259,6 +261,7 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
       const token = await boardToken().catch(() => null);
       return token ? createSupportRelay({ url: switchboardUrl(), token, machine: machineKey() }) : null;
     });
+  const sealedText = o.seams?.sealedText ?? realSealedText();
   const defaultRepo = o.seams?.defaultRepo ?? (() => supportRepoFromSetting(getSetting<string | undefined>("chat.slackSupport.defaultRepo").value));
   const unreadySetupRows = o.seams?.unreadySetupRows ?? cached(SETUP_TTL_MS, now, readUnreadyRows);
 
@@ -329,10 +332,17 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     relay,
     config,
     keys,
+    sealedText,
     now,
     log,
     onRequest: takeSoon,
     onStatus: noticeStatus,
+  });
+
+  /** Null when the roster holds another key or none, which is not kept: it is what a person is about to fix. */
+  const holdsOwnKey = cached(TOKEN_TTL_MS, now, async () => {
+    const me = config()?.me;
+    return me != null && (await sealedText.holdsKeyOf(me)) ? true : null;
   });
 
   const readinessDeps: ReadinessDeps = {
@@ -348,6 +358,7 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
       return cfg?.me != null && r !== null && (await r.host(cfg.me)) !== null;
     },
     supportKey: async () => ((await keys()) ? "ready" : keyMissing() ? "missing" : "unreadable"),
+    holdsKey: async () => (await holdsOwnKey()) !== null,
     orgIds: orgIdContext,
   };
 
@@ -390,6 +401,7 @@ export function createSupportService(o: SupportServiceOptions): SupportService {
     config,
     keys,
     keyMissing,
+    sealedText,
     relay,
     slackUserId: async () => {
       const client = await o.slackClient();

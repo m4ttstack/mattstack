@@ -19,6 +19,7 @@ import { openStateDb } from "../../state/db.ts";
 import { listOpenConversations, pendingItems, signIn } from "../../state/index.ts";
 import { getRequest, listRequests } from "../../state/support-store.ts";
 import type { SupportConfig } from "../config.ts";
+import { fakeSealedWorld } from "../../team/__tests__/fake-sealed-text.ts";
 import { createSupportRelay } from "../relay.ts";
 import { createSupportService, type SupportService } from "../service.ts";
 
@@ -51,6 +52,12 @@ function world() {
   const boards = new SwitchboardStore(relayDb);
   const handler = makeFetchHandler(boards, "admin", now, new TeamInviteStore(relayDb), new TelemetryStore(relayDb), null);
   const wire: string[] = [];
+  const sealed = fakeSealedWorld(["alex", "ada", "bo"]);
+  /** Every row the relay holds now. */
+  const rows = () => {
+    const tables = relayDb.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[];
+    return JSON.stringify(tables.map((t) => relayDb.query(`SELECT * FROM "${t.name}"`).all()));
+  };
   const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
     if (init?.body) wire.push(String(init.body));
     return handler(new Request(String(input), init));
@@ -123,7 +130,7 @@ function world() {
       gate: (id) => gates.find((g) => g.id === id) ?? null,
       notify: (_t, m) => void desk.push(m),
       seams: {
-        now, config: () => configFor(me, state.accepts), keys: async () => ({ current: opts.key ?? KEY, retired: [] }), relay: async () => relay,
+        now, sealedText: sealed.forUser(me), config: () => configFor(me, state.accepts), keys: async () => ({ current: opts.key ?? KEY, retired: [] }), relay: async () => relay,
         boardToken: async () => "tok", defaultRepo: () => REPO, setAccepting: (on) => void (state.accepts = on), readiness: async () => [],
         versions: async () => ({ rt: "1.2.3", app: null, macos: null }), unreadySetupRows: async () => null,
       },
@@ -159,7 +166,7 @@ function world() {
       },
     };
   }
-  return { clock, org, slack, wire, mac, now, relayFor };
+  return { clock, org, slack, wire, rows, sealed, mac, now, relayFor };
 }
 
 async function accepting(w: ReturnType<typeof world>) {
@@ -197,6 +204,59 @@ describe("support, end to end", () => {
     expect(w.slack.map((m) => m.channel)).toEqual(["D-U0ADA", "D-U0ADA", "D-U0ADA"]);
   });
 
+  test("the relay holds none of the text", async () => {
+    const w = world();
+    const host = w.mac("alex", "U0HOST");
+    await host.accept(true);
+    const ada = w.mac("ada", "U0ADA");
+    const TEXT = ["SECRET the board", "SECRET versions", "U0ADA", "Maude", "slack://user", "could not read your request"];
+    const clean = () => {
+      for (const text of TEXT) {
+        expect(w.rows()).not.toContain(text);
+        expect(w.wire.join("\n")).not.toContain(text);
+      }
+    };
+    await ada.ask("r1", "SECRET the board will not load", [{ key: "versions", label: "Versions", value: "SECRET versions" }]);
+    expect(w.rows()).toContain("r1");
+    clean();
+    host.service.start();
+    await until("the request opens", () => host.agents.length === 1);
+    clean();
+    await host.agentWrites(0, "Hi");
+    await host.service.tick();
+    expect(w.rows()).toContain("r1:opened");
+    clean();
+    ada.service.start();
+    await until("the sender reads opened", () => ada.state("r1") === "opened");
+    expect(getRequest("out", "alex", "r1", ada.db)).toMatchObject({ dmLink: "slack://user?team=T1&id=U0HOST", persona: "Maude" });
+
+    w.sealed.state.open = { ok: false, reason: "damaged" };
+    const bo = w.mac("bo", "U0BO");
+    await bo.ask("r2", "SECRET the board again");
+    await until("the host drops it", () => !w.rows().includes("r2\""));
+    await host.service.tick();
+    await until("the host's answer waits for bo", () => w.rows().includes("r2:failed"));
+    clean();
+  });
+
+  test("a request the host's Mac cannot open yet opens on a later pull", async () => {
+    const w = world();
+    const host = w.mac("alex", "U0HOST");
+    await host.accept(true);
+    const ada = w.mac("ada", "U0ADA");
+    await ada.ask("r1");
+    w.sealed.state.open = { ok: false, reason: "unavailable" };
+    host.service.start();
+    await until("the host tries to open it", () => w.sealed.state.opened > 0);
+    expect(host.agents).toEqual([]);
+    expect(w.rows()).toContain("r1");
+    w.sealed.state.open = null;
+    const bo = w.mac("bo", "U0BO");
+    await bo.ask("r2");
+    await until("both open", () => host.agents.length === 2);
+    expect(listRequests("in", undefined, host.db).map((r) => r.id).sort()).toEqual(["r1", "r2"]);
+  });
+
   test("no ticket id or link reaches Slack or any status body", async () => {
     const w = world();
     const host = await accepting(w);
@@ -218,7 +278,7 @@ describe("support, end to end", () => {
     await host.agentWrites(1, "Hi again");
     await host.agentFilesTicket(1);
     await finishClose(listOpenConversations(host.db)[0]!.id, "closed-by-pane", "I filed SUP-7, see https://linear.app/acme/issue/SUP-7", host.lifecycle);
-    const everything = [...w.slack.map((m) => m.text), ...w.wire].join("\n");
+    const everything = [...w.slack.map((m) => m.text), ...w.wire, w.sealed.texts()].join("\n");
     expect(everything).not.toContain("SUP-7");
     expect(everything).not.toContain("linear.app");
   });

@@ -23,14 +23,17 @@ import {
   type SupportState,
 } from "../../../packages/rt-client/src/support.ts";
 import { UserActionableError } from "../../errors.ts";
+import { deleteKvValue, getKvValue, listKvValues, setKvValueCritical } from "../../state/kv-blob.ts";
 import { getRequest, insertRequest, listRequests, moveRequest } from "../../state/support-store.ts";
 import { createChain } from "../../support/chain.ts";
 import type { SupportConfig } from "../../support/config.ts";
 import { NO_SUPPORT_KEY, type SupportKeys } from "../../support/org-key.ts";
 import { SUPPORT_MAX_OPEN } from "../../support/host.ts";
+import { supportBinding } from "../../support/proof.ts";
 import type { SupportRelay, SupportSend } from "../../support/relay.ts";
 import { signDraft, type RequestBody } from "../../support/sync.ts";
 import { canonicalHandle } from "../../team/board-peers.ts";
+import type { SealedText } from "../../team/sealed-text.ts";
 import type { CommandResult, HandlerContext } from "./types.ts";
 
 const SUPPORT_COMMANDS = ["support:availability", "support:context", "support:send", "support:mine", "support:host", "support:accept", "support:enable", "support:stop"] as const;
@@ -50,6 +53,7 @@ export interface SupportHandlerDeps {
   keys(): Promise<SupportKeys | null>;
   /** The org has no support key at all, which nothing on this Mac can mend. */
   keyMissing(): boolean;
+  sealedText: SealedText;
   /** Null with no board token. */
   relay(): Promise<SupportRelay | null>;
   /** This Mac's own Slack user, null with no connection; throws when Slack does not answer. */
@@ -134,8 +138,26 @@ function nameOf(cfg: SupportConfig | null, username: string): string {
 
 const hostName = (cfg: SupportConfig): string => nameOf(cfg, cfg.host ?? "");
 
+/** A sealed body is different each time and the relay refuses a second one under an id, so the first is kept until the relay answers. */
+const SEALED_NS = "support-sealed";
+
+interface KeptBody {
+  to: string;
+  text: string;
+  parts: SupportPart[];
+  body: string;
+  at: number;
+}
+
+function dropOldBodies(db: Database, now: number): void {
+  for (const [id, kept] of Object.entries(listKvValues<KeptBody>(SEALED_NS, db))) {
+    if (now - kept.at >= SUPPORT_TTL_MS) deleteKvValue(SEALED_NS, id, db);
+  }
+}
+
 /** A request the host never finished with stops counting once the relay has forgotten it. Returns the ones that just expired. */
 export function expireSent(db: Database, now: number): SupportRequest[] {
+  dropOldBodies(db, now);
   return listRequests("out", OPEN, db).filter((r) => now - r.sentAt >= SUPPORT_TTL_MS && moveRequest(r, OPEN, { state: "expired" }, now, db));
 }
 
@@ -145,6 +167,19 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
   /** Two at once would each find no key and make one. */
   const enabling = createChain();
   const noKey = () => (deps.keyMissing() ? NO_SUPPORT_KEY : "This Mac cannot open the org's secrets");
+
+  const cannotReceive = (cfg: SupportConfig) => `${hostName(cfg)} can't receive requests yet`;
+
+  async function sealBody(me: string, id: string, to: string, text: string, parts: SupportPart[], slackUserId: string): Promise<{ body: string } | { refused: "no-recipients" | "unavailable" }> {
+    const kept = getKvValue<KeptBody | null>(SEALED_NS, id, null, db);
+    if (kept && kept.to === to && kept.text === text && JSON.stringify(kept.parts) === JSON.stringify(parts)) return { body: kept.body };
+    const inner = JSON.stringify({ text, parts, slackUserId } satisfies RequestBody);
+    const result = await deps.sealedText.seal([to], supportBinding("request", id, me), { body: inner });
+    if (!result.ok) return { refused: result.reason };
+    const body = JSON.stringify({ sealed: result.sealed });
+    if (!supportBodyTooLarge(body)) setKvValueCritical(SEALED_NS, id, { to, text, parts, body, at: deps.now() } satisfies KeptBody, db);
+    return { body };
+  }
 
   async function send(id: string, text: string, parts: SupportPart[]): Promise<CommandResult<"support:send">> {
     const cfg = deps.config();
@@ -177,7 +212,13 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
     }
     if (!slackUserId) return refuse("no-slack", "Connect Slack first.");
 
-    const body = JSON.stringify({ text, parts, slackUserId } satisfies RequestBody);
+    const sealed = await sealBody(cfg.me, id, to, text, parts, slackUserId);
+    if ("refused" in sealed) {
+      return sealed.refused === "no-recipients"
+        ? refuse("no-host-key", `${cannotReceive(cfg)}.`)
+        : refuse("not-sealed", "This Mac could not lock your request, so nothing was sent. Try again.");
+    }
+    const { body } = sealed;
     if (supportBodyTooLarge(body)) return refuse("too-long", "That is too long to send. Shorten it, or remove something attached.");
     const sentAt = deps.now();
     const result = await relay.send(signDraft(cfg, keys, { id, to, kind: "request", body }, sentAt));
@@ -188,6 +229,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
       reason: null, persona: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt, receivedAt: sentAt,
     };
     insertRequest(request, db);
+    deleteKvValue(SEALED_NS, id, db);
     deps.poke();
     if (result === "changed") return refuse(...CHANGED);
     return { ok: true, data: { request: asSent({ ...request, updatedAt: sentAt }) } };
@@ -215,6 +257,7 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
       if (!relay) return disabled("Connect your board first");
       const status = await relay.host(cfg.host);
       if (!status?.accepting) return hidden;
+      if (!deps.sealedText.reachable().includes(canonicalHandle(cfg.host))) return disabled(cannotReceive(cfg));
       const slack = await deps.slackUserId().catch(() => "unknown");
       if (slack === null) return disabled("Connect Slack first");
       if (!(await deps.keys())) return disabled(noKey());

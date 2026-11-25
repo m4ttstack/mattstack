@@ -18,6 +18,8 @@ export interface ReadinessDeps {
   /** Whether the relay takes this Mac's token. */
   relayAnswers(): Promise<boolean>;
   supportKey(): Promise<SupportKeyState>;
+  /** Whether this Mac's own key is the one the roster holds, which requests are sealed to; throws when it cannot be read. */
+  holdsKey(): Promise<boolean>;
   orgIds(): OrgIdContext;
 }
 
@@ -59,6 +61,15 @@ async function keyMissing(deps: ReadinessDeps): Promise<SupportMissing | null> {
   return need(key === "missing" ? NO_SUPPORT_KEY : "This Mac cannot open the org's support key");
 }
 
+async function ownKeyMissing(deps: ReadinessDeps): Promise<SupportMissing | null> {
+  try {
+    if (await deps.holdsKey()) return null;
+    return { ...need("This Mac's key is not the one your org has for you"), command: "rt team members sync" };
+  } catch {
+    return need("This Mac's key could not be read");
+  }
+}
+
 /** Empty when the Mac is ready. */
 export async function readiness(deps: ReadinessDeps): Promise<SupportMissing[]> {
   const orgIds = await attempt<OrgIdContext>(() => deps.orgIds(), { forgeHost: null, teamKeys: null });
@@ -69,6 +80,7 @@ export async function readiness(deps: ReadinessDeps): Promise<SupportMissing[]> 
     isValidChatName(await attempt(() => deps.humanHandle(), "")) ? null : need("Set your chat name", "chat-name"),
     await boardMissing(deps),
     await keyMissing(deps),
+    await ownKeyMissing(deps),
     orgIds.forgeHost ? null : need("Your org's settings name no forge host, which tickets need"),
     orgIds.teamKeys ? null : need("Your org's settings name no Linear team, which tickets need"),
   ];

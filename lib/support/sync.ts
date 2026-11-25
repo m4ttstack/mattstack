@@ -27,12 +27,17 @@ import {
   type SupportState,
 } from "../state/support-store.ts";
 import { canonicalHandle } from "../team/board-peers.ts";
+import type { SealedText } from "../team/sealed-text.ts";
 import { createChain } from "./chain.ts";
 import { onRoster, type SupportConfig } from "./config.ts";
 import { usableKeys, type SupportKeys } from "./org-key.ts";
-import { supportMac, verifySupportMac } from "./proof.ts";
+import { supportBinding, supportMac, verifySupportMac } from "./proof.ts";
 import type { SupportRelay } from "./relay.ts";
 
+/** The parts of a status that leave sealed. */
+const STATUS_TEXTS = ["reason", "persona", "dmLink"] as const;
+
+/** A status as it waits in this Mac's own database. */
 export interface StatusBody {
   requestId: string;
   state: SupportState;
@@ -44,6 +49,7 @@ export interface StatusBody {
   persona?: string;
 }
 
+/** A request before it is sealed. */
 export interface RequestBody {
   text: string;
   parts: SupportPart[];
@@ -55,6 +61,7 @@ export interface SyncDeps {
   relay(): Promise<SupportRelay | null>;
   config(): SupportConfig | null;
   keys(): Promise<SupportKeys | null>;
+  sealedText: SealedText;
   onRequest(r: SupportRequest): void;
   onStatus(r: SupportRequest): void;
   now(): number;
@@ -133,18 +140,24 @@ function parseRequestBody(text: string): RequestBody | null {
   return { text: v.text, parts, slackUserId: v.slackUserId };
 }
 
-function parseStatusBody(text: string): StatusBody | null {
-  const v = parseJson(text);
-  if (!v || typeof v.requestId !== "string" || typeof v.state !== "string" || !HOST_STATES.includes(v.state)) return null;
-  if (typeof v.at !== "number" || !Number.isFinite(v.at)) return null;
+function sealedOf(v: Record<string, unknown> | null): string | null {
+  return typeof v?.sealed === "string" ? v.sealed : null;
+}
+
+type StatusTexts = Pick<StatusBody, (typeof STATUS_TEXTS)[number]>;
+
+function parseStatusTexts(v: Record<string, unknown>): StatusTexts {
   return {
-    requestId: v.requestId,
-    state: v.state as SupportState,
-    at: v.at,
     ...(typeof v.reason === "string" ? { reason: v.reason.slice(0, REASON_MAX) } : {}),
     ...(typeof v.persona === "string" && v.persona.trim() ? { persona: v.persona.replace(/\s+/g, " ").trim().slice(0, PERSONA_MAX) } : {}),
     ...(typeof v.dmLink === "string" && v.dmLink.startsWith("slack://") ? { dmLink: v.dmLink } : {}),
   };
+}
+
+function parseStatusFacts(v: Record<string, unknown> | null): Omit<StatusBody, keyof StatusTexts> | null {
+  if (!v || typeof v.requestId !== "string" || typeof v.state !== "string" || !HOST_STATES.includes(v.state)) return null;
+  if (typeof v.at !== "number" || !Number.isFinite(v.at)) return null;
+  return { requestId: v.requestId, state: v.state as SupportState, at: v.at };
 }
 
 export function createSupportSync(deps: SyncDeps): SupportSync {
@@ -180,10 +193,23 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
     return "drop";
   }
 
+  /** The request, `unreadable` when no Mac ever will read it, or `wait` when this one cannot yet: the key is locked, or is on the person's other Mac. */
+  async function openRequest(m: SupportMessage): Promise<RequestBody | "unreadable" | "wait"> {
+    const sealed = sealedOf(parseJson(m.body));
+    if (sealed === null) return "unreadable";
+    const opened = await deps.sealedText.open(sealed, supportBinding("request", m.id, m.from));
+    if (opened.ok) return parseRequestBody(opened.fields.body ?? "") ?? "unreadable";
+    if (opened.reason === "mismatch" || opened.reason === "damaged") return "unreadable";
+    log.debug({ from: m.from, id: m.id, reason: opened.reason }, "support: a request cannot be opened on this Mac yet");
+    return "wait";
+  }
+
   /** True when the message may be acked. */
-  function takeRequest(m: SupportMessage, cfg: SupportConfig): boolean {
-    const body = parseRequestBody(m.body);
-    if (!body) {
+  async function takeRequest(m: SupportMessage, cfg: SupportConfig, arrived: SupportRequest[]): Promise<boolean> {
+    if (getRequest("in", m.from, m.id, db)) return true;
+    const body = await openRequest(m);
+    if (body === "wait") return false;
+    if (body === "unreadable") {
       log.warn({ from: m.from, id: m.id }, "support: a request could not be read");
       const status: StatusBody = { requestId: m.id, state: "failed", at: deps.now(), reason: UNREADABLE };
       queueStatus({ id: `${m.id}:failed`, to: m.from, body: JSON.stringify(status) }, deps.now(), db);
@@ -205,20 +231,31 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
       sentAt: m.sentAt,
       receivedAt: m.receivedAt,
     };
-    if (insertRequest(request, db)) deps.onRequest({ ...request, updatedAt: m.receivedAt });
+    if (insertRequest(request, db)) arrived.push({ ...request, updatedAt: m.receivedAt });
     return true;
   }
 
-  function takeStatus(m: SupportMessage): boolean {
-    const body = parseStatusBody(m.body);
-    if (!body) {
+  async function openStatusTexts(m: SupportMessage, wire: Record<string, unknown> | null): Promise<StatusTexts> {
+    const sealed = sealedOf(wire);
+    if (sealed === null) return {};
+    const opened = await deps.sealedText.open(sealed, supportBinding("status", m.id, m.from));
+    if (opened.ok) return parseStatusTexts(opened.fields);
+    log.warn({ from: m.from, id: m.id, reason: opened.reason }, "support: a status's text could not be opened");
+    return {};
+  }
+
+  async function takeStatus(m: SupportMessage): Promise<boolean> {
+    const wire = parseJson(m.body);
+    const facts = parseStatusFacts(wire);
+    if (!facts) {
       log.warn({ from: m.from, id: m.id }, "support: a status could not be read");
       return true;
     }
-    const row = getRequest("out", m.from, body.requestId, db);
+    const row = getRequest("out", m.from, facts.requestId, db);
     // The person's other Mac may be the one that asked.
-    if (!row) return listRequests("out", undefined, db).some((r) => r.id === body.requestId);
-    if (body.at <= row.statusAt) return true;
+    if (!row) return listRequests("out", undefined, db).some((r) => r.id === facts.requestId);
+    if (facts.at <= row.statusAt) return true;
+    const body: StatusBody = { ...facts, ...(await openStatusTexts(m, wire)) };
     const patch = { state: body.state, reason: body.reason ?? null, dmLink: body.dmLink ?? null, statusAt: body.at, ...(body.persona !== undefined ? { persona: body.persona } : {}) };
     if (moveRequest(row, SENDER_OPEN, patch, deps.now(), db)) {
       deps.onStatus(getRequest("out", m.from, body.requestId, db)!);
@@ -230,14 +267,23 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
     const messages = await relay.list(kind);
     if (!messages) return "left";
     const acks: { from: string; id: string }[] = [];
+    // Handed over once the page is read: opening takes a moment each, and every hand-over starts a pass.
+    const arrived: SupportRequest[] = [];
     for (const m of messages) {
       try {
         const verdict = judge(m, cfg, keys);
         if (verdict === "wait") continue;
-        if (verdict === "drop" || (kind === "request" ? takeRequest(m, cfg) : takeStatus(m))) acks.push({ from: m.from, id: m.id });
+        if (verdict === "drop" || (await (kind === "request" ? takeRequest(m, cfg, arrived) : takeStatus(m)))) acks.push({ from: m.from, id: m.id });
       } catch (err) {
         log.warn({ err, from: m.from, id: m.id }, "support: a message could not be taken");
         if (kind === "request" && stored(m)) acks.push({ from: m.from, id: m.id });
+      }
+    }
+    for (const r of arrived) {
+      try {
+        deps.onRequest(r);
+      } catch (err) {
+        log.warn({ err, from: r.peer, id: r.id }, "support: a request could not be handed over");
       }
     }
     if (messages.length === 0) return "empty";
@@ -281,6 +327,16 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
     },
   };
 
+  async function statusOnTheWire(me: string, s: { id: string; to: string; body: string }): Promise<string> {
+    const stored = parseJson(s.body) ?? {};
+    const { requestId, state, at } = stored;
+    const texts = Object.fromEntries(STATUS_TEXTS.flatMap((key) => (typeof stored[key] === "string" ? [[key, stored[key] as string]] : [])));
+    if (Object.keys(texts).length === 0) return JSON.stringify({ requestId, state, at });
+    const result = await deps.sealedText.seal([s.to], supportBinding("status", s.id, me), texts);
+    if (!result.ok) log.warn({ to: s.to, id: s.id, reason: result.reason }, "support: a status went out without its text");
+    return JSON.stringify({ requestId, state, at, sealed: result.ok ? result.sealed : undefined });
+  }
+
   async function flushNow(): Promise<void> {
     if (pendingStatuses(db).length === 0) return;
     const cfg = deps.config();
@@ -296,13 +352,15 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
         dropStatus(s.id, s.to, db);
         continue;
       }
-      const result = await relay.send(signDraft(cfg, keys, { id: s.id, to: s.to, kind: "status", body: s.body }, deps.now()));
+      const body = await statusOnTheWire(cfg.me, s);
+      const result = await relay.send(signDraft(cfg, keys, { id: s.id, to: s.to, kind: "status", body }, deps.now()));
       if (result === "unreachable" || result === "unauthorized") return;
       if (result === "full") {
         full.add(s.to);
         continue;
       }
-      if (result !== "ok") log.warn({ to: s.to, id: s.id, result }, "support: a status was not taken");
+      // Sealed afresh each time, so a retry after a lost answer reads as changed: the relay has the first one.
+      if (result !== "ok" && result !== "changed") log.warn({ to: s.to, id: s.id, result }, "support: a status was not taken");
       dropStatus(s.id, s.to, db);
     }
   }

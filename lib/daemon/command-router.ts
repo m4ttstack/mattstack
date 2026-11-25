@@ -274,6 +274,7 @@ export function buildRoutedHandlers(opts: {
     emitEvent,
     gate: (id) => opts.gatesStore.get(id) ?? null,
     notify: (title, message, url) => notify(title, message, url, CHAT_NOTIFICATION_CATEGORY),
+    seams: { sealedText },
   });
   opts.onSupport?.(support);
   const { openSlackGate, ...gateHandlers } = createGateHandlers(opts.gatesStore, opts.eventsBus, broadcast, {

@@ -7,7 +7,8 @@ import { openStateDb } from "../../state/db.ts";
 import { getRequest, insertRequest, listRequests, pendingStatuses, queueStatus, type SupportRequest } from "../../state/support-store.ts";
 import type { SupportConfig } from "../config.ts";
 import type { SupportKeys } from "../org-key.ts";
-import { supportMac } from "../proof.ts";
+import { fakeSealedWorld } from "../../team/__tests__/fake-sealed-text.ts";
+import { supportBinding, supportMac } from "../proof.ts";
 import type { SupportRelay } from "../relay.ts";
 import { createSupportSync, PROOF_SETTLE_MS, STRANGER_SETTLE_MS, signDraft, type RequestBody, type StatusBody, type SyncDeps } from "../sync.ts";
 
@@ -27,6 +28,7 @@ let sent: SupportDraft[];
 let sendResult: Awaited<ReturnType<SupportRelay["send"]>>;
 let events: string[];
 let onRequestHook: (r: SupportRequest) => void;
+let world: ReturnType<typeof fakeSealedWorld>;
 
 const host: SupportConfig = {
   org: "acme",
@@ -52,6 +54,7 @@ beforeEach(() => {
   sendResult = "ok";
   events = [];
   onRequestHook = () => {};
+  world = fakeSealedWorld(["alex", "ada", "bo", "zed"]);
 });
 
 const relay: SupportRelay = {
@@ -79,6 +82,7 @@ function sync(over: Partial<SyncDeps> = {}) {
     relay: async () => relay,
     config: () => config,
     keys: async () => keys,
+    sealedText: world.forUser(config?.me ?? "alex"),
     onRequest: (r) => {
       events.push(`request ${r.peer} ${r.id}`);
       onRequestHook(r);
@@ -92,12 +96,22 @@ function sync(over: Partial<SyncDeps> = {}) {
 
 const body: RequestBody = { text: "the board will not load", parts: [{ key: "versions", label: "Versions", value: "rt 1.2.3" }], slackUserId: "U0ADA" };
 
-function arrive(over: { id?: string; from?: string; to?: string; kind?: SupportKind; body?: string; key?: string; age?: number } = {}): void {
+/** A status's text, sealed as its host seals it. */
+function sealStatus(b: Partial<StatusBody>, id: string, from = "alex", to = "ada"): string {
+  const { reason, persona, dmLink, ...facts } = b;
+  const texts = Object.fromEntries(Object.entries({ reason, persona, dmLink }).filter((e): e is [string, string] => typeof e[1] === "string"));
+  const sealed = Object.keys(texts).length > 0 ? world.put([to], supportBinding("status", id, from), texts) : undefined;
+  return JSON.stringify({ ...facts, sealed });
+}
+
+/** `body` is a request's text before it is sealed; `raw` is what is on the wire as it stands. */
+function arrive(over: { id?: string; from?: string; to?: string; kind?: SupportKind; body?: string; raw?: string; key?: string; age?: number } = {}): void {
   const kind = over.kind ?? "request";
   const from = over.from ?? "ada";
   const id = over.id ?? "r1";
   const to = over.to ?? "alex";
-  const text = over.body ?? JSON.stringify(body);
+  const text =
+    over.raw ?? (kind === "status" ? over.body! : JSON.stringify({ sealed: world.put([to], supportBinding("request", id, from), { body: over.body ?? JSON.stringify(body) }) }));
   const receivedAt = clock - (over.age ?? 0);
   const mac = supportMac(over.key ?? KEY, { kind, id, from, to, sentAt: receivedAt, body: text });
   inbox.push({ id, to, from, kind, sentAt: receivedAt, body: text, mac, receivedAt });
@@ -264,7 +278,7 @@ describe("pulling requests", () => {
     const DAY = 24 * 60 * 60_000;
     clock = 30 * DAY;
     const at = (id: string, sentAt: number) => {
-      const text = JSON.stringify(body);
+      const text = JSON.stringify({ sealed: world.put(["alex"], supportBinding("request", id, "ada"), { body: JSON.stringify(body) }) });
       const mac = supportMac(KEY, { kind: "request", id, from: "ada", to: "alex", sentAt, body: text });
       inbox.push({ id, to: "alex", from: "ada", kind: "request", sentAt, body: text, mac, receivedAt: clock });
     };
@@ -343,6 +357,65 @@ describe("pulling requests", () => {
     expect(JSON.parse(told.body)).toEqual({ requestId: "r0", state: "failed", at: clock, reason: "the host's mattstack could not read your request" });
   });
 
+  test("a request that was never sealed is answered failed", async () => {
+    for (const [i, raw] of ["not json", "{}", JSON.stringify(body), JSON.stringify({ sealed: 7 }), JSON.stringify({ ...body, sealed: null })].entries()) arrive({ id: `r${i}`, raw });
+    await sync().pull("request");
+    expect(acked).toHaveLength(5);
+    expect(listRequests("in", undefined, db)).toEqual([]);
+    expect(JSON.parse(pendingStatuses(db)[2]!.body)).toMatchObject({ requestId: "r2", state: "failed", reason: "the host's mattstack could not read your request" });
+    expect(world.state.opened).toBe(0);
+  });
+
+  test("a request whose text belongs to another message, or is damaged, is answered failed", async () => {
+    arrive({ id: "r1", raw: JSON.stringify({ sealed: world.put(["alex"], supportBinding("request", "r2", "ada"), { body: JSON.stringify(body) }) }) });
+    arrive({ id: "r3", raw: JSON.stringify({ sealed: "nonsense" }) });
+    arrive({ id: "r4", raw: JSON.stringify({ sealed: world.put(["alex"], supportBinding("request", "r4", "ada"), { note: "no body" }) }) });
+    await sync().pull("request");
+    expect(acked).toEqual(["ada r1", "ada r3", "ada r4"]);
+    expect(listRequests("in", undefined, db)).toEqual([]);
+    expect(pendingStatuses(db).map((s) => s.id)).toEqual(["r1:failed", "r3:failed", "r4:failed"]);
+  });
+
+  test("a request this Mac cannot open yet stays on the relay and is taken on a later pull", async () => {
+    for (const reason of ["unavailable", "not-for-this-key"] as const) {
+      const id = `r-${reason}`;
+      acked = [];
+      arrive({ id });
+      world.state.open = { ok: false, reason };
+      const s = sync();
+      expect(await s.pull("request")).toBe(false);
+      expect(acked).toEqual([]);
+      expect(getRequest("in", "ada", id, db)).toBeNull();
+      expect(pendingStatuses(db)).toEqual([]);
+      world.state.open = null;
+      await s.pull("request");
+      expect(acked).toEqual([`ada ${id}`]);
+      expect(getRequest("in", "ada", id, db)).toMatchObject({ text: body.text, slackUserId: "U0ADA" });
+    }
+  });
+
+  test("text is opened only once the message is proved to come from the org", async () => {
+    arrive({ id: "forged", key: FOREIGN });
+    arrive({ id: "off-roster", from: "zed" });
+    const s = sync();
+    await s.pull("request");
+    await awake(s, 2 * PROOF_SETTLE_MS);
+    expect(acked.sort()).toEqual(["ada forged", "zed off-roster"]);
+    expect(world.state.opened).toBe(0);
+  });
+
+  test("a repeat delivery is acked without being opened again", async () => {
+    arrive();
+    const again = inbox[0]!;
+    const s = sync();
+    await s.pull("request");
+    world.state.open = { ok: false, reason: "unavailable" };
+    inbox.push(again);
+    await s.pull("request");
+    expect(acked).toEqual(["ada r1", "ada r1"]);
+    expect(world.state.opened).toBe(1);
+  });
+
   test("an unreadable request whose answer cannot be stored is not acked", async () => {
     db.exec("CREATE TRIGGER boom BEFORE INSERT ON support_outbox BEGIN SELECT RAISE(ABORT, 'disk full'); END;");
     arrive({ body: "not json" });
@@ -413,7 +486,14 @@ describe("pulling statuses", () => {
   });
   let at = 0;
   const status = (b: Partial<StatusBody> & { state: StatusBody["state"] }, over: Parameters<typeof arrive>[0] = {}) =>
-    arrive({ kind: "status", from: "alex", to: "ada", id: `${b.requestId ?? "r1"}:${b.state}`, body: JSON.stringify({ requestId: "r1", at: ++at, ...b }), ...over });
+    arrive({
+      kind: "status",
+      from: "alex",
+      to: "ada",
+      id: `${b.requestId ?? "r1"}:${b.state}`,
+      body: sealStatus({ requestId: "r1", at: ++at, ...b }, `${b.requestId ?? "r1"}:${b.state}`, over?.from),
+      ...over,
+    });
   const state = () => getRequest("out", "alex", "r1", db)!;
 
   test("a status moves the request, with its reason and link", async () => {
@@ -423,6 +503,24 @@ describe("pulling statuses", () => {
     expect(state()).toMatchObject({ state: "opened", dmLink: "slack://user?team=T1&id=U1", reason: null });
     expect(events.filter((e) => e.startsWith("status"))).toEqual(["status r1 received", "status r1 opened"]);
     expect(acked).toHaveLength(2);
+  });
+
+  test("a status whose text cannot be opened still moves the request", async () => {
+    for (const reason of ["unavailable", "not-for-this-key", "mismatch", "damaged"] as const) {
+      insertRequest({ ...getRequest("out", "alex", "r1", db)!, id: `q-${reason}`, state: "sent", statusAt: 0 }, db);
+      status({ requestId: `q-${reason}`, state: "opened", reason: "because", persona: "Maude", dmLink: "slack://user?team=T1&id=U1" });
+      world.state.open = { ok: false, reason };
+      await sync().pull("status");
+      expect(getRequest("out", "alex", `q-${reason}`, db)).toMatchObject({ state: "opened", reason: null, persona: null, dmLink: null });
+    }
+    expect(acked).toHaveLength(4);
+  });
+
+  test("a status's plain text fields are ignored", async () => {
+    const raw = JSON.stringify({ requestId: "r1", state: "failed", at: 900, reason: "plain", persona: "Plain", dmLink: "slack://plain" });
+    arrive({ kind: "status", from: "alex", to: "ada", id: "r1:failed", raw });
+    await sync().pull("status");
+    expect(state()).toMatchObject({ state: "failed", reason: null, persona: null, dmLink: null });
   });
 
   test("a status for a request this Mac did not send is left unacked", async () => {
@@ -513,6 +611,36 @@ describe("flushing statuses", () => {
     expect(pendingStatuses(db)).toEqual([]);
     expect(sent.at(-1)).toMatchObject({ id: "r1:received", to: "ada", kind: "status", sentAt: clock, body: "{}" });
     expect(sent.at(-1)).toEqual(signDraft(config!, keys!, { id: "r1:received", to: "ada", kind: "status", body: "{}" }, clock));
+  });
+
+  const FULL: StatusBody = { requestId: "r1", state: "opened", at: 7, reason: "because", persona: "Maude", dmLink: "slack://user?team=T1&id=U1" };
+
+  test("a status's reason, persona and link leave sealed, and its state stays readable", async () => {
+    queueStatus({ id: "r1:opened", to: "ada", body: JSON.stringify(FULL) }, clock, db);
+    await sync().flush();
+    const { sealed, ...facts } = JSON.parse(sent[0]!.body);
+    expect(facts).toEqual({ requestId: "r1", state: "opened", at: 7 });
+    expect(world.read(sealed)).toEqual({ reason: "because", persona: "Maude", dmLink: "slack://user?team=T1&id=U1" });
+    expect(await world.forUser("ada").open(sealed, supportBinding("status", "r1:opened", "alex"))).toMatchObject({ ok: true });
+    for (const text of ["because", "Maude", "slack://"]) expect(JSON.stringify(sent)).not.toContain(text);
+  });
+
+  test("a status that cannot be sealed sends its state alone", async () => {
+    for (const reason of ["unavailable", "no-recipients"] as const) {
+      sent = [];
+      world.state.seal = { ok: false, reason };
+      queueStatus({ id: "r1:opened", to: "ada", body: JSON.stringify(FULL) }, clock, db);
+      await sync().flush();
+      expect(JSON.parse(sent[0]!.body)).toEqual({ requestId: "r1", state: "opened", at: 7 });
+      expect(pendingStatuses(db)).toEqual([]);
+    }
+  });
+
+  test("a status with no text is sent without sealing anything", async () => {
+    queueStatus({ id: "r1:received", to: "ada", body: JSON.stringify({ requestId: "r1", state: "received", at: 7 }) }, clock, db);
+    await sync().flush();
+    expect(JSON.parse(sent[0]!.body)).toEqual({ requestId: "r1", state: "received", at: 7 });
+    expect(world.texts()).toBe("[]");
   });
 
   test("a status is signed with the key of the moment it is sent", async () => {
