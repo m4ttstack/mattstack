@@ -42,10 +42,12 @@ label: Graph notes
     follow-up.
 
   An unset field (`run_field_get` errors) or `-` owes nothing. A follow-up
-  is settled for good. A mark at an earlier sha stands, unchanged, while
+  is settled for good. A mark at an earlier sha (an accepted
+  mark's first sha) stands, unchanged and not captured again, while
   `git diff --name-only <that sha> <pushed sha>` lists only documentation
-  files (prose no build reads) and test files; any other file listed, or a
-  sha git cannot read, makes the item owed and it is captured again. An
+  files (`.md`, or under a docs folder) and test files; any other file
+  listed, or a sha git cannot read, makes the item owed and it is captured
+  again. An
   item with no mark is owed. Each owed item is a case in the
   AFTER loop, its own `id` (`owed-<finding id>`, lowercase) and its text as `label`,
   captured like any other case the domain names, on its environment when
