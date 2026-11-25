@@ -246,6 +246,7 @@ flowchart TB
     every_case_tried -->|yes| owed_on_run
     owed_on_run -->|yes| run_field_set_owed
     owed_on_run -->|"no: unset, or -"| after_captured
+    owed_on_run -->|the read errored twice: a failure| which_exit
     run_field_set_owed --> after_captured
     after_captured -->|yes| record_evidence
     after_captured -->|no| run_has_evidence

@@ -266,6 +266,13 @@ case "$r" in exit=2*) echo "ok   background shell task alone exits 2";; *) echo 
 transcript "$T" 1 sleep-call sleep-background
 check "pending background sleep exits 0" "exit=0 err= out=" "$(run "$(stop_with "$T")")"
 
+transcript "$T" 15 sleep-long-call sleep-background
+check "pending twenty minute sleep exits 0" "exit=0 err= out=" "$(run "$(stop_with "$T")")"
+
+transcript "$T" 121 sleep-endless-call sleep-background
+r="$(run "$(stop_with "$T")")"
+case "$r" in exit=2*) echo "ok   a sleep past the age bound exits 2";; *) echo "FAIL a sleep past the age bound exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+
 # A killed pane writes no removal line, so a sleep past its own length is over.
 transcript "$T" 5 sleep-call sleep-background
 r="$(run "$(stop_with "$T")")"

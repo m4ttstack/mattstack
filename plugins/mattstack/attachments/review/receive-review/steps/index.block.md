@@ -316,7 +316,8 @@ flowchart TB
     gate_off_script_forge --> forge_refusal_answer
     forge_refusal_answer -->|take: the human posted, resolved or pushed by hand| respond_post_execute
     forge_refusal_answer -->|iterate: the cause is fixed| respond_post_execute
-    forge_refusal_answer -->|hold: the tool already set hold| report_held_threads
+    forge_refusal_answer -->|hold, threads held: the tool already set hold| report_held_threads
+    forge_refusal_answer -->|hold, nothing held| run_hold
     forge_refusal_answer -->|hand back| own_run_failed_or_abandoned
     report_held_threads --> threads_held_open
     run_field_set_hold_clear --> report_outcome

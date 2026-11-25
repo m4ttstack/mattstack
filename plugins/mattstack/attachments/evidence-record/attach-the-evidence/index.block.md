@@ -24,10 +24,10 @@ flowchart TB
     files_left{Files left to show in this attach?}
     gate_evidence_boards
     boards_answer{boards answer?}
-    revise_named_boards
-    boards_revision_outcome{Board revision outcome?}
     run_budget_boards[/"run_budget {runDb, key: evidence:boards-revisions:<first file of the opening that asked>, limit: 3, stage}"/]
     boards_revisions_spent{boards-revisions spent?}
+    revise_named_boards
+    boards_revision_outcome{Board revision outcome?}
     evidence_attach[/"evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl}"/]
     attach_result{evidence_attach result?}
     stop_move_refused_file[STOP: only the human moves a refused file]:::stop
@@ -56,13 +56,13 @@ flowchart TB
     boards_answer -->|proceed + clear| files_left
     files_left -->|yes: the next 12| gate_evidence_boards
     files_left -->|no: every file shown and answered clear| evidence_attach
-    boards_answer -->|proceed + hide, or their words| revise_named_boards
+    boards_answer -->|proceed + hide, or their words| run_budget_boards
     boards_answer -->|hold| attach_held
     revise_named_boards --> boards_revision_outcome
-    boards_revision_outcome -->|Recorded, or no board named| run_budget_boards
     run_budget_boards --> boards_revisions_spent
-    boards_revisions_spent -->|no: again from the first file| run_field_get_cleared
-    boards_revisions_spent -->|yes: nothing uploaded, the files still waiting named| attach_failed
+    boards_revisions_spent -->|no| revise_named_boards
+    boards_revisions_spent -->|yes: nothing uploaded, their words quoted| attach_failed
+    boards_revision_outcome -->|Recorded, or no board named: again from the first file| run_field_get_cleared
     boards_revision_outcome -->|Held at evidence-redaction, or Record held| attach_held
     boards_revision_outcome -->|Not revised: the failure quoted| attach_failed
     evidence_attach --> attach_result

@@ -41,10 +41,12 @@ label: Graph notes
   - `- [x] follow-up: <what to capture> (<finding id>)` once moved to a
     follow-up.
 
-  An unset field (`run_field_get` errors) or `-` owes nothing. A follow-up
+  An unset field (the error is `no field owed-evidence`) or `-` owes
+  nothing; any other error is a failed read, never read as unset: call once
+  more, then take the failure edge quoting it. A follow-up
   is settled for good. A mark at an earlier sha (an accepted
   mark's first sha) stands, unchanged and not captured again, while
-  `git diff --name-only <that sha> <pushed sha>` lists only documentation
+  `git diff --no-renames --name-only <that sha> <pushed sha>` lists only documentation
   files (`.md`, or under a docs folder) and test files; any other file
   listed, or a sha git cannot read, makes the item owed and it is captured
   again. An

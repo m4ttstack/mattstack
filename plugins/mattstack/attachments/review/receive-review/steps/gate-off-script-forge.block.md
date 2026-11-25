@@ -14,4 +14,5 @@ posts or resolves those threads by hand, or fixes what a `push`,
 `alreadyResolved`) and retries the rest. A `mismatch` quotes what HEAD,
 `@{push}` and `@{u}` printed: never switch branches, rebase or push to make
 them match. Take and iterate both call again; hold needs no
-`run_hold` (the tool set `hold`) and ends with threads held.
+`run_hold` when threads are held (the tool set `hold`) and ends with them
+held; with none held (a tempted move led here) it is `run_hold`.

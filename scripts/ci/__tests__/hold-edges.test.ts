@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { parseMermaid } from "../../../lib/skills/blocks/mermaid.ts";
-import { checkHoldEdges, unaskedHolds } from "../hold-edges.ts";
+import { mkdtempSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { checkHoldEdges, graphsIn, unaskedHolds } from "../hold-edges.ts";
 
 const graph = (body: string) => parseMermaid(`flowchart TB\n%% name: demo\n${body}`, "demo", 1);
 const keys = (body: string) => unaskedHolds(graph(body)).map((f) => f.key);
@@ -31,6 +34,10 @@ describe("unaskedHolds", () => {
     expect(keys(`${HOLD}gate_a\nmr_view[/"mr_view {mrUrl}"/]\nresult{Result?}\ngate_a --> result\nmr_view --> result\nresult -->|hold| run_hold`)).toEqual(["demo: result -> run_hold |hold|"]);
   });
 
+  test("a check reached through a gate's other answer is not an answer", () => {
+    expect(keys(`${HOLD}gate_ship[Gate ship]\nchecks{Checks pass?}\ngate_ship -->|proceed| checks\nchecks -->|hold| run_hold`)).toEqual(["demo: checks -> run_hold |hold|"]);
+  });
+
   test("a tool call named after a gate is not a gate", () => {
     expect(keys(`${HOLD}gate_record[/"gate_record {runDb}"/]\ngate_record -->|hold| run_hold`)).toEqual(["demo: gate_record -> run_hold |hold|"]);
   });
@@ -38,6 +45,14 @@ describe("unaskedHolds", () => {
   test("the hold field and a held outcome count as holds", () => {
     expect(keys(`read_ok{Read ok?}\nset_held[/"run_field_set {runDb, key: hold, value: held}"/]\nread_ok -->|no| set_held`)).toEqual(["demo: read_ok -> set_held |no|"]);
     expect(keys(`spent{Openings spent?}\nattach_held(((Attach held)))\nspent -->|yes| attach_held`)).toEqual(["demo: spent -> attach_held |yes|"]);
+  });
+});
+
+describe("graphsIn", () => {
+  test("reads a graph in a file with CRLF line ends", () => {
+    const dir = mkdtempSync(join(tmpdir(), "hold-edges-"));
+    writeFileSync(join(dir, "demo.block.md"), "# Demo\n\n```mermaid\nflowchart TB\n    a --> b\n```\n".replaceAll("\n", "\r\n"));
+    expect(graphsIn(dir).map((g) => g.file)).toEqual(["demo"]);
   });
 });
 

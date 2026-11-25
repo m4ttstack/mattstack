@@ -11,7 +11,7 @@ from 1. Pass `needsOperator` with one line naming how many items are owed.
 `context` quotes each owed item's line and says why it is still owed: the
 capture that failed and its error, the environment that is not up, or that
 no tool here can make it. For an item captured at an earlier sha, it names
-that sha and lists `git diff --name-only <that sha> <pushed sha>`.
+that sha and lists `git diff --no-renames --name-only <that sha> <pushed sha>`.
 
 One question (write-in) per owed item, one already put off at this pass's
 gate left out, its id `owed-<finding id>`, its

@@ -43,9 +43,10 @@ cannot remember with `increment: 0`, never restart it.
 
 `respond_post_execute` bounds its own reply, resolve and push retries.
 
-A `hold` that ends the turn, own or inherited run, is made only on a
-human's `hold` answer: one `run_hold {runDb, stage, reason, decidedBy}`,
-`reason` their words, `decidedBy` the answer's by. The clarify `hold` comes before any run
+A `hold` that ends the turn, own or inherited run, is made on a human's
+`hold` answer, or a gate a surface closed: one `run_hold {runDb, stage,
+reason, decidedBy}`, `reason` their words or "gate closed", `decidedBy` the
+answer's by. The clarify `hold` comes before any run
 and records nothing.
 
 Held threads open their off-script gate. Its `hold` answer makes no

@@ -23,9 +23,9 @@ label: Graph notes
   take): rt reads the latest post decision as what posted. Pass `gateId`
   for an answered gate, or the caller's selection as `answers` with its
   named `decidedBy`; the tool builds the record.
-- A hold is one `run_hold`, made only on a human's `hold` answer (`reason`
-  their words, `decidedBy` the answer's by); then the turn ends. A
-  gate that comes back `closed` is a hold, reason "gate closed". On a
+- A hold is one `run_hold`, made on a human's `hold` answer (`reason`
+  their words, `decidedBy` the answer's by) or a gate a surface closed
+  (`reason` "gate closed"); then the turn ends. On a
   resumed run with no post record, every hold's reason (a `closed` one too)
   also repeats what the latest hold said is posted and whether the approval
   is outstanding.

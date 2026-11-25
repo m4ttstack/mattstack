@@ -72,7 +72,7 @@ export function unaskedHolds(graph: BlockGraph): Finding[] {
     if (isGate(from)) return saysHold(edge);
     const before = into(from.id);
     if (seen.has(from.id) || before.length === 0) return false;
-    if (from.shape === "diamond") return saysHold(edge) && before.every((e) => isGate(nodes.get(e.from)!));
+    if (from.shape === "diamond") return saysHold(edge) && before.every((e) => e.label === null && isGate(nodes.get(e.from)!));
     return before.every((e) => answered(e, new Set([...seen, from.id])));
   };
   return graph.edges
@@ -99,7 +99,7 @@ export function graphsIn(dir: string): BlockGraph[] {
     if (!entry.isFile() || !entry.name.endsWith(".block.md")) continue;
     const path = join(entry.parentPath, entry.name);
     const text = readFileSync(path, "utf8");
-    for (const m of text.matchAll(/^```mermaid\n([\s\S]*?)^```$/gm)) {
+    for (const m of text.matchAll(/^```mermaid\r?\n([\s\S]*?)^```\r?$/gm)) {
       graphs.push(parseMermaid(m[1]!, relative(dir, path).replace(/(\/index)?\.block\.md$/, ""), text.slice(0, m.index).split("\n").length));
     }
   }

@@ -161,7 +161,7 @@ deadline = time.monotonic() + budget
 
 MCP = re.compile(r"moved to the background as task ([A-Za-z0-9_-]+)")
 TASK_ID = re.compile(r"<task-id>([A-Za-z0-9_-]+)</task-id>")
-SLEEP = re.compile(r"\s*sleep (\d{1,3})\s*")
+SLEEP = re.compile(r"\s*sleep (\d+)\s*")
 NEEDLES = (b"background as task", b"async_launched", b"resumedAgentId", b"<task-id>", b"TaskStop",
            b"run_in_background", b"backgroundTaskId")
 
@@ -200,7 +200,7 @@ with open(path, "rb") as f:
                 for c in (d.get("message") or {}).get("content") or []:
                     seconds = sleeps.get(c.get("tool_use_id")) if isinstance(c, dict) else None
                     if seconds is not None:
-                        pending[tur["backgroundTaskId"]] = when(d) + seconds + SLEEP_GRACE_S
+                        pending[tur["backgroundTaskId"]] = when(d) + min(seconds + SLEEP_GRACE_S, MAX_AGE_MIN * 60)
                 continue
             for item in tur if isinstance(tur, list) else []:
                 text = item.get("text") if isinstance(item, dict) and item.get("type") == "text" else None
