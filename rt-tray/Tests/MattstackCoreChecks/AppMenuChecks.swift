@@ -46,6 +46,17 @@ let appMenuChecks: [Check] = [
             c.expect(text.contains(code), "\(file) does not use \(code)")
         }
     },
+    Check("Ask Maude… sits first in the Help menu, and only the menu bar's own menu is rebuilt when one opens") { c in
+        let body = try installMainMenuBody()
+        let ask = try c.requireSome(body.range(of: "#selector(showHelpRequest)"), "the Help menu does not offer Ask Maude…")
+        let docs = try c.requireSome(body.range(of: "\"mattstack Help\""))
+        c.expect(ask.lowerBound < docs.lowerBound, "Ask Maude… is not first")
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../Sources").standardized
+        let text = try String(contentsOf: sources.appendingPathComponent("AppDelegate.swift"), encoding: .utf8)
+        c.expect(text.contains("if menu === NSApp.helpMenu { refreshHelpAvailability() } else { rebuildTrayMenu(menu) }"),
+                 "opening the Help menu would rebuild it as the tray menu")
+    },
     Check("the app and Help menus reuse the tray menu's selectors") { c in
         let body = try installMainMenuBody()
         for selector in ["#selector(checkForUpdates)", "#selector(showSettings)", "#selector(showSetupStatus)",

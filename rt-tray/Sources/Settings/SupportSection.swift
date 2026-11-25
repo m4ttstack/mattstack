@@ -169,7 +169,7 @@ private struct SupportSwitch: View {
             if isBusy { ProgressView().controlSize(.small) }
             Toggle(title, isOn: Binding(get: { isOn }, set: set))
                 .labelsHidden()
-                .toggleStyle(.switch)
+                .toggleStyle(.switch).controlSize(.mini)
                 .disabled(!isEnabled)
                 .accessibilityHint(detail)
         }
