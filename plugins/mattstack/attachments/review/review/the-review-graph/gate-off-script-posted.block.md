@@ -11,4 +11,5 @@ quoting the latest hold's reason. Proposed move: the human looks at the
 MR's threads, posts or finishes the review in the forge UI (the summary and
 every comment quoted in full in `context`), approving on an approve,
 recorded as posted by the human. Nothing is submitted until the read comes
-back.
+back. A hold's or hand-back's reason repeats what the latest hold said is
+posted and whether the approval is outstanding, else outcome unknown.
