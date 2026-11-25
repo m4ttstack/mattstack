@@ -54,7 +54,8 @@ export function currentRequest(
 
 /** A host's link is followed only into Slack. */
 export function slackLink(link: string | null): string | null {
-  return link && /^(slack:\/\/|https:\/\/([a-z0-9-]+\.)*slack\.com\/)/.test(link)
+  return link &&
+    /^(slack:\/\/|https:\/\/([a-z0-9-]+\.)*slack\.com\/)/.test(link)
     ? link
     : null;
 }

@@ -105,8 +105,6 @@ import {
 import { AskConfirmDialog } from './AskConfirmDialog.tsx';
 import { verbLane } from './asks/ask-copy.ts';
 import { AsksButton } from './asks/AsksButton.tsx';
-import { HelpButton } from './support/HelpButton.tsx';
-import { useSupport } from './support/use-support.ts';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
 import { ConsoleSettingsModal } from './ConsoleSettingsModal.tsx';
 import {
@@ -191,6 +189,8 @@ import {
 import { slackPosts } from './slack-posts.ts';
 import { SlackPostsModal } from './SlackPostsModal.tsx';
 import { useStaleTabTitle } from './stale-tab-title.ts';
+import { HelpButton } from './support/HelpButton.tsx';
+import { useSupport } from './support/use-support.ts';
 import { startSyncLines } from './sync-lines.ts';
 import { TabBar } from './TabBar.tsx';
 import { turnSummary } from './turn-summary.ts';

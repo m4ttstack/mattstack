@@ -1,5 +1,4 @@
 import { useRef, type ReactElement } from 'react';
-
 import {
   CircleCheck,
   CircleX,
@@ -70,7 +69,9 @@ export function StatusCard({
       <div className="tui-help-status">
         <Mark
           className={
-            card.icon === 'spin' ? 'tui-help-mark tui-help-spin' : 'tui-help-mark'
+            card.icon === 'spin'
+              ? 'tui-help-mark tui-help-spin'
+              : 'tui-help-mark'
           }
           data-tone={card.tone}
           size={18}
@@ -176,9 +177,7 @@ export function HelpButton({ help }: { help: Help }) {
   const { read, request, open, setOpen } = help;
   const first = useRef<HTMLTextAreaElement>(null);
   const a = read.availability;
-  const host = request
-    ? hostOf(a) || firstName(request.peer)
-    : hostOf(a);
+  const host = request ? hostOf(a) || firstName(request.peer) : hostOf(a);
   const face = pill(request, host, read.persona);
   const disabled = !request && a.state === 'disabled' ? a.reason : null;
 

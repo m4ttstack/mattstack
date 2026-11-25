@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { SupportPart } from '@mattstack/rt-client';
 import type { SupportRead } from '../../../support.ts';
-import { getParts, getRequests, getSupport, sendRequest } from './support-api.ts';
+import {
+  getParts,
+  getRequests,
+  getSupport,
+  sendRequest,
+} from './support-api.ts';
 import {
   byPartOrder,
   currentRequest,
@@ -105,7 +110,8 @@ export function useSupport(local: boolean): Help | null {
     };
   }, [local]);
 
-  const offered = local && read !== null && read.availability.state !== 'hidden';
+  const offered =
+    local && read !== null && read.availability.state !== 'hidden';
   const anyOpen = requests.some(isOpen);
   useEffect(() => {
     if (!local || !read) return;

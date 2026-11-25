@@ -36,14 +36,7 @@ import { slackPosts } from './slack-posts.ts';
 
 export type Lane = 'review' | 'respond' | 'doctor';
 export type Section =
-  | 'top'
-  | 'agent'
-  | 'flock'
-  | 'sessions'
-  | 'gitlab'
-  | 'slack'
-  | 'more'
-  | 'help';
+  'top' | 'agent' | 'flock' | 'sessions' | 'gitlab' | 'slack' | 'more' | 'help';
 
 export type ActionGlyph =
   | {

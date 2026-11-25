@@ -13,12 +13,12 @@ import type { RoomSummary } from '@mattstack/rt-client';
 import { dmPairLabel } from './display-name';
 import { DmPairTitle } from './DmPairTitle';
 import { RoomMembers, type MemberBuddy } from './RoomMembers';
-import { SlackStop } from './SlackStop';
 import {
   isOpening,
   useLiveSlackRoom,
   useSlackChat,
 } from './slack-chats-context';
+import { SlackStop } from './SlackStop';
 
 /** Rendered inside `PageShell.Header`, which owns the surface, its padding and
     its border; this is the row's content. */
