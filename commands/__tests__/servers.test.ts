@@ -9,10 +9,12 @@ import type { RunningServer, ServerRules, ServerSnapshot } from "../../lib/endpo
 import type { FreshServers, StopOutcome } from "../../lib/endpoint/servers-system.ts";
 import { writeInterceptRules } from "../../lib/endpoint/shim.ts";
 import { saveClaims } from "../../lib/endpoint/store.ts";
+import { UserActionableError } from "../../lib/errors.ts";
 import type { LinearTicket } from "../../lib/linear.ts";
 import { closeStateDb } from "../../lib/state/index.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
+import { __test__ as pickTest, type PickHandle } from "../../lib/ui/pick.ts";
 import { installFakePick } from "../../lib/ui/pick-fake.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { branchesOf, realServersDeps, serverBlocks, serverHints, serversCommand, type Lookup, type ServersDeps } from "../servers.ts";
@@ -97,6 +99,11 @@ test("the hints name the agent, then what is odd about the server", () => {
   expect(serverHints(server({ agent: "claude", removed: true }))).toEqual(["Claude session", "worktree removed"]);
   expect(serverHints(server({ inside: "claude", listening: false }))).toEqual(["Claude session inside", "not listening"]);
   expect(serverHints(server({ inside: "shell" }))).toEqual(["shell inside"]);
+});
+
+test("a removed worktree is never the first branch looked up, since git is run in the first one's folder", () => {
+  const gone = server({ worktree: { path: "/trees/.trash/old-1", name: "old-1" }, branch: "web-198-order-totals", removed: true });
+  expect(branchesOf([gone, server()]).map((b) => b.path)).toEqual([TREE, "/trees/.trash/old-1"]);
 });
 
 test("one lookup per worktree, and none for a detached one", () => {
@@ -301,20 +308,15 @@ describe("serversCommand", () => {
     expect(io.stderr()).toBe("");
   });
 
-  test("a failed read fails and lists nothing", async () => {
-    const { run } = harness({ snapshots: [null] });
-    await run();
-    expect(io.stdout()).toBe("");
-    expect(io.stderr()).toBe("rt could not read what is running\n  why: The process list did not answer.\n");
-    expect(process.exitCode).toBe(1);
-  });
-
-  test("a failed read under --json is an ok:false envelope", async () => {
-    const { run } = harness({ snapshots: [null] });
-    await run(["--json"]);
-    expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "rt could not read what is running" });
-    expect(io.stderr()).toBe("");
-    expect(process.exitCode).toBe(1);
+  test("a failed read is the typed failure, and nothing is listed, with --json or without", async () => {
+    for (const args of [[], ["--json"]]) {
+      const error = await harness({ snapshots: [null] }).run(args).catch((err: unknown) => err);
+      expect(error).toBeInstanceOf(UserActionableError);
+      expect(error).toMatchObject({
+        code: "servers-read-failed", message: "rt could not read what is running", why: "The process list did not answer.", next: "rt servers",
+      });
+    }
+    expect([io.stdout(), io.stderr()]).toEqual(["", ""]);
   });
 
   test("the picker waits for ticket data and opens on it", async () => {
@@ -385,10 +387,8 @@ describe("serversCommand", () => {
 
   test("a re-read that fails after the pick stops nothing", async () => {
     const { run, calls } = harness({ canAsk: true, pick: [10], snapshots: [SNAPSHOT, null] });
-    await run();
+    await expect(run()).rejects.toBeInstanceOf(UserActionableError);
     expect(calls.stop).toBe(0);
-    expect(io.stderr()).toContain("rt could not read what is running");
-    expect(process.exitCode).toBe(1);
   });
 
   test("the stop compares against the re-read, and spares rt's ancestors as they are then", async () => {
@@ -445,6 +445,25 @@ describe("realServersDeps.pick", () => {
     expect(updates).toHaveLength(1);
     expect(updates[0]!.groupHeadings!["WEB-214"]!.left.at(-1)).toEqual({ text: "Add a login rate limit", bold: true });
     expect(updates[0]!.rows!.map((r) => r.value)).toEqual(request.rows.map((r) => r.value));
+  });
+
+  test("a late answer that reaches a picker already closing does not lose the pick", async () => {
+    pickTest.setImpl(() => ({
+      update: () => { throw new Error("EPIPE"); },
+      modal: async () => null,
+      result: Bun.sleep(5).then(() => ({ t: "result", action: "select", value: null, values: ["20"], query: "" }) as const),
+    }) as unknown as PickHandle);
+    const unhandled: unknown[] = [];
+    const onUnhandled = (err: unknown) => unhandled.push(err);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      expect(await realServersDeps.pick("sample-app", SERVERS, late(ENRICHED))).toEqual([20]);
+      await Bun.sleep(5);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      pickTest.setImpl(undefined);
+    }
   });
 
   test("a late lookup that found nothing leaves the rows standing", async () => {

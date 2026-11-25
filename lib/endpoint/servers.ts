@@ -138,9 +138,10 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
 
   const listed = snapshot.worktrees.map((w) => ({ path: w.path, branch: w.branch, removed: w.removed ?? false, real: canon(w.path) }));
   const placed = claims.map((c) => ({ role: c.role, port: c.port, path: c.worktree, tree: canon(c.worktree) }));
-  const unlisted = new Map(placed.filter((c) => !listed.some((t) => t.real === c.tree)).map((c) => [c.tree, c.path]));
+  // Claims are keyed by remote, so a folder that still exists unlisted is another clone's, or another repo's by now.
+  const deleted = new Map(placed.filter((c) => !listed.some((t) => t.real === c.tree) && !existsSync(c.tree)).map((c) => [c.tree, c.path]));
   // Longest first, so a tree nested in the main checkout wins over it.
-  const trees = [...listed, ...[...unlisted].map(([real, path]) => ({ path, branch: null, removed: true, real }))]
+  const trees = [...listed, ...[...deleted].map(([real, path]) => ({ path, branch: null, removed: true, real }))]
     .sort((a, b) => b.real.length - a.real.length);
   type Tree = (typeof trees)[number];
   const treeOf = (cwd: string) => {
@@ -200,10 +201,14 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
     const line = [proc.pid, ...ancestors(proc.pid)];
     const at = line.findIndex((p) => roots.has(p));
     if (at < 0) continue;
-    const root = line[at]!;
-    const session = at > 0 ? sessionName(proc) : null;
-    if (session !== null && (!insideOf.has(root) || session !== "shell")) insideOf.set(root, session);
-    if (!line.slice(0, at).some((p) => agentAt(p) !== null)) pidsOf.get(root)!.push(proc.pid);
+    const session = sessionName(proc);
+    if (session !== null) {
+      // Every server above it: stopping an outer one ends what runs inside the inner.
+      for (const root of line.slice(1).filter((p) => roots.has(p))) {
+        if (!insideOf.has(root) || session !== "shell") insideOf.set(root, session);
+      }
+    }
+    if (!line.slice(0, at).some((p) => agentAt(p) !== null)) pidsOf.get(line[at]!)!.push(proc.pid);
   }
 
   const servers = [...roots].map(([pid, { role, tree, leftBehind }]): RunningServer => {

@@ -6,6 +6,7 @@ import { readServerSnapshot, stopServers, type ServerRepo, type StopOutcome } fr
 import { loadInterceptRules } from "../lib/endpoint/shim.ts";
 import { loadClaims } from "../lib/endpoint/store.ts";
 import { enrichBranches, mrSegments, type EnrichedBranch } from "../lib/enrich.ts";
+import { UserActionableError } from "../lib/errors.ts";
 import { repoLabel } from "../lib/repo-label.ts";
 import { parseIdentity } from "../lib/settings/identity.ts";
 import * as out from "../lib/ui/out.ts";
@@ -79,8 +80,10 @@ function jsonServer(s: RunningServer) {
   return { role, port, listening, worktree, branch, pid, pids, startedAt: new Date(s.startTime).toISOString(), leftBehind, agent };
 }
 
+/** Live worktrees first: the lookup runs git in the first one's folder, and a removed tree has no repo to read. */
 export function branchesOf(servers: RunningServer[]): Array<{ path: string; branch: string }> {
-  const byPath = new Map(servers.flatMap((s) => (s.branch === null ? [] : [[s.worktree.path, s.branch] as const])));
+  const liveFirst = [...servers].sort((a, b) => Number(a.removed) - Number(b.removed));
+  const byPath = new Map(liveFirst.flatMap((s) => (s.branch === null ? [] : [[s.worktree.path, s.branch] as const])));
   return [...byPath].map(([path, branch]) => ({ path, branch }));
 }
 
@@ -155,9 +158,12 @@ export const realServersDeps: ServersDeps = {
       { rows: first.rows, actions: [STOP_ACTION], onOpen: (opened) => { handle = opened; } },
     );
     if (!lookup.landed) {
-      void lookup.answer.then((answer) => {
-        if (answer.size > 0) handle?.update(pickView(groupServers(servers, answer)));
-      });
+      void lookup.answer
+        .then((answer) => {
+          if (answer.size > 0) handle?.update(pickView(groupServers(servers, answer)));
+        })
+        // The picker can be closing as the answer lands; the pick still stands.
+        .catch(() => {});
     }
     return (await picked)?.map(Number) ?? null;
   },
@@ -210,14 +216,11 @@ export async function serversCommand(args: string[], ctx: CommandContext, deps: 
   if (json) out.payloadOnStdout();
   const { identity, repoRoot, remoteUrl } = ctx.identity!;
   const label = repoLabel(identity);
-  const read = () => {
-    const snapshot = () => deps.snapshot({ identity, root: repoRoot });
-    return json ? snapshot() : withTransientStep("Looking for running servers", snapshot);
-  };
-  const failRead = () => {
-    if (json) out.json({ ok: false, error: READ_FAILED });
-    else out.fail({ title: READ_FAILED, why: "The process list did not answer." });
-    process.exitCode = 1;
+  const read = async (): Promise<ServerSnapshot> => {
+    const once = () => deps.snapshot({ identity, root: repoRoot });
+    const snapshot = await (json ? once() : withTransientStep("Looking for running servers", once));
+    if (!snapshot) throw new UserActionableError("servers-read-failed", READ_FAILED, {}, { why: "The process list did not answer.", next: "rt servers" });
+    return snapshot;
   };
 
   const rules = deps.rules(identity);
@@ -228,7 +231,6 @@ export async function serversCommand(args: string[], ctx: CommandContext, deps: 
   }
 
   const snapshot = await read();
-  if (!snapshot) return failRead();
   const servers = findServers(snapshot, rules);
   if (json) {
     out.json({ ok: true, repo: identity, servers: servers.map(jsonServer) });
@@ -249,7 +251,6 @@ export async function serversCommand(args: string[], ctx: CommandContext, deps: 
     }
     // Read again: the picker can sit open for minutes, and a pid can be reused.
     const now = await read();
-    if (!now) return failRead();
     const spare = new Set([process.pid, ...ancestorPids(now.procs, process.pid)]);
     const chosen = servers.filter((s) => picked.includes(s.pid));
     const fresh = { servers: findServers(now, rules), procs: now.procs };

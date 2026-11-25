@@ -137,8 +137,9 @@ rows:
    `matchInvocation` must match it to a rule. The match gives the role. A
    one-off run of the same tool (`doppler secrets`) matches no rule and is left
    out. A server can outlive its worktree, so a removed tree rt still keeps and
-   a claimed path git no longer lists both count; the row says "worktree
-   removed".
+   a claimed folder that no longer exists both count; the row says "worktree
+   removed". A claimed folder that exists but git does not list is another
+   clone's, and does not count.
 3. Its tree is that process and everything under it.
 4. Its port is the one its tree listens on: the port claimed for that
    (worktree, role) or the role's `fixedPort` when the tree holds it, otherwise
@@ -171,9 +172,9 @@ fails the command; it never reads as nothing running.
   SIGKILL. Whole-tree is the point: stopping only the port holder leaves a
   respawning watcher that brings the server back. A process seen to have
   exited is never signalled again, since its pid can be reused.
-- A tree with an agent or an interactive shell inside it is refused whole, with
-  the reason: ending its parents would end it. So is a tree rt itself runs
-  inside. rt's own process and its ancestors are never signalled.
+- A tree with an agent or an interactive shell inside it, or inside a server
+  nested under it, is refused whole, with the reason: ending its parents would
+  end it. So is a tree rt itself runs inside. rt's own process and its ancestors are never signalled.
 - Each row reports its own result, named by port and heading text: stopped,
   already gone, or could not stop and why (`S5`). "Already gone" means its
   process is no longer running.

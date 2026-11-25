@@ -305,13 +305,16 @@ test("a session or an interactive shell inside a tree is named, and a script's s
   expect(inside("node src/server")).toEqual([null]);
 });
 
-test("a session inside a server of another role belongs to that server only", () => {
+test("a session inside a nested server counts for every server above it", () => {
   const found = findServers(snap([
     ...apiTree(API).slice(0, 2),
     { pid: 20, ppid: 11, args: WEB_RUN, cwd: WEB },
     { pid: 21, ppid: 20, args: "claude", cwd: WEB },
+    { pid: 30, ppid: 1, args: API_RUN, cwd: `${MAIN}/apps/api` },
   ]), rules());
-  expect(found.map((s) => [s.role, s.inside])).toEqual([["api", null], ["web", "claude"]]);
+  expect(found.map((s) => [s.role, s.worktree.name, s.inside])).toEqual([
+    ["api", "calm-marble", "claude"], ["web", "calm-marble", "claude"], ["api", "sample-app", null],
+  ]);
 });
 
 test("a server in a removed worktree rt still keeps is listed with that tree's branch", () => {
@@ -326,6 +329,19 @@ test("a server in a removed worktree rt still keeps is listed with that tree's b
 test("a server in a claimed worktree git no longer lists is still this repo's", () => {
   const found = findServers(snap(apiTree(API, [10400]), [{ path: MAIN, branch: "main" }]), rules([{ worktree: TREE, role: "api", port: 10400 }]));
   expect(found.map((s) => [s.worktree.path, s.branch, s.removed, s.port])).toEqual([[TREE, null, true, 10400]]);
+});
+
+test("a claimed folder that still exists but git does not list is not this repo's", () => {
+  const other = realpathSync(mkdtempSync(join(tmpdir(), "rt-clone-")));
+  try {
+    const found = findServers(
+      snap(apiTree(join(other, "apps", "api"), [10400]), [{ path: MAIN, branch: "main" }]),
+      rules([{ worktree: other, role: "api", port: 10400 }]),
+    );
+    expect(found).toEqual([]);
+  } finally {
+    rmSync(other, { recursive: true, force: true });
+  }
 });
 
 test("a claimed worktree git still lists is not a removed one", () => {
