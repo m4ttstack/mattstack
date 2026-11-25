@@ -22,12 +22,12 @@ flowchart TB
     run_field_get_cleared[/"run_field_get {runDb, key: evidence-cleared:<stem>}, for each board the upload carries"/]
     files_to_show{Any file to show?}
     files_left{Files left to show in this attach?}
-    run_budget_boards[/"run_budget {runDb, key: evidence:boards-openings:<first file of this opening>, limit: 3, stage}"/]
-    boards_openings_spent{boards-openings spent?}
     gate_evidence_boards
     boards_answer{boards answer?}
     revise_named_boards
     boards_revision_outcome{Board revision outcome?}
+    run_budget_boards[/"run_budget {runDb, key: evidence:boards-revisions:<first file of the opening that asked>, limit: 3, stage}"/]
+    boards_revisions_spent{boards-revisions spent?}
     evidence_attach[/"evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl}"/]
     attach_result{evidence_attach result?}
     stop_move_refused_file[STOP: only the human moves a refused file]:::stop
@@ -50,19 +50,19 @@ flowchart TB
     attach_failed(((Attach failed)))
     attach_evidence --> run_field_get_cleared
     run_field_get_cleared --> files_to_show
-    files_to_show -->|yes: the first 12 files to show| run_budget_boards
+    files_to_show -->|yes: the first 12 files to show| gate_evidence_boards
     files_to_show -->|no: every file a cleared board| evidence_attach
-    run_budget_boards --> boards_openings_spent
-    boards_openings_spent -->|no| gate_evidence_boards
-    boards_openings_spent -->|yes: nothing uploaded, the files still waiting named| attach_failed
     gate_evidence_boards --> boards_answer
     boards_answer -->|proceed + clear| files_left
-    files_left -->|yes: the next 12| run_budget_boards
+    files_left -->|yes: the next 12| gate_evidence_boards
     files_left -->|no: every file shown and answered clear| evidence_attach
     boards_answer -->|proceed + hide, or their words| revise_named_boards
     boards_answer -->|hold| attach_held
     revise_named_boards --> boards_revision_outcome
-    boards_revision_outcome -->|Recorded, or no board named: again from the first file| run_field_get_cleared
+    boards_revision_outcome -->|Recorded, or no board named| run_budget_boards
+    run_budget_boards --> boards_revisions_spent
+    boards_revisions_spent -->|no: again from the first file| run_field_get_cleared
+    boards_revisions_spent -->|yes: nothing uploaded, the files still waiting named| attach_failed
     boards_revision_outcome -->|Held at evidence-redaction, or Record held| attach_held
     boards_revision_outcome -->|Not revised: the failure quoted| attach_failed
     evidence_attach --> attach_result

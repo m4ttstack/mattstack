@@ -146,6 +146,7 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
 import calendar, json, os, re, sys, time
 
 MAX_AGE_MIN = 120
+SLEEP_GRACE_S = 60
 MAX_BYTES = int(os.environ.get("RT_STOP_HOOK_MAX_BYTES") or 64 * 1024 * 1024)
 SCAN_MS = int(os.environ.get("RT_STOP_HOOK_SCAN_MS") or 1500)
 # hooks.json kills the hook at 30 s and Claude Code then ignores it, so the
@@ -160,7 +161,7 @@ deadline = time.monotonic() + budget
 
 MCP = re.compile(r"moved to the background as task ([A-Za-z0-9_-]+)")
 TASK_ID = re.compile(r"<task-id>([A-Za-z0-9_-]+)</task-id>")
-SLEEP = re.compile(r"\s*sleep \d{1,3}\s*")
+SLEEP = re.compile(r"\s*sleep (\d{1,3})\s*")
 NEEDLES = (b"background as task", b"async_launched", b"resumedAgentId", b"<task-id>", b"TaskStop",
            b"run_in_background", b"backgroundTaskId")
 
@@ -168,8 +169,9 @@ def when(d):
     t = str(d.get("timestamp") or "")[:19]
     return calendar.timegm(time.strptime(t, "%Y-%m-%dT%H:%M:%S"))
 
+# task id -> when it stops counting as pending
 pending = {}
-sleeps = set()
+sleeps = {}
 with open(path, "rb") as f:
     size = os.fstat(f.fileno()).st_size
     if size > MAX_BYTES:
@@ -188,22 +190,23 @@ with open(path, "rb") as f:
                 continue
             tur = d.get("toolUseResult")
             if isinstance(tur, dict) and tur.get("status") == "async_launched" and tur.get("agentId"):
-                pending[tur["agentId"]] = when(d)
+                pending[tur["agentId"]] = when(d) + MAX_AGE_MIN * 60
                 continue
             # SendMessage restarts a finished agent under its own id.
             if isinstance(tur, dict) and tur.get("success") is True and tur.get("resumedAgentId"):
-                pending[tur["resumedAgentId"]] = when(d)
+                pending[tur["resumedAgentId"]] = when(d) + MAX_AGE_MIN * 60
                 continue
             if isinstance(tur, dict) and tur.get("backgroundTaskId"):
-                results = (d.get("message") or {}).get("content") or []
-                if any(isinstance(c, dict) and c.get("tool_use_id") in sleeps for c in results):
-                    pending[tur["backgroundTaskId"]] = when(d)
+                for c in (d.get("message") or {}).get("content") or []:
+                    seconds = sleeps.get(c.get("tool_use_id")) if isinstance(c, dict) else None
+                    if seconds is not None:
+                        pending[tur["backgroundTaskId"]] = when(d) + seconds + SLEEP_GRACE_S
                 continue
             for item in tur if isinstance(tur, list) else []:
                 text = item.get("text") if isinstance(item, dict) and item.get("type") == "text" else None
                 m = MCP.search(text) if isinstance(text, str) and text.startswith("MCP tool ") else None
                 if m:
-                    pending[m.group(1)] = when(d)
+                    pending[m.group(1)] = when(d) + MAX_AGE_MIN * 60
         elif kind == "assistant":
             for c in (d.get("message") or {}).get("content") or []:
                 if not isinstance(c, dict) or c.get("type") != "tool_use":
@@ -211,8 +214,10 @@ with open(path, "rb") as f:
                 args = c.get("input") or {}
                 if c.get("name") == "TaskStop":
                     pending.pop(str(args.get("task_id")), None)
-                elif c.get("name") == "Bash" and args.get("run_in_background") is True and SLEEP.fullmatch(str(args.get("command"))):
-                    sleeps.add(c.get("id"))
+                elif c.get("name") == "Bash" and args.get("run_in_background") is True:
+                    m = SLEEP.fullmatch(str(args.get("command")))
+                    if m:
+                        sleeps[c.get("id")] = int(m.group(1))
         elif kind == "queue-operation" and d.get("operation") == "remove":
             m = TASK_ID.search(d.get("content") or "")
             if m:
@@ -223,7 +228,7 @@ with open(path, "rb") as f:
                 pending.pop(m.group(1), None)
 
 now = time.time()
-sys.exit(0 if any(now - at <= MAX_AGE_MIN * 60 for at in pending.values()) else 1)
+sys.exit(0 if any(now <= until for until in pending.values()) else 1)
 PY
   then exit 0; fi
 fi

@@ -263,18 +263,23 @@ r="$(run "$(stop_with "$T")")"
 case "$r" in exit=2*) echo "ok   background shell task alone exits 2";; *) echo "FAIL background shell task alone exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
 
 # A background sleep ends by itself, so it is a wait; any other shell is not.
-transcript "$T" 5 sleep-call sleep-background
+transcript "$T" 1 sleep-call sleep-background
 check "pending background sleep exits 0" "exit=0 err= out=" "$(run "$(stop_with "$T")")"
 
-transcript "$T" 5 sleep-call sleep-background sleep-removed
+# A killed pane writes no removal line, so a sleep past its own length is over.
+transcript "$T" 5 sleep-call sleep-background
+r="$(run "$(stop_with "$T")")"
+case "$r" in exit=2*) echo "ok   a background sleep past its length exits 2";; *) echo "FAIL a background sleep past its length exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+
+transcript "$T" 1 sleep-call sleep-background sleep-removed
 r="$(run "$(stop_with "$T")")"
 case "$r" in exit=2*) echo "ok   finished background sleep exits 2";; *) echo "FAIL finished background sleep exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
 
-transcript "$T" 5 sleep-chained-call sleep-background
+transcript "$T" 1 sleep-chained-call sleep-background
 r="$(run "$(stop_with "$T")")"
 case "$r" in exit=2*) echo "ok   a background sleep chained to another command exits 2";; *) echo "FAIL a background sleep chained to another command exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
 
-transcript "$T" 5 sleep-sidechain-call sleep-background-sidechain
+transcript "$T" 1 sleep-sidechain-call sleep-background-sidechain
 r="$(run "$(stop_with "$T")")"
 case "$r" in exit=2*) echo "ok   a sidechain sleep is not a pending task";; *) echo "FAIL a sidechain sleep is not a pending task"; echo "       got : $r"; fails=$((fails+1));; esac
 

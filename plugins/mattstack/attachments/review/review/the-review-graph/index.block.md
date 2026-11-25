@@ -109,6 +109,8 @@ flowchart TB
     mr_posted_since[/"mr_posted_since {mrUrl, since: <run started_at>, items}"/]
     mr_threads_posted[/"mr_threads {mrUrl, refresh: true} (posted already)"/]
     review_already_posted{This review already on the MR?}
+    gate_off_script_posted
+    posted_off_answer{Posted-already off-script answer?}
     mr_review_submit[/"mr_review_submit {mrUrl, outcome, summary, comments, replies}"/]
     mr_review_submit_result{mr_review_submit result?}
     run_budget_bad_anchors[/"run_budget {runDb, key: bad-anchors, limit: 2, stage}"/]
@@ -309,7 +311,13 @@ flowchart TB
     review_already_posted -->|no| mr_review_submit
     review_already_posted -->|yes, approval outstanding| gate_off_script_approve
     review_already_posted -->|yes, nothing outstanding| gate_record
-    review_already_posted -->|partly, or the read errored| gate_off_script_submit
+    review_already_posted -->|partly| gate_off_script_submit
+    review_already_posted -->|the read errored| gate_off_script_posted
+    gate_off_script_posted --> posted_off_answer
+    posted_off_answer -->|take: the human posted or finished it| gate_record
+    posted_off_answer -->|iterate here: read the MR again| resume_forge
+    posted_off_answer -->|hold| run_hold
+    posted_off_answer -->|hand back| own_run_abandon
     mr_review_submit --> mr_review_submit_result
     mr_review_submit_result -->|published, approved as asked| gate_record
     mr_review_submit_result -->|published, approved: false on an approve| gate_off_script_approve
