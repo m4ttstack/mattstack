@@ -388,7 +388,9 @@ export async function dispatch(
   } else if (node.context === "repo") {
     const cwdBefore = process.cwd();
     const { requireRepoIdentity } = await import("./repo.ts");
-    ctx.identity = await requireRepoIdentity(commandLabel);
+    // The verb's own --json; one that passes a command through can carry another's.
+    const ownJson = rest.includes("--json") && (node.args ?? []).some((arg) => arg.flag === "--json");
+    ctx.identity = await requireRepoIdentity(commandLabel, { ask: !ownJson });
 
     if (process.cwd() !== cwdBefore) {
       clearScreen();

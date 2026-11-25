@@ -361,6 +361,18 @@ describe("serversCommand", () => {
     expect(io.stdout()).toBe("[ok] Stopped web  Add a login rate limit\n");
   });
 
+  test("two results that would read the same say which server each is", async () => {
+    const twins: ServerSnapshot = {
+      ...SNAPSHOT,
+      procs: [proc(20, 1, "rt intercept run doppler -- run -- node a"), proc(30, 1, "rt intercept run doppler -- run -- node b"), ...SNAPSHOT.procs.slice(4)],
+      cwds: new Map([[20, `${TREE}/apps/api`], [30, `${TREE}/apps/api`]]),
+      listeners: new Map(),
+    };
+    const { run } = harness({ canAsk: true, pick: [20, 30], rules: { ...RULES, claims: [] }, snapshots: [twins, twins] });
+    await run();
+    expect(io.stdout()).toBe("[ok] Stopped api  no port calm-marble 20, Add a login rate limit\n[ok] Stopped api  no port calm-marble 30, Add a login rate limit\n");
+  });
+
   test("a stop while ticket data is still missing is named by its branch", async () => {
     const { run } = harness({ canAsk: true, pick: [10], enrich: NEVER, deadlinePasses: true });
     await run();
@@ -424,6 +436,8 @@ test("rows with the same role and port say which worktree, so no two picks read 
     pickView(groupServers(servers, new Map())).rows.map((r) => r.left.slice(0, 2).map((s) => s.text).join("").replace(/ +/g, " ")).sort();
   expect(view([twin(10, "calm-marble"), twin(20, "old-pond"), server({ pid: 30, role: "web", port: 4001 })])).toEqual(["api no port calm-marble", "api no port old-pond", "web :4001"]);
   expect(view([twin(10, "calm-marble"), twin(20, "calm-marble")])).toEqual(["api no port calm-marble 10", "api no port calm-marble 20"]);
+  const { rows } = pickView(groupServers([twin(10, "calm-marble"), twin(20, "calm-marble")], new Map()));
+  expect(rows.map((r) => r.match!.endsWith(` no port calm-marble ${r.value}`))).toEqual([true, true]);
 });
 
 describe("realServersDeps.pick", () => {

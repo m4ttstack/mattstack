@@ -304,9 +304,12 @@ test("a session or an interactive shell inside a tree is named, and a script's s
   expect(inside("bash --init-file /tmp/session.rc")).toEqual(["shell"]);
   expect(inside("zsh -o vi")).toEqual(["shell"]);
   expect(inside("bash -i --rcfile /tmp/my session.rc")).toEqual(["shell"]);
+  expect(inside("bash --rcfile /tmp/my session.rc")).toEqual(["shell"]);
+  expect(inside("fish -C source x.fish")).toEqual(["shell"]);
   expect(inside("bash -o pipefail -c node src/server")).toEqual([null]);
   expect(inside("/bin/zsh -lc node src/server")).toEqual([null]);
-  expect(inside("bash --rcfile /tmp/session.rc scripts/start.sh")).toEqual([null]);
+  expect(inside("zsh -i -c npm run dev")).toEqual([null]);
+  expect(inside("bash -C scripts/start.sh")).toEqual([null]);
   expect(inside("fish --command node")).toEqual([null]);
   expect(inside("sh -c node src/server")).toEqual([null]);
   expect(inside("/bin/bash scripts/start.sh")).toEqual([null]);

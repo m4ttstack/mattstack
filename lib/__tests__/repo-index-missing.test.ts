@@ -159,7 +159,7 @@ describe("missing index rows", () => {
       ui.__test__.setHuman(() => false);
       try {
         await expect(pickWorktree("Pick a repo")).rejects.toThrow("process.exit sentinel");
-        expect(io.stderr()).toContain(`  why: rt knows more than one ${what} and cannot ask which one you mean without a terminal.\n`);
+        expect(io.stderr()).toContain(`  why: rt knows more than one ${what} and cannot ask which one you mean.\n`);
         expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
       } finally {
         io.restore();

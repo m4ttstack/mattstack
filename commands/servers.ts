@@ -43,7 +43,8 @@ const READ_FAILED = "rt could not read what is running";
 /** The width rt cd pads its ticket states to. */
 const STATE_WIDTH = 15;
 
-const portText = (s: RunningServer) => (s.port === null ? "no port" : `:${s.port}`);
+const NO_PORT = "no port";
+const portText = (s: RunningServer) => (s.port === null ? NO_PORT : `:${s.port}`);
 
 export function serverHints(s: RunningServer): string[] {
   return [
@@ -105,7 +106,7 @@ function groupHeading(group: ServerGroup): PickGroupHeading {
   };
 }
 
-/** Role and port are all the selected strip prints, so a pair that repeats adds its worktree, then its pid. */
+/** Role and port are all the selected strip and a result line print, so a pair that repeats adds its worktree, then its pid. */
 function portCells(servers: RunningServer[]): (server: RunningServer) => string {
   const short = (s: RunningServer) => portText(s);
   const placed = (s: RunningServer) => `${portText(s)} ${s.worktree.name}`;
@@ -121,7 +122,7 @@ export function pickView(groups: ServerGroup[]): { rows: PickRow[]; groupHeading
   const uptimeWidth = Math.max(...all.map(({ uptime }) => uptime.length));
   const rows = all.map(({ group, row, uptime }): PickRow => ({
     value: String(row.server.pid),
-    match: serverMatch(group, row),
+    match: portCell(row.server) === portText(row.server) ? serverMatch(group, row) : `${serverMatch(group, row)} ${portCell(row.server)}`,
     group: group.key,
     left: [
       { text: `${row.server.role.padEnd(roleWidth)}  `, tone: "peach", bold: true },
@@ -208,11 +209,13 @@ async function enrichedWithin(deps: ServersDeps, lookup: Lookup, ms: number): Pr
 
 function printOutcomes(outcomes: StopOutcome[], groups: ServerGroup[]): void {
   const titles = new Map(groups.flatMap((group) => group.servers.map((row) => [row.server.pid, group.title] as const)));
+  const portCell = portCells(groups.flatMap((group) => group.servers.map((row) => row.server)));
   const done: Block[] = [];
   const refused: Block[] = [];
   const failures: out.FailureInput[] = [];
   for (const { server, result, why } of outcomes) {
-    const where = [server.port === null ? null : portText(server), titles.get(server.pid)].filter(Boolean).join(", ");
+    const cell = portCell(server);
+    const where = [cell === NO_PORT ? null : cell, titles.get(server.pid)].filter(Boolean).join(", ");
     if (result === "stopped") done.push(out.line("done", `Stopped ${server.role}`, where));
     else if (result === "gone") done.push(out.line("skipped", `${server.role} had already stopped`, where));
     else if (result === "refused") refused.push(out.line("refused", `Left ${server.role} running`, where), out.callout("why", why ?? ""));

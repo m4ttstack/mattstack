@@ -93,8 +93,9 @@ listening", "left behind"), and uptime pinned right.
   each led by its branch, since there is no one MR for the heading.
 - **Order:** groups by their oldest server, so the stalest work is first. Inside
   a group, by branch, then role.
-- **The label** the picker's selected strip prints is role and port, so two
-  rows never read the same.
+- **The label** the picker's selected strip and the results print is role and
+  port. A pair that repeats (two with no port, say) adds its worktree, then its
+  pid, so two rows never read the same.
 - **The header** says "ctrl-a marks all", because the picker hides that key
   until ctrl is held. Enter reads "stop".
 - **The filter** matches role, port, ticket id, state, title, branch, MR title

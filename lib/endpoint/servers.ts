@@ -111,21 +111,25 @@ function isUsersOwn(proc: ServerProc): boolean {
   return isUserOrAgentProcess(asCandidate(proc)) || (proc.args.includes(".app/Contents/") && !proc.args.includes("/Python.app/Contents/"));
 }
 
-const SHELL = /^-?(?:\S*\/)?(?:zsh|bash|fish|sh)$/;
-const SHELL_OPTIONS_WITH_OPERAND = new Set(["--rcfile", "--init-file", "-o", "+o", "-O", "+O", "-C", "--init-command"]);
+const SHELL = /^-?(?:\S*\/)?(zsh|bash|fish|sh)$/;
+const RUNS_A_COMMAND = /^(?:-[a-zA-Z]*c[a-zA-Z]*|--command)$/;
+const STARTS_A_SESSION = /^(?:-[a-zA-Z]*i[a-zA-Z]*|--rcfile|--init-file|--init-command)$/;
+const SET_OPTION = /^[-+][oO]$/;
 
-/** A shell a person types into: asked to be with -i, or given neither a command nor a script to run. */
+/**
+ * A shell a person types into. Only the options before the first operand are
+ * read, since ps loses the quoting that says where an operand ends.
+ */
 function isInteractiveShell(args: string): boolean {
-  const [shell, ...rest] = args.split(" ");
-  if (!SHELL.test(shell!)) return false;
-  for (let i = 0; i < rest.length; i++) {
-    const option = rest[i]!;
-    if (SHELL_OPTIONS_WITH_OPERAND.has(option)) i++;
-    else if (option === "--command" || /^-[a-zA-Z]*c[a-zA-Z]*$/.test(option)) return false;
-    else if (/^-[a-zA-Z]*i[a-zA-Z]*$/.test(option)) return true;
-    else if (!/^[-+]/.test(option)) return false;
-  }
-  return true;
+  const [first, ...words] = args.split(" ");
+  const shell = SHELL.exec(first!)?.[1];
+  if (shell === undefined) return false;
+  const rest = words.filter((_word, i) => !SET_OPTION.test(words[i - 1] ?? ""));
+  const operand = rest.findIndex((word) => !/^[-+]/.test(word));
+  const options = operand === -1 ? rest : rest.slice(0, operand);
+  if (options.some((option) => RUNS_A_COMMAND.test(option))) return false;
+  if (options.some((option) => STARTS_A_SESSION.test(option) || (shell === "fish" && option === "-C"))) return true;
+  return operand === -1;
 }
 
 function sessionName(proc: ServerProc): string | null {
