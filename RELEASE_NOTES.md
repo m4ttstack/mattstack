@@ -1,43 +1,88 @@
-mattstack now installs its own updates. With the new org setting `mattstack.autoUpdate` on (the default), the app downloads and installs each new release without a prompt, waiting while setup runs or the daemon is busy, and dev Macs update themselves every hour. A daemon restart no longer fails agents' calls.
+Setup now installs mattstack's own herdr build and the Flock app on every Mac, and an app update brings set-up Macs onto both. Teammates can ask the org's support host for help from the board or the app, and text people write on the switchboard is now sealed so the relay cannot read it.
 
-### Automatic updates
+### Setup
 
-- the app installs a new release silently when `mattstack.autoUpdate` is on; it holds while setup runs or the daemon is busy and retries each minute, then reopens the windows that were open, without taking focus unless mattstack was in front (#1256)
-- the app checks hourly, or every six hours with the setting off; the "Check for updates automatically" switch is gone, and a Mac that turned checking off has it switched back on (#1256)
-- with the setting off, the update prompt returns and the status reads `orgOff`; an update that cannot install silently (one needing an admin password) still opens Sparkle's window (#1256)
-- dev Macs: the daemon runs `rt dev update --auto` each hour, which checks the clone, the daemon and the pinned tools before it fast-forwards, installs, builds and swaps the app; a hold sends one notification per version and reason (#1256)
-- the telemetry page names every hold and shows an org-off Mac as off (#1256)
+- setup installs the patched herdr from the m4ttstack/herdr fork's build list for every user, instead of stock herdr from herdr.dev; it checks the download's SHA-256, removes Homebrew's herdr, and moves each running server onto the new build by live handoff (#1262)
+- the herdr row reads below the minimum build (`0.9.5-ms.1`), outdated, shadowed by another herdr on PATH, or waiting on a restart; the update-safe "Set up herdr" step installs the fork build on each app update when needed (#1262)
+- setup downloads the notarized Flock app from m4ttstack/flock's latest release, checks its signature and notarization, and puts it in `/Applications`, or `~/Applications` on a non-admin account; Sparkle keeps it current after that (#1263)
+- Flock is a required row on macOS 15 or newer and optional below it; an app update installs it once, and a Flock the member removed is left alone (#1263)
+- `rt tools install flock-app` installs Flock by hand (#1263)
 
-### Daemon
+### Support
 
-- a daemon restart, from an app update or by hand, no longer fails agents' calls: the daemon answers "starting" and "stopping" while it boots and drains, and clients retry for up to 20 seconds without resending a request (#1255)
-- `rt daemon restart` reports success once the new daemon serves, `rt daemon start` leaves a booting daemon alone, `rt agent` and `rt sync all` wait through a restart, and `rt state restore` refuses during one (#1255)
+- a teammate asks the org's support host for help from the board (**Need help?**, or **need help with this MR?** in a row's menu) or from **Ask Maude…** in the app's Help menu and menu bar item, and the host's Mac opens a Slack chat with them (#1272, #1276)
+- `rt team support on|off|status`, the console's `support.enabled` switch and Settings > Team turn support on and pick the host; turning it on makes the org's support key, and removing a member rotates it (#1272, #1274)
+- a host can stop a chat, which holds that person's next request for 24 hours (#1272, #1276)
+- the **Support host** setup row says what the host's Mac still needs, and the **Support key** row offers a Fix to an admin whose org has support on with no key (#1272, #1274)
+- the switchboard queues support requests apart from the board inbox (#1267)
+
+### Switchboard
+
+- asks (title, branch and note), decline notes, free-text reasons, announcements and support requests are sealed to the recipients' roster keys with the bundled `age`, so only their Macs open them (#1279)
+- a sender is told when someone cannot receive notes yet, and an announcement says how many people could not read it (#1279)
+- version pings carry counts, kinds and times instead of the org clone's file, branch and commit names, and the relay clears the names it already held (#1280)
+
+### rt
+
+- `rt servers` lists the dev servers rt intercepted in this repo's worktrees, grouped by ticket, and stops the ones you pick; piped or with `--json` it only lists (#1283)
+- `rt tools stale herdr` and `rt tools restart herdr` find and restart herdr servers still running an older build (#1264)
+- `load_skill` accepts skill folders reached through a `CLAUDE_CONFIG_DIR` profile's plugins link (#1269)
+- `load_skill` leaves compile's part markers out of the text it serves (#1284)
+
+### Gate forms
+
+- a pane waiting on a gate form reads as blocked in herdr, and stays blocked after a herdr handoff or `/clear` (#1261, #1264)
+- a one-question gate submits from its question, with run controls under **More** (#1273)
+- an answered form is a two-line message, and large gate, ledger and to-do calls show a short row in the transcript; ctrl+o shows the full call (#1268, #1271)
+
+### Skills and pipelines
+
+- a run that needs the developer opens a gate instead of holding (#1281)
+- the evidence stage starts unclaimed dev servers itself instead of asking the developer to (#1275)
+- a board review can't skip building its full review gate (#1266)
+- the pipeline stop hook counts an agent resumed with `SendMessage` as running (#1278)
+- the compact-before-plan rule takes the pane route where a managed account's guard skips the fresh-context hooks, and holds the run while it compacts (#1277)
+
+### Board
+
+- `g` opens the decision queue, shown as a key beside Open queue
+- the MR card's branches get their own line
+
+### Chat
+
+- code blocks wrap, with copy and wrap buttons that show on hover (#1265)
 
 ### Console
 
-- the settings repo picker offers every registered repo, grouped by owner; a per-project row opens with no project picked, and the pick stays in the page's link (#1253)
-- a slow settings read or team push no longer drops at Bun's 10 second idle timeout: the app server now allows 255 seconds (#1259, #1260)
+- the paused banner says who paused a run, and why
+- provision shows its branch and worktree
+- a clean retry stays in a run's stage list
+- an agent working under its own hold reads as running
+- gate rows get hover padding, a visible hover and aligned text
 
-### Endpoint
+### Tray
 
-- rt merges its keys into a dev script's existing doppler `--preserve-env` list instead of skipping its own inject, and warns when it cannot find where to inject (#1254)
+- **Restart herdr…** shows in the menu bar menu while herdr runs an older build (#1264)
+- Cmd-H hides the app, and a hidden window still counts as open
 
-### Human Todos
+### Mods
 
-- the Skip button is now **Dismiss**, and a dismissal no longer starts a turn: the agent hears about it with your next prompt (#1252)
-- a second Send while a busy turn still holds the first one no longer sends the item twice (#1257)
+- fresh-context's `then` can name only a plugin skill, and human-todos refuses hidden and direction-changing characters in what it shows and runs (#1270)
 
-### Skills
+### Existing installs
 
-- the PR usher clears its context only at the end of a scheduled tick, so a chat message no longer swallows its next wakeup (#1250)
-- the compact-before-plan rule compacts with `fresh_context`, falling back to the pane route when a chat message started the turn (#1251)
+- someone with no key in the org's roster gets asks and announcements without their text; an org admin runs `rt team members sync` on this release after a new person joins, and `rt settings get mattstack.roster` shows who has a key
 
 ### Held pins
 
-- bun stays at 1.4.4 (1.4.5 is out), cloudflared at 2026.11.1 (2026.11.2 is out), and Sparkle at 2.10.0 (2.10.1 is out): a Sparkle bump gets its own tested release.
+- zstd stays at 1.5.7 (1.6.0 is out), glab at 1.131.0 (1.133.0 is out), bun at 1.4.4 (1.4.5 is out), cloudflared at 2026.11.1 (2026.11.2 is out), and Sparkle at 2.10.0 (2.10.1 is out): a Sparkle bump gets its own tested release.
 
 ### Known issues
 
-- the silent install path first runs on the release after this one, once Macs are on v2.37.0; its live checks (a silent install with a window open behind another app, a busy hold during a provision, the org-off prompt, and the dev auto-update surviving a daemon restart) happen then
+- this is the first release Macs install silently; on update they move to herdr `0.9.5-ms.3` and get Flock. A live herdr handoff was tested from 0.9.5 builds only, and running servers keep the old build until someone uses **Restart herdr…**
+- a board on v2.37.0 shows a sealed ask without its title, branch and note, a sealed decline without its typed note, and a sealed announcement as "Update mattstack to read this"; the text comes back for new messages once that Mac updates
+- support requests and sealed text have not yet run between two Macs; the live test follows this release
+- on a Mac where Claude Code has never run, Flock's own herdr install shows a "Claude integration didn't install" card with the command to run
+- a pack author whose app is older than this release but whose mattstack plugin is 0.32.101 or newer sees `rt skills check` report a team pack's review skill as too large; update the app before checking or syncing a pack
 
-**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.36.1...v2.37.0
+**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.37.0...v2.38.0
