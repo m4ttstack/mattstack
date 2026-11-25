@@ -20,11 +20,11 @@ import {
   DM,
   MR,
   MR_PART,
-  NOBODY,
   NOW,
   READY,
   request,
   SETUP,
+  UNREACHED,
   VERSIONS,
 } from '../support/support.fixtures.ts';
 
@@ -234,8 +234,8 @@ test('who answers, by first name', () => {
     "Alex's Mac answers in Slack"
   );
   expect(whoAnswers('Alex', AWAY.availability)).toBe("Alex's Mac is away");
-  expect(whoAnswers('Alex', NOBODY.availability)).toBe(
-    "Alex's Mac isn't answering"
+  expect(whoAnswers('Alex', UNREACHED.availability)).toBe(
+    "Alex's Mac can't be reached"
   );
 });
 

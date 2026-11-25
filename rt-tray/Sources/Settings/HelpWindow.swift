@@ -113,7 +113,7 @@ struct HelpForm: View {
     // MARK: - Asking
 
     private var answering: (words: String, color: Color) {
-        if !availability.isOffered { return ("\(host)'s Mac isn't answering", .red) }
+        if !availability.isOffered { return ("\(host)'s Mac can't be reached", .red) }
         return availability.away == true ? ("\(host)'s Mac is away", .orange) : ("\(host)'s Mac answers in Slack", .green)
     }
 
@@ -263,13 +263,13 @@ enum HelpWindowSnapshot {
         let away = HelpAvailability(state: "ready", host: "Alex Moreau", away: true, persona: "Maude")
         func form(_ a: HelpAvailability, _ text: String, _ card: HelpCard? = nil) -> HelpForm {
             HelpForm(availability: a, host: "Alex", text: .constant(text), parts: parts, partsFailed: false, left: [], isSending: false,
-                     canSend: !text.isEmpty && a.isOffered, card: card, cardText: words, actions: HelpFormActions())
+                     canSend: !text.isEmpty, card: card, cardText: words, actions: HelpFormActions())
         }
         func card(_ state: String, away: Bool = false, dm: String? = nil, reason: String? = nil) -> HelpCard {
             HelpCards.request(HelpRequest(id: "r", text: words, state: state, reason: reason, dmLink: dm, away: away), host: "Alex", bot: "Maude")
         }
         let shots: [(String, HelpForm)] = [
-            ("asking", form(ready, words)), ("empty", form(ready, "")), ("away", form(away, words)), ("nobody", form(.hidden, words)),
+            ("asking", form(ready, words)), ("empty", form(ready, "")), ("away", form(away, words)), ("unreached", form(.hidden, words)),
             ("sent", form(ready, "", card("sent"))), ("received", form(ready, "", card("received"))),
             ("opened", form(ready, "", card("opened", dm: "slack://user?team=T0ACME&id=U0ALEX"))),
             ("waiting", form(ready, "", card("waiting"))), ("mac-away", form(ready, "", card("sent", away: true))),

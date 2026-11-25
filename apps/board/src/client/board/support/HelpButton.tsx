@@ -228,10 +228,14 @@ export function HelpButton({ help }: { help: Help }) {
   const close = () => setOpen(false);
   const body = help.error ? (
     <StatusCard
-      card={sendErrorCard(help.error, help.host, help.requests.some(isOpen))}
+      card={sendErrorCard(
+        help.error,
+        help.error.host,
+        help.requests.some(isOpen)
+      )}
       words={help.text}
-      host={help.host}
-      hostDm={help.hostDm}
+      host={help.error.host}
+      hostDm={help.error.hostDm}
       onClose={close}
       onTryAgain={help.send}
       onShowIt={help.clearError}

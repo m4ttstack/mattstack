@@ -145,7 +145,7 @@ public final class HelpRequestModel: ObservableObject {
     @Published public private(set) var host = ""
     @Published public private(set) var isSending = false
     @Published public private(set) var shown: HelpRequest?
-    @Published public private(set) var refused: (code: String, message: String)?
+    @Published public private(set) var refused: (code: String, message: String, host: String)?
     private var requests: [HelpRequest] = []
     private struct Attempt { let id: String; let text: String; let parts: [HelpPart] }
     private var attempt: Attempt?
@@ -159,7 +159,7 @@ public final class HelpRequestModel: ObservableObject {
 
     public var sentParts: [HelpPart] { (parts ?? []).filter { !left.contains($0.key) } }
     private var words: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-    public var canSend: Bool { !isSending && parts != nil && !words.isEmpty && availability.isOffered }
+    public var canSend: Bool { !isSending && parts != nil && !words.isEmpty }
 
     private static func cut(_ text: String) -> String {
         var end = text.utf16.index(text.startIndex, offsetBy: textMax)
@@ -169,7 +169,7 @@ public final class HelpRequestModel: ObservableObject {
 
     public var card: HelpCard? {
         if let refused {
-            return HelpCards.refusal(code: refused.code, message: refused.message, host: host, waiting: requests.contains(where: \.isOpen))
+            return HelpCards.refusal(code: refused.code, message: refused.message, host: refused.host, waiting: requests.contains(where: \.isOpen))
         }
         guard let shown else { return nil }
         return HelpCards.request(shown, host: shown.hostFirstName ?? host, bot: availability.bot,
@@ -209,8 +209,6 @@ public final class HelpRequestModel: ObservableObject {
     }
 
     public func send() async {
-        // With nobody to send to, the form is what says so.
-        guard availability.isOffered else { refused = nil; return }
         guard canSend else { return }
         // rt takes a retry under the same id, and changed words as a new request.
         var mine = Attempt(id: newId(), text: words, parts: sentParts)
@@ -224,8 +222,8 @@ public final class HelpRequestModel: ObservableObject {
             text = ""
             left = []
             shown = request
-        case .refused(let code, let message): refused = (code, message)
-        case .noAnswer: refused = ("no-answer", "rt did not answer")
+        case .refused(let code, let message): refused = (code, message, host)
+        case .noAnswer: refused = ("no-answer", "rt did not answer", host)
         }
         await refreshRequests()
         isSending = false

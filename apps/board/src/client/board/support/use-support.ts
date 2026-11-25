@@ -16,7 +16,7 @@ import {
   isOpen,
   type HelpMr,
   type HelpRequest,
-  type SendError,
+  type RefusedSend,
 } from './support-model.ts';
 
 const SEEN_KEY = 'board-support-seen';
@@ -51,10 +51,8 @@ function newId(): string {
 
 export interface Help {
   read: SupportRead;
-  /** The host's first name and a DM with them, kept after they stop
-      answering. */
+  /** The host's first name, kept after they stop answering. */
   host: string;
-  hostDm: string | null;
   request: HelpRequest | null;
   requests: readonly HelpRequest[];
   open: boolean;
@@ -71,7 +69,7 @@ export interface Help {
   loadParts: () => void;
   removePart: (key: SupportPart['key']) => void;
   sending: boolean;
-  error: SendError | null;
+  error: RefusedSend | null;
   clearError: () => void;
   send: () => void;
   /** The form again, holding a settled request's words. */
@@ -94,7 +92,7 @@ export function useSupport(local: boolean): Help | null {
   const [parts, setParts] = useState<SupportPart[] | null>(null);
   const [partsFailed, setPartsFailed] = useState(false);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState<SendError | null>(null);
+  const [error, setError] = useState<RefusedSend | null>(null);
   const asking = useRef(0);
   const attempt = useRef<{ id: string; body: string } | null>(null);
 
@@ -202,8 +200,6 @@ export function useSupport(local: boolean): Help | null {
   );
 
   const send = useCallback(() => {
-    // With nobody to send to, the form is what says so.
-    if (!offered) return setError(null);
     if (sending || parts === null || !text.trim()) return;
     const words = text.trim();
     const body = JSON.stringify([words, parts]);
@@ -215,7 +211,11 @@ export function useSupport(local: boolean): Help | null {
       .then(async sent => {
         if ('error' in sent) {
           await refreshRequests();
-          return setError(sent.error);
+          return setError({
+            ...sent.error,
+            host: asked.host,
+            hostDm: asked.dm,
+          });
         }
         const { request: stored } = sent;
         setRequests(rs => [stored, ...rs.filter(r => r.id !== stored.id)]);
@@ -225,14 +225,13 @@ export function useSupport(local: boolean): Help | null {
         setParts(null);
       })
       .finally(() => setSending(false));
-  }, [offered, sending, parts, text, refreshRequests]);
+  }, [sending, parts, text, asked, refreshRequests]);
 
   // What someone is writing or reading stays while its card is open.
   if (!read || (!offered && !request && !(open && asked.host))) return null;
   return {
     read,
     host: asked.host,
-    hostDm: asked.dm,
     request,
     requests,
     open,

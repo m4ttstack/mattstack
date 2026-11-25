@@ -26,8 +26,8 @@ export const AWAY: SupportRead = {
   },
 };
 
-/** The host stopped answering, or the relay did not answer. */
-export const NOBODY: SupportRead = {
+/** The host stopped answering, or this Mac cannot ask the relay. */
+export const UNREACHED: SupportRead = {
   ...READY,
   availability: { state: 'hidden' },
 };

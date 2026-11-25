@@ -170,6 +170,12 @@ export interface SendError {
   message: string;
 }
 
+/** A refusal, with who was being asked when it came. */
+export interface RefusedSend extends SendError {
+  host: string;
+  hostDm: string | null;
+}
+
 /** A send rt turned down, or never answered. */
 export function sendErrorCard(
   err: SendError,
@@ -282,7 +288,7 @@ export function pill(
 }
 
 export function whoAnswers(host: string, a: SupportAvailability): string {
-  if (a.state === 'hidden') return `${host}'s Mac isn't answering`;
+  if (a.state === 'hidden') return `${host}'s Mac can't be reached`;
   return a.state === 'ready' && a.away
     ? `${host}'s Mac is away`
     : `${host}'s Mac answers in Slack`;

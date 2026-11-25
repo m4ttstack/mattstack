@@ -11,9 +11,9 @@ import {
   MR,
   MR_PART,
   NO_SLACK,
-  NOBODY,
   READY,
   request,
+  UNREACHED,
   VERSIONS,
   WORDS,
 } from '../support/support.fixtures.ts';
@@ -256,16 +256,21 @@ const refused = () =>
     { status: 409 }
   );
 
-test('a host who stops answering leaves the open form saying so, with nothing to send', async () => {
+test("a form open when the host cannot be reached says so, and a send shows rt's own reason", async () => {
+  server.send = () =>
+    Response.json(
+      { code: 'support-token', message: 'Connect your board again.' },
+      { status: 409 }
+    );
   await mount();
   await click(pillOf()!);
   await write(WORDS);
-  await readAgain(NOBODY);
-  expect(text()).toContain("Alex's Mac isn't answering");
+  await readAgain(UNREACHED);
+  expect(text()).toContain("Alex's Mac can't be reached");
   expect(text()).not.toContain('answers in Slack');
-  expect((button('Ask Maude') as HTMLButtonElement).disabled).toBe(true);
-  await React.act(async () => help!.send());
-  expect(sends()).toEqual([]);
+  await click(button('Ask Maude'));
+  expect(text()).toContain('Connect your board again');
+  expect(help!.text).toBe(WORDS);
   await click(button('Close'));
   expect(pillOf()).toBe(null);
 });
@@ -277,7 +282,8 @@ test("a refusal keeps the name and the DM together, whoever the org's host is no
   await write(WORDS);
   await click(button('Ask Maude'));
   await readAgain({
-    ...NOBODY,
+    ...READY,
+    availability: { ...READY.availability, host: 'Bea Finch' } as never,
     hostDm: 'https://slack.com/app_redirect?channel=U0BEA',
   });
   expect(text()).toContain("Alex isn't taking requests");
@@ -287,29 +293,15 @@ test("a refusal keeps the name and the DM together, whoever the org's host is no
   expect(link.href).toBe(READY.hostDm!);
 });
 
-test('trying again with nobody answering goes back to the form, which says so', async () => {
-  server.send = () => new Response('gateway', { status: 502 });
-  await mount();
-  await click(pillOf()!);
-  await write(WORDS);
-  await click(button('Ask Maude'));
-  await readAgain(NOBODY);
-  await click(button('Try again'));
-  expect(sends()).toHaveLength(1);
-  expect(text()).toContain("Alex's Mac isn't answering");
-  expect(help!.text).toBe(WORDS);
-});
-
-test('asking again with nobody answering since the page loaded names who was asked', async () => {
-  server.read = NOBODY;
+test('asking again when no host could be reached since the page loaded names who was asked', async () => {
+  server.read = UNREACHED;
   server.mine = [request('expired')];
   await mount();
   await click(pillOf()!);
   await click(button('Ask again'));
   expect(document.querySelector('.tui-help-who')!.textContent).toBe(
-    "Alex's Mac isn't answering"
+    "Alex's Mac can't be reached"
   );
-  expect((button('Ask Maude') as HTMLButtonElement).disabled).toBe(true);
 });
 
 test('an opened chat is a link into Slack, and following it puts the button back', async () => {

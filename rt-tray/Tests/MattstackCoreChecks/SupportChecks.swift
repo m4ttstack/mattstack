@@ -201,19 +201,22 @@ let supportChecks: [Check] = [
         await m.refreshRequests()
         c.expectEqual(await MainActor.run { m.card?.title }, "Asked Alex's agent")
     },
-    Check("Help: a host who stops answering keeps their name on the card") { c in
+    Check("Help: a refusal keeps the name it came for, and a send still goes when the host cannot be reached") { c in
         let daemon = FakeHelp()
         let m = await help(daemon)
         daemon.sendReply = .refused(code: "support-not-accepting", message: "x")
         await MainActor.run { m.text = "no rows" }
         await m.send()
-        daemon.available = .value(.hidden)
+        daemon.available = .value(HelpAvailability(state: "ready", host: "Bea Finch"))
         await m.refreshAvailability()
         c.expectEqual(await MainActor.run { m.card?.title }, "Alex isn't taking requests")
+        daemon.available = .value(.hidden)
+        await m.refreshAvailability()
+        c.expectEqual(await MainActor.run { m.host }, "Bea")
+        daemon.sendReply = .refused(code: "support-token", message: "Connect your board again.")
         await m.send()
-        c.expectEqual(daemon.sent.count, 1, "nobody to send to")
-        c.expectEqual(await MainActor.run { m.card }, nil, "the form is what says so")
-        c.expect(await MainActor.run { !m.canSend && m.text == "no rows" })
+        c.expectEqual(daemon.sent.count, 2)
+        c.expectEqual(await MainActor.run { m.card?.detail }, "Connect your board again")
     },
     Check("Help: the words stop at rt's limit, never inside a character, and a refused length can be edited") { c in
         let daemon = FakeHelp()
