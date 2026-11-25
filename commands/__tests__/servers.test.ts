@@ -145,12 +145,17 @@ interface Over {
   enrich?: () => Promise<Map<string, EnrichedBranch>>;
   pick?: number[] | null;
   canAsk?: boolean;
+  /** The wait ends before the lookup answers; otherwise it ends only when it is cancelled. */
+  deadlinePasses?: boolean;
   outcomes?: (picked: RunningServer[]) => StopOutcome[];
 }
 
 function harness(over: Over = {}) {
   const snapshots = [...(over.snapshots ?? [SNAPSHOT, SNAPSHOT])];
-  const calls = { snapshot: 0, enrich: 0, pick: 0, stop: 0, slept: [] as number[], spare: new Set<number>(), picked: [] as RunningServer[] };
+  const calls = {
+    snapshot: 0, enrich: 0, pick: 0, stop: 0, slept: [] as number[], spare: new Set<number>(), picked: [] as RunningServer[],
+    exits: [] as number[], cancelled: false,
+  };
   const deps: ServersDeps = {
     rules: () => over.rules ?? RULES,
     snapshot: async () => {
@@ -172,11 +177,18 @@ function harness(over: Over = {}) {
       return over.outcomes ? over.outcomes(picked) : picked.map((s) => ({ server: s, result: "stopped" as const }));
     },
     canAsk: () => over.canAsk ?? false,
-    sleep: async (ms) => {
+    sleep: (ms, cancel) => {
       calls.slept.push(ms);
-      // The real timer is the slower one: a lookup that has already answered wins the race.
-      for (let i = 0; i < 20; i++) await Promise.resolve();
+      if (over.deadlinePasses) return Promise.resolve();
+      // Settles in the same tick as the cancel, so cancelling must never be what decides the race.
+      return {
+        then: (done: () => unknown) => new Promise((resolve) => cancel.addEventListener("abort", () => {
+          calls.cancelled = true;
+          resolve(done());
+        })),
+      } as unknown as Promise<void>;
     },
+    exit: (code) => { calls.exits.push(code); },
   };
   return { calls, run: (args: string[] = []) => serversCommand(args, CTX, deps) };
 }
@@ -214,6 +226,26 @@ describe("serversCommand", () => {
     expect([calls.pick, calls.stop]).toEqual([0, 0]);
   });
 
+  test("a lookup that answers in time is printed, its wait is cancelled and nothing forces an exit", async () => {
+    const { run, calls } = harness();
+    await run();
+    expect(io.stdout()).toContain("[In Review]  Add a login rate limit");
+    expect(calls.cancelled).toBe(true);
+    expect(calls.exits).toEqual([]);
+  });
+
+  test("a lookup still running when the output is done is not waited on, and the exit code stands", async () => {
+    const listed = harness({ enrich: NEVER, deadlinePasses: true });
+    await listed.run();
+    const escaped = harness({ enrich: NEVER, canAsk: true, pick: null });
+    await escaped.run();
+    const stopped = harness({ enrich: NEVER, canAsk: true, pick: [10] });
+    await stopped.run();
+    const failed = harness({ enrich: NEVER, canAsk: true, pick: [10], outcomes: ([s]) => [{ server: s!, result: "failed", why: "It did not stop." }] });
+    await failed.run();
+    expect([listed, escaped, stopped, failed].map((h) => h.calls.exits)).toEqual([[0], [0], [0], [1]]);
+  });
+
   test("nothing running is one line, at a terminal too, and no picker opens", async () => {
     const empty = { ...SNAPSHOT, procs: SNAPSHOT.procs.slice(4) };
     const { run, calls } = harness({ snapshots: [{ ...empty, listeners: new Map() }], canAsk: true });
@@ -223,7 +255,7 @@ describe("serversCommand", () => {
   });
 
   test("the list waits three seconds for ticket data, then prints without it", async () => {
-    const { run, calls } = harness({ enrich: NEVER });
+    const { run, calls } = harness({ enrich: NEVER, deadlinePasses: true });
     await run();
     expect(calls.slept).toEqual([3_000]);
     expect(io.stdout()).toContain("WEB-214  web-214-login-rate-limit\n");

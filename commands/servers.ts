@@ -2,7 +2,7 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { loadEndpointConfig } from "../lib/endpoint/config.ts";
 import { groupServers, mrText, serverMatch, type GroupedServer, type ServerGroup } from "../lib/endpoint/server-groups.ts";
 import { ancestorPids, findServers, type RunningServer, type ServerRules, type ServerSnapshot } from "../lib/endpoint/servers.ts";
-import { readServerSnapshot, stopServers } from "../lib/endpoint/servers-system.ts";
+import { readServerSnapshot, stopServers, type StopOutcome } from "../lib/endpoint/servers-system.ts";
 import { loadInterceptRules } from "../lib/endpoint/shim.ts";
 import { loadClaims } from "../lib/endpoint/store.ts";
 import { enrichBranches, type EnrichedBranch } from "../lib/enrich.ts";
@@ -26,6 +26,7 @@ export interface ServersDeps {
   canAsk(): boolean;
   /** Settles early when `cancel` aborts, so a lookup that answers first leaves no timer holding the process open. */
   sleep(ms: number, cancel: AbortSignal): Promise<void>;
+  exit(code: number): void;
 }
 
 const LIST_ENRICH_DEADLINE_MS = 3_000;
@@ -115,14 +116,42 @@ export const realServersDeps: ServersDeps = {
         resolve();
       });
     }),
+  exit: (code) => process.exit(code),
 };
 
-async function enrichedWithin(deps: ServersDeps, lookup: Promise<Enriched>): Promise<Enriched> {
+interface Lookup {
+  answer: Promise<Enriched>;
+  landed: Enriched | null;
+}
+
+function startLookup(deps: ServersDeps, servers: RunningServer[], remoteUrl: string | undefined): Lookup {
+  const lookup: Lookup = { answer: deps.enrich(servers, remoteUrl).catch((): Enriched => new Map()), landed: null };
+  void lookup.answer.then((answer) => { lookup.landed = answer; });
+  return lookup;
+}
+
+async function enrichedWithin(deps: ServersDeps, lookup: Lookup): Promise<Enriched> {
   const cancel = new AbortController();
-  return Promise.race([
-    lookup.finally(() => cancel.abort()),
-    deps.sleep(LIST_ENRICH_DEADLINE_MS, cancel.signal).then((): Enriched => new Map()),
-  ]);
+  try {
+    return await Promise.race([lookup.answer, deps.sleep(LIST_ENRICH_DEADLINE_MS, cancel.signal).then((): Enriched => new Map())]);
+  } finally {
+    cancel.abort();
+  }
+}
+
+function printOutcomes(outcomes: StopOutcome[], groups: ServerGroup[]): void {
+  const titles = new Map(groups.flatMap((group) => group.servers.map((row) => [row.server.pid, group.title] as const)));
+  const done: Block[] = [];
+  const failures: out.FailureInput[] = [];
+  for (const { server, result, why } of outcomes) {
+    const where = [server.port === null ? null : portText(server), titles.get(server.pid)].filter(Boolean).join(", ");
+    if (result === "stopped") done.push(out.line("done", `Stopped ${server.role}`, where));
+    else if (result === "gone") done.push(out.line("skipped", `${server.role} had already stopped`, where));
+    else failures.push({ title: `Could not stop ${server.role}`, hint: where, why });
+  }
+  if (done.length > 0) out.print(...done);
+  for (const failure of failures) out.fail(failure);
+  if (failures.length > 0) process.exitCode = 1;
 }
 
 export async function serversCommand(args: string[], ctx: CommandContext, deps: ServersDeps = realServersDeps): Promise<void> {
@@ -159,37 +188,24 @@ export async function serversCommand(args: string[], ctx: CommandContext, deps: 
     return;
   }
 
-  const lookup = deps.enrich(servers, remoteUrl || undefined).catch((): Enriched => new Map());
-  if (!deps.canAsk()) {
-    out.print(...serverBlocks(label, groupServers(servers, await enrichedWithin(deps, lookup))));
-    return;
-  }
+  const lookup = startLookup(deps, servers, remoteUrl || undefined);
+  const pickAndStop = async () => {
+    const picked = await deps.pick(label, servers, lookup.answer);
+    if (!picked || picked.length === 0) {
+      out.print(out.line("skipped", "Nothing selected"));
+      return;
+    }
+    // Read again: the picker can sit open for minutes, and a pid can be reused.
+    const now = await read();
+    if (!now) return failRead();
+    const spare = new Set([process.pid, ...ancestorPids(now.procs, process.pid)]);
+    const chosen = servers.filter((s) => picked.includes(s.pid));
+    const outcomes = await withTransientStep("Stopping servers", () => deps.stop(chosen, findServers(now, rules), spare));
+    printOutcomes(outcomes, groupServers(servers, lookup.landed ?? new Map()));
+  };
 
-  let enriched: Enriched = new Map();
-  void lookup.then((answer) => { enriched = answer; });
-  const picked = await deps.pick(label, servers, lookup);
-  if (!picked || picked.length === 0) {
-    out.print(out.line("skipped", "Nothing selected"));
-    return;
-  }
-
-  // Read again: the picker can sit open for minutes, and a pid can be reused.
-  const now = await read();
-  if (!now) return failRead();
-  const spare = new Set([process.pid, ...ancestorPids(now.procs, process.pid)]);
-  const chosen = servers.filter((s) => picked.includes(s.pid));
-  const outcomes = await withTransientStep("Stopping servers", () => deps.stop(chosen, findServers(now, rules), spare));
-
-  const titles = new Map(groupServers(servers, enriched).flatMap((group) => group.servers.map((row) => [row.server.pid, group.title] as const)));
-  const done: Block[] = [];
-  const failures: out.FailureInput[] = [];
-  for (const { server, result, why } of outcomes) {
-    const where = [server.port === null ? null : portText(server), titles.get(server.pid)].filter(Boolean).join(", ");
-    if (result === "stopped") done.push(out.line("done", `Stopped ${server.role}`, where));
-    else if (result === "gone") done.push(out.line("skipped", `${server.role} had already stopped`, where));
-    else failures.push({ title: `Could not stop ${server.role}`, hint: where, why });
-  }
-  if (done.length > 0) out.print(...done);
-  for (const failure of failures) out.fail(failure);
-  if (failures.length > 0) process.exitCode = 1;
+  if (deps.canAsk()) await pickAndStop();
+  else out.print(...serverBlocks(label, groupServers(servers, await enrichedWithin(deps, lookup))));
+  // A forge lookup has no timeout of its own, and a pending one holds the process open.
+  if (!lookup.landed) deps.exit(Number(process.exitCode ?? 0));
 }
