@@ -2,9 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans (Native, or its Native with reviews variant) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `rt servers` lists every running dev server rt intercepted in this repo, across all its worktrees, and lets a person pick some to stop.
+**Goal:** `rt servers` lists every running dev server rt intercepted in this repo, grouped by ticket across all its worktrees, and lets a person pick some to stop.
 
-**Architecture:** A pure finder (`lib/endpoint/servers.ts`) turns one process snapshot plus the repo's rules, roles and claims into rows. A system module (`lib/endpoint/servers-system.ts`) reads that snapshot and stops whole process trees. `commands/servers.ts` is the command. No daemon change.
+**Architecture:** A pure finder (`lib/endpoint/servers.ts`) turns one process snapshot plus the repo's rules, roles and claims into servers. A system module (`lib/endpoint/servers-system.ts`) reads that snapshot and stops whole process trees. A pure grouper (`lib/endpoint/server-groups.ts`) joins servers to ticket and MR data. `commands/servers.ts` is the command. No daemon change.
+
+**Order:** Part A (Tasks 1 to 4) runs as the plan. Part B (Task 5, the picker) is UI, built live with Matt after Part A.
 
 **Tech Stack:** Bun, TypeScript, `bun:test`, the existing output layer and `rt-ui` picker.
 
@@ -23,11 +25,11 @@
 
 ## Review Focus
 
-1. `ps` or `lsof` fails or times out: the command fails, and never says nothing is running. (Task 2, Task 3)
-2. A worktree on a detached HEAD: its servers are listed, with no branch. (Task 1)
-3. A worktree nested inside the main checkout: its server belongs to the nested tree. (Task 1)
-4. An intercepted command that runs the same intercepted command again: one server, one row. (Task 1)
-5. Escape, or a server that exits or whose pid is reused while the picker is open: nothing is signalled. (Task 2, Task 3)
+1. `ps` or `lsof` fails or times out: the command fails, and never says nothing is running. (Task 2, Task 4)
+2. A worktree on a detached HEAD, or nested inside the main checkout: its servers are listed under the right tree. (Task 1, Task 3)
+3. An intercepted command that runs the same intercepted command again: one server, one row. (Task 1)
+4. Escape, or a server that exits or whose pid is reused while the picker is open: nothing is signalled. (Task 2, Task 4)
+5. The ticket or MR lookup fails, hangs or answers late: the picker and the list still work, and marks survive the late answer. (Task 4, Task 5)
 
 ---
 
@@ -36,7 +38,6 @@
 **Files:**
 - Create: `lib/endpoint/servers.ts`
 - Modify: `lib/daemon/worktree-process-kill.ts` (add `agentNameOf` beside `isUserOrAgentProcess`)
-- Modify: `docs/superpowers/specs/2026-11-25-rt-servers-design.md` (step 5 wording, below)
 - Test: `lib/endpoint/__tests__/servers.test.ts`
 - Test: `lib/daemon/__tests__/worktree-process-kill.test.ts` (one test added)
 
@@ -203,14 +204,10 @@ Expected: the new tests FAIL; the rest pass.
 Run: `bun test lib/endpoint/__tests__/servers.test.ts lib/daemon/__tests__/worktree-process-kill.test.ts`
 Expected: PASS.
 
-- [ ] **Step 9: Align the spec**
-
-In the spec's step 5, replace "Its tree starts at its topmost ancestor still in that worktree that is not a shell, agent or multiplexer." with "Its tree starts at its topmost ancestor in the same folder that is not a shell, agent or multiplexer, so it never climbs into the process that started other servers. A fixed port counts only from its role's folder."
-
-- [ ] **Step 10: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add lib/endpoint/servers.ts lib/endpoint/__tests__/servers.test.ts lib/daemon docs/superpowers/specs/2026-11-25-rt-servers-design.md
+git add lib/endpoint/servers.ts lib/endpoint/__tests__/servers.test.ts lib/daemon
 git commit -m "endpoint: find a repo's running intercepted servers by process"
 ```
 
@@ -282,7 +279,87 @@ git commit -m "endpoint: read what is running and stop whole server trees"
 
 ---
 
-### Task 3: the command
+### Task 3: group servers by ticket
+
+**Files:**
+- Create: `lib/endpoint/server-groups.ts`
+- Modify: `lib/enrich.ts` (export `mrSegments`; no behavior change)
+- Test: `lib/endpoint/__tests__/server-groups.test.ts`
+
+**Interfaces:**
+- Consumes: `RunningServer` (Task 1); `EnrichedBranch`, `MRInfo`, `mrSegments` (`lib/enrich.ts`); `extractLinearId` (`lib/linear.ts`); `LinearTicket` (`lib/linear.ts`).
+- Produces:
+
+```ts
+export interface GroupedServer {
+  server: RunningServer;
+  branch: string | null; // set only when the group spans several branches
+  mr: MRInfo | null;     // set only when the group spans several branches
+}
+export interface ServerGroup {
+  key: string;           // ticket id, else branch, else worktree path
+  ticketId: string | null;
+  ticket: LinearTicket | null;
+  title: string;         // ticket title, else MR title, else branch, else worktree name
+  detached: boolean;
+  mr: MRInfo | null;     // set only when every server in the group is on one branch
+  servers: GroupedServer[];
+}
+export function groupServers(servers: RunningServer[], enriched: Map<string, EnrichedBranch>): ServerGroup[]; // enriched is keyed by worktree path
+export function serverMatch(group: ServerGroup, row: GroupedServer): string; // the row's filter text
+export function mrText(mr: MRInfo): string; // "!412 open  checks passed"
+```
+
+- [ ] **Step 1: Write the failing tests**
+
+```ts
+test("servers of one ticket on one branch are one group, its MR on the group", () => {
+  expect(groups).toEqual([expect.objectContaining({ key: "WEB-214", ticketId: "WEB-214", title: "Add a login rate limit", detached: false, mr: expect.objectContaining({ iid: 412 }) })]);
+  expect(groups[0]!.servers.map((r) => [r.server.role, r.branch, r.mr])).toEqual([["api", null, null], ["web", null, null]]);
+});
+test("one ticket on two branches is one group, branch and MR on the rows", () => {
+  expect(groups).toHaveLength(1);
+  expect(groups[0]!.mr).toBeNull();
+  expect(groups[0]!.servers.map((r) => [r.branch, r.mr?.iid])).toEqual([["web-240-forms", 423], ["web-240-shell", 420], ["web-240-shell", 420]]);
+});
+test("before enrichment the ticket id comes from the branch, and the title is the branch", () => { expect(groupServers(servers, new Map())[0]).toMatchObject({ key: "WEB-214", ticketId: "WEB-214", ticket: null, title: "web-214-login-rate-limit", mr: null }); });
+test("with several branches and no ticket yet, the title is the ticket id", () => { expect(groups[0]).toMatchObject({ key: "WEB-240", title: "WEB-240" }); });
+test("a ticket id found only in the MR title groups by that ticket", () => { /* enriched.linearId WEB-250, branch export-retry */ expect(groups[0]!.key).toBe("WEB-250"); });
+test("no ticket: the MR's title, else the branch", () => { expect(titles).toEqual(["Retry the export job on timeout", "main"]); });
+test("a detached worktree groups by itself under its own name", () => { expect(groups[0]).toMatchObject({ key: "/trees/slow-comet", title: "slow-comet", detached: true }); });
+test("groups run oldest server first, rows by branch then role", () => { expect(order).toEqual(["WEB-240", "WEB-198", "WEB-214", "main"]); });
+test("the filter text holds role, port, ticket, state, title, branch, MR title and MR state", () => {
+  expect(serverMatch(group, row)).toBe("api :10400 WEB-198 Done Fix rounding in order totals web-198-order-totals Fix totals merged");
+});
+test("a server with no port is filtered by its other words", () => { expect(serverMatch(group, row)).toStartWith("api WEB-231 "); });
+```
+
+- [ ] **Step 2: Run them and see them fail**
+
+Run: `bun test lib/endpoint/__tests__/server-groups.test.ts`
+Expected: FAIL, module not found.
+
+- [ ] **Step 3: Implement `lib/endpoint/server-groups.ts`**
+
+Age is `Date.parse(server.startTime)`. `mrText` joins `mrSegments(mr)`'s text.
+
+- [ ] **Step 4: Run them and see them pass**
+
+Run: `bun test lib/endpoint/__tests__/server-groups.test.ts lib/__tests__/enrich-branch-segments.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/endpoint/server-groups.ts lib/endpoint/__tests__/server-groups.test.ts lib/enrich.ts
+git commit -m "endpoint: group running servers by ticket"
+```
+
+---
+
+### Task 4: the command, list and JSON
+
+The picker is behind `deps.pick` here; its rows and look are Task 5.
 
 **Files:**
 - Create: `commands/servers.ts`, `lib/uptime.ts`
@@ -292,7 +369,7 @@ git commit -m "endpoint: read what is running and stop whole server trees"
 - Test: `commands/__tests__/servers.test.ts`
 
 **Interfaces:**
-- Consumes: Tasks 1 and 2; `loadInterceptRules` (`lib/endpoint/shim.ts`), `loadEndpointConfig` (`lib/endpoint/config.ts`), `loadClaims` (`lib/endpoint/store.ts`), `parseIdentity` (`lib/settings/identity.ts`), `repoLabel`, `filterableMultiselect`, `withTransientStep`, `CommandContext`.
+- Consumes: Tasks 1 to 3; `loadInterceptRules` (`lib/endpoint/shim.ts`), `loadEndpointConfig` (`lib/endpoint/config.ts`), `loadClaims` (`lib/endpoint/store.ts`), `parseIdentity` (`lib/settings/identity.ts`), `enrichBranches` (`lib/enrich.ts`), `repoLabel`, `withTransientStep`, `CommandContext`.
 - Produces:
 
 ```ts
@@ -303,49 +380,53 @@ export function formatUptime(etime: string): string; // moved unchanged from com
 export interface ServersDeps {
   rules(identity: string): ServerRules;
   snapshot(repoRoot: string): Promise<ServerSnapshot | null>;
-  pick(message: string, rows: PickRow[]): Promise<string[] | null>;
+  enrich(servers: RunningServer[], opts: { remoteUrl?: string; silent: boolean }): Promise<Map<string, EnrichedBranch>>;
+  pick(label: string, servers: RunningServer[], enriched: Promise<Map<string, EnrichedBranch>>): Promise<number[] | null>; // root pids
   stop: typeof stopServers;
   canAsk(): boolean; // stdin is a TTY and RT_BATCH is unset
+  sleep(ms: number): Promise<void>;
 }
-export function serverBlocks(label: string, servers: RunningServer[]): Block[];
-export function serverRows(servers: RunningServer[]): PickRow[]; // value = String(pid)
+export function serverBlocks(label: string, groups: ServerGroup[]): Block[];
+export function serverHints(s: RunningServer): string[]; // "Claude session" | "<agent> session", "not listening", "left behind"
 export function serversCommand(args: string[], ctx: CommandContext, deps?: ServersDeps): Promise<void>;
 ```
 
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
-test("the list names role, port, worktree, branch, uptime and what is odd about a row", () => {
-  expect(renderPlain(serverBlocks("sample-app", SERVERS))).toBe(
+test("the list is a tree per ticket: id, state, title and MR, then each server", () => {
+  expect(renderPlain(serverBlocks("sample-app", GROUPS))).toBe(
     "sample-app\n" +
-    "web   :4001   calm-marble  feature/login  18h\n" +
-    "api   :10401  calm-marble  feature/login  18h  Claude session\n" +
-    "api   :10400  eager-anvil  fix/totals     22h  not listening\n" +
-    "docs  :4002   sample-app   main           6m   left behind\n");
-}); // a row with no port shows "no port"; no branch shows "detached"; several hints join with ", "; another agent shows "codex session"
+    "WEB-240  [In Progress]  Split the settings page\n" +
+    "  - api  :10402  3d  web-240-shell  !420 open  checks failed\n" +
+    "WEB-198  [Done]  Fix rounding in order totals  !398 merged\n" +
+    "  - api  :10400  22h  not listening\n" +
+    "  - web  :4003   22h\n");
+});
+test("a server with no port says no port, and a detached group says detached", () => {
+  expect(renderPlain(serverBlocks("sample-app", DETACHED))).toBe("sample-app\nslow-comet  detached\n  - api  no port  41m  Claude session, not listening\n");
+});
 test("no servers is one off line", () => { expect(renderPlain(serverBlocks("sample-app", []))).toBe("[off] No dev servers are running here  sample-app\n"); });
 test("a repo with no intercept rules says that instead, and reads no processes", async () => { expect(io.stdout()).toBe("[off] rt does not intercept any commands here  sample-app\n"); expect(snapshotCalls).toBe(0); });
-test("when it cannot ask it lists and never picks or stops", async () => { /* canAsk: false */ expect(io.stdout()).toStartWith("sample-app\n"); expect([pickCalls, stopCalls]).toEqual([0, 0]); });
+test("when it cannot ask it lists and never picks or stops", async () => { expect(io.stdout()).toStartWith("sample-app\n"); expect([pickCalls, stopCalls]).toEqual([0, 0]); });
+test("the list waits three seconds for ticket data, then prints without it", async () => { /* enrich never settles */ expect(slept).toEqual([3_000]); expect(io.stdout()).toContain("web-214-login-rate-limit"); });
+test("a failed ticket lookup still lists", async () => { /* enrich rejects */ expect(io.stdout()).toContain(":10401"); expect(process.exitCode).toBeFalsy(); });
 test("the real gate needs a TTY and no RT_BATCH", () => { /* TTY on, then RT_BATCH=1, then TTY off */ expect([a, b, c]).toEqual([true, false, false]); });
-test("--json is frozen, with an empty stderr, and never picks", async () => {
+test("--json is frozen, with an empty stderr, and never picks or looks up tickets", async () => {
   expect(JSON.parse(io.stdout())).toEqual({ ok: true, repo: IDENTITY, servers: [{
-    role: "web", port: 4001, listening: true, worktree: { path: "/trees/calm-marble", name: "calm-marble" }, branch: "feature/login",
+    role: "web", port: 4001, listening: true, worktree: { path: "/trees/calm-marble", name: "calm-marble" }, branch: "web-214-login-rate-limit",
     pid: 10, pids: [10, 11], startedAt: new Date("Tue Nov 24 14:45:47 2026").toISOString(), leftBehind: false, agent: null }] });
   expect(io.stderr()).toBe("");
+  expect([pickCalls, enrichCalls]).toEqual([0, 0]);
 });
 test("--json with no rules is an empty list", async () => { expect(JSON.parse(io.stdout())).toEqual({ ok: true, repo: IDENTITY, servers: [] }); });
 test("a failed read fails and lists nothing", async () => { expect(io.stdout()).toBe(""); expect(io.stderr()).toContain("rt could not read what is running"); expect(process.exitCode).toBe(1); });
 test("a failed read under --json is an ok:false envelope", async () => { expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "rt could not read what is running" }); });
-test("each picker row leads with the role and carries its pid", () => {
-  expect(serverRows(SERVERS)[0]).toEqual({ value: "10", match: "web :4001 calm-marble feature/login",
-    left: [{ text: "web", tone: "peach", bold: true, column: true }, { text: "  :4001" }, { text: "  calm-marble" }, { text: "  feature/login", tone: "dim" }],
-    right: [{ text: "18h", tone: "dim" }] });
-}); // hints join the uptime with " · ", as rt port's do
-test("picking re-reads, then stops the picked ones and reports each", async () => {
-  // pick returns ["10", "20"]; stop gets the picked rows and the second read's servers
-  expect(io.stdout()).toBe("[ok] Stopped web  :4001, calm-marble\n[skipped] api had already stopped  :10401, calm-marble\n");
+test("the picker opens before ticket data arrives", async () => { /* enrich never settles; pick resolves null */ expect(pickCalls).toBe(1); });
+test("picking re-reads, then stops the picked ones and names each by port and title", async () => {
+  expect(io.stdout()).toBe("[ok] Stopped web  :4001, Add a login rate limit\n[skipped] api had already stopped  :10401, Add a login rate limit\n");
 });
-test("a stop that failed is a failure with its reason", async () => { expect(io.stderr()).toBe("Could not stop api  :10400, eager-anvil\n  why: It did not stop.\n"); expect(process.exitCode).toBe(1); });
+test("a stop that failed is a failure with its reason", async () => { expect(io.stderr()).toBe("Could not stop api  :10400, Fix rounding in order totals\n  why: It did not stop.\n"); expect(process.exitCode).toBe(1); });
 test("escaping the picker, or picking nothing, stops nothing", async () => { expect(io.stdout()).toBe("[skipped] Nothing selected\n"); expect(stopCalls).toBe(0); });
 test("a re-read that fails after the pick stops nothing", async () => { expect(stopCalls).toBe(0); expect(process.exitCode).toBe(1); });
 test("rt's own process and its ancestors are passed as spared", async () => { expect(spare.has(process.pid)).toBe(true); });
@@ -360,7 +441,7 @@ Expected: FAIL, module not found.
 
 - [ ] **Step 3: Implement `commands/servers.ts` and move `formatUptime`**
 
-`rules(identity)` keeps only rules whose `repo === identity`, reads roles with `loadEndpointConfig({ repoIdentity: <the remote id, or null>, repoName: identity })`, and claims with `loadClaims(identity)`. The picker message is `Pick servers to stop in <label>`. Reads run under `withTransientStep("Looking for running servers", ...)`, the stop under `withTransientStep("Stopping servers", ...)`.
+`rules(identity)` keeps only rules whose `repo === identity`, reads roles with `loadEndpointConfig({ repoIdentity: <the remote id, or null>, repoName: identity })`, and claims with `loadClaims(identity)`. `enrich` sends only worktrees with a branch, with `ctx.identity.remoteUrl`; `silent` is true for the picker and false for the list. Reads run under `withTransientStep("Looking for running servers", ...)`, the stop under `withTransientStep("Stopping servers", ...)`. Until Task 5 the real `pick` calls `filterableMultiselect` with one plain row per server, `match` from `serverMatch`.
 
 - [ ] **Step 4: Add the node and the registry entry**
 
@@ -380,7 +461,7 @@ Registry: `"./commands/servers.ts": () => import("../commands/servers.ts"),`. No
 
 - [ ] **Step 5: Docs**
 
-Add under Status in `sites/docs/docs/rt/first-commands.mdx`: ``- [`rt servers`](/rt/reference/servers) ... see this repo's running dev servers, in every worktree, and stop them.`` Then run `bun run docs:gen`.
+Add under Status in `sites/docs/docs/rt/first-commands.mdx`: ``- [`rt servers`](/rt/reference/servers) ... see this repo's running dev servers, by ticket, and stop them.`` Then run `bun run docs:gen`.
 
 - [ ] **Step 6: Run the checks and see them pass**
 
@@ -394,9 +475,33 @@ Expected: all exit 0.
 
 ```bash
 git add commands lib sites
-git commit -m "rt servers: list this repo's intercepted dev servers and pick some to stop"
+git commit -m "rt servers: list this repo's intercepted dev servers and stop picked ones"
 ```
 
-- [ ] **Step 8: See it run**
+---
 
-In a repo with intercept rules, start a harmless stand-in from a folder a rule covers, with `RT_INTERCEPT_BYPASS=1` (no claim, no hook) and `RT_INTERCEPT_REAL` pointing at a script that listens on a free port. Then, from this worktree's source: the list off a terminal, `--json`, and the picker at a terminal. Look at the picker on a dark and a light terminal. Stop the stand-in from the picker and confirm its whole tree is gone. Kill a second stand-in's rt process with SIGKILL and confirm what the list says about what is left. Report what was seen, including anything that looks wrong.
+## Part B: the picker, built live with Matt
+
+Outside the review loop. Done inline in the session, against the boards, and iterated with Matt. No layout tests beyond the ones named here.
+
+### Task 5: picker headings and rows
+
+**Files:**
+- Modify: `ui/internal/protocol/pick.go`, `ui/internal/views/picker/render.go`, `ui/internal/views/picker/picker.go`, `lib/ui/protocol.ts`, `lib/pick-wrappers.ts`, `ui/fixtures/pick-request.json`, `ui/fixtures/pick-update.json`
+- Modify: `commands/servers.ts`
+- Test: `ui/internal/protocol/pick_test.go`, `ui/internal/views/picker/picker_test.go`, `lib/ui/__tests__/protocol.test.ts`
+
+**Interfaces:**
+- Produces:
+
+```ts
+// lib/ui/protocol.ts; Go mirrors it in protocol/pick.go
+export interface PickGroupHeading { left: PickSegment[]; right?: PickSegment[] }
+// PickRequest and PickUpdate: groupHeadings?: Record<string, PickGroupHeading>, keyed by PickRow.group; an update replaces it whole
+// lib/pick-wrappers.ts: filterableMultiselect opts gain groupHeadings and crumbSuffix, both passed through
+```
+
+- [ ] **Step 1: Failing contract tests, then the wire and the heading line.** The fixtures carry a heading with a `hex` segment and round-trip in both languages. In Go: a group with a heading paints its segments, its right side whole and its left clipped at 60 columns; a group without one paints exactly today's uppercase line; an update swaps headings with the cursor and marks kept. Run `bun run ui:test` and `bun test lib/ui/__tests__/protocol.test.ts`. Expected: PASS.
+- [ ] **Step 2: The rows**, against `S1`, `S3` and `S4`: heading `[State]` padded to 15 in `stateColor`, title bold, right `mrSegments` then the ticket id; rows `role :port` as the one column segment, branch when set, hints, MR when set, uptime; `crumbSuffix` "ctrl-a marks all"; an action `{ id: "select", label: "stop", key: "enter", scope: "item", group: "mark", primary: true }`. The picker opens on `groupServers(servers, new Map())` and one `handle.update` carries rows and headings together.
+- [ ] **Step 3: See it run.** In a repo with intercept rules, start harmless stand-ins from folders a rule covers, with `RT_INTERCEPT_BYPASS=1` (no claim, no hook) and `RT_INTERCEPT_REAL` pointing at a script that listens on a free port. From this worktree's source: the list off a terminal, `--json`, and the picker on a dark and a light terminal at 80 and 120 columns. Stop a stand-in from the picker and confirm its whole tree is gone. Kill another's rt process with SIGKILL and report what the list says about what is left. Hand Matt the pane.
+- [ ] **Step 4: Commit** `rt servers: pick servers by ticket`, with `docs/design/servers/servers.pen`.
