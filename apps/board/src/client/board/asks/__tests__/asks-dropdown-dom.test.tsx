@@ -74,6 +74,26 @@ test('a retry that succeeds drops the earlier failure', async () => {
   await act(async () => root.unmount());
 });
 
+test('an ask whose words are not open says so, in place of its note or its title', async () => {
+  const { host, root, render } = await setup(async () => {});
+  await render(fx.UNREAD.pending);
+  expect(
+    [...host.querySelectorAll('.tui-ask-unread')].map(p => p.textContent)
+  ).toEqual(
+    expect.arrayContaining([
+      'Opening…',
+      "This Mac couldn't open the details",
+      "This Mac couldn't open the details",
+    ])
+  );
+  expect(host.querySelectorAll('.tui-ask-unread')).toHaveLength(3);
+  expect(host.querySelectorAll('.tui-ask-mr .tui-ask-unread')).toHaveLength(1);
+  expect(host.querySelector('.tui-ask-card-note')).toBeNull();
+  await render(fx.THREE_WAITING.pending);
+  expect(host.querySelector('.tui-ask-unread')).toBeNull();
+  await act(async () => root.unmount());
+});
+
 test('an ask with no title shows no title text, never its URL', async () => {
   const untitled = { ...fx.RAE_ASK, title: undefined };
   const handled = {

@@ -13,11 +13,14 @@ import {
   type Envelope,
   type NudgeResult,
 } from './envelope.ts';
-import type { NudgeState } from './nudges.ts';
+import type { NudgeState, SentNudgeResolution } from './nudges.ts';
 import { drainOutbox } from './outbox.ts';
 import type { PeerReviewState } from './peer-reviews.ts';
-
-const ANNOUNCEMENT_MAX_AGE_MS = 24 * 60 * 60_000;
+import {
+  ANNOUNCEMENT_MAX_AGE_MS,
+  type KeptAnnouncement,
+} from './sealed-announcements.ts';
+import { outcomeBinding, reviewStateBinding, WIRE_REASONS } from './sealed.ts';
 
 export interface MaterializeDeps {
   isOrgAdmin(username: string): boolean;
@@ -27,28 +30,26 @@ export interface MaterializeDeps {
     payload: AnnouncementPayload,
     from: string
   ): Promise<void>;
+  keepAnnouncement(a: KeptAnnouncement): void;
+  /** Tries the kept announcements; runs at the end of every tick. */
+  openAnnouncements?: () => Promise<void>;
   writePeerReview(s: PeerReviewState): unknown;
   writeNudge(n: NudgeState): void;
   resolveSentNudge(
     mrUrl: string,
-    resolution: {
+    resolution: Omit<SentNudgeResolution, 'result' | 'outcome'> & {
       result: NudgeResult | 'confirmed' | 'parked';
-      reason?: string;
-      declined?: true;
-      declineNote?: string;
-      at: number;
     },
     /** Who sent the report: only the teammate that was asked can answer. */
-    from?: string
+    from?: string,
+    nudgeId?: string
   ): void;
   finishSentNudge(
     mrUrl: string,
-    finish: {
-      result: 'done' | 'failed' | 'stopped';
-      outcome?: string;
-      reason?: string;
-      at: number;
-    },
+    finish: Pick<
+      SentNudgeResolution,
+      'outcome' | 'reason' | 'at' | 'sealed' | 'sealedAs'
+    > & { result: 'done' | 'failed' | 'stopped' },
     ifSentBefore: number,
     nudgeId?: string,
     from?: string
@@ -58,6 +59,19 @@ export interface MaterializeDeps {
       inbox, "ok" on a fetch that came back. Lets the runtime track token
       health without the tick knowing what it is used for. */
   reportAuth?: (state: 'ok' | 'unauthorized') => void;
+}
+
+class NotKept extends Error {}
+
+/** Beside sealed text a plain reason is one of the fixed ones; any other comes
+    only from a board too old to seal. */
+function plainReason(p: {
+  reason?: string;
+  sealed?: string;
+}): string | undefined {
+  return p.sealed && p.reason && !WIRE_REASONS.has(p.reason)
+    ? undefined
+    : p.reason;
 }
 
 /** The board's entire inbound involvement: materialize, never decide. Every
@@ -72,7 +86,13 @@ export function materializeEnvelope(
     const p = parseReviewStatePayload(e.payload);
     if (!p)
       return deps.log(`peer: malformed review-state from ${e.from} (${e.id})`);
-    deps.writePeerReview({ ...p, reviewer: e.from, receivedAt: e.receivedAt });
+    const reason = plainReason(p);
+    deps.writePeerReview({
+      ...p,
+      reason,
+      reviewer: e.from,
+      receivedAt: e.receivedAt,
+    });
     // A reviewing transition confirms any pending sent nudge for this MR: the
     // re-review actually started, whichever of state/outcome lands first.
     if (p.status === 'queued' || p.status === 'reviewing') {
@@ -102,7 +122,10 @@ export function materializeEnvelope(
         {
           result: finished,
           ...(p.status === 'done' && p.outcome ? { outcome: p.outcome } : {}),
-          ...(p.status !== 'done' && p.reason ? { reason: p.reason } : {}),
+          ...(p.status !== 'done' && reason ? { reason } : {}),
+          ...(p.status !== 'done' && p.sealed
+            ? { sealed: p.sealed, sealedAs: reviewStateBinding(e.from, p) }
+            : {}),
           at: now,
         },
         p.updatedAt,
@@ -146,9 +169,14 @@ export function materializeEnvelope(
       mrUrl: p.mrUrl,
       iid: p.iid,
       from: e.from,
-      note: p.note,
-      ...(p.title ? { title: p.title } : {}),
-      ...(p.sourceBranch ? { sourceBranch: p.sourceBranch } : {}),
+      // Sealed text replaces the plain fields, so only an older board's count.
+      ...(p.sealed
+        ? { sealed: p.sealed }
+        : {
+            note: p.note,
+            ...(p.title ? { title: p.title } : {}),
+            ...(p.sourceBranch ? { sourceBranch: p.sourceBranch } : {}),
+          }),
       receivedAt: e.receivedAt,
       materializedAt: now,
       // Absence means re-review, so rows written before kinds existed keep
@@ -169,12 +197,20 @@ export function materializeEnvelope(
       p.mrUrl,
       {
         result: p.result,
-        reason: p.reason,
+        reason: plainReason(p),
         ...(p.declined ? { declined: true as const } : {}),
-        ...(p.declineNote ? { declineNote: p.declineNote } : {}),
+        ...(p.sealed
+          ? {
+              sealed: p.sealed,
+              sealedAs: outcomeBinding(e.from, p.mrUrl, p.nudgeId),
+            }
+          : p.declineNote
+            ? { declineNote: p.declineNote }
+            : {}),
         at: now,
       },
-      e.from
+      e.from,
+      p.nudgeId
     );
     return;
   }
@@ -190,6 +226,19 @@ export function materializeEnvelope(
       return deps.log(
         `peer: dropping announcement from ${e.from}, not an org admin (${e.id})`
       );
+    if (p.sealed) {
+      try {
+        return deps.keepAnnouncement({
+          id: e.id,
+          from: e.from,
+          // The relay's clock: one ahead of ours would never grow old.
+          receivedAt: Math.min(e.receivedAt, now),
+          sealed: p.sealed,
+        });
+      } catch (err) {
+        throw new NotKept(String(err));
+      }
+    }
     return deps.notifyAnnouncement(e.id, p, e.from);
   }
   deps.log(
@@ -203,8 +252,24 @@ export function materializeEnvelope(
     called as `void runPeerTick(...)` from an interval, so it swallows and logs
     rather than rejecting into an unhandled rejection. Every fetched id is
     acked, malformed and unknown alike: they were logged, and leaving them
-    pending would wedge the inbox forever. */
+    pending would wedge the inbox forever. Only an announcement this board
+    could not keep is left for the next tick. */
 export async function runPeerTick(
+  client: SwitchboardClient,
+  deps: MaterializeDeps,
+  outboxDb?: Database
+): Promise<void> {
+  await exchange(client, deps, outboxDb);
+  try {
+    await deps.openAnnouncements?.();
+  } catch (err) {
+    deps.log(
+      `peer: announcements failed: ${err instanceof Error ? err.message : err}`
+    );
+  }
+}
+
+async function exchange(
   client: SwitchboardClient,
   deps: MaterializeDeps,
   outboxDb?: Database
@@ -220,19 +285,24 @@ export async function runPeerTick(
     }
     if (!envelopes) return;
     deps.reportAuth?.('ok');
+    const acks: string[] = [];
     for (const e of envelopes) {
       // Payload parse failures are already handled inside; this catches a
       // throwing store write (fs errors). One bad envelope must not skip the
       // batch's ack, or the batch redelivers and re-throws forever.
       try {
         await materializeEnvelope(e, deps);
+        acks.push(e.id);
       } catch (err) {
+        // An announcement is only on the relay until it is kept, and is dropped
+        // as stale there after a day, so it cannot redeliver forever.
+        if (!(err instanceof NotKept)) acks.push(e.id);
         deps.log(
           `peer: materialize failed for ${e.id} from ${e.from}: ${err instanceof Error ? err.message : err}`
         );
       }
     }
-    await client.ack(envelopes.map(e => e.id));
+    await client.ack(acks);
   } catch (err) {
     deps.log(`peer: tick failed: ${err instanceof Error ? err.message : err}`);
   }

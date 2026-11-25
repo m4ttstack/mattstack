@@ -17,7 +17,7 @@ since a submit can land after the run's last record.
 built>}`, then per comment `{id: <finding id>, contains: <the first line
 of the body Compose built for it>, path, line}`: the text this submit
 sends, edit or draft, never the json's other fields. All `posted` is yes, some is partly, none is no; never judge it
-from a thread read, and a read error holds, quoting it.
+from a thread read; a read error is the posted-already gate, quoting it.
 
 **On GitHub:**
 
@@ -30,7 +30,8 @@ body Compose built for it. A matching note counts only when its
 `createdAt` is at or after the snapshot's `run.started_at`, as GitLab's
 `since` bounds its read, and only when its author is the account this run
 posts as, as `mr_posted_since`'s `by` does on GitLab. All posted is yes, some is partly, none is no;
-a read error holds, quoting it. The read checks no approval state.
+a read error is the posted-already gate, quoting it. The read checks no
+approval state.
 
 **On both forges:** the latest hold's
 reason adds what the read cannot show: a review it names as posted by the

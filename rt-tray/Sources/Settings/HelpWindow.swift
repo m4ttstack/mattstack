@@ -266,7 +266,7 @@ enum HelpWindowSnapshot {
                      canSend: !text.isEmpty, card: card, cardText: words, actions: HelpFormActions())
         }
         func card(_ state: String, away: Bool = false, dm: String? = nil, reason: String? = nil) -> HelpCard {
-            HelpCards.request(HelpRequest(id: "r", text: words, state: state, reason: reason, dmLink: dm, away: away), host: "Alex", bot: "Maude")
+            HelpCards.request(HelpRequest(id: "r", text: words, state: state, reason: reason, dmLink: dm, away: away), host: "Alex")
         }
         let shots: [(String, HelpForm)] = [
             ("asking", form(ready, words)), ("empty", form(ready, "")), ("away", form(away, words)), ("unreached", form(.hidden, words)),

@@ -43,6 +43,8 @@ import {
   supportContext,
   supportMine,
   supportSend,
+  textOpen,
+  textSeal,
   type ForgeFileDiffData,
   type ForgeGetData,
   type GateRow,
@@ -317,14 +319,11 @@ import {
   sweepClosedPeerReviews,
 } from './peer/closed-pane.ts';
 import {
-  buildAskDraft,
   canonicalUsername,
   DECLINE_REASONS,
-  makeEnvelope,
   wireReviewStatus,
   type AskKind,
   type DeclineReason,
-  type ReReviewRequestPayload,
   type ReviewStatePayload,
 } from './peer/envelope.ts';
 import { makeAskLauncher } from './peer/launch-ask.ts';
@@ -364,8 +363,8 @@ import {
   type PeerReviewState,
 } from './peer/peer-reviews.ts';
 import {
+  respondStateEnvelope,
   reviewPresenceRecipients,
-  reviewSyncEnvelopes,
 } from './peer/presence.ts';
 import { createReminder } from './peer/remind.ts';
 import {
@@ -375,6 +374,15 @@ import {
   tickOnPeerInbox,
   tokenMissingNotice,
 } from './peer/runtime.ts';
+import {
+  outcomePreparer,
+  outcomePublisher,
+  peerUsername,
+  sealedAsk,
+  sealedReviewSyncEnvelopes,
+  type SealDeps,
+} from './peer/sealed-send.ts';
+import { createSealedReader } from './peer/sealed.ts';
 import {
   foldSlackMatch,
   NO_SLACK_MATCH,
@@ -812,13 +820,25 @@ async function fetchReconcilerView(): Promise<ReconcilerView> {
 // restart.
 const inTeam = (): boolean => listOrgs().length > 0;
 const peerDeps = boardMaterializeDeps(line => console.error(line));
+let sealedNudge: ReturnType<typeof setTimeout> | null = null;
+const sealedReader = createSealedReader({
+  open: a => textOpen(a, { retryBudgetMs: 0 }),
+  // Opening runs in bursts, and each nudge re-reads the whole board.
+  changed: () => {
+    sealedNudge ??= setTimeout(() => {
+      sealedNudge = null;
+      sseNudge();
+    }, RELAY_COALESCE_MS);
+  },
+  now: Date.now,
+});
 const peering = makePeering({
   makeClient: makeSwitchboardClient,
   deps: peerDeps,
   asksEnabled: asksOn,
-  onTick: () => {
-    if (!asksOn()) declineWhileOff(declineDeps());
-    else expireStaleAsks(declineDeps(), Date.now());
+  onTick: async () => {
+    if (!asksOn()) await declineWhileOff(declineDeps());
+    else await expireStaleAsks(declineDeps(), Date.now());
   },
 });
 // Fire-and-forget: the daemon round trips must not hold up Bun.serve below.
@@ -861,6 +881,18 @@ function asksOn(): boolean {
   }
 }
 
+const sealDeps: SealDeps = {
+  // A person waits on this, and the message goes without its text meanwhile.
+  seal: a => textSeal(a, { timeoutMs: 10_000, retryBudgetMs: 3_000 }),
+  self: () => peerUsername(config.defaultMember),
+};
+
+const prepareOutcome = outcomePreparer(sealDeps, draft => {
+  enqueueOutbox(draft);
+  void peering.tickNow();
+});
+const publishOutcome = outcomePublisher(prepareOutcome);
+
 /** The slice of the ask deps that needs no board snapshot, so the peer tick
     can decline waiting asks without touching GitLab. */
 function declineDeps(): Pick<
@@ -871,10 +903,7 @@ function declineDeps(): Pick<
     readNudges: () => readNudges(),
     markNudgeHandled: (id, result, reason, opts) =>
       markNudgeHandled(id, result, reason, getStateDb(), Date.now(), opts),
-    publishOutcome: (to, p) => {
-      enqueueOutbox(makeEnvelope(to, 'nudge-outcome', p));
-      void peering.tickNow();
-    },
+    publishOutcome,
   };
 }
 
@@ -884,6 +913,7 @@ function askDeps(snapshot: { mrs: BoardMR[] }): AskActionDeps {
   return {
     asksOn,
     ...declineDeps(),
+    prepareOutcome,
     readReviewStates: () => readReviewStates(),
     readRespondStates: () => readRespondStates(),
     isOwnMr: mrUrl => {
@@ -929,7 +959,7 @@ function asksPayload(snapshot: { mrs: BoardMR[] }, now: number = Date.now()) {
         : {}),
     };
   };
-  const inbox = buildAskInbox(readNudges(), now);
+  const inbox = buildAskInbox(readNudges(), now, sealedReader);
   return {
     pending: inbox.pending.map(card),
     history: inbox.history.map(card),
@@ -968,10 +998,10 @@ function attachPeerState<T extends { webUrl?: string | null }>(
   now: number = Date.now()
 ): Array<T & PeerAttachments> {
   const sent = readSentNudges();
-  return attachPeerReviews(mrs, readPeerReviews()).map(mr => {
+  return attachPeerReviews(mrs, readPeerReviews(), sealedReader).map(mr => {
     if (!mr.webUrl) return mr;
     const s = sent.get(mr.webUrl);
-    const view = s ? sentNudgeView(s, now) : null;
+    const view = s ? sentNudgeView(s, now, sealedReader) : null;
     const reviewerName = s
       ? reviewerDisplayName(s.reviewer, config.members, memberNames)
       : undefined;
@@ -4947,13 +4977,13 @@ const httpServer = Bun.serve({
           const refused = requireOwnMr(mr);
           if (refused) return refused;
         }
-        const draft = buildAskDraft(reviewer, kind, {
-          mrUrl: parsed.mrUrl,
-          iid: parsed.iid,
-          title: mr.title,
-          ...(mr.sourceBranch ? { sourceBranch: mr.sourceBranch } : {}),
-          ...(note ? { note } : {}),
-        } satisfies ReReviewRequestPayload);
+        const { draft, unsentWhy } = await sealedAsk(
+          sealDeps,
+          reviewer,
+          kind,
+          { mrUrl: parsed.mrUrl, iid: parsed.iid },
+          { title: mr.title, sourceBranch: mr.sourceBranch, note }
+        );
         // Publish inline rather than queue-and-forget: a 4xx (usually 422, the
         // reviewer has no board on the switchboard) is permanent, and the drain
         // would drop it with only a log -- leaving the clicker an "ok" and a
@@ -4983,9 +5013,13 @@ const httpServer = Bun.serve({
           kind,
         });
         return new Response(
-          JSON.stringify(
-            cls === 'retry' ? { ok: true, queued: true } : { ok: true }
-          ),
+          JSON.stringify({
+            ok: true,
+            ...(cls === 'retry' ? { queued: true } : {}),
+            ...(note && unsentWhy
+              ? { noteSent: false, noteReason: unsentWhy }
+              : {}),
+          }),
           {
             headers: { 'content-type': 'application/json' },
           }
@@ -5080,7 +5114,7 @@ const httpServer = Bun.serve({
             'expected { id: string, reason?: "busy" | "not-my-area" | "later", note?: string (500 max) }',
             { status: 400 }
           );
-        const result = declineAsk(
+        const result = await declineAsk(
           id,
           {
             ...(reason ? { reason: reason as DeclineReason } : {}),
@@ -5089,7 +5123,7 @@ const httpServer = Bun.serve({
           askDeps(await cache.get())
         );
         return result.ok
-          ? jsonOk()
+          ? Response.json(result)
           : new Response(result.message, { status: result.status });
       }
       case '/asks/always-allow': {
@@ -6102,14 +6136,14 @@ async function handleAgentSignal(
     }
     for (const [asker, latest] of latestByAsker) {
       enqueueOutbox(
-        makeEnvelope(asker, 'respond-state', {
+        respondStateEnvelope(asker, {
           mrUrl: signal.mrUrl,
           iid: signal.iid,
           status: signal.status,
           outcome: signal.outcome,
           updatedAt: emittedAt,
           nudgeId: latest.id,
-        } satisfies ReviewStatePayload)
+        })
       );
     }
     if (latestByAsker.size) kickOutbox(pc);
@@ -6372,7 +6406,7 @@ async function sendReviewState(
         payload.updatedAt
       )
     : null;
-  const envelopes = reviewSyncEnvelopes({
+  const envelopes = await sealedReviewSyncEnvelopes(sealDeps, {
     author: authorUsername,
     self: config.defaultMember,
     recipients: presenceRecipientsFor,

@@ -34,7 +34,7 @@ compaction or resume, read a counter you cannot remember with
 
 | Key | Limit | Charged when |
 |---|---|---|
-| `target-clarify` | 2 | the target clarify gate returns typed text |
+| `target-clarify` | 4 | the target clarify gate returns typed text, or a target already tried |
 | `verify-rounds:<depth>` | 2 | a verify round at that depth leaves a blocking finding unverified |
 | `verdict-rounds:<depth>` | 2 | a verdict check at that depth leaves problems |
 | `post-open-fix` | 2 | a posting-gate refusal names a field (the first charge fixes it) |

@@ -4,6 +4,7 @@
  * its functions against this map so a new command only needs an entry here
  * plus one function, never a change to the transport itself.
  */
+import type { OpenResult, SealBinding, SealFields, SealResult } from "./sealed-text.ts";
 import type { SupportHostView, SupportPart, SupportSent } from "./support.ts";
 import type { EvidenceAddress, EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
 import type { ApprovalRuleLite, PullRequest, MRDetail, MergeQueueStatus, Pipeline, PipelineJob } from "@mattstack/glance";
@@ -934,6 +935,9 @@ export interface Commands {
   "support:enable": { payload: { on: boolean; host?: string }; data: { enabled: boolean; host: string | null } };
   /** A person's alone: closes any open Slack support chat at once. */
   "support:stop": { payload: { conversation: number }; data: { /** The teammate's line reached Slack. */ told: boolean } };
+  /** Seals text to teammates' keys: `data.ok` is false when nobody named has one, or this Mac cannot seal now. */
+  "text:seal": { payload: { to: string[]; binding: SealBinding; fields: SealFields }; data: SealResult };
+  "text:open": { payload: { sealed: string; binding: SealBinding }; data: OpenResult };
   "pane:list": { payload: Record<string, never>; data: { panes: ChatPane[] } };
   "pane:peek": { payload: { paneId: string; lines?: number }; data: { paneId: string; lines: string[] } };
   "pane:accounts": { payload: Record<string, never>; data: { accounts: PaneAccount[] } };
@@ -1409,6 +1413,8 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "support:accept",
   "support:enable",
   "support:stop",
+  "text:seal",
+  "text:open",
   "pane:list",
   "pane:peek",
   "pane:accounts",

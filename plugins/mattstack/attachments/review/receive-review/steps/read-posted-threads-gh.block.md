@@ -15,5 +15,5 @@ posted when a `gh-issue-comment` entry by this account dated after the
 run's `started_at` carries that row's marker line
 (`<!-- mattstack-reply-to: <the row's id> -->`) and the reply text; the reply
 text alone never counts. With no result (an error, or a
-thread whose notes did not come back), nothing posts: set `hold` to
-`held`, report the error verbatim, and leave the run open.
+thread whose notes did not come back), nothing posts, and the off-script
+gate quotes the error.

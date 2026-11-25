@@ -63,6 +63,7 @@ function fakeDeps(): MaterializeDeps & {
     async notifyAnnouncement(id, payload, from) {
       announced.push({ id, payload, from });
     },
+    keepAnnouncement() {},
     froms,
     peerReviews,
     nudges,

@@ -100,6 +100,6 @@ export async function telemetryClones(args: string[], _ctx: CommandContext = {},
   const changes = report.events.length;
   out.print(
     rows.length > 0 ? out.table(rows, ["Mac", "Org", "Clone"]) : out.line("pending", "No Mac has reported its clones yet"),
-    out.line("done", `${changes} state ${changes === 1 ? "change" : "changes"} recorded`, "Run with --json for each clone's files, shas and timeline"),
+    out.line("done", `${changes} state ${changes === 1 ? "change" : "changes"} recorded`, "Run with --json for each clone's counts and timeline"),
   );
 }

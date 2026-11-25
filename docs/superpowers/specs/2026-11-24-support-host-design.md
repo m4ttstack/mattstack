@@ -241,7 +241,9 @@ and the mod's shell denies grow to cover the new verbs.
 ## Constraints
 
 - Outbound only from the host's Mac: the relay long-poll, Slack, Linear and Claude.
-- Request text sits in the relay, unencrypted by us, until acked or 7 days. The
+- Superseded 2026-11-25: request text is sealed to the host, see
+  `2026-11-25-switchboard-sealed-text-design.md`. Before that: request text sits
+  in the relay, unencrypted by us, until acked or 7 days. The
   form says the request goes through mattstack's relay. *My call.*
 - Version skew is normal: an older daemon never polls the support queue or sets
   the flag, and the relay ships before any client that needs it.

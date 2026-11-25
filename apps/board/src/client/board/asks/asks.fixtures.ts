@@ -59,6 +59,24 @@ export const BEA_ASK = ask(
   { note: 'left four threads, two are blocking' }
 );
 
+const { note: _note, ...RAE_WORDLESS } = RAE_ASK;
+/** An ask whose words this Mac has not opened yet, and one it never will. */
+export const READING_ASK: AskCardData = {
+  ...RAE_WORDLESS,
+  textState: 'pending',
+};
+export const UNREADABLE_ASK: AskCardData = {
+  ...TOM_ASK,
+  textState: 'unreadable',
+};
+const { title: _title, sourceBranch: _branch, ...BEA_UNKNOWN } = BEA_ASK;
+/** The same, for an MR this board does not show, so it has no title either. */
+export const UNREADABLE_UNKNOWN_ASK: AskCardData = {
+  ...BEA_UNKNOWN,
+  note: undefined,
+  textState: 'unreadable',
+};
+
 const handled = (
   a: AskCardData,
   at: number,
@@ -132,6 +150,12 @@ type Asks = NonNullable<BoardData['asks']>;
 
 export const THREE_WAITING: Asks = {
   pending: [RAE_ASK, TOM_ASK, BEA_ASK],
+  history: ASK_HISTORY,
+  alwaysAllow: ['rae', 'dani'],
+};
+
+export const UNREAD: Asks = {
+  pending: [READING_ASK, UNREADABLE_ASK, UNREADABLE_UNKNOWN_ASK],
   history: ASK_HISTORY,
   alwaysAllow: ['rae', 'dani'],
 };

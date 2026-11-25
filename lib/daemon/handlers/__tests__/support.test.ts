@@ -1,6 +1,7 @@
 import { tmpdir } from "os";
 import { join } from "path";
 import { readdirSync, readFileSync, statSync } from "fs";
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { SUPPORT_AWAY_MS, SUPPORT_MACHINE_HOLD_MS, SUPPORT_TTL_MS, type SupportDraft, type SupportHostState, type SupportMissing } from "../../../../packages/rt-client/src/support.ts";
 import { UserActionableError } from "../../../errors.ts";
@@ -9,7 +10,9 @@ import { getRequest, insertRequest, listRequests, type SupportRequest, type Supp
 import type { SupportConfig } from "../../../support/config.ts";
 import type { SupportSend } from "../../../support/relay.ts";
 import { SUPPORT_MAX_OPEN } from "../../../support/host.ts";
-import { supportMac } from "../../../support/proof.ts";
+import { deleteKvValue, listKvValues } from "../../../state/kv-blob.ts";
+import { supportBinding, supportMac } from "../../../support/proof.ts";
+import { fakeSealedWorld } from "../../../team/__tests__/fake-sealed-text.ts";
 import { createSupportHandlers, type SupportHandlerDeps } from "../support.ts";
 import type { HandlerContext } from "../types.ts";
 
@@ -41,6 +44,7 @@ function harness() {
     enable: null as Error | null,
     stop: { ok: true, told: true } as { ok: true; told: boolean } | { ok: false; reason: string },
   };
+  const world = fakeSealedWorld(["alex", "ada"]);
   const sent: SupportDraft[] = [];
   const events: string[] = [];
   const logged: object[] = [];
@@ -51,6 +55,7 @@ function harness() {
     config: () => state.config,
     keys: async () => (state.keys ? { current: KEY, retired: [] } : null),
     keyMissing: () => state.keyMissing,
+    sealedText: world.forUser("ada"),
     relay: async () =>
       state.relay
         ? {
@@ -105,7 +110,8 @@ function harness() {
       { id: "old", direction: "out", peer: "alex", org: ORG, text: "help", parts: [], slackUserId: "U0ADA", state: "sent", reason: null, persona: null, dmLink: null, conversationId: null, gateId: null, statusAt: 0, sentAt: state.now, receivedAt: state.now, ...over },
       db,
     );
-  return { db, state, deps, sent, events, logged, handlers, request };
+  const askText = (i = 0) => JSON.parse(world.read(JSON.parse(sent[i]!.body).sealed)!.body!);
+  return { db, state, deps, world, askText, sent, events, logged, handlers, request };
 }
 
 const ASK = { id: "r1", text: "the board will not load", parts: [{ key: "versions" as const, label: "Versions", value: "rt 1.2.3" }] };
@@ -191,6 +197,7 @@ describe("support:availability", () => {
       [(h) => void (h.state.keys = false), "This Mac cannot open the org's secrets"],
       [(h) => void ((h.state.keys = false), (h.state.keyMissing = true)), "Your org has no support key yet, so an org admin runs rt team support on"],
       [(h) => void (h.state.config = { ...h.state.config!, me: null }), "Connect your forge account first"],
+      [(h) => void h.world.keyed.delete("alex"), "Alex Doe can't receive requests yet"],
     ];
     for (const [set, reason] of cases) {
       const h = harness();
@@ -280,7 +287,10 @@ describe("support:send", () => {
     const d = h.sent[0]!;
     expect(d).toMatchObject({ id: "r1", to: "alex", kind: "request", sentAt: h.state.now });
     expect(d.mac).toBe(supportMac(KEY, { ...d, from: "ada" }));
-    expect(JSON.parse(d.body)).toEqual({ text: ASK.text, parts: ASK.parts, slackUserId: "U0ADA" });
+    expect(Object.keys(JSON.parse(d.body))).toEqual(["sealed"]);
+    expect(h.askText()).toEqual({ text: ASK.text, parts: ASK.parts, slackUserId: "U0ADA" });
+    expect(await h.world.forUser("alex").open(JSON.parse(d.body).sealed, supportBinding("request", "r1", "ada"))).toMatchObject({ ok: true });
+    for (const text of [ASK.text, "rt 1.2.3", "U0ADA"]) expect(JSON.stringify(h.sent)).not.toContain(text);
     expect(getRequest("out", "alex", "r1", h.db)).toMatchObject({ org: ORG, sentAt: h.state.now });
     expect(h.events).toEqual(["poke"]);
   });
@@ -321,7 +331,7 @@ describe("support:send", () => {
   test("send reads the Slack id from this Mac's own token, never from the payload", async () => {
     const h = harness();
     await send(h, { slackUserId: "U0SOMEONE" });
-    expect(JSON.parse(h.sent[0]!.body).slackUserId).toBe("U0ADA");
+    expect(h.askText().slackUserId).toBe("U0ADA");
     for (const id of [null, new Error("ratelimited")]) {
       const none = harness();
       none.state.slackUserId = id;
@@ -340,6 +350,100 @@ describe("support:send", () => {
     expect((await send(h)).ok).toBe(true);
     expect(h.sent).toHaveLength(2);
     expect(listRequests("out", undefined, h.db)).toHaveLength(1);
+  });
+
+  test("a host with no key is refused, and a Mac that cannot seal says to try again", async () => {
+    const h = harness();
+    h.world.keyed.delete("alex");
+    expect(await send(h)).toMatchObject({ ok: false, failure: { code: "support-no-host-key", message: "Alex Doe can't receive requests yet." } });
+    h.world.keyed.add("alex");
+    h.world.state.seal = { ok: false, reason: "unavailable" };
+    expect(await send(h)).toMatchObject({ ok: false, failure: { code: "support-not-sealed", message: "This Mac could not lock your request, so nothing was sent. Try again." } });
+    expect(h.sent).toEqual([]);
+    expect(listRequests("out", undefined, h.db)).toEqual([]);
+    expect(listKvValues("support-sealed", h.db)).toEqual({});
+    h.world.state.seal = null;
+    expect((await send(h)).ok).toBe(true);
+  });
+
+  test("a retry after a lost answer sends the same bytes, a daemon restart between or not", async () => {
+    const h = harness();
+    h.state.send = "unreachable";
+    expect(await send(h)).toMatchObject({ failure: { code: "support-unreachable" } });
+    h.state.send = "ok";
+    const again = createSupportHandlers(h.deps);
+    expect((await again["support:send"](ASK as never)).ok).toBe(true);
+    expect(h.sent[1]!.body).toBe(h.sent[0]!.body);
+    expect(listKvValues("support-sealed", h.db)).toEqual({});
+  });
+
+  test("other words, other parts or another host under the same id are sealed anew", async () => {
+    const h = harness();
+    h.state.send = "unreachable";
+    await send(h);
+    await send(h, { text: "something else" });
+    await send(h, { parts: [] });
+    h.world.keyed.add("bo");
+    h.state.config = { ...h.state.config!, host: "bo" };
+    await send(h);
+    expect(new Set(h.sent.map((d) => d.body)).size).toBe(4);
+    expect(h.askText(1).text).toBe("something else");
+    expect(h.askText(2).parts).toEqual([]);
+  });
+
+  test("a Slack account or a username that changed since is sealed anew", async () => {
+    const h = harness();
+    h.state.send = "unreachable";
+    await send(h);
+    h.state.slackUserId = "U0NEW";
+    await send(h);
+    expect(h.askText(1).slackUserId).toBe("U0NEW");
+    h.state.config = { ...h.state.config!, me: "ada2" };
+    await send(h);
+    expect(await h.world.forUser("alex").open(JSON.parse(h.sent[2]!.body).sealed, supportBinding("request", "r1", "ada2"))).toMatchObject({ ok: true });
+  });
+
+  test("a body that cannot be kept is not sent, since its retry could not match it", async () => {
+    const h = harness();
+    h.db.exec("PRAGMA busy_timeout = 1");
+    const other = new Database(h.db.filename);
+    other.exec("BEGIN IMMEDIATE");
+    expect(await send(h)).toMatchObject({ ok: false, failure: { code: "support-not-sealed" } });
+    expect(h.sent).toEqual([]);
+    other.exec("ROLLBACK");
+    other.close();
+    expect((await send(h)).ok).toBe(true);
+  });
+
+  test("a kept body goes once the relay has the request, whichever version it took, and after 7 days", async () => {
+    for (const result of ["ok", "changed"] as const) {
+      const h = harness();
+      h.state.send = "unreachable";
+      await send(h);
+      expect(Object.keys(listKvValues("support-sealed", h.db))).toEqual(["r1"]);
+      h.state.send = result;
+      await send(h);
+      expect(listKvValues("support-sealed", h.db)).toEqual({});
+    }
+    const h = harness();
+    h.state.send = "unreachable";
+    await send(h);
+    h.state.now += SUPPORT_TTL_MS;
+    await send(h);
+    expect(h.sent[1]!.body).not.toBe(h.sent[0]!.body);
+    h.state.now += SUPPORT_TTL_MS;
+    await h.handlers["support:mine"]({});
+    expect(listKvValues("support-sealed", h.db)).toEqual({});
+  });
+
+  test("a kept body that went missing is sealed again", async () => {
+    const h = harness();
+    h.state.send = "unreachable";
+    await send(h);
+    deleteKvValue("support-sealed", "r1", h.db);
+    h.state.send = "ok";
+    expect((await send(h)).ok).toBe(true);
+    expect(h.askText(1)).toEqual(h.askText(0));
   });
 
   test("two sends of one id at once reach the relay once", async () => {

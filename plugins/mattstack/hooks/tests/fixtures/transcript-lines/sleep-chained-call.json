@@ -1,0 +1,1 @@
+{"isSidechain":false,"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01SleepRetryWait0000000","name":"Bash","input":{"command":"sleep 60 && bun dev","run_in_background":true}}]},"uuid":"54da7c2a-fe75-48f8-9dc0-000000000001","timestamp":"@TS@","sessionId":"11111111-2222-3333-4444-555555555555"}

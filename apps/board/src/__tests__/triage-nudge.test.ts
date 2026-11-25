@@ -215,7 +215,7 @@ function deps(over: Partial<NudgePassDeps> = {}) {
     readRespondStates: () => new Map(),
     isOwnMr: () => true,
     launchAsk: async (): Promise<ReReviewLaunch> => ({ kind: 'launched' }),
-    publishOutcome: (to, payload) => published.push({ to, payload }),
+    publishOutcome: async (to, payload) => published.push({ to, payload }),
     memory,
     cfg,
     appendAudit: e => audit.push(e),

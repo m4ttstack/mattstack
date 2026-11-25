@@ -69,6 +69,7 @@ import { syncAdminSecrets, type AdminSecretsResult, type TokenOutcome } from "..
 import { canonicalHandle, readAdminToken, readPeeredBoards, realReadAdminSecret, realReadLocalSecret, type ReadAdminSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
 import { MembersKeyError, MembersSyncAbortedError, membersAddToTeam, membersDropFromTeam, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { sendAnnouncement } from "../lib/team/announce.ts";
+import { realSealedText } from "../lib/team/sealed-text.ts";
 import { peerOwnBoard, realPeerSeams, type PeerResult, type PeerSeams } from "../lib/team/peer.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { disableSupport, enableSupport, type EnableDeps } from "../lib/support/enable.ts";
@@ -516,7 +517,10 @@ export async function teamAnnounce(args: string[], _ctx: CommandContext = {}, de
   if (!message) usageError(deps, json, "What should the announcement say?", ANNOUNCE_USAGE);
   try {
     const slug = resolveTeamSlug(args, "team announce");
-    const result = await (deps.announce ?? sendAnnouncement)(deps.probes, slug, { title, message }, { readLocalSecret: deps.readLocalSecret ?? realReadLocalSecret });
+    const result = await (deps.announce ?? sendAnnouncement)(deps.probes, slug, { title, message }, {
+      readLocalSecret: deps.readLocalSecret ?? realReadLocalSecret,
+      sealedText: realSealedText(slug),
+    });
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
@@ -526,6 +530,9 @@ export async function teamAnnounce(args: string[], _ctx: CommandContext = {}, de
         ? out.line("done", `Queued for ${result.delivered} ${result.delivered === 1 ? "board" : "boards"}`, "people see it within a minute if their board is running")
         : out.line("needs-you", "Nobody will get this", "no other boards are connected"),
     );
+    if (result.delivered > 0 && result.unreadable > 0) {
+      out.print(out.line("pending", `${result.unreadable} ${result.unreadable === 1 ? "person" : "people"} cannot read it yet`, "they have no key on the org's roster"));
+    }
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;

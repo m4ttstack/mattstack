@@ -8,7 +8,9 @@ import { MIGRATION_IDS } from "../../setup/migrations/ids.ts";
 import { rtVersion } from "../../setup/update.ts";
 import { ENGINE_PACK_REF } from "../../skills/installed-plugins.ts";
 import type { PluginListEntry } from "../../skills/sources.ts";
-import { collectPing, fitPing, readPingVersions, runningInVirtualMachine } from "../ping.ts";
+import { buildCloneHealth, makePingHealth } from "../clone-health.ts";
+import { collectPing, readPingVersions, runningInVirtualMachine } from "../ping.ts";
+import { parsePing } from "./fixtures/deployed-parse-ping.ts";
 
 const HOME = "/h";
 const ORGS = `${HOME}/.mattstack/orgs`;
@@ -278,31 +280,62 @@ describe("runningInVirtualMachine", () => {
 });
 
 describe("collectPing with clone health", () => {
-  const CLONE = {
-    branch: "mattstack",
-    dataBranch: "mattstack",
-    head: "aaaaaaaaaaaa",
-    upstream: "bbbbbbbbbbbb",
-    behind: 3,
-    ahead: 0,
-    lastPullAt: "2026-11-18T10:00:00.000Z",
-    pull: "local-changes" as const,
-    canPublish: false,
-    dirtyCount: 1,
-    dirty: [{ path: "mattstack/teams/web/plugin/skills/work/SKILL.md", status: "M" }],
-    dirtySince: "2026-11-17T08:00:00.000Z",
-    conflicted: false,
-    layoutHold: false,
-  };
+  const CLONE = buildCloneHealth(
+    {
+      lastPullAt: Date.parse("2026-11-18T10:00:00Z"),
+      lastPullError: null,
+      lastPullSkipped: "error: Your local changes to SECRET-file.md would be overwritten by merge",
+      conflicted: null,
+      layoutHold: null,
+      pullOnly: true,
+      firstSeenDirty: { "SECRET-file.md": Date.parse("2026-11-17T08:00:00Z") },
+    },
+    { branch: "SECRET-branch", behind: 3, ahead: 0, dirty: ["SECRET-file.md", "SECRET-other.md"] },
+    "mattstack",
+  );
 
-  test("each org carries its clone and each served pack its stale skills", async () => {
+  test("each org carries its clone's counts and each served pack how many skills are stale", async () => {
     const p = world([{ slug: "acme", layout: 4, packs: ["acme-pack"] }], { plugins: [{ id: "acme-pack@acme", version: "1.4.0" }] });
     const ping = await collectPing(p, {
       cloneHealth: async (slug) => (slug === "acme" ? CLONE : null),
-      staleSkills: async (pack) => (pack === "acme-pack" ? [{ skill: "work", causes: ["source"] }] : null),
+      staleCount: async (pack) => (pack === "acme-pack" ? 2 : null),
     });
     expect(ping.orgs).toEqual([{ org: "acme", layout: 4, clone: CLONE }]);
-    expect(ping.packs).toEqual([{ id: "acme-pack@acme", version: "1.4.0", stale: [{ skill: "work", causes: ["source"] }] }]);
+    expect(ping.orgs[0]!.clone).toMatchObject({
+      branch: null,
+      dataBranch: null,
+      head: null,
+      upstream: null,
+      onDataBranch: false,
+      behind: 3,
+      pull: "local-changes",
+      dirtyCount: 2,
+      dirty: [],
+      dirtySince: "2026-11-17T08:00:00.000Z",
+    });
+    expect(ping.packs).toEqual([{ id: "acme-pack@acme", version: "1.4.0", stale: null, staleCount: 2 }]);
+    expect(JSON.stringify(ping)).not.toContain("SECRET");
+  });
+
+  test("a skill rt calls stale is counted and never named", async () => {
+    const p = world([{ slug: "acme", layout: 4, packs: ["acme-pack"] }]);
+    const report = { verbs: [{ name: "SECRET-skill", status: "stale", staleBecause: ["SECRET-cause"] }], attachments: [] };
+    const health = makePingHealth({
+      probes: { ...p, exec: async () => ({ code: 1, stdout: JSON.stringify(report), stderr: "" }) },
+      rtArgv: ["rt"],
+      status: () => [],
+    });
+    const ping = await collectPing(p, health);
+    expect(ping.packs).toEqual([{ id: "acme-pack@acme", version: null, stale: null, staleCount: 1 }]);
+    expect(JSON.stringify(ping)).not.toContain("SECRET");
+  });
+
+  test("the relay deployed before this still accepts it whole", async () => {
+    const p = world([{ slug: "acme", layout: 4, packs: ["acme-pack"] }]);
+    const ping = await collectPing(p, { cloneHealth: async () => CLONE, staleCount: async () => 2 });
+    const parsed = parsePing(JSON.parse(JSON.stringify(ping)));
+    expect(parsed?.orgs[0]?.clone).toMatchObject({ dirtyCount: 2, pull: "local-changes", dirty: [] });
+    expect(parsed?.packs).toEqual([{ id: "acme-pack@acme", version: null, stale: null }]);
   });
 
   test("a clone or check that throws reads as null and never drops the ping", async () => {
@@ -311,50 +344,11 @@ describe("collectPing with clone health", () => {
       cloneHealth: async () => {
         throw new Error("git gone");
       },
-      staleSkills: async () => {
+      staleCount: async () => {
         throw new Error("rt gone");
       },
     });
     expect(ping.orgs).toEqual([{ org: "acme", layout: 4, clone: null }]);
-    expect(ping.packs).toEqual([{ id: "acme-pack@acme", version: null, stale: null }]);
-  });
-});
-
-describe("fitPing", () => {
-  const longPath = (i: number) => `mattstack/${"deep/".repeat(98)}f${i}.md`;
-  const bigClone = {
-    branch: "mattstack",
-    dataBranch: "mattstack",
-    head: null,
-    upstream: null,
-    behind: 1,
-    ahead: 0,
-    lastPullAt: null,
-    pull: "local-changes" as const,
-    canPublish: false,
-    dirtyCount: 40,
-    dirty: Array.from({ length: 40 }, (_, i) => ({ path: longPath(i), status: "M" })),
-    dirtySince: null,
-    conflicted: false,
-    layoutHold: false,
-  };
-
-  test("a ping under the budget is unchanged", async () => {
-    const ping = await collectPing(world([]));
-    expect(fitPing(ping, 60_000)).toEqual(ping);
-  });
-
-  test("trims dirty paths, then stale lists, to fit, keeping the true counts", async () => {
-    const base = await collectPing(world([]));
-    const ping = {
-      ...base,
-      orgs: ["a", "b", "c", "d"].map((org) => ({ org, layout: 5, clone: bigClone })),
-      packs: [{ id: "web@a", version: null, stale: [{ skill: "work", causes: ["source"] }] }],
-    };
-    expect(JSON.stringify(ping).length).toBeGreaterThan(60_000);
-    const fitted = fitPing(ping, 60_000);
-    expect(Buffer.byteLength(JSON.stringify(fitted))).toBeLessThanOrEqual(60_000);
-    expect(fitted.orgs.every((o) => o.clone?.dirtyCount === 40)).toBe(true);
-    expect(fitted.orgs[0]!.clone!.dirty.length).toBeLessThan(40);
+    expect(ping.packs).toEqual([{ id: "acme-pack@acme", version: null, stale: null, staleCount: null }]);
   });
 });

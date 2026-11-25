@@ -16,6 +16,7 @@ import {
   type NudgeResult,
 } from './envelope.ts';
 import type { NudgeState } from './nudges.ts';
+import type { NoteReason, PreparedOutcome } from './sealed-send.ts';
 
 /** MRs with an accept in flight, so a second click on another ask for the
     same MR is refused before the first launch resolves. */
@@ -30,7 +31,8 @@ export interface AskActionDeps {
     reason?: string,
     opts?: { note?: string; declined?: true; replacing?: NudgeResult }
   ): boolean;
-  publishOutcome(to: string, p: NudgeOutcomePayload): void;
+  prepareOutcome(to: string, p: NudgeOutcomePayload): Promise<PreparedOutcome>;
+  publishOutcome(to: string, p: NudgeOutcomePayload): Promise<void>;
   readReviewStates(): Map<string, ReviewState>;
   readRespondStates(): Map<string, { status: string }>;
   isOwnMr(mrUrl: string): boolean;
@@ -118,7 +120,7 @@ async function accept(
     const result: NudgeResult =
       decision.action === 'expire' ? 'expired' : 'rejected';
     if (!deps.markNudgeHandled(n.id, result, decision.reason)) return answered;
-    deps.publishOutcome(
+    await deps.publishOutcome(
       n.from,
       outcome(n, result, { reason: decision.reason })
     );
@@ -139,33 +141,30 @@ async function accept(
     deps.markNudgeHandled(n.id, 'rejected', 'launch-failed', {
       replacing: 'launched',
     });
-    deps.publishOutcome(
+    await deps.publishOutcome(
       n.from,
       outcome(n, 'rejected', { reason: 'launch-failed' })
     );
     return { ok: false, status: 502, message: launch.message };
   }
-  deps.publishOutcome(n.from, outcome(n, 'launched'));
+  await deps.publishOutcome(n.from, outcome(n, 'launched'));
   return { ok: true };
 }
 
-export function declineAsk(
+export async function declineAsk(
   id: string,
   input: { reason?: DeclineReason; note?: string },
   deps: AskActionDeps
-): { ok: true } | Fail<404 | 409> {
+): Promise<
+  { ok: true; noteSent?: false; noteReason?: NoteReason } | Fail<404 | 409>
+> {
   const n = find(id, deps);
   if ('ok' in n) return n;
   const words = input.reason ? DECLINE_REASONS[input.reason] : undefined;
   const note = input.note?.trim() || undefined;
-  if (
-    !deps.markNudgeHandled(n.id, 'rejected', words, {
-      declined: true,
-      ...(note ? { note } : {}),
-    })
-  )
-    return answered;
-  deps.publishOutcome(
+  // Sealed before the claim: a board that stops between the two would leave an
+  // ask that reads as answered and an asker who was never told.
+  const prepared = await deps.prepareOutcome(
     n.from,
     outcome(n, 'rejected', {
       ...(words ? { reason: words } : {}),
@@ -173,20 +172,29 @@ export function declineAsk(
       ...(note ? { declineNote: note } : {}),
     })
   );
-  return { ok: true };
+  if (
+    !deps.markNudgeHandled(n.id, 'rejected', words, {
+      declined: true,
+      ...(note ? { note } : {}),
+    })
+  )
+    return answered;
+  prepared.send();
+  const { noteReason } = prepared;
+  return noteReason ? { ok: true, noteSent: false, noteReason } : { ok: true };
 }
 
-export function declineWhileOff(
+export async function declineWhileOff(
   deps: Pick<
     AskActionDeps,
     'readNudges' | 'markNudgeHandled' | 'publishOutcome'
   >
-): number {
+): Promise<number> {
   let count = 0;
   for (const ask of deps.readNudges()) {
     if (ask.handled) continue;
     if (!deps.markNudgeHandled(ask.id, 'rejected', 'asks-off')) continue;
-    deps.publishOutcome(
+    await deps.publishOutcome(
       ask.from,
       outcome(ask, 'rejected', { reason: 'asks-off' })
     );
@@ -197,18 +205,18 @@ export function declineWhileOff(
 
 /** Decline every waiting respond ask with `reason`, leaving review and
     re-review asks for the pass. */
-export function declineRespondAsks(
+export async function declineRespondAsks(
   deps: Pick<
     AskActionDeps,
     'readNudges' | 'markNudgeHandled' | 'publishOutcome'
   >,
   reason: string
-): number {
+): Promise<number> {
   let count = 0;
   for (const ask of deps.readNudges()) {
     if (ask.handled || ask.kind !== 'respond') continue;
     if (!deps.markNudgeHandled(ask.id, 'rejected', reason)) continue;
-    deps.publishOutcome(ask.from, outcome(ask, 'rejected', { reason }));
+    await deps.publishOutcome(ask.from, outcome(ask, 'rejected', { reason }));
     count++;
   }
   return count;
@@ -216,18 +224,21 @@ export function declineRespondAsks(
 
 /** Expire waiting asks past NUDGE_FRESH_MS. The triage pass does the same,
     but a board with no cron pass would otherwise hold them forever. */
-export function expireStaleAsks(
+export async function expireStaleAsks(
   deps: Pick<
     AskActionDeps,
     'readNudges' | 'markNudgeHandled' | 'publishOutcome'
   >,
   now: number
-): number {
+): Promise<number> {
   let count = 0;
   for (const ask of deps.readNudges()) {
     if (ask.handled || now - ask.receivedAt <= NUDGE_FRESH_MS) continue;
     if (!deps.markNudgeHandled(ask.id, 'expired', 'stale')) continue;
-    deps.publishOutcome(ask.from, outcome(ask, 'expired', { reason: 'stale' }));
+    await deps.publishOutcome(
+      ask.from,
+      outcome(ask, 'expired', { reason: 'stale' })
+    );
     count++;
   }
   return count;

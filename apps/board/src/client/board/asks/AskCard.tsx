@@ -10,7 +10,13 @@ import { MemberInvadr } from '../MemberInvadr.tsx';
 import { MrLinks, mrRef } from '../MrLinks.tsx';
 import { usePeople } from '../people.ts';
 import { Sep } from '../Sep.tsx';
-import { askedPhrase, confirmLine, verbLabel, verbLane } from './ask-copy.ts';
+import {
+  askedPhrase,
+  confirmLine,
+  TEXT_STATE_COPY,
+  verbLabel,
+  verbLane,
+} from './ask-copy.ts';
 import { AskDeclineForm } from './AskDeclineForm.tsx';
 
 const errorText = (err: unknown) =>
@@ -78,6 +84,12 @@ export function AskCard({
     }
   };
 
+  const unread = ask.textState && (
+    <p className="tui-ask-unread" data-state={ask.textState}>
+      {TEXT_STATE_COPY[ask.textState]}
+    </p>
+  );
+
   return (
     <article
       className={flash ? 'tui-ask-card tui-ask-flash' : 'tui-ask-card'}
@@ -97,7 +109,11 @@ export function AskCard({
         </span>
       </div>
       <div className="tui-ask-mr">
-        {ask.title && <span className="tui-ask-title">{ask.title}</span>}
+        {ask.title ? (
+          <span className="tui-ask-title">{ask.title}</span>
+        ) : (
+          unread
+        )}
         <MrLinks
           mr={{
             webUrl: ask.mrUrl,
@@ -108,6 +124,7 @@ export function AskCard({
         />
       </div>
       {ask.note && <p className="tui-ask-card-note">{ask.note}</p>}
+      {ask.title && unread}
       {error && (
         <Alert intent="bad" className="tui-ask-error">
           {error}

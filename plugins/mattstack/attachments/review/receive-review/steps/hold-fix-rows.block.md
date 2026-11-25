@@ -9,7 +9,8 @@ A failed push (a target mismatch or a push error) holds the picked
 reads' output or the `git_push` error, whole and unedited, in a fenced
 block. Never force, rebase or merge past it. Every other reply posts as
 decided. Once the threads are done, re-record the decision with the held
-ids (`gate_record {..., held}`) and set `hold` to `held`. That record
+ids (`gate_record {..., held}`) and open the held threads' off-script
+gate. That record
 passes `gateId`, the `gate` in `extra.gate-source.respond-post`, when the
 registry still has that gate. Otherwise (a `gate: null` source, or a gate
 the registry no longer returns) it passes `decidedBy` the recorded

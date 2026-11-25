@@ -7,7 +7,8 @@ import { SlackError } from "../../slack/client.ts";
 import { setKvValue } from "../../state/kv-blob.ts";
 import { getRequest, insertRequest, listRequests, pendingStatuses } from "../../state/support-store.ts";
 import type { SupportDraft, SupportMessage } from "../../../packages/rt-client/src/support.ts";
-import { supportMac } from "../proof.ts";
+import { fakeSealedWorld } from "../../team/__tests__/fake-sealed-text.ts";
+import { supportBinding, supportMac } from "../proof.ts";
 import type { SupportRelay } from "../relay.ts";
 import { createSupportService, statusNotice, type SupportServiceOptions } from "../service.ts";
 import type { SupportConfig } from "../config.ts";
@@ -25,6 +26,7 @@ function harness(me: "alex" | "ada" = "alex") {
     reachable: true,
     hostAccepting: true,
   };
+  const world = fakeSealedWorld(["alex", "ada"]);
   const events: string[] = [];
   const sent: SupportDraft[] = [];
   let inbox: SupportMessage[] = [];
@@ -58,6 +60,7 @@ function harness(me: "alex" | "ada" = "alex") {
       now: () => h.state.now,
       config: () => state.config,
       keys: async () => ({ current: KEY, retired: [] }),
+      sealedText: world.forUser(me),
       relay: async () => relay,
       boardToken: async () => "tok",
       defaultRepo: () => REPO,
@@ -75,11 +78,14 @@ function harness(me: "alex" | "ada" = "alex") {
   const service = createSupportService(options);
   const restart = () => createSupportService(options);
   function arrive(kind: "request" | "status", from: string, to: string, id: string, body: object) {
-    const text = JSON.stringify(body);
+    const { reason, persona, dmLink, ...facts } = body as Record<string, string>;
+    const fields = kind === "request" ? { body: JSON.stringify(body) } : Object.fromEntries(Object.entries({ reason, persona, dmLink }).filter((e): e is [string, string] => e[1] !== undefined));
+    const sealed = world.put([to], supportBinding(kind, id, from), fields);
+    const text = JSON.stringify(kind === "request" ? { sealed } : { ...facts, sealed });
     const at = h.state.now;
     inbox.push({ id, to, from, kind, sentAt: at, receivedAt: at, body: text, mac: supportMac(KEY, { kind, id, from, to, sentAt: at, body: text }) });
   }
-  return { h, state, events, sent, relay, options, service, restart, arrive, left: () => inbox.length };
+  return { h, state, world, events, sent, relay, options, service, restart, arrive, left: () => inbox.length };
 }
 
 const ask = { text: "help", parts: [], slackUserId: ADA.slackUserId };
@@ -340,6 +346,39 @@ describe("readiness", () => {
   });
 });
 
+describe("this Mac's own key", () => {
+  const asked = async (holds: boolean | Error) => {
+    const t = harness();
+    t.world.state.holds = holds;
+    const seen: unknown[] = [];
+    const service = createSupportService({
+      ...t.options,
+      seams: { ...t.options.seams, readiness: async (d) => (seen.push(await d.holdsKey().catch((err: Error) => err.message)), []) },
+    });
+    await service.handlers["support:host"]({});
+    return { t, seen, again: () => service.handlers["support:host"]({}) };
+  };
+
+  test("is the roster's, is not, or could not be read", async () => {
+    expect((await asked(true)).seen).toEqual([true]);
+    expect((await asked(false)).seen).toEqual([false]);
+    expect((await asked(new Error("locked"))).seen).toEqual(["locked"]);
+  });
+
+  test("a wrong key or a failed read is looked at again each time, and a right one is kept", async () => {
+    const failed = await asked(new Error("locked"));
+    failed.t.world.state.holds = true;
+    await failed.again();
+    expect(failed.seen).toEqual(["locked", true]);
+    const wrong = await asked(false);
+    wrong.t.world.state.holds = true;
+    await wrong.again();
+    wrong.t.world.state.holds = false;
+    await wrong.again();
+    expect(wrong.seen).toEqual([false, true, true]);
+  });
+});
+
 describe("the org's support key", () => {
   test("an org whose setting was turned on without one is told apart from one this Mac cannot open", async () => {
     const t = harness();
@@ -390,7 +429,9 @@ describe("accepting requests", () => {
     t.h.agentPosts(t.h.db.query("SELECT room, agent_handle AS agentHandle FROM slack_conversations").get() as never);
     await t.service.tick();
     expect(t.sent.map((d) => d.id)).toEqual(["r1:received", "r1:opened"]);
-    expect(JSON.parse(t.sent[1]!.body)).toMatchObject({ state: "opened", dmLink: "slack://user?team=T1&id=U0HOST" });
+    const { sealed, ...facts } = JSON.parse(t.sent[1]!.body);
+    expect(facts).toMatchObject({ requestId: "r1", state: "opened" });
+    expect(t.world.read(sealed)).toMatchObject({ dmLink: "slack://user?team=T1&id=U0HOST" });
   });
 
   test("ten requests read at once are taken in one pass", async () => {
@@ -475,7 +516,7 @@ describe("the sender's side", () => {
     t.service.stop();
     t.arrive("status", "alex", "ada", "r1:opened", { requestId: "r1", state: "opened", at: 5 });
     await Bun.sleep(5);
-    expect(t.events.filter((e) => e.startsWith("notify"))).toEqual(["notify Maude messaged you in Slack -> slack://user?team=T1&id=U0HOST"]);
+    expect(t.events.filter((e) => e.startsWith("notify"))).toEqual(["notify alex's agent messaged you in Slack -> slack://user?team=T1&id=U0HOST"]);
     expect(getRequest("out", "alex", "r1", t.h.db)!.state).toBe("opened");
   });
 

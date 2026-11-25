@@ -126,9 +126,10 @@ mine = [g for g in d["gates"] if isinstance(g, dict) and g.get("status") in ("op
 print(len(mine))
 ' "$RUN_ID" 2>/dev/null)" && [ "${OPEN_GATES:-0}" -gt 0 ] && exit 0
 
-# A Stop with a backgrounded MCP call or an async agent (launched, or resumed
-# with SendMessage) still pending is not a prose ending: the task's
-# notification re-invokes the pane. The scan runs only once a run is open, and
+# A Stop with a backgrounded MCP call, an async agent (launched, or resumed
+# with SendMessage) or a bare background `sleep` still pending is not a prose
+# ending: the task's notification re-invokes the pane. Any other background
+# shell may never end (a dev server), so it excuses nothing. The scan runs only once a run is open, and
 # every failure of it (no transcript, a bad line, out of time) keeps today's
 # block. Only the transcript's tail is read: a task's removal is always
 # written after its launch, so a launch inside the window has its removal
@@ -145,6 +146,7 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
 import calendar, json, os, re, sys, time
 
 MAX_AGE_MIN = 120
+SLEEP_GRACE_S = 60
 MAX_BYTES = int(os.environ.get("RT_STOP_HOOK_MAX_BYTES") or 64 * 1024 * 1024)
 SCAN_MS = int(os.environ.get("RT_STOP_HOOK_SCAN_MS") or 1500)
 # hooks.json kills the hook at 30 s and Claude Code then ignores it, so the
@@ -159,13 +161,17 @@ deadline = time.monotonic() + budget
 
 MCP = re.compile(r"moved to the background as task ([A-Za-z0-9_-]+)")
 TASK_ID = re.compile(r"<task-id>([A-Za-z0-9_-]+)</task-id>")
-NEEDLES = (b"background as task", b"async_launched", b"resumedAgentId", b"<task-id>", b"TaskStop")
+SLEEP = re.compile(r"\s*sleep (\d+)\s*")
+NEEDLES = (b"background as task", b"async_launched", b"resumedAgentId", b"<task-id>", b"TaskStop",
+           b"run_in_background", b"backgroundTaskId")
 
 def when(d):
     t = str(d.get("timestamp") or "")[:19]
     return calendar.timegm(time.strptime(t, "%Y-%m-%dT%H:%M:%S"))
 
+# task id -> when it stops counting as pending
 pending = {}
+sleeps = {}
 with open(path, "rb") as f:
     size = os.fstat(f.fileno()).st_size
     if size > MAX_BYTES:
@@ -184,21 +190,34 @@ with open(path, "rb") as f:
                 continue
             tur = d.get("toolUseResult")
             if isinstance(tur, dict) and tur.get("status") == "async_launched" and tur.get("agentId"):
-                pending[tur["agentId"]] = when(d)
+                pending[tur["agentId"]] = when(d) + MAX_AGE_MIN * 60
                 continue
             # SendMessage restarts a finished agent under its own id.
             if isinstance(tur, dict) and tur.get("success") is True and tur.get("resumedAgentId"):
-                pending[tur["resumedAgentId"]] = when(d)
+                pending[tur["resumedAgentId"]] = when(d) + MAX_AGE_MIN * 60
+                continue
+            if isinstance(tur, dict) and tur.get("backgroundTaskId"):
+                for c in (d.get("message") or {}).get("content") or []:
+                    seconds = sleeps.get(c.get("tool_use_id")) if isinstance(c, dict) else None
+                    if seconds is not None:
+                        pending[tur["backgroundTaskId"]] = when(d) + min(seconds + SLEEP_GRACE_S, MAX_AGE_MIN * 60)
                 continue
             for item in tur if isinstance(tur, list) else []:
                 text = item.get("text") if isinstance(item, dict) and item.get("type") == "text" else None
                 m = MCP.search(text) if isinstance(text, str) and text.startswith("MCP tool ") else None
                 if m:
-                    pending[m.group(1)] = when(d)
+                    pending[m.group(1)] = when(d) + MAX_AGE_MIN * 60
         elif kind == "assistant":
             for c in (d.get("message") or {}).get("content") or []:
-                if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") == "TaskStop":
-                    pending.pop(str((c.get("input") or {}).get("task_id")), None)
+                if not isinstance(c, dict) or c.get("type") != "tool_use":
+                    continue
+                args = c.get("input") or {}
+                if c.get("name") == "TaskStop":
+                    pending.pop(str(args.get("task_id")), None)
+                elif c.get("name") == "Bash" and args.get("run_in_background") is True:
+                    m = SLEEP.fullmatch(str(args.get("command")))
+                    if m:
+                        sleeps[c.get("id")] = int(m.group(1))
         elif kind == "queue-operation" and d.get("operation") == "remove":
             m = TASK_ID.search(d.get("content") or "")
             if m:
@@ -209,12 +228,12 @@ with open(path, "rb") as f:
                 pending.pop(m.group(1), None)
 
 now = time.time()
-sys.exit(0 if any(now - at <= MAX_AGE_MIN * 60 for at in pending.values()) else 1)
+sys.exit(0 if any(now <= until for until in pending.values()) else 1)
 PY
   then exit 0; fi
 fi
 
 cat >&2 <<EOF
-Run \`$RUN_ID\` is \`running\` in stage \`$STAGE\`. A turn cannot end here in prose. Five exits: continue the stage; open the decision with gate_ask or gate_open, passing runDb and stage \`$STAGE\` (the tool writes the run's gate field, and waiting-gate when its paneAction is wait), then act on that paneAction per gate-protocol; park it with run_hold; close it (the close gate, then run_close with done, failed or abandoned); or, at a gate already open whose paneAction was wait, fire the background rt gate wait per gate-protocol and end the turn. Waiting on a running background subagent or MCP call needs no exit, and never run_hold: such a turn ends by itself, so this block means none was found running. If the user asked you something mid-run, the answer is the sentence before the gate.
+Run \`$RUN_ID\` is \`running\` in stage \`$STAGE\`. A turn cannot end here in prose. A decision the developer must make is always a gate, never run_hold: a hold asks nothing and the console shows no question. Five exits: continue the stage; open the decision with gate_ask or gate_open, passing runDb and stage \`$STAGE\` (the tool writes the run's gate field, and waiting-gate when its paneAction is wait), then act on that paneAction per gate-protocol; close it (the close gate, then run_close with done, failed or abandoned); at a gate already open whose paneAction was wait, fire the background rt gate wait per gate-protocol and end the turn; or park it with run_hold, only when nothing is being asked: the developer paused it or answered hold, or the step you are on names run_hold. Waiting on a running background subagent, MCP call or sleep needs no exit, and never run_hold: such a turn ends by itself, so this block means none was found running. If the user asked you something mid-run, the answer is the sentence before the gate.
 EOF
 exit 2
