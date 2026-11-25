@@ -35,6 +35,10 @@ flowchart TB
     dev_endpoints[/"dev_endpoints {tree: <worktree>, roles: <the domain's roles>}"/]
     stop_guessed_ports[STOP: ports come only from dev_endpoints]:::stop
     role_waiting{Any role waiting or unclaimed?}
+    run_budget_server_starts[/"run_budget {runDb, key: evidence:server-starts, limit: 2, stage: evidence}"/]
+    server_starts_spent{server-starts spent?}
+    start_servers
+    stop_ask_to_start[STOP: never ask the developer to start a dev server]:::stop
     rt_verb[/"rt_verb {args: [<verb>, ...]}"/]
     stop_shell_rt_read[STOP: rt reads go through rt_verb, never rt on Bash]:::stop
     intake_needed{Intake questions declared, or source not local?}
@@ -94,7 +98,13 @@ flowchart TB
     stop_guessed_ports --> dev_endpoints
     stop_shell_rt_read --> rt_verb
     dev_endpoints --> role_waiting
-    role_waiting -->|yes: name it in the gate's sentence| gate_evidence
+    role_waiting -->|yes| run_budget_server_starts
+    role_waiting -->|tempted to ask the developer to start one| stop_ask_to_start
+    stop_ask_to_start --> run_budget_server_starts
+    run_budget_server_starts --> server_starts_spent
+    server_starts_spent -->|no| start_servers
+    server_starts_spent -->|yes: still not answering, name it and what was tried in the gate's sentence| gate_evidence
+    start_servers --> dev_endpoints
     role_waiting -->|no, and another rt read| rt_verb
     role_waiting -->|no| intake_needed
     rt_verb --> intake_needed
@@ -103,9 +113,9 @@ flowchart TB
     gate_evidence --> evidence_answer
     evidence_answer -->|proceed: intake and source recorded| ticket_shows_before
     evidence_answer -->|iterate: re-ask with their note| gate_evidence
-    evidence_answer -->|check again, or iterate, a role was waiting or unclaimed| run_budget_gate_iterates
+    evidence_answer -->|try again, or iterate, a role was not answering| run_budget_gate_iterates
     run_budget_gate_iterates --> gate_iterates_spent
-    gate_iterates_spent -->|no: re-check| dev_endpoints
+    gate_iterates_spent -->|no: start it again| start_servers
     gate_iterates_spent -->|yes: hand back, the roles named| run_stage_fail
     evidence_answer -->|hand back| run_stage_fail
     evidence_answer -->|go on without this BEFORE: reopened from an unfixable Not drawn| every_case_captured

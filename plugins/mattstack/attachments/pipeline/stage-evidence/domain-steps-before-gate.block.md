@@ -13,7 +13,9 @@ The domain's gathering steps: the running app's dev servers, its data
 source, and any fact the gate's sentence or the `source` question needs.
 Their result decides whether `source` fires. A role `dev_endpoints` lists
 in `waiting` (claimed, never answered), or reports unclaimed or with an
-`error`, goes in the evidence gate's sentence, so the gate opens with no
-intake question.
+`error`, is started by this stage (Start or restart every role that is not
+answering), never handed to the developer. Only a role still not answering
+after two starts goes in the evidence gate's sentence, so the gate opens
+with no intake question.
 
 {{props.rules}}
