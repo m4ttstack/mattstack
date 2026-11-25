@@ -281,8 +281,11 @@ export function pill(
   }
 }
 
-export function whoAnswers(host: string, away: boolean): string {
-  return away ? `${host}'s Mac is away` : `${host}'s Mac answers in Slack`;
+export function whoAnswers(host: string, a: SupportAvailability): string {
+  if (a.state === 'hidden') return `${host}'s Mac isn't answering`;
+  return a.state === 'ready' && a.away
+    ? `${host}'s Mac is away`
+    : `${host}'s Mac answers in Slack`;
 }
 
 export const hostOf = (a: SupportAvailability) =>

@@ -231,7 +231,7 @@ export function HelpButton({ help }: { help: Help }) {
       card={sendErrorCard(help.error, help.host, help.requests.some(isOpen))}
       words={help.text}
       host={help.host}
-      hostDm={read.hostDm}
+      hostDm={help.hostDm}
       onClose={close}
       onTryAgain={help.send}
       onShowIt={help.clearError}

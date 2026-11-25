@@ -112,10 +112,15 @@ struct HelpForm: View {
 
     // MARK: - Asking
 
+    private var answering: (words: String, color: Color) {
+        if !availability.isOffered { return ("\(host)'s Mac isn't answering", .red) }
+        return availability.away == true ? ("\(host)'s Mac is away", .orange) : ("\(host)'s Mac answers in Slack", .green)
+    }
+
     @ViewBuilder private var form: some View {
         HStack(spacing: 8) {
-            Circle().fill(availability.away == true ? Color.orange : Color.green).frame(width: 8, height: 8)
-            Text(availability.away == true ? "\(host)'s Mac is away" : "\(host)'s Mac answers in Slack")
+            Circle().fill(answering.color).frame(width: 8, height: 8)
+            Text(answering.words)
                 .foregroundStyle(.secondary)
         }
         TextEditor(text: $text)
@@ -257,19 +262,20 @@ enum HelpWindowSnapshot {
         let ready = HelpAvailability(state: "ready", host: "Alex Moreau", away: false, persona: "Maude")
         let away = HelpAvailability(state: "ready", host: "Alex Moreau", away: true, persona: "Maude")
         func form(_ a: HelpAvailability, _ text: String, _ card: HelpCard? = nil) -> HelpForm {
-            HelpForm(availability: a, host: a.hostFirstName, text: .constant(text), parts: parts, partsFailed: false, left: [], isSending: false,
-                     canSend: !text.isEmpty, card: card, cardText: words, actions: HelpFormActions())
+            HelpForm(availability: a, host: "Alex", text: .constant(text), parts: parts, partsFailed: false, left: [], isSending: false,
+                     canSend: !text.isEmpty && a.isOffered, card: card, cardText: words, actions: HelpFormActions())
         }
         func card(_ state: String, away: Bool = false, dm: String? = nil, reason: String? = nil) -> HelpCard {
             HelpCards.request(HelpRequest(id: "r", text: words, state: state, reason: reason, dmLink: dm, away: away), host: "Alex", bot: "Maude")
         }
         let shots: [(String, HelpForm)] = [
-            ("asking", form(ready, words)), ("empty", form(ready, "")), ("away", form(away, words)),
+            ("asking", form(ready, words)), ("empty", form(ready, "")), ("away", form(away, words)), ("nobody", form(.hidden, words)),
             ("sent", form(ready, "", card("sent"))), ("received", form(ready, "", card("received"))),
             ("opened", form(ready, "", card("opened", dm: "slack://user?team=T0ACME&id=U0ALEX"))),
             ("waiting", form(ready, "", card("waiting"))), ("mac-away", form(ready, "", card("sent", away: true))),
             ("failed", form(ready, "", card("failed", reason: "Alex's Mac could not reach Slack"))),
             ("expired", form(ready, "", card("expired"))),
+            ("too-long", form(ready, "", HelpCards.refusal(code: "support-too-long", message: "That is too long to send. Shorten it, or remove something attached.", host: "Alex", waiting: false))),
             ("not-sent", form(ready, "", HelpCards.refusal(code: "support-unreachable", message: "", host: "Alex", waiting: false))),
         ]
         for (name, view) in shots {

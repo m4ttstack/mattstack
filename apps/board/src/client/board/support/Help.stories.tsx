@@ -25,6 +25,7 @@ import {
   MR,
   MR_PART,
   NO_SLACK,
+  NOBODY,
   READY,
   request,
   SETUP,
@@ -77,6 +78,7 @@ function help(
   return {
     read: o.read ?? READY,
     host: 'Alex',
+    hostDm: READY.hostDm,
     request: o.request ?? null,
     requests: o.request ? [o.request] : [],
     open: o.open ?? false,
@@ -171,6 +173,7 @@ export const Forms: Story = {
       ),
       form('away', help({ read: AWAY, text: WORDS, parts: [VERSIONS] })),
       form('filled', help({ text: MORE_WORDS })),
+      form('nobody', help({ read: NOBODY, text: WORDS })),
     ]),
 };
 

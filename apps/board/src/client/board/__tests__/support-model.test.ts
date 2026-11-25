@@ -16,9 +16,11 @@ import {
   whoAnswers,
 } from '../support/support-model.ts';
 import {
+  AWAY,
   DM,
   MR,
   MR_PART,
+  NOBODY,
   NOW,
   READY,
   request,
@@ -228,8 +230,13 @@ test('who answers, by first name', () => {
   expect(firstName(' Alex Moreau ')).toBe('Alex');
   expect(hostOf(READY.availability)).toBe('Alex');
   expect(hostOf({ state: 'hidden' })).toBe('');
-  expect(whoAnswers('Alex', false)).toBe("Alex's Mac answers in Slack");
-  expect(whoAnswers('Alex', true)).toBe("Alex's Mac is away");
+  expect(whoAnswers('Alex', READY.availability)).toBe(
+    "Alex's Mac answers in Slack"
+  );
+  expect(whoAnswers('Alex', AWAY.availability)).toBe("Alex's Mac is away");
+  expect(whoAnswers('Alex', NOBODY.availability)).toBe(
+    "Alex's Mac isn't answering"
+  );
 });
 
 test('the chips read short, the MR first', () => {

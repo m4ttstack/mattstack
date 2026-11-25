@@ -18,8 +18,10 @@ export function HelpForm({
   onClose: () => void;
 }) {
   const { read, text, parts, mr } = help;
-  const away = read.availability.state === 'ready' && read.availability.away;
-  const ready = parts !== null && text.trim() !== '';
+  const a = read.availability;
+  const away = a.state === 'ready' && a.away;
+  const nobody = a.state === 'hidden';
+  const ready = parts !== null && text.trim() !== '' && !nobody;
   return (
     <form
       className="tui-help-card"
@@ -43,10 +45,10 @@ export function HelpForm({
       <p className="tui-help-who">
         <span
           className="tui-help-dot"
-          data-tone={away ? 'wait' : 'ok'}
+          data-tone={nobody ? 'bad' : away ? 'wait' : 'ok'}
           aria-hidden
         />
-        {whoAnswers(host, away)}
+        {whoAnswers(host, a)}
       </p>
       <textarea
         ref={inputRef}

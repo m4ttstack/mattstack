@@ -9,6 +9,7 @@ import {
   sendRequest,
 } from './support-api.ts';
 import {
+  askedOf,
   byPartOrder,
   currentRequest,
   hostOf,
@@ -50,8 +51,10 @@ function newId(): string {
 
 export interface Help {
   read: SupportRead;
-  /** The host's first name, kept after they stop answering. */
+  /** The host's first name and a DM with them, kept after they stop
+      answering. */
   host: string;
+  hostDm: string | null;
   request: HelpRequest | null;
   requests: readonly HelpRequest[];
   open: boolean;
@@ -79,7 +82,10 @@ export interface Help {
 /** The help button's state; null while the board has no one to ask. */
 export function useSupport(local: boolean): Help | null {
   const [read, setRead] = useState<SupportRead | null>(null);
-  const [host, setHost] = useState('');
+  const [asked, setAsked] = useState<{ host: string; dm: string | null }>({
+    host: '',
+    dm: null,
+  });
   const [requests, setRequests] = useState<HelpRequest[]>([]);
   const [seen, setSeen] = useState<string[]>(loadSeen);
   const [open, setOpenState] = useState(false);
@@ -105,7 +111,8 @@ export function useSupport(local: boolean): Help | null {
       void getSupport().then(r => {
         if (!live || !r) return;
         setRead(r);
-        setHost(h => hostOf(r.availability) || h);
+        const host = hostOf(r.availability);
+        if (host) setAsked({ host, dm: r.hostDm });
       });
     };
     load();
@@ -185,12 +192,18 @@ export function useSupport(local: boolean): Help | null {
       setMr(null);
       loadParts(null);
       setError(null);
-      if (request) markSeen(request.id);
+      if (!request) return;
+      setAsked(a =>
+        a.host ? a : { host: askedOf(request), dm: request.hostDm }
+      );
+      markSeen(request.id);
     },
     [request, loadParts, markSeen]
   );
 
   const send = useCallback(() => {
+    // With nobody to send to, the form is what says so.
+    if (!offered) return setError(null);
     if (sending || parts === null || !text.trim()) return;
     const words = text.trim();
     const body = JSON.stringify([words, parts]);
@@ -212,13 +225,14 @@ export function useSupport(local: boolean): Help | null {
         setParts(null);
       })
       .finally(() => setSending(false));
-  }, [sending, parts, text, refreshRequests]);
+  }, [offered, sending, parts, text, refreshRequests]);
 
   // What someone is writing or reading stays while its card is open.
-  if (!read || (!offered && !request && !open)) return null;
+  if (!read || (!offered && !request && !(open && asked.host))) return null;
   return {
     read,
-    host,
+    host: asked.host,
+    hostDm: asked.dm,
     request,
     requests,
     open,

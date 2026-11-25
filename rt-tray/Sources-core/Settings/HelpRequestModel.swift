@@ -159,7 +159,7 @@ public final class HelpRequestModel: ObservableObject {
 
     public var sentParts: [HelpPart] { (parts ?? []).filter { !left.contains($0.key) } }
     private var words: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-    public var canSend: Bool { !isSending && parts != nil && !words.isEmpty }
+    public var canSend: Bool { !isSending && parts != nil && !words.isEmpty && availability.isOffered }
 
     private static func cut(_ text: String) -> String {
         var end = text.utf16.index(text.startIndex, offsetBy: textMax)
@@ -209,6 +209,8 @@ public final class HelpRequestModel: ObservableObject {
     }
 
     public func send() async {
+        // With nobody to send to, the form is what says so.
+        guard availability.isOffered else { refused = nil; return }
         guard canSend else { return }
         // rt takes a retry under the same id, and changed words as a new request.
         var mine = Attempt(id: newId(), text: words, parts: sentParts)

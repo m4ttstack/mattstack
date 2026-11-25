@@ -2,7 +2,8 @@ import type { SupportPart } from '@mattstack/rt-client';
 import type { SupportRead } from '../../../support.ts';
 import type { HelpMr, HelpRequest } from './support-model.ts';
 
-export const NOW = 1_795_500_000_000;
+/** The hook drops settled news after a day, by the real clock. */
+export const NOW = Date.now();
 
 export const READY: SupportRead = {
   availability: {
@@ -23,6 +24,12 @@ export const AWAY: SupportRead = {
     away: true,
     persona: 'Maude',
   },
+};
+
+/** The host stopped answering, or the relay did not answer. */
+export const NOBODY: SupportRead = {
+  ...READY,
+  availability: { state: 'hidden' },
 };
 
 export const NO_SLACK: SupportRead = {

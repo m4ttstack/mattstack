@@ -204,12 +204,16 @@ let supportChecks: [Check] = [
     Check("Help: a host who stops answering keeps their name on the card") { c in
         let daemon = FakeHelp()
         let m = await help(daemon)
-        daemon.available = .value(.hidden)
         daemon.sendReply = .refused(code: "support-not-accepting", message: "x")
-        await m.refreshAvailability()
         await MainActor.run { m.text = "no rows" }
         await m.send()
+        daemon.available = .value(.hidden)
+        await m.refreshAvailability()
         c.expectEqual(await MainActor.run { m.card?.title }, "Alex isn't taking requests")
+        await m.send()
+        c.expectEqual(daemon.sent.count, 1, "nobody to send to")
+        c.expectEqual(await MainActor.run { m.card }, nil, "the form is what says so")
+        c.expect(await MainActor.run { !m.canSend && m.text == "no rows" })
     },
     Check("Help: the words stop at rt's limit, never inside a character, and a refused length can be edited") { c in
         let daemon = FakeHelp()
