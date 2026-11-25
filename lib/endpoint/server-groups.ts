@@ -48,7 +48,7 @@ export function groupServers(servers: RunningServer[], enriched: Map<string, Enr
       ticketId,
       ticket,
       title: ticket?.title ?? mr?.title ?? (several ? key : first.branch ?? first.worktree.name),
-      detached: first.branch === null,
+      detached: first.branch === null && !first.removed,
       mr,
       servers: [...members]
         .sort((a, b) => (a.branch ?? "").localeCompare(b.branch ?? "") || a.role.localeCompare(b.role) || (a.port ?? Infinity) - (b.port ?? Infinity))

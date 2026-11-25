@@ -20,7 +20,8 @@ export interface ServerSnapshot {
   cwds: Map<number, string>;
   /** pid to its listening ports, ascending. */
   listeners: Map<number, number[]>;
-  worktrees: Array<{ path: string; branch: string | null }>;
+  /** `removed` marks a tree rt has removed and still keeps. */
+  worktrees: Array<{ path: string; branch: string | null; removed?: boolean }>;
 }
 
 /** `rules` holds this repo's rules only. */
@@ -42,8 +43,15 @@ export interface RunningServer {
   startTime: string;
   etime: string;
   leftBehind: boolean;
+  /** The agent this server runs under. */
   agent: string | null;
+  /** An agent's name, or "shell" for an interactive one, running inside the tree: stopping the tree would end it. */
+  inside: string | null;
+  /** Its worktree has been removed. */
+  removed: boolean;
 }
+
+export const agentLabel = (name: string): string => (name === "claude" ? "Claude" : name);
 
 const PS_ROW = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\d+:\d+:\d+\s+\d+)\s+(.+)$/;
 
@@ -97,9 +105,16 @@ function asCandidate(proc: ServerProc): KillCandidate {
   return { pid: proc.pid, ppid: proc.ppid, command: proc.command, fullCommand: proc.args };
 }
 
-/** The user's own process, or an app such as a terminal or editor: a left-behind tree never starts there. */
-function isAboveServers(proc: ServerProc): boolean {
-  return isUserOrAgentProcess(asCandidate(proc)) || proc.args.includes(".app/Contents/");
+/** A shell, agent or multiplexer, or an app such as an editor. A framework Python runs from an app bundle and is not one. */
+function isUsersOwn(proc: ServerProc): boolean {
+  return isUserOrAgentProcess(asCandidate(proc)) || (proc.args.includes(".app/Contents/") && !proc.args.includes("/Python.app/Contents/"));
+}
+
+// A shell with no script and no -c.
+const INTERACTIVE_SHELL = /^-?(?:\S*\/)?(?:zsh|bash|fish|sh)(?: -(?!c\b)[-\w]+)*$/;
+
+function sessionName(proc: ServerProc): string | null {
+  return agentNameOf(asCandidate(proc)) ?? (INTERACTIVE_SHELL.test(proc.args) ? "shell" : null);
 }
 
 /** Sorted by worktree name, role, port. */
@@ -112,13 +127,14 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
     return proc ? agentNameOf(asCandidate(proc)) : null;
   };
 
+  const listed = snapshot.worktrees.map((w) => ({ path: w.path, branch: w.branch, removed: w.removed ?? false, real: canon(w.path) }));
+  const placed = claims.map((c) => ({ role: c.role, port: c.port, path: c.worktree, tree: canon(c.worktree) }));
+  const unlisted = new Map(placed.filter((c) => !listed.some((t) => t.real === c.tree)).map((c) => [c.tree, c.path]));
   // Longest first, so a tree nested in the main checkout wins over it.
-  const trees = snapshot.worktrees
-    .map((w) => ({ ...w, real: canon(w.path) }))
+  const trees = [...listed, ...[...unlisted].map(([real, path]) => ({ path, branch: null, removed: true, real }))]
     .sort((a, b) => b.real.length - a.real.length);
   type Tree = (typeof trees)[number];
   const treeOf = (cwd: string) => trees.find((t) => cwd === t.real || cwd.startsWith(`${t.real}/`));
-  const placed = claims.map((c) => ({ role: c.role, port: c.port, tree: canon(c.worktree) }));
 
   const repoRules = rules.map((rule) => ({ ...rule, repoRemote: null }));
   const matched = new Map<number, { role: string; tree: Tree }>();
@@ -153,13 +169,13 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
     const cwd = snapshot.cwds.get(pid);
     if (!proc || cwd === undefined) continue;
     const tree = treeOf(cwd);
-    if (!tree || isUserOrAgentProcess(asCandidate(proc))) continue;
+    if (!tree || isUsersOwn(proc)) continue;
     if ([pid, ...ancestors(pid)].some((p) => roots.has(p))) continue;
     const role = ports.map((port) => roleHolding(port, cwd, tree)).find((r) => r !== undefined);
     if (role === undefined) continue;
     let root = pid;
     for (const up of ancestors(pid)) {
-      if (snapshot.cwds.get(up) !== cwd || isAboveServers(byPid.get(up)!)) break;
+      if (snapshot.cwds.get(up) !== cwd || isUsersOwn(byPid.get(up)!)) break;
       root = up;
     }
     if (!leftBehind.has(root)) leftBehind.set(root, { role, tree, leftBehind: true });
@@ -167,11 +183,15 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
   for (const [pid, at] of leftBehind) roots.set(pid, at);
 
   const pidsOf = new Map<number, number[]>([...roots.keys()].map((pid) => [pid, []]));
-  for (const { pid } of snapshot.procs) {
-    const line = [pid, ...ancestors(pid)];
+  const insideOf = new Map<number, string>();
+  for (const proc of snapshot.procs) {
+    const line = [proc.pid, ...ancestors(proc.pid)];
     const at = line.findIndex((p) => roots.has(p));
-    if (at < 0 || line.slice(0, at).some((p) => agentAt(p) !== null)) continue;
-    pidsOf.get(line[at]!)!.push(pid);
+    if (at < 0) continue;
+    const root = line[at]!;
+    const session = at > 0 ? sessionName(proc) : null;
+    if (session !== null && (!insideOf.has(root) || session !== "shell")) insideOf.set(root, session);
+    if (!line.slice(0, at).some((p) => agentAt(p) !== null)) pidsOf.get(root)!.push(proc.pid);
   }
 
   const servers = [...roots].map(([pid, { role, tree, leftBehind }]): RunningServer => {
@@ -194,6 +214,8 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
       etime: proc.etime,
       leftBehind,
       agent: ancestors(pid).map(agentAt).find((name) => name !== null) ?? null,
+      inside: insideOf.get(pid) ?? null,
+      removed: tree.removed,
     };
   });
   return servers.sort((a, b) =>

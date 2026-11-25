@@ -116,7 +116,7 @@ test("a server is its whole tree, its role and the port claimed for it", () => {
   const found = findServers(snap(apiTree(API, [9229, 10400])), rules([{ worktree: TREE, role: "api", port: 10400 }]));
   expect(found).toEqual([{
     role: "api", port: 10400, listening: true, worktree: { path: TREE, name: "calm-marble" }, branch: "feature/login",
-    pid: 10, pids: [10, 11, 12, 13], startTime: LSTART, etime: "18:00:00", leftBehind: false, agent: null,
+    pid: 10, pids: [10, 11, 12, 13], startTime: LSTART, etime: "18:00:00", leftBehind: false, agent: null, inside: null, removed: false,
   }]);
 });
 
@@ -252,7 +252,7 @@ test("a server whose rt process is gone is left behind, from the topmost process
   );
   expect(found).toEqual([{
     role: "api", port: 10400, listening: true, worktree: { path: TREE, name: "calm-marble" }, branch: "feature/login",
-    pid: 11, pids: [11, 12, 13], startTime: LSTART, etime: "18:00:00", leftBehind: true, agent: null,
+    pid: 11, pids: [11, 12, 13], startTime: LSTART, etime: "18:00:00", leftBehind: true, agent: null, inside: null, removed: false,
   }]);
 });
 
@@ -272,6 +272,62 @@ test("a left-behind tree never climbs into a shell in the same folder", () => {
     { pid: 13, ppid: 8, args: "node src/server", cwd: API, ports: [10400] },
   ]), rules([{ worktree: TREE, role: "api", port: 10400 }]));
   expect(found.map((s) => [s.pid, s.pids])).toEqual([[13, [13]]]);
+});
+
+test("a left-behind tree climbs through a Python that only runs from a framework app", () => {
+  const python = "/opt/homebrew/Cellar/python@3.13/3.13.1/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python";
+  const found = findServers(snap([
+    { pid: 12, ppid: 1, args: `${python} -m uvicorn --reload`, cwd: API },
+    { pid: 13, ppid: 12, args: `${python} -c from multiprocessing`, cwd: API, ports: [10400] },
+  ]), rules([{ worktree: TREE, role: "api", port: 10400 }]));
+  expect(found.map((s) => [s.pid, s.pids])).toEqual([[12, [12, 13]]]);
+});
+
+test("an app holding a role's port is never a server", () => {
+  const found = findServers(snap([
+    { pid: 13, ppid: 1, args: "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper.app/Contents/MacOS/Cursor Helper --type=utility", command: "Cursor Helper", cwd: API, ports: [10400] },
+  ]), rules([{ worktree: TREE, role: "api", port: 10400 }]));
+  expect(found).toEqual([]);
+});
+
+test("a session or an interactive shell inside a tree is named, and a script's shell is not", () => {
+  const inside = (args: string) => findServers(snap([...apiTree(API).slice(0, 2), { pid: 12, ppid: 11, args, cwd: API }]), rules()).map((s) => s.inside);
+  expect(inside("claude --resume x")).toEqual(["claude"]);
+  expect(inside("node /opt/bin/codex")).toEqual(["codex"]);
+  expect(inside("/bin/zsh -il")).toEqual(["shell"]);
+  expect(inside("-zsh")).toEqual(["shell"]);
+  expect(inside("bash --norc")).toEqual(["shell"]);
+  expect(inside("sh -c node src/server")).toEqual([null]);
+  expect(inside("/bin/bash scripts/start.sh")).toEqual([null]);
+  expect(inside("node src/server")).toEqual([null]);
+});
+
+test("a session inside a server of another role belongs to that server only", () => {
+  const found = findServers(snap([
+    ...apiTree(API).slice(0, 2),
+    { pid: 20, ppid: 11, args: WEB_RUN, cwd: WEB },
+    { pid: 21, ppid: 20, args: "claude", cwd: WEB },
+  ]), rules());
+  expect(found.map((s) => [s.role, s.inside])).toEqual([["api", null], ["web", "claude"]]);
+});
+
+test("a server in a removed worktree rt still keeps is listed with that tree's branch", () => {
+  const kept = "/trees/.trash/calm-marble-1795633493000";
+  const found = findServers(snap(apiTree(`${kept}/apps/api`, [10400]), [
+    { path: MAIN, branch: "main" },
+    { path: kept, branch: "feature/login", removed: true },
+  ]), rules());
+  expect(found.map((s) => [s.worktree.name, s.branch, s.removed, s.port])).toEqual([["calm-marble-1795633493000", "feature/login", true, 10400]]);
+});
+
+test("a server in a claimed worktree git no longer lists is still this repo's", () => {
+  const found = findServers(snap(apiTree(API, [10400]), [{ path: MAIN, branch: "main" }]), rules([{ worktree: TREE, role: "api", port: 10400 }]));
+  expect(found.map((s) => [s.worktree.path, s.branch, s.removed, s.port])).toEqual([[TREE, null, true, 10400]]);
+});
+
+test("a claimed worktree git still lists is not a removed one", () => {
+  const found = findServers(snap(apiTree(API, [10400])), rules([{ worktree: TREE, role: "api", port: 10400 }]));
+  expect(found.map((s) => [s.branch, s.removed])).toEqual([["feature/login", false]]);
 });
 
 test("two listeners of one left-behind tree are one row", () => {

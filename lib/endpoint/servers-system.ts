@@ -1,11 +1,18 @@
 import { parseCwdMap, parseListeningLsof, parsePidValueMap } from "../port-scanner.ts";
 import { childEnv, runCapture, type RunResult } from "../subprocess.ts";
 import { listWorktreesAsync } from "../worktree/git-async.ts";
-import { parseServerProcs, type RunningServer, type ServerSnapshot } from "./servers.ts";
+import { agentLabel, parseServerProcs, type RunningServer, type ServerProc, type ServerSnapshot } from "./servers.ts";
+
+/** `identity` is the serialized repo identity; `root` is any of its worktrees. */
+export interface ServerRepo {
+  identity: string;
+  root: string;
+}
 
 export interface ServerSystem {
   run(argv: [string, ...string[]], opts: { timeoutMs: number; env?: Record<string, string | undefined> }): Promise<RunResult>;
-  worktrees(repoRoot: string): Promise<Array<{ path: string; branch: string | null }> | null>;
+  /** Git's list, then the removed trees rt still keeps: a server can outlive its worktree. */
+  worktrees(repo: ServerRepo): Promise<ServerSnapshot["worktrees"] | null>;
   /** Throws errno errors, as process.kill does. */
   signal(pid: number, sig: "SIGTERM" | "SIGKILL" | 0): void;
   sleep(ms: number): Promise<void>;
@@ -13,8 +20,17 @@ export interface ServerSystem {
 
 export const realServerSystem: ServerSystem = {
   run: runCapture,
-  worktrees: async (repoRoot) =>
-    (await listWorktreesAsync(repoRoot))?.filter((w) => !w.isBare).map(({ path, branch }) => ({ path, branch })) ?? null,
+  worktrees: async ({ identity, root }) => {
+    const listed = await listWorktreesAsync(root);
+    if (!listed) return null;
+    const { listRestorableEntries } = await import("../worktree/restore.ts");
+    // Git lists the main checkout first.
+    const kept = await listRestorableEntries(identity, listed[0]?.path ?? root);
+    return [
+      ...listed.filter((w) => !w.isBare).map(({ path, branch }) => ({ path, branch })),
+      ...kept.map(({ path, branch }) => ({ path, branch, removed: true })),
+    ];
+  },
   signal: (pid, sig) => void process.kill(pid, sig),
   sleep: (ms) => Bun.sleep(ms),
 };
@@ -23,13 +39,13 @@ export const realServerSystem: ServerSystem = {
 const lsofRan = (read: RunResult) => read.exitCode === 0 || read.exitCode === 1;
 
 /** Null when any read failed, so a caller never mistakes that for nothing running. */
-export async function readServerSnapshot(repoRoot: string, system: ServerSystem = realServerSystem): Promise<ServerSnapshot | null> {
+export async function readServerSnapshot(repo: ServerRepo, system: ServerSystem = realServerSystem): Promise<ServerSnapshot | null> {
   const [ps, commandRead, cwdRead, listenerRead, worktrees] = await Promise.all([
     system.run(["ps", "-A", "-o", "pid=,ppid=,etime=,lstart=,args="], { timeoutMs: 5_000, env: { ...childEnv(), LC_ALL: "C" } }),
     system.run(["ps", "-A", "-o", "pid=,comm="], { timeoutMs: 5_000 }),
     system.run(["lsof", "-d", "cwd", "-Fpn"], { timeoutMs: 10_000 }),
     system.run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN"], { timeoutMs: 10_000 }),
-    system.worktrees(repoRoot),
+    system.worktrees(repo),
   ]);
   const commands = parsePidValueMap(commandRead.stdout);
   const procs = parseServerProcs(ps.stdout, commands);
@@ -57,10 +73,30 @@ const GIVE_UP_AFTER_MS = 2_000;
 
 const errnoOf = (err: unknown) => (err as NodeJS.ErrnoException).code;
 
-/** `fresh` is read after the pick: a server whose root pid has a new start time is gone, and its pid is another process's now. */
+/** Read after the pick: a server whose root pid has a new start time is gone, and its pid is another process's now. */
+export interface FreshServers {
+  servers: RunningServer[];
+  procs: Array<Pick<ServerProc, "pid" | "startTime">>;
+}
+
+interface StopJob {
+  server: RunningServer;
+  gone: boolean;
+  why: string | null;
+  /** Signalled and not yet seen dead. */
+  waiting: number[];
+}
+
+/** Why nothing in this tree may be signalled: ending any of it would end what runs inside. */
+function refusal(server: RunningServer, spare: Set<number>): string | null {
+  if (spare.has(server.pid)) return "rt is running inside it.";
+  if (server.inside === null) return null;
+  return `${server.inside === "shell" ? "A shell" : agentLabel(server.inside)} is running inside it.`;
+}
+
 export async function stopServers(
   picked: RunningServer[],
-  fresh: RunningServer[],
+  fresh: FreshServers,
   spare: Set<number>,
   system: ServerSystem = realServerSystem,
 ): Promise<StopOutcome[]> {
@@ -83,22 +119,28 @@ export async function stopServers(
     }
   };
 
-  const jobs = picked.map((server) => {
-    const now = fresh.find((f) => f.pid === server.pid && f.startTime === server.startTime);
-    if (!now) return { server, gone: true, why: null, waiting: [] };
-    if (spare.has(now.pid)) return { server, gone: false, why: "rt is running inside it.", waiting: [] };
+  const jobs = picked.map((server): StopJob => {
+    const same = (p: { pid: number; startTime: string }) => p.pid === server.pid && p.startTime === server.startTime;
+    const now = fresh.servers.find(same);
+    if (!now) {
+      const running = fresh.procs.some(same);
+      return { server, gone: !running, why: running ? "It changed while you were picking." : null, waiting: [] };
+    }
+    const refused = refusal(now, spare);
+    if (refused !== null) return { server, gone: false, why: refused, waiting: [] };
     let why: string | null = null;
     const waiting: number[] = [];
     for (const pid of now.pids) {
       if (pid <= 1 || spare.has(pid)) continue;
-      const refused = send(pid, "SIGTERM");
-      if (refused === null) waiting.push(pid);
-      else why ??= refused;
+      const unsent = send(pid, "SIGTERM");
+      if (unsent === null) waiting.push(pid);
+      else why ??= unsent;
     }
     return { server, gone: false, why, waiting };
   });
 
-  const alive = () => jobs.flatMap((job) => job.waiting).filter(isAlive);
+  // A pid leaves for good once it reads dead: seen alive again, it is another process.
+  const alive = () => jobs.flatMap((job) => (job.waiting = job.waiting.filter(isAlive)));
   const waitUpTo = async (limitMs: number) => {
     for (let waited = 0; waited < limitMs && alive().length > 0; waited += POLL_MS) await system.sleep(POLL_MS);
   };
@@ -106,10 +148,11 @@ export async function stopServers(
   const stubborn = alive();
   for (const pid of stubborn) send(pid, "SIGKILL");
   if (stubborn.length > 0) await waitUpTo(GIVE_UP_AFTER_MS);
+  alive();
 
   return jobs.map(({ server, gone, why, waiting }): StopOutcome => {
     if (gone) return { server, result: "gone" };
-    const failure = why ?? (waiting.some(isAlive) ? "It did not stop." : null);
+    const failure = why ?? (waiting.length > 0 ? "It did not stop." : null);
     return failure === null ? { server, result: "stopped" } : { server, result: "failed", why: failure };
   });
 }

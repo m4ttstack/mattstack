@@ -1,10 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import type { EnrichedBranch, MRInfo } from "../../lib/enrich.ts";
 import type { RoleConfig } from "../../lib/endpoint/config.ts";
 import type { ServerGroup } from "../../lib/endpoint/server-groups.ts";
 import type { RunningServer, ServerRules, ServerSnapshot } from "../../lib/endpoint/servers.ts";
-import type { StopOutcome } from "../../lib/endpoint/servers-system.ts";
+import type { FreshServers, StopOutcome } from "../../lib/endpoint/servers-system.ts";
+import { writeInterceptRules } from "../../lib/endpoint/shim.ts";
+import { saveClaims } from "../../lib/endpoint/store.ts";
 import type { LinearTicket } from "../../lib/linear.ts";
+import { closeStateDb } from "../../lib/state/index.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
@@ -17,7 +23,7 @@ const LSTART = "Tue Nov 24 14:45:47 2026";
 function server(over: Partial<RunningServer> = {}): RunningServer {
   return {
     role: "api", port: 10400, listening: true, worktree: { path: TREE, name: "calm-marble" }, branch: "web-214-login-rate-limit",
-    pid: 10, pids: [10, 11], startTime: LSTART, etime: "22:10:03", leftBehind: false, agent: null, ...over,
+    pid: 10, pids: [10, 11], startTime: LSTART, etime: "22:10:03", leftBehind: false, agent: null, inside: null, removed: false, ...over,
   };
 }
 
@@ -87,6 +93,9 @@ describe("serverBlocks", () => {
 test("the hints name the agent, then what is odd about the server", () => {
   expect(serverHints(server())).toEqual([]);
   expect(serverHints(server({ agent: "codex", leftBehind: true }))).toEqual(["codex session", "left behind"]);
+  expect(serverHints(server({ agent: "claude", removed: true }))).toEqual(["Claude session", "worktree removed"]);
+  expect(serverHints(server({ inside: "claude", listening: false }))).toEqual(["Claude session inside", "not listening"]);
+  expect(serverHints(server({ inside: "shell" }))).toEqual(["shell inside"]);
 });
 
 test("one lookup per worktree, and none for a detached one", () => {
@@ -154,7 +163,7 @@ function harness(over: Over = {}) {
   const snapshots = [...(over.snapshots ?? [SNAPSHOT, SNAPSHOT])];
   const calls = {
     snapshot: 0, enrich: 0, pick: 0, stop: 0, slept: [] as number[], spare: new Set<number>(), picked: [] as RunningServer[],
-    exits: [] as number[], cancelled: false,
+    fresh: null as FreshServers | null, exits: [] as number[], cancelled: false,
   };
   const deps: ServersDeps = {
     rules: () => over.rules ?? RULES,
@@ -170,9 +179,10 @@ function harness(over: Over = {}) {
       calls.pick++;
       return over.pick ?? null;
     },
-    stop: async (picked, _fresh, spare) => {
+    stop: async (picked, fresh, spare) => {
       calls.stop++;
       calls.picked = picked;
+      calls.fresh = fresh;
       calls.spare = spare;
       return over.outcomes ? over.outcomes(picked) : picked.map((s) => ({ server: s, result: "stopped" as const }));
     },
@@ -365,10 +375,53 @@ describe("serversCommand", () => {
     expect(process.exitCode).toBe(1);
   });
 
-  test("rt's own process and its ancestors are passed as spared", async () => {
-    const { run, calls } = harness({ canAsk: true, pick: [10] });
+  test("the stop compares against the re-read, and spares rt's ancestors as they are then", async () => {
+    const later = "Wed Nov 25 09:00:00 2026";
+    const reread: ServerSnapshot = {
+      ...SNAPSHOT,
+      procs: [
+        ...SNAPSHOT.procs.filter((p) => p.pid >= 20 && p.pid !== process.pid && p.pid !== 77),
+        { ...proc(10, 1, "rt intercept run doppler -- run -- parcel"), startTime: later },
+        proc(88, 1, "-zsh"),
+        proc(process.pid, 88, "rt servers"),
+      ],
+    };
+    const { run, calls } = harness({ canAsk: true, pick: [10], snapshots: [SNAPSHOT, reread] });
     await run();
-    expect(calls.spare).toEqual(new Set([process.pid, 77]));
+    expect(calls.picked.map((s) => [s.pid, s.startTime])).toEqual([[10, LSTART]]);
+    expect(calls.fresh!.servers.map((s) => [s.pid, s.startTime])).toEqual([[20, LSTART], [10, later]]);
+    expect(calls.fresh!.procs).toContainEqual(expect.objectContaining({ pid: 10, startTime: later }));
+    expect(calls.spare).toEqual(new Set([process.pid, 88]));
+  });
+});
+
+describe("realServersDeps.rules", () => {
+  const origHome = process.env.HOME;
+  let home: string;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), "rt-servers-rules-"));
+    process.env.HOME = home;
+    closeStateDb();
+  });
+  afterEach(() => {
+    closeStateDb();
+    process.env.HOME = origHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test("only this repo's rules and claims are read", () => {
+    const other = "remote:example.com%2Facme%2Fother-tool";
+    const matches = [{ cwdGlob: "apps/api", role: "api" }];
+    const claim = { worktree: TREE, role: "api", port: 10400, ts: "2026-11-24T20:45:47.000Z" };
+    writeInterceptRules([
+      { command: "doppler", repo: other, repoRemote: null, matches },
+      { command: "doppler", repo: IDENTITY, repoRemote: null, matches },
+    ]);
+    saveClaims(other, [{ ...claim, port: 4001 }]);
+    saveClaims(IDENTITY, [claim]);
+    const read = realServersDeps.rules(IDENTITY);
+    expect(read.rules.map((r) => r.repo)).toEqual([IDENTITY]);
+    expect(read.claims).toEqual([claim]);
   });
 });
 

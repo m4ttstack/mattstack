@@ -1,8 +1,8 @@
 import type { CommandContext } from "../lib/command-tree.ts";
 import { loadEndpointConfig } from "../lib/endpoint/config.ts";
 import { groupServers, mrText, serverMatch, type GroupedServer, type ServerGroup } from "../lib/endpoint/server-groups.ts";
-import { ancestorPids, findServers, type RunningServer, type ServerRules, type ServerSnapshot } from "../lib/endpoint/servers.ts";
-import { readServerSnapshot, stopServers, type StopOutcome } from "../lib/endpoint/servers-system.ts";
+import { agentLabel, ancestorPids, findServers, type RunningServer, type ServerRules, type ServerSnapshot } from "../lib/endpoint/servers.ts";
+import { readServerSnapshot, stopServers, type ServerRepo, type StopOutcome } from "../lib/endpoint/servers-system.ts";
 import { loadInterceptRules } from "../lib/endpoint/shim.ts";
 import { loadClaims } from "../lib/endpoint/store.ts";
 import { enrichBranches, type EnrichedBranch } from "../lib/enrich.ts";
@@ -17,7 +17,7 @@ type Enriched = Map<string, EnrichedBranch>;
 
 export interface ServersDeps {
   rules(identity: string): ServerRules;
-  snapshot(repoRoot: string): Promise<ServerSnapshot | null>;
+  snapshot(repo: ServerRepo): Promise<ServerSnapshot | null>;
   /** Keyed by worktree path. */
   enrich(servers: RunningServer[], remoteUrl: string | undefined): Promise<Enriched>;
   /** The root pids to stop, or null when nothing was picked. */
@@ -36,9 +36,11 @@ const portText = (s: RunningServer) => (s.port === null ? "no port" : `:${s.port
 
 export function serverHints(s: RunningServer): string[] {
   return [
-    s.agent === null ? null : `${s.agent === "claude" ? "Claude" : s.agent} session`,
+    s.agent === null ? null : `${agentLabel(s.agent)} session`,
+    s.inside === null ? null : s.inside === "shell" ? "shell inside" : `${agentLabel(s.inside)} session inside`,
     s.listening ? null : "not listening",
     s.leftBehind ? "left behind" : null,
+    s.removed ? "worktree removed" : null,
   ].filter((hint) => hint !== null);
 }
 
@@ -160,7 +162,7 @@ export async function serversCommand(args: string[], ctx: CommandContext, deps: 
   const { identity, repoRoot, remoteUrl } = ctx.identity!;
   const label = repoLabel(identity);
   const read = () => {
-    const snapshot = () => deps.snapshot(repoRoot);
+    const snapshot = () => deps.snapshot({ identity, root: repoRoot });
     return json ? snapshot() : withTransientStep("Looking for running servers", snapshot);
   };
   const failRead = () => {
@@ -200,7 +202,8 @@ export async function serversCommand(args: string[], ctx: CommandContext, deps: 
     if (!now) return failRead();
     const spare = new Set([process.pid, ...ancestorPids(now.procs, process.pid)]);
     const chosen = servers.filter((s) => picked.includes(s.pid));
-    const outcomes = await withTransientStep("Stopping servers", () => deps.stop(chosen, findServers(now, rules), spare));
+    const fresh = { servers: findServers(now, rules), procs: now.procs };
+    const outcomes = await withTransientStep("Stopping servers", () => deps.stop(chosen, fresh, spare));
     printOutcomes(outcomes, groupServers(servers, lookup.landed ?? new Map()));
   };
 

@@ -106,7 +106,8 @@ cursor survive, since they are keyed by row value. A failed lookup leaves the
 first headings standing.
 
 Off a terminal the same groups print as a list (`S7`), waiting at most three
-seconds for the data. Nothing running prints "No dev servers are running here".
+seconds for the data. A slower lookup never holds the command open, here or
+after the picker. Nothing running prints "No dev servers are running here".
 A repo with no intercept rules says so instead, because that empty list means
 something else (`S6`).
 
@@ -129,7 +130,9 @@ rows:
 2. Its cwd must be inside one of this repo's worktrees, and
    `matchInvocation` must match it to a rule. The match gives the role. A
    one-off run of the same tool (`doppler secrets`) matches no rule and is left
-   out.
+   out. A server can outlive its worktree, so a removed tree rt still keeps and
+   a claimed path git no longer lists both count; the row says "worktree
+   removed".
 3. Its tree is that process and everything under it.
 4. Its port is the one its tree listens on: the port claimed for that
    (worktree, role) or the role's `fixedPort` when the tree holds it, otherwise
@@ -145,7 +148,9 @@ rows:
    folder.
 
 A row under a live agent process shows "Claude session" (or that agent's name),
-so select-all does not silently pull a server out from under working agents.
+so select-all does not silently pull a server out from under working agents. A
+row with an agent or an interactive shell running inside its tree says so
+("Claude session inside", "shell inside").
 
 Claims are read from `state.db` and rules from the saved rules, as the shim
 does, so the command works with the daemon down. A read that fails or times out
@@ -158,11 +163,14 @@ fails the command; it never reads as nothing running.
   minutes and a pid can be reused.
 - Every process in the tree gets SIGTERM; whatever is left after 5 seconds gets
   SIGKILL. Whole-tree is the point: stopping only the port holder leaves a
-  respawning watcher that brings the server back.
-- An agent found inside a tree is spared with everything under it. rt's own
-  process and its ancestors are never signalled.
+  respawning watcher that brings the server back. A process seen to have
+  exited is never signalled again, since its pid can be reused.
+- A tree with an agent or an interactive shell inside it is refused whole, with
+  the reason: ending its parents would end it. So is a tree rt itself runs
+  inside. rt's own process and its ancestors are never signalled.
 - Each row reports its own result, named by port and heading text: stopped,
-  already gone, or could not stop and why (`S5`).
+  already gone, or could not stop and why (`S5`). "Already gone" means its
+  process is no longer running.
 - Claims stay, as after Ctrl-C, so the worktree gets the same port next time.
 
 ### `--json`

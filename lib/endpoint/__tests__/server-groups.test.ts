@@ -7,7 +7,7 @@ import type { RunningServer } from "../servers.ts";
 function server(role: string, tree: string, branch: string | null, over: Partial<RunningServer> = {}): RunningServer {
   return {
     role, port: 10400, listening: true, worktree: { path: `/trees/${tree}`, name: tree }, branch,
-    pid: 10, pids: [10], startTime: "Tue Nov 24 14:45:47 2026", etime: "18:00:00", leftBehind: false, agent: null, ...over,
+    pid: 10, pids: [10], startTime: "Tue Nov 24 14:45:47 2026", etime: "18:00:00", leftBehind: false, agent: null, inside: null, removed: false, ...over,
   };
 }
 
@@ -95,6 +95,11 @@ test("a detached worktree groups by itself under its own name", () => {
     ["/trees/slow-comet", "slow-comet", true, 1],
     ["/trees/tall-fern", "tall-fern", true, 1],
   ]);
+});
+
+test("a removed worktree with no branch groups under its own name, and is not called detached", () => {
+  const groups = groupServers([server("api", "slow-comet", null, { removed: true })], new Map());
+  expect(groups.map((g) => [g.title, g.detached])).toEqual([["slow-comet", false]]);
 });
 
 test("groups run oldest server first, rows by branch then role", () => {
