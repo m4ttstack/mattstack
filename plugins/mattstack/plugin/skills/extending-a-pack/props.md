@@ -143,6 +143,7 @@ The `rules` blocks, with the section each one is:
 | block | section |
 | --- | --- |
 | `stage-evidence/domain-steps-before-gate` | Run the domain steps before the gate (none when unbound) |
+| `stage-evidence/start-servers` | Start or restart every role that is not answering |
 | `stage-evidence/save-ticket-image` | Save the ticket image as the BEFORE |
 | `stage-evidence/record-ticket-before` | Record the ticket's location as the BEFORE |
 | `stage-evidence/capture-before-case` | Capture the BEFORE for the next case |
