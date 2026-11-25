@@ -346,6 +346,35 @@ describe("readiness", () => {
   });
 });
 
+describe("this Mac's own key", () => {
+  const asked = async (holds: boolean | Error) => {
+    const t = harness();
+    t.world.state.holds = holds;
+    const seen: unknown[] = [];
+    const service = createSupportService({
+      ...t.options,
+      seams: { ...t.options.seams, readiness: async (d) => (seen.push(await d.holdsKey().catch((err: Error) => err.message)), []) },
+    });
+    await service.handlers["support:host"]({});
+    return { t, seen, again: () => service.handlers["support:host"]({}) };
+  };
+
+  test("is the roster's, is not, or could not be read", async () => {
+    expect((await asked(true)).seen).toEqual([true]);
+    expect((await asked(false)).seen).toEqual([false]);
+    expect((await asked(new Error("locked"))).seen).toEqual(["locked"]);
+  });
+
+  test("a wrong key or a failed read is looked at again each time, and a right one is kept", async () => {
+    const wrong = await asked(false);
+    wrong.t.world.state.holds = true;
+    await wrong.again();
+    wrong.t.world.state.holds = false;
+    await wrong.again();
+    expect(wrong.seen).toEqual([false, true, true]);
+  });
+});
+
 describe("the org's support key", () => {
   test("an org whose setting was turned on without one is told apart from one this Mac cannot open", async () => {
     const t = harness();

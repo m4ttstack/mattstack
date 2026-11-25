@@ -333,7 +333,7 @@ export function createSupportSync(deps: SyncDeps): SupportSync {
     const texts = Object.fromEntries(STATUS_TEXTS.flatMap((key) => (typeof stored[key] === "string" ? [[key, stored[key] as string]] : [])));
     if (Object.keys(texts).length === 0) return JSON.stringify({ requestId, state, at });
     const result = await deps.sealedText.seal([s.to], supportBinding("status", s.id, me), texts);
-    if (!result.ok) log.warn({ to: s.to, id: s.id, reason: result.reason }, "support: a status went out without its text");
+    if (!result.ok) log.debug({ to: s.to, id: s.id, reason: result.reason }, "support: a status has no text it could seal");
     return JSON.stringify({ requestId, state, at, sealed: result.ok ? result.sealed : undefined });
   }
 

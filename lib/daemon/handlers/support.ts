@@ -142,9 +142,11 @@ const hostName = (cfg: SupportConfig): string => nameOf(cfg, cfg.host ?? "");
 const SEALED_NS = "support-sealed";
 
 interface KeptBody {
+  from: string;
   to: string;
   text: string;
   parts: SupportPart[];
+  slackUserId: string;
   body: string;
   at: number;
 }
@@ -172,12 +174,14 @@ export function createSupportHandlers(deps: SupportHandlerDeps): { [K in (typeof
 
   async function sealBody(me: string, id: string, to: string, text: string, parts: SupportPart[], slackUserId: string): Promise<{ body: string } | { refused: "no-recipients" | "unavailable" }> {
     const kept = getKvValue<KeptBody | null>(SEALED_NS, id, null, db);
-    if (kept && kept.to === to && kept.text === text && JSON.stringify(kept.parts) === JSON.stringify(parts)) return { body: kept.body };
+    const what = JSON.stringify([me, to, text, parts, slackUserId]);
+    if (kept && JSON.stringify([kept.from, kept.to, kept.text, kept.parts, kept.slackUserId]) === what) return { body: kept.body };
     const inner = JSON.stringify({ text, parts, slackUserId } satisfies RequestBody);
     const result = await deps.sealedText.seal([to], supportBinding("request", id, me), { body: inner });
     if (!result.ok) return { refused: result.reason };
     const body = JSON.stringify({ sealed: result.sealed });
-    if (!supportBodyTooLarge(body)) setKvValueCritical(SEALED_NS, id, { to, text, parts, body, at: deps.now() } satisfies KeptBody, db);
+    const keep = { from: me, to, text, parts, slackUserId, body, at: deps.now() } satisfies KeptBody;
+    if (!supportBodyTooLarge(body) && !setKvValueCritical(SEALED_NS, id, keep, db)) return { refused: "unavailable" };
     return { body };
   }
 

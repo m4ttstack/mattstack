@@ -21,7 +21,7 @@ export function fakeSealedWorld(people: string[]) {
   };
 
   function put(to: readonly string[], binding: SealBinding, fields: SealFields): string {
-    const size = Math.ceil((JSON.stringify(fields).length * 4) / 3);
+    const size = Math.ceil((Buffer.byteLength(JSON.stringify(fields)) * 4) / 3);
     const sealed = `${crypto.randomUUID()}${"A".repeat(size)}`;
     all.set(sealed, { to: to.map(canonicalHandle), binding: { ...binding, from: canonicalHandle(binding.from) }, fields });
     return sealed;

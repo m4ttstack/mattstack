@@ -322,7 +322,7 @@ describe("support:send", () => {
     const h = harness();
     expect((await send(h, { text: "x".repeat(8000) })).ok).toBe(true);
     const wide = harness();
-    const r = await send(wide, { text: "x".repeat(8000), parts: Array.from({ length: 12 }, () => ({ ...ASK.parts[0]!, value: "\n".repeat(2000) })) });
+    const r = await send(wide, { text: "界".repeat(8000), parts: Array.from({ length: 12 }, () => ({ ...ASK.parts[0]!, value: "界".repeat(2000) })) });
     expect(r).toMatchObject({ ok: false, failure: { code: "support-too-long" } });
     expect(wide.sent).toEqual([]);
   });
@@ -388,6 +388,27 @@ describe("support:send", () => {
     expect(new Set(h.sent.map((d) => d.body)).size).toBe(4);
     expect(h.askText(1).text).toBe("something else");
     expect(h.askText(2).parts).toEqual([]);
+  });
+
+  test("a Slack account or a username that changed since is sealed anew", async () => {
+    const h = harness();
+    h.state.send = "unreachable";
+    await send(h);
+    h.state.slackUserId = "U0NEW";
+    await send(h);
+    expect(h.askText(1).slackUserId).toBe("U0NEW");
+    h.state.config = { ...h.state.config!, me: "ada2" };
+    await send(h);
+    expect(await h.world.forUser("alex").open(JSON.parse(h.sent[2]!.body).sealed, supportBinding("request", "r1", "ada2"))).toMatchObject({ ok: true });
+  });
+
+  test("a body that cannot be kept is not sent, since its retry could not match it", async () => {
+    const h = harness();
+    h.db.exec("CREATE TRIGGER boom BEFORE INSERT ON kv WHEN NEW.ns = 'support-sealed' BEGIN SELECT RAISE(ABORT, 'disk full'); END;");
+    const r = await send(h).catch((err: unknown) => err);
+    expect(r).not.toMatchObject({ ok: true });
+    expect(h.sent).toEqual([]);
+    expect(listRequests("out", undefined, h.db)).toEqual([]);
   });
 
   test("a kept body goes once the relay has the request, whichever version it took, and after 7 days", async () => {

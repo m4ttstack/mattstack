@@ -12,7 +12,7 @@ import type { OpenResult, SealBinding, SealFields, SealResult } from "../../pack
 import { readOrgRoster } from "../../packages/rt-client/src/settings/active-team.ts";
 import { currentOrg } from "../../packages/rt-client/src/settings/stores.ts";
 import { findBundledTool } from "../bundled-tool.ts";
-import { createRealAgeKeySeam, readAgeKey, readAgePublicKey, type AgeKeySeam } from "../home/age-key.ts";
+import { createRealAgeKeySeam, readAgeKey, type AgeKeySeam } from "../home/age-key.ts";
 import { runCapture } from "../subprocess.ts";
 import { canonicalHandle } from "./board-peers.ts";
 import { isValidAgePublicKey } from "./members.ts";
@@ -38,6 +38,7 @@ export interface SealedText {
 const VERSION = 1;
 const AGE_TIMEOUT_MS = 10_000;
 const KEY_HELD_MS = 5 * 60_000;
+const KEY_RETRY_MS = 60_000;
 const ARMOR = /^-----BEGIN AGE ENCRYPTED FILE-----\s+([A-Za-z0-9+/=\s]+)-----END AGE ENCRYPTED FILE-----\s*$/;
 
 const UNAVAILABLE = { ok: false, reason: "unavailable" } as const;
@@ -70,22 +71,27 @@ function unwrap(plaintext: string, binding: SealBinding): OpenResult {
 
 export function createSealedText(deps: SealedTextDeps): SealedText {
   let held: { key: string; at: number } | null = null;
+  let failed: { err: unknown; at: number } | null = null;
   let reading: Promise<string | null> | null = null;
 
   async function readKey(): Promise<string | null> {
     try {
       const found = await readAgeKey(deps.ageKey);
+      failed = null;
       if (!("key" in found)) return null;
       held = { key: found.key, at: deps.now() };
       return found.key;
-    } catch {
-      return null;
+    } catch (err) {
+      failed = { err, at: deps.now() };
+      throw err;
     }
   }
 
-  function privateKey(): Promise<string | null> {
-    if (held && deps.now() - held.at <= KEY_HELD_MS) return Promise.resolve(held.key);
+  /** Null when this Mac has no key; rejects when it could not be read. A failed read can raise a dialog and wait on it, so it is not tried again for a minute. */
+  async function privateKey(): Promise<string | null> {
+    if (held && deps.now() - held.at <= KEY_HELD_MS) return held.key;
     held = null;
+    if (failed && deps.now() - failed.at < KEY_RETRY_MS) throw failed.err;
     reading ??= readKey().finally(() => {
       reading = null;
     });
@@ -157,8 +163,11 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
     },
 
     async holdsKeyOf(username) {
-      const mine = await readAgePublicKey(deps.ageKey);
-      return mine !== null && (keysByUser().get(canonicalHandle(username))?.has(mine) ?? false);
+      const key = await privateKey();
+      if (key === null) return false;
+      const derived = await deps.ageKey.run(["age-keygen", "-y"], { input: key, sensitive: true });
+      if (derived.code !== 0) throw new Error("age-keygen -y: could not derive this Mac's public key");
+      return keysByUser().get(canonicalHandle(username))?.has(derived.stdout.trim()) ?? false;
     },
 
     reachable() {

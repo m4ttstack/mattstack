@@ -241,10 +241,28 @@ describe.skipIf(noAge)("sealed text", () => {
     expect(ageKey.reads).toBe(2);
   });
 
-  test("a failed read is not held", async () => {
+  test("a key that could not be read is asked for at most once a minute, whoever asks", async () => {
     const a = mint();
     const sealed = await sealedTo({ ada: a.pub });
+    let now = 1_000;
     let answer = LOCKED;
+    const ageKey = keychain(() => answer);
+    const s = make({ ageKey, now: () => now, roster: () => [{ username: "ada", agePublicKey: a.pub }] });
+    for (let i = 0; i < 20; i++) expect(await s.open(sealed, binding)).toEqual(unavailable);
+    await expect(s.holdsKeyOf("ada")).rejects.toThrow();
+    expect(ageKey.reads).toBe(1);
+    answer = { code: 0, stdout: `${a.secret}\n`, stderr: "" };
+    now += 59_999;
+    expect(await s.open(sealed, binding)).toEqual(unavailable);
+    now += 1;
+    expect(await s.open(sealed, binding)).toMatchObject({ ok: true });
+    expect(ageKey.reads).toBe(2);
+  });
+
+  test("a Mac with no key yet is looked at again at once", async () => {
+    const a = mint();
+    const sealed = await sealedTo({ ada: a.pub });
+    let answer = ABSENT;
     const s = make({ ageKey: keychain(() => answer) });
     expect(await s.open(sealed, binding)).toEqual(unavailable);
     answer = { code: 0, stdout: `${a.secret}\n`, stderr: "" };

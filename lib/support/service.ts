@@ -71,7 +71,7 @@ export interface SupportServiceOptions {
   emitEvent(topic: string, payload?: unknown): unknown;
   gate(id: string): GateRow | null;
   notify(title: string, message: string, url?: string): void;
-  /** Real by default; a test passes its own. */
+  /** Real by default. The daemon passes its one `sealedText`, which holds the key it read; a test passes its own. */
   seams?: Partial<SupportSeams>;
 }
 
