@@ -32,5 +32,5 @@ thread untouched. An inline thread (`gh-review-thread-<n>`) posts with
 (`gh-issue-comment-<n>`, `gh-review-<n>`) posts with `mr_comment`, offers
 `post:` alone and is never resolved. A `gate-1: reply` row posts its row's
 reply, unresolved. A reply or resolve that errors holds its thread this
-pass: the error is quoted verbatim and the run stays open for a resume.
+pass: the error is quoted verbatim at the held threads' gate.
 Nothing else posts, through any channel.
