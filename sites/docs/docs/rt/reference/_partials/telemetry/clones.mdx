@@ -13,28 +13,27 @@ rt telemetry clones --user dev1 --json
 
 | Field | Meaning |
 | --- | --- |
-| `branch`, `dataBranch` | The branch the copy has checked out, and the org's data branch. They differ while the copy is on a trial branch, or after someone switched it by hand. |
-| `head`, `upstream` | The copy's commit and origin's, as of its last fetch. Compare them with the org repo's history to see where the copy stopped. |
+| `onDataBranch` | Whether the copy has the org's data branch checked out. `false` on a trial branch, or after someone switched it by hand. `null` when rt doesn't know the data branch. |
 | `behind`, `ahead` | Commits behind and ahead of origin, as of the last fetch. |
 | `lastPullAt` | The last fetch that reached the forge. An old time means pulls stopped reaching it. |
 | `pull` | What the last pull did: `ok`, `fetch-auth`, `fetch-network`, `fetch-other`, `local-changes`, `layout-hold`, `conflict`, `detached`, `no-remote`, `no-tracking`, `disabled`, `skipped-other` or `unknown`. |
 | `canPublish` | Whether this Mac may push the org's files. A member's Mac only pulls. |
-| `dirty`, `dirtyCount`, `dirtySince` | Uncommitted files, as paths inside the org repo, and when the oldest was first seen. |
+| `dirtyCount`, `dirtySince` | How many files are uncommitted, and when the oldest was first seen. |
 | `conflicted`, `layoutHold` | A rebase that stopped mid-way, or a pull held for a layout this app can't read. |
 
-Each pack also lists `stale`: the skills this Mac reads as waiting for
-compile, and why (`source`, `version`, `text` and so on).
+Each pack also carries `staleCount`: how many skills this Mac reads as waiting
+for compile. No file, branch, commit or skill is ever named: on that Mac,
+`git status` in the org copy and `rt skills check` show them.
 
 ### Reading it
 
 | You see | What happened | Fix |
 | --- | --- | --- |
 | `pull: fetch-auth`, an old `lastPullAt` | The copy can't sign in to the forge, often a token or keychain problem after a macOS update | `rt setup status`, then reconnect the forge account |
-| `pull: local-changes`, `behind` above 0, `dirty` files inside a pack | Files changed on this Mac block the fast-forward, so the copy is frozen behind origin | On a member's Mac, `rt skills discard --pack <pack>`, then `rt team pull` |
-| `pull: local-changes`, `dirty` files outside any pack (org or team settings) | The same freeze, but discard only touches files inside the pack | Look at each listed file in the person's org copy, keep or undo the change by hand, then `rt team pull` |
-| `stale` skills while `behind` is above 0 | The copy is old, and this Mac's newer mattstack compiles its old sources differently | Fix the pull first; the stale list clears once the copy catches up |
-| `stale` skills while `behind` is 0 | The pack was compiled with a different mattstack than this Mac runs | A team owner recompiles and publishes the pack |
-| `canPublish: false` with `dirty` files | Something wrote into a member's copy | Check `dirtySince` against the timeline to see when, then discard |
+| `pull: local-changes`, `behind` above 0 | Files changed on this Mac block the fast-forward, so the copy is frozen behind origin | Ask for `git status` in their org copy. For files inside a pack on a member's Mac, `rt skills discard --pack <pack>`. For org or team settings, keep or undo each change by hand. Then `rt team pull` |
+| `staleCount` above 0 while `behind` is above 0 | The copy is old, and this Mac's newer mattstack compiles its old sources differently | Fix the pull first; the count clears once the copy catches up |
+| `staleCount` above 0 while `behind` is 0 | The pack was compiled with a different mattstack than this Mac runs | A team owner recompiles and publishes the pack |
+| `canPublish: false` with `dirtyCount` above 0 | Something wrote into a member's copy | Check `dirtySince` against the timeline to see when, then discard |
 
 The timeline in `events` holds one entry per change, oldest first, so the
 first entry that shows a problem is when it began.

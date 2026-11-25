@@ -1,8 +1,11 @@
 /** The version-telemetry store: one row per Mac, keyed by install id, holding
     the latest ping as JSON plus an append-only list of app and rt version
-    changes. Pings carry no repos, hostnames, paths or commands; the shape is
-    the Mac-side `TelemetryPing` in `lib/telemetry/ping.ts`, redeclared here
-    because the relay image copies only `apps/board/switchboard/*.ts`. */
+    changes. Pings carry no repos, hostnames, paths, branches, files or
+    commands; the org's name, its pack ids and the forge username are what they
+    do name. The shape is the Mac-side `TelemetryPing` in
+    `lib/telemetry/ping.ts`, redeclared here because the relay image copies only
+    `apps/board/switchboard/*.ts`, less the names older Macs still send, which
+    are never kept. */
 import type { Database } from 'bun:sqlite';
 
 export interface TelemetryPing {
@@ -18,41 +21,32 @@ export interface TelemetryPing {
   legacyDirs: string[];
   /** `clone` is absent from a Mac older than the field, null when it could not be read or parsed. */
   orgs: { org: string; layout: number | null; clone?: CloneHealth | null }[];
-  /** `stale`: the skills that Mac reads as waiting for compile; absent or null as for `clone`. */
-  packs: { id: string; version: string | null; stale?: StaleSkill[] | null }[];
+  /** `staleCount`: how many skills that Mac reads as waiting for compile; absent or null as for `clone`. */
+  packs: { id: string; version: string | null; staleCount?: number | null }[];
   /** Null from a Mac older than the field, or one whose app wrote no status. */
   appUpdate: AppUpdateStatus | null;
 }
 
-/** One org clone's health, as `lib/telemetry/clone-health.ts` builds it.
-    Paths are org-relative; a pull failure is a kind, never the raw error. */
+/** One org clone's health: counts, kinds and times. */
 export interface CloneHealth {
-  branch: string | null;
-  dataBranch: string | null;
-  head: string | null;
-  upstream: string | null;
+  /** Null when that Mac did not know the org's data branch. */
+  onDataBranch: boolean | null;
   behind: number | null;
   ahead: number | null;
   lastPullAt: string | null;
   pull: string;
   canPublish: boolean;
   dirtyCount: number;
-  dirty: { path: string; status: string }[];
   dirtySince: string | null;
   conflicted: boolean;
   layoutHold: boolean;
 }
 
-export interface StaleSkill {
-  skill: string;
-  causes: string[];
-}
-
 /** What the clone timeline records: every org's clone minus its pull time,
-    and every pack's stale skills, as one Mac last reported them. */
+    and every pack's stale count, as one Mac last reported them. */
 export interface CloneState {
   clones: Record<string, Omit<CloneHealth, 'lastPullAt'> | null>;
-  stale: Record<string, StaleSkill[] | null>;
+  stale: Record<string, number | null>;
 }
 
 export interface CloneReportMac {
@@ -70,7 +64,7 @@ export interface CloneReportMac {
     clone: CloneHealth | null;
     flags: string[];
   }[];
-  packs: { id: string; version: string | null; stale: StaleSkill[] | null }[];
+  packs: { id: string; version: string | null; staleCount: number | null }[];
 }
 
 export interface CloneReport {
@@ -144,9 +138,6 @@ type UpdateDbRow = {
 
 const MAX_ENTRIES = 256;
 const MAX_STRING = 128;
-/** A deep pack path runs past MAX_STRING; one long path must not drop the ping. */
-const MAX_PATH = 512;
-const MAX_DIRTY = 40;
 const STALE_PULL_MS = 6 * 60 * 60_000;
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -192,19 +183,20 @@ const isCount = (v: unknown): v is number =>
 const isCountOrNull = (v: unknown): v is number | null =>
   v === null || isCount(v);
 
+/** A Mac older than the flag sends the two branch names instead. */
+function onDataBranchOf(v: Record<string, unknown>): boolean | null {
+  if (typeof v.onDataBranch === 'boolean') return v.onDataBranch;
+  if (v.onDataBranch !== undefined || typeof v.dataBranch !== 'string')
+    return null;
+  return v.branch === v.dataBranch;
+}
+
 /** Absent stays absent (an older Mac); anything malformed reads as null. */
 function cloneOf(v: unknown): CloneHealth | null | undefined {
   if (v === undefined) return undefined;
   if (!isRecord(v)) return null;
-  const strs = [
-    'branch',
-    'dataBranch',
-    'head',
-    'upstream',
-    'lastPullAt',
-    'dirtySince',
-  ] as const;
-  if (!strs.every(k => isStrOrNull(v[k]))) return null;
+  const { lastPullAt, dirtySince } = v;
+  if (!isStrOrNull(lastPullAt) || !isStrOrNull(dirtySince)) return null;
   if (!isStr(v.pull) || !isCountOrNull(v.behind) || !isCountOrNull(v.ahead))
     return null;
   if (!isCount(v.dirtyCount)) return null;
@@ -214,43 +206,28 @@ function cloneOf(v: unknown): CloneHealth | null | undefined {
     typeof v.layoutHold !== 'boolean'
   )
     return null;
-  if (!Array.isArray(v.dirty) || v.dirty.length > MAX_DIRTY) return null;
-  const dirty: CloneHealth['dirty'] = [];
-  for (const d of v.dirty) {
-    if (
-      !isRecord(d) ||
-      typeof d.path !== 'string' ||
-      d.path.length > MAX_PATH ||
-      !isStr(d.status)
-    )
-      return null;
-    dirty.push({ path: d.path, status: d.status });
-  }
   return {
-    branch: v.branch as string | null,
-    dataBranch: v.dataBranch as string | null,
-    head: v.head as string | null,
-    upstream: v.upstream as string | null,
+    onDataBranch: onDataBranchOf(v),
     behind: v.behind,
     ahead: v.ahead,
-    lastPullAt: v.lastPullAt as string | null,
+    lastPullAt,
     pull: v.pull,
     canPublish: v.canPublish,
     dirtyCount: v.dirtyCount,
-    dirty,
-    dirtySince: v.dirtySince as string | null,
+    dirtySince,
     conflicted: v.conflicted,
     layoutHold: v.layoutHold,
   };
 }
 
-function staleOf(v: unknown): StaleSkill[] | null | undefined {
-  if (v === undefined) return undefined;
-  return entries(v, item => {
-    if (!isRecord(item) || !isStr(item.skill)) return null;
-    const causes = strings(item.causes);
-    return causes ? { skill: item.skill, causes } : null;
-  });
+/** A Mac older than the count sends the stale skills themselves. */
+function staleCountOf(
+  pack: Record<string, unknown>
+): number | null | undefined {
+  const { stale, staleCount } = pack;
+  if (staleCount !== undefined) return isCount(staleCount) ? staleCount : null;
+  if (stale === undefined) return undefined;
+  return Array.isArray(stale) ? stale.length : null;
 }
 
 /** What is wrong with one clone, in words for the telemetry page; empty when healthy. */
@@ -301,10 +278,10 @@ export function parsePing(raw: unknown): TelemetryPing | null {
     if (!isRecord(item) || !isStr(item.id) || !isStrOrNull(item.version)) {
       return null;
     }
-    const stale = staleOf(item.stale);
-    return stale === undefined
+    const staleCount = staleCountOf(item);
+    return staleCount === undefined
       ? { id: item.id, version: item.version }
-      : { id: item.id, version: item.version, stale };
+      : { id: item.id, version: item.version, staleCount };
   });
   const update = appUpdate(raw.appUpdate);
   if (
@@ -333,6 +310,40 @@ export function parsePing(raw: unknown): TelemetryPing | null {
     packs,
     appUpdate: update,
   };
+}
+
+function parsed(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/** A kept timeline row, whichever version wrote it, without the names. */
+function cloneStateOf(v: unknown): CloneState | null {
+  if (!isRecord(v) || !isRecord(v.clones) || !isRecord(v.stale)) return null;
+  const state: CloneState = { clones: {}, stale: {} };
+  for (const [org, clone] of Object.entries(v.clones)) {
+    const kept = isRecord(clone)
+      ? cloneOf({ ...clone, lastPullAt: null })
+      : null;
+    state.clones[org] = kept ? withoutPullTime(kept) : null;
+  }
+  for (const [pack, stale] of Object.entries(v.stale))
+    state.stale[pack] = isCount(stale)
+      ? stale
+      : Array.isArray(stale)
+        ? stale.length
+        : null;
+  return state;
+}
+
+function withoutPullTime({
+  lastPullAt: _pulledAt,
+  ...rest
+}: CloneHealth): Omit<CloneHealth, 'lastPullAt'> {
+  return rest;
 }
 
 /** The display name every section uses. Self-reported usernames are
@@ -402,6 +413,48 @@ export class TelemetryStore {
     db.run(
       `CREATE INDEX IF NOT EXISTS telemetry_clone_events_install_id ON telemetry_clone_events (install_id)`
     );
+    this.dropNames();
+  }
+
+  /** Rows a relay older than this kept name files, branches and skills. A row
+      that does not read is dropped rather than kept with them. */
+  private dropNames(): void {
+    // Overwrites what it frees, so the names are gone from the file too.
+    this.db.run('PRAGMA secure_delete = ON');
+    this.db.transaction(() => {
+      const macs = this.db
+        .query<{ install_id: string; ping: string }, []>(
+          `SELECT install_id, ping FROM telemetry_macs`
+        )
+        .all();
+      for (const { install_id, ping } of macs) {
+        const kept = parsePing(parsed(ping));
+        if (!kept)
+          this.db.run(`DELETE FROM telemetry_macs WHERE install_id = ?`, [
+            install_id,
+          ]);
+        else if (JSON.stringify(kept) !== ping)
+          this.db.run(
+            `UPDATE telemetry_macs SET ping = ? WHERE install_id = ?`,
+            [JSON.stringify(kept), install_id]
+          );
+      }
+      const events = this.db
+        .query<{ id: number; state: string }, []>(
+          `SELECT id, state FROM telemetry_clone_events`
+        )
+        .all();
+      for (const { id, state } of events) {
+        const kept = cloneStateOf(parsed(state));
+        if (!kept)
+          this.db.run(`DELETE FROM telemetry_clone_events WHERE id = ?`, [id]);
+        else if (JSON.stringify(kept) !== state)
+          this.db.run(
+            `UPDATE telemetry_clone_events SET state = ? WHERE id = ?`,
+            [JSON.stringify(kept), id]
+          );
+      }
+    })();
   }
 
   /** False only for an install id the table has not seen while it is full. */
@@ -464,20 +517,15 @@ export class TelemetryStore {
   private noteCloneState(ping: TelemetryPing, at: number): void {
     const reports =
       ping.orgs.some(o => o.clone !== undefined) ||
-      ping.packs.some(p => p.stale !== undefined);
+      ping.packs.some(p => p.staleCount !== undefined);
     if (!reports) return;
     const state: CloneState = { clones: {}, stale: {} };
     for (const o of ping.orgs) {
       if (o.clone === undefined) continue;
-      if (o.clone === null) {
-        state.clones[o.org] = null;
-        continue;
-      }
-      const { lastPullAt: _pulledAt, ...rest } = o.clone;
-      state.clones[o.org] = rest;
+      state.clones[o.org] = o.clone ? withoutPullTime(o.clone) : null;
     }
     for (const p of ping.packs)
-      if (p.stale !== undefined) state.stale[p.id] = p.stale;
+      if (p.staleCount !== undefined) state.stale[p.id] = p.staleCount;
     const text = JSON.stringify(state);
     const last = this.db
       .query<{ state: string }, [string]>(
@@ -536,7 +584,7 @@ export class TelemetryStore {
         packs: m.packs.map(p => ({
           id: p.id,
           version: p.version,
-          stale: p.stale ?? null,
+          staleCount: p.staleCount ?? null,
         })),
       })),
       events,
@@ -626,7 +674,7 @@ function flaggedClones(
   now: number
 ): TelemetrySnapshot['clones'] {
   return macs.flatMap(m => {
-    const stale = m.packs.reduce((n, p) => n + (p.stale?.length ?? 0), 0);
+    const stale = m.packs.reduce((n, p) => n + (p.staleCount ?? 0), 0);
     return m.orgs.flatMap(o => {
       const flags = o.clone ? cloneFlags(o.clone, now) : [];
       return flags.length === 0

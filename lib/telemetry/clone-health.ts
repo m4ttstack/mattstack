@@ -1,12 +1,12 @@
 /**
  * The org clone health a telemetry ping carries per org, so a person whose
- * packs show changes they never made can be diagnosed from the relay: where
- * the clone sits against origin, why its last pull did not land, which files
- * are dirty and since when, and which skills read as waiting for compile.
+ * packs show changes they never made can be diagnosed from the relay: how far
+ * the clone sits from origin, why its last pull did not land, how many files
+ * are dirty and since when, and how many skills read as waiting for compile.
  *
- * Paths are org-relative (`mattstack/teams/<team>/plugin/...`), never this
- * Mac's; a pull failure travels as a kind, never git's text, which can name
- * hosts and repos.
+ * Counts, kinds and times only. A file, branch or skill name is never sent,
+ * and a pull failure travels as a kind, never git's text, which can name hosts
+ * and repos.
  */
 
 import type { SnapshotStatus } from "../daemon/home-snapshot.ts";
@@ -30,31 +30,24 @@ export type PullState =
   | "skipped-other"
   | "unknown";
 
-export interface DirtyFile {
-  path: string;
-  status: string;
-}
-
 export interface CloneHealth {
-  branch: string | null;
-  dataBranch: string | null;
-  head: string | null;
-  upstream: string | null;
+  /** Always null, for a relay older than `onDataBranch`, which refuses a clone without it; so too the next three and `dirty`. */
+  branch: null;
+  dataBranch: null;
+  head: null;
+  upstream: null;
+  /** Null when rt does not know the org's data branch. */
+  onDataBranch?: boolean | null;
   behind: number | null;
   ahead: number | null;
   lastPullAt: string | null;
   pull: PullState;
   canPublish: boolean;
   dirtyCount: number;
-  dirty: DirtyFile[];
+  dirty: never[];
   dirtySince: string | null;
   conflicted: boolean;
   layoutHold: boolean;
-}
-
-export interface StaleSkill {
-  skill: string;
-  causes: string[];
 }
 
 export type CloneStatusSlice = Pick<SnapshotStatus, "lastPullAt" | "lastPullError" | "lastPullSkipped" | "conflicted" | "pullOnly" | "firstSeenDirty"> & {
@@ -64,17 +57,11 @@ export type CloneStatusSlice = Pick<SnapshotStatus, "lastPullAt" | "lastPullErro
 
 export interface CloneGitFacts {
   branch: string | null;
-  head: string | null;
-  upstream: string | null;
   behind: number | null;
   ahead: number | null;
-  dirty: DirtyFile[];
+  /** Paths, to count and to date; they go no further. */
+  dirty: string[];
 }
-
-const MAX_DIRTY = 40;
-/** The relay drops a clone block holding a longer path; the tail names the file. */
-const MAX_PATH = 512;
-const SHA_LENGTH = 12;
 
 const AUTH = /authentication failed|could not read username|terminal prompts disabled|http basic|403|401|invalid username or password|access denied|permission denied/i;
 const NETWORK = /could not resolve host|timed out|connection refused|failed to connect|network is unreachable|connection reset|ssl/i;
@@ -98,47 +85,34 @@ export function pullState(s: CloneStatusSlice): PullState {
 }
 
 export function buildCloneHealth(s: CloneStatusSlice, git: CloneGitFacts, dataBranch: string | null): CloneHealth {
-  const dirtyPaths = new Set(git.dirty.map((d) => d.path));
+  const dirtyPaths = new Set(git.dirty);
   const seen = Object.entries(s.firstSeenDirty)
     .filter(([path]) => dirtyPaths.has(path))
     .map(([, at]) => at);
   return {
-    branch: git.branch,
-    dataBranch,
-    head: git.head,
-    upstream: git.upstream,
+    branch: null,
+    dataBranch: null,
+    head: null,
+    upstream: null,
+    onDataBranch: dataBranch === null ? null : git.branch === dataBranch,
     behind: git.behind,
     ahead: git.ahead,
     lastPullAt: s.lastPullAt > 0 ? new Date(s.lastPullAt).toISOString() : null,
     pull: pullState(s),
     canPublish: !s.pullOnly,
     dirtyCount: git.dirty.length,
-    dirty: git.dirty.slice(0, MAX_DIRTY).map((d) => (d.path.length > MAX_PATH ? { ...d, path: d.path.slice(-MAX_PATH) } : d)),
+    dirty: [],
     dirtySince: seen.length > 0 ? new Date(Math.min(...seen)).toISOString() : null,
     conflicted: s.conflicted !== null,
     layoutHold: (s.layoutHold ?? null) !== null,
   };
 }
 
-/** Every stale skill and attachment in an `rt skills check --json` report, with what made it stale. */
-export function staleSkillsOf(check: unknown): StaleSkill[] {
+/** How many skills and attachments an `rt skills check --json` report calls stale. */
+export function staleCountOf(check: unknown): number {
   const report = (check ?? {}) as { verbs?: unknown; attachments?: unknown };
-  const rows = [...(Array.isArray(report.verbs) ? report.verbs : []), ...(Array.isArray(report.attachments) ? report.attachments : [])] as {
-    name?: unknown;
-    status?: unknown;
-    staleBecause?: unknown;
-  }[];
-  return rows
-    .filter((r) => (r.status === "stale" || r.status === "never-compiled") && typeof r.name === "string")
-    .map((r) => ({
-      skill: r.name as string,
-      causes:
-        r.status === "never-compiled"
-          ? ["never-compiled"]
-          : Array.isArray(r.staleBecause)
-            ? r.staleBecause.filter((c): c is string => typeof c === "string")
-            : [],
-    }));
+  const rows = [...(Array.isArray(report.verbs) ? report.verbs : []), ...(Array.isArray(report.attachments) ? report.attachments : [])] as { status?: unknown }[];
+  return rows.filter((r) => r?.status === "stale" || r?.status === "never-compiled").length;
 }
 
 const GIT_TIMEOUT_MS = 10_000;
@@ -149,21 +123,17 @@ async function gitText(p: Probes, dir: string, args: string[]): Promise<string |
   return res.code === 0 && text !== "" ? text : null;
 }
 
-/** The clone's branch, HEAD and upstream, its distance from origin as of the last fetch, and its dirty files. */
+/** The clone's branch, its distance from origin as of the last fetch, and its dirty files. */
 export async function readCloneGit(p: Probes, dir: string): Promise<CloneGitFacts> {
   const branch = await gitText(p, dir, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  const head = await gitText(p, dir, ["rev-parse", `--short=${SHA_LENGTH}`, "HEAD"]);
-  const upstream = await gitText(p, dir, ["rev-parse", `--short=${SHA_LENGTH}`, "@{u}"]);
-  const counts = upstream ? await gitText(p, dir, ["rev-list", "--left-right", "--count", "@{u}...HEAD"]) : null;
+  const counts = await gitText(p, dir, ["rev-list", "--left-right", "--count", "@{u}...HEAD"]);
   const [behind, ahead] = counts ? counts.split(/\s+/).map((n) => Number.parseInt(n, 10)) : [null, null];
   // NUL-delimited so a path git would quote arrives as written, matching the snapshot's firstSeenDirty keys.
   const status = await p.exec(["git", "-C", dir, "status", "--porcelain=v1", "--untracked-files=all", "-z"], { timeoutMs: GIT_TIMEOUT_MS });
   if (status.code !== 0) throw new Error(`git status exited ${status.code}`);
-  const dirty = parsePorcelainZ(status.stdout).map((entry) => ({ status: entry.xy.trim(), path: entry.path }));
+  const dirty = parsePorcelainZ(status.stdout).map((entry) => entry.path);
   return {
     branch: branch === "HEAD" ? null : branch,
-    head,
-    upstream,
     behind: Number.isFinite(behind) ? (behind as number) : null,
     ahead: Number.isFinite(ahead) ? (ahead as number) : null,
     dirty,
@@ -175,7 +145,7 @@ type StatusEntry = CloneStatusSlice & { slug: string; repoDir: string };
 
 const CHECK_TIMEOUT_MS = 60_000;
 
-/** The daemon's clone and stale-skill readers for a telemetry ping. `rtArgv` runs this rt (`rtSelfArgv` with the CLI entry, never the daemon's own `Bun.main`). */
+/** The daemon's clone and stale-count readers for a telemetry ping. `rtArgv` runs this rt (`rtSelfArgv` with the CLI entry, never the daemon's own `Bun.main`). */
 export function makePingHealth(deps: { probes: Probes; rtArgv: string[]; status: () => StatusEntry[] }): PingHealthDeps {
   return {
     async cloneHealth(slug) {
@@ -184,10 +154,10 @@ export function makePingHealth(deps: { probes: Probes; rtArgv: string[]; status:
       const git = await readCloneGit(deps.probes, entry.repoDir);
       return buildCloneHealth(entry, git, knownDataBranch(deps.probes, entry.repoDir));
     },
-    async staleSkills(pack) {
+    async staleCount(pack) {
       // A pack with stale skills exits nonzero and still prints the report.
       const res = await deps.probes.exec([...deps.rtArgv, "skills", "check", "--pack", pack, "--json"], { timeoutMs: CHECK_TIMEOUT_MS });
-      return staleSkillsOf(JSON.parse(res.stdout));
+      return staleCountOf(JSON.parse(res.stdout));
     },
   };
 }

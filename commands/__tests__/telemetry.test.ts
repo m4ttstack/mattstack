@@ -108,6 +108,7 @@ describe("telemetryClones", () => {
     expect(cap.stdout()).toContain("not reported");
     expect(cap.stdout()).not.toContain("healthy");
     expect(cap.stdout()).toContain("1 state change");
+    expect(cap.stdout()).toContain("Run with --json for each clone's counts and timeline");
   });
 
   test("with no stored key, fails and points at rt secrets set", async () => {

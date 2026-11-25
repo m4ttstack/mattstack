@@ -14,17 +14,13 @@ const HOUR = 60 * 60_000;
 const T0 = Date.parse('2026-11-18T12:00:00Z');
 
 const CLONE: CloneHealth = {
-  branch: 'mattstack',
-  dataBranch: 'mattstack',
-  head: 'aaaaaaaaaaaa',
-  upstream: 'aaaaaaaaaaaa',
+  onDataBranch: true,
   behind: 0,
   ahead: 0,
   lastPullAt: new Date(T0 - HOUR).toISOString(),
   pull: 'ok',
   canPublish: false,
   dirtyCount: 0,
-  dirty: [],
   dirtySince: null,
   conflicted: false,
   layoutHold: false,
@@ -47,7 +43,7 @@ function ping(over: Partial<TelemetryPing> = {}): TelemetryPing {
       {
         id: 'web@acme',
         version: '0.11.67',
-        stale: [{ skill: 'work', causes: ['source'] }],
+        staleCount: 1,
       },
     ],
     appUpdate: null,
@@ -55,42 +51,90 @@ function ping(over: Partial<TelemetryPing> = {}): TelemetryPing {
   };
 }
 
+/** As a Mac older than this sends it. */
+const OLD_CLONE = {
+  branch: 'SECRET-branch',
+  dataBranch: 'SECRET-data',
+  head: 'SECRETaaaa',
+  upstream: 'SECRETbbbb',
+  behind: 0,
+  ahead: 0,
+  lastPullAt: CLONE.lastPullAt,
+  pull: 'ok',
+  canPublish: false,
+  dirtyCount: 2,
+  dirty: [
+    { path: 'SECRET/one.md', status: 'M' },
+    { path: `SECRET/${'a/'.repeat(80)}two.md`, status: '??' },
+  ],
+  dirtySince: null,
+  conflicted: false,
+  layoutHold: false,
+};
+const OLD_STALE = [
+  { skill: 'SECRET-work', causes: ['source'] },
+  { skill: 'SECRET-ship', causes: ['version'] },
+];
+const OLD_PING = {
+  ...ping(),
+  orgs: [{ org: 'acme', layout: 5, clone: OLD_CLONE }],
+  packs: [{ id: 'web@acme', version: '0.11.67', stale: OLD_STALE }],
+};
+
 const store = () => new TelemetryStore(new Database(':memory:'));
 
 describe('parsePing clone health', () => {
-  test('keeps a clone block and a pack stale list', () => {
+  test('keeps a clone block and a pack stale count', () => {
     const parsed = parsePing(JSON.parse(JSON.stringify(ping())));
     expect(parsed?.orgs[0]?.clone).toEqual(CLONE);
-    expect(parsed?.packs[0]?.stale).toEqual([
-      { skill: 'work', causes: ['source'] },
-    ]);
+    expect(parsed?.packs[0]).toEqual({
+      id: 'web@acme',
+      version: '0.11.67',
+      staleCount: 1,
+    });
   });
 
-  test('a dirty path longer than other strings is still accepted', () => {
-    const path = `mattstack/teams/web/plugin/${'a/'.repeat(80)}SKILL.md`;
-    const parsed = parsePing(
-      ping({
-        orgs: [
-          {
-            org: 'acme',
-            layout: 5,
-            clone: { ...CLONE, dirtyCount: 1, dirty: [{ path, status: 'M' }] },
-          },
-        ],
-      })
-    );
-    expect(parsed?.orgs[0]?.clone?.dirty[0]?.path).toBe(path);
+  test('a Mac that still sends names has them dropped and the counts kept', () => {
+    const parsed = parsePing(OLD_PING);
+    expect(parsed?.orgs[0]?.clone).toEqual({
+      ...CLONE,
+      onDataBranch: false,
+      dirtyCount: 2,
+    });
+    expect(parsed?.packs[0]).toEqual({
+      id: 'web@acme',
+      version: '0.11.67',
+      staleCount: 2,
+    });
+    expect(JSON.stringify(parsed)).not.toContain('SECRET');
+  });
+
+  test('a clone that does not say reads as unknown', () => {
+    const clone = (over: object) =>
+      parsePing({
+        ...ping(),
+        orgs: [{ org: 'acme', layout: 5, clone: { ...CLONE, ...over } }],
+      })?.orgs[0]?.clone?.onDataBranch;
+    expect(clone({ onDataBranch: undefined })).toBeNull();
+    expect(clone({ onDataBranch: null })).toBeNull();
+    expect(
+      clone({ onDataBranch: undefined, branch: 'a', dataBranch: 'a' })
+    ).toBe(true);
+    expect(
+      clone({ onDataBranch: undefined, branch: null, dataBranch: 'a' })
+    ).toBe(false);
+    expect(clone({ onDataBranch: 'SECRET' })).toBeNull();
   });
 
   test('a malformed clone or stale list reads as null and keeps the ping', () => {
     const parsed = parsePing(
       ping({
         orgs: [{ org: 'acme', layout: 5, clone: { pull: 42 } as never }],
-        packs: [{ id: 'web@acme', version: null, stale: 'nope' as never }],
+        packs: [{ id: 'web@acme', version: null, staleCount: 'nope' as never }],
       })
     );
     expect(parsed?.orgs[0]?.clone).toBeNull();
-    expect(parsed?.packs[0]?.stale).toBeNull();
+    expect(parsed?.packs[0]?.staleCount).toBeNull();
   });
 
   test('a ping from a Mac older than the fields has no clone or stale', () => {
@@ -169,12 +213,6 @@ describe('clone timeline', () => {
               pull: 'local-changes',
               behind: 2,
               dirtyCount: 1,
-              dirty: [
-                {
-                  path: 'mattstack/teams/web/plugin/skills/work/SKILL.md',
-                  status: 'M',
-                },
-              ],
             },
           },
         ],
@@ -188,9 +226,7 @@ describe('clone timeline', () => {
     expect(report.macs[0]!.orgs[0]!.flags).toContain('behind origin by 2');
     expect(report.events.map(e => e.at)).toEqual([T0, T0 + 2 * HOUR]);
     expect(report.events[1]!.state.clones.acme?.pull).toBe('local-changes');
-    expect(report.events[1]!.state.stale['web@acme']).toEqual([
-      { skill: 'work', causes: ['source'] },
-    ]);
+    expect(report.events[1]!.state.stale['web@acme']).toBe(1);
   });
 
   test('a report for one person leaves the others out', () => {
@@ -263,5 +299,119 @@ describe('clone health on the telemetry page', () => {
     const html = renderTelemetryPage(s.snapshot(T0));
     expect(html).toContain('Clone health');
     expect(html).toContain('behind origin by 2');
+  });
+});
+
+describe('rows kept by a relay older than this', () => {
+  const { lastPullAt: _, ...oldState } = OLD_CLONE;
+  function oldDb(): Database {
+    const db = new Database(':memory:');
+    new TelemetryStore(db);
+    db.run(
+      `INSERT INTO telemetry_macs (install_id, ping, verified_username, last_seen) VALUES (?, ?, 'dev1', ?)`,
+      ['install-a', JSON.stringify(OLD_PING), T0]
+    );
+    db.run(
+      `INSERT INTO telemetry_macs (install_id, ping, verified_username, last_seen) VALUES (?, ?, NULL, ?)`,
+      [
+        'install-b',
+        JSON.stringify({
+          ...OLD_PING,
+          installId: 'install-b',
+          orgs: [
+            { org: 'acme', layout: 5, clone: null },
+            { org: 'beta', layout: null },
+          ],
+          packs: [{ id: 'web@acme', version: null }],
+        }),
+        T0,
+      ]
+    );
+    db.run(
+      `INSERT INTO telemetry_clone_events (install_id, at, state) VALUES ('install-a', ?, ?)`,
+      [
+        T0,
+        JSON.stringify({
+          clones: { acme: oldState, beta: null },
+          stale: { 'web@acme': OLD_STALE, 'api@acme': null },
+        }),
+      ]
+    );
+    return db;
+  }
+
+  test('lose their names and keep their counts when the store opens', () => {
+    const db = oldDb();
+    const s = new TelemetryStore(db);
+    const rows = JSON.stringify([
+      ...db.query('SELECT * FROM telemetry_macs').all(),
+      ...db.query('SELECT * FROM telemetry_clone_events').all(),
+    ]);
+    expect(rows).not.toContain('SECRET');
+    const report = s.cloneReport(T0, 'dev1');
+    expect(report.macs[0]!.orgs[0]!.clone).toEqual({
+      ...CLONE,
+      onDataBranch: false,
+      dirtyCount: 2,
+    });
+    expect(report.macs[0]!.packs[0]).toMatchObject({ staleCount: 2 });
+    const { lastPullAt: _pulled, ...state } = CLONE;
+    expect(report.events[0]!.state).toEqual({
+      clones: {
+        acme: { ...state, onDataBranch: false, dirtyCount: 2 },
+        beta: null,
+      },
+      stale: { 'web@acme': 2, 'api@acme': null },
+    });
+    expect(s.snapshot(T0).macs).toHaveLength(2);
+  });
+
+  test('a row that cannot be read is dropped, not kept as it is', () => {
+    const db = oldDb();
+    db.run(
+      `UPDATE telemetry_macs SET ping = '{"SECRET":' WHERE install_id = 'install-b'`
+    );
+    db.run(`UPDATE telemetry_clone_events SET state = 'SECRET'`);
+    const s = new TelemetryStore(db);
+    expect(s.snapshot(T0).macs.map(m => m.installId)).toEqual(['install-a']);
+    expect(s.cloneReport(T0).events).toEqual([]);
+  });
+
+  test('a second open changes nothing', () => {
+    const db = oldDb();
+    new TelemetryStore(db);
+    const dump = () =>
+      JSON.stringify([
+        ...db.query('SELECT * FROM telemetry_macs').all(),
+        ...db.query('SELECT * FROM telemetry_clone_events').all(),
+      ]);
+    const before = dump();
+    new TelemetryStore(db);
+    expect(dump()).toBe(before);
+  });
+
+  test('a Mac whose state did not change adds no event after the clearing', () => {
+    const db = oldDb();
+    const s = new TelemetryStore(db);
+    s.record(
+      {
+        ...ping(),
+        orgs: [
+          {
+            org: 'acme',
+            layout: 5,
+            clone: { ...CLONE, onDataBranch: false, dirtyCount: 2 },
+          },
+          { org: 'beta', layout: null, clone: null },
+        ],
+        packs: [
+          { id: 'web@acme', version: '0.11.67', staleCount: 2 },
+          { id: 'api@acme', version: null, staleCount: null },
+        ],
+      },
+      'dev1',
+      T0 + HOUR
+    );
+    expect(s.cloneReport(T0 + HOUR, 'dev1').events).toHaveLength(1);
   });
 });

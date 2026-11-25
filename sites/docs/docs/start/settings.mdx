@@ -97,8 +97,10 @@ While it is on, the rt daemon sends one small report when it starts, about every
 - which setup steps have run
 - the names of any leftover legacy folders
 - your org names and layouts, and your team packs and their versions
+- how each org copy is doing: what its last pull did and when, how many commits and changed files it has, whether it can publish, and whether it's on the org's data branch
+- how many of each pack's skills wait to be compiled
 
-It never sends your repos, files, paths or commands. Test runs, CI and virtual machines never send it. The report goes to the mattstack switchboard relay, where only the mattstack admin can read it. A failed report is silent and is retried on the next 5-minute check.
+It never sends your repos, files, paths, branches or commands. Test runs, CI and virtual machines never send it. The report goes to the mattstack switchboard relay, where only the mattstack admin can read it. A failed report is silent and is retried on the next 5-minute check.
 
 The admin reads it with `rt telemetry open`, which opens the page in your browser with the key from `rt secrets set rt switchboardTelemetryToken`.
 
