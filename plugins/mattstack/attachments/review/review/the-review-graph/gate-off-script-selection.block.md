@@ -9,5 +9,5 @@ label: Selection mismatch
 The selection was decided on another revision of the report. `context`
 quotes the missing ids and names the report. Proposed move: review again
 from the start, the handed selection dropped, so `Caller handed a decided
-selection?` answers no. `iterate` is for a human who put the right report
+selection?` answers no, and the report and its json written anew. `iterate` is for a human who put the right report
 back. Never post a partial set.

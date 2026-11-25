@@ -28,7 +28,7 @@ flowchart TB
     branch_matches{mr_list matches for the branch?}
     mr_list_ticket[/"mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}"/]
     ticket_matches{mr_list matches for the ticket?}
-    run_budget_target_clarify[/"run_budget {runDb, key: target-clarify, limit: 2, stage}"/]
+    run_budget_target_clarify[/"run_budget {runDb, key: target-clarify, limit: 4, stage}"/]
     target_clarify_spent{target-clarify spent?}
     stop_gitlab_shell_search[STOP: ticket searches go through the read tools or gitlab_get]:::stop
     stop_gitlab_shell_reads[STOP: reads go through the read tools or gitlab_get]:::stop
@@ -180,7 +180,7 @@ flowchart TB
     mr_view_found -->|tempted to read it with the forge CLI| stop_gitlab_shell_reads
     stop_gitlab_shell_reads --> mr_view
     gate_which_target --> target_answer
-    target_answer -->|a target not tried yet| target_form
+    target_answer -->|a picked target not tried yet| target_form
     target_answer -->|their text, or a target already tried| run_budget_target_clarify
     target_answer -->|next: hold| run_hold
     run_budget_target_clarify --> target_clarify_spent

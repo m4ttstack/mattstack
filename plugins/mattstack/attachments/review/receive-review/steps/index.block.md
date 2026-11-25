@@ -324,8 +324,7 @@ flowchart TB
     gh_read_complete -->|yes| picks_need_push
     gh_read_complete -->|no, or an error| gate_off_script_gh_read
     gate_off_script_gh_read --> gh_read_answer
-    gh_read_answer -->|take: the human finished every due thread by hand| report_outcome
-    gh_read_answer -->|iterate: read again| read_posted_threads_gh
+    gh_read_answer -->|take, or iterate: read again| read_posted_threads_gh
     gh_read_answer -->|hold| run_field_set_hold_held
     gh_read_answer -->|hand back| own_run_failed_or_abandoned
     picks_need_push -->|yes| git_branch_current
