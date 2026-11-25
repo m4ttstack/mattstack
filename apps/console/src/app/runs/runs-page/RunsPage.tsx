@@ -29,7 +29,8 @@ import {
   statCards,
   type RunsFilter,
 } from '../derive/lanes';
-import { modeFeed, pauseStateOf, runModeOf } from '../derive/modeFeed';
+import { modeFeed, runModeOf } from '../derive/modeFeed';
+import { pauseStateOf } from '../derive/pause';
 import { Eyebrow } from '../Eyebrow';
 import { ModePanel } from '../mode/ModeDecisions';
 import { repoPath } from '../repoLabel';
@@ -145,7 +146,8 @@ function LaneSlot({
             mode={mode}
             rows={rows}
             canControl={run.status === 'running'}
-            pause={pauseStateOf(run)}
+            canPause={run.status === 'running' && !run.hold}
+            pause={detail ? pauseStateOf(run, detail.decisions) : 'none'}
             stage={run.current_stage}
           />
         ) : null

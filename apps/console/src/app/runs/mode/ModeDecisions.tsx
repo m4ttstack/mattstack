@@ -19,7 +19,8 @@ import {
 import { notifications } from '@mattstack/app-kit/notifications';
 import type { GateRow } from '@mattstack/rt-client';
 
-import { modeOf, type ModeFeedRow, type PauseState } from '../derive/modeFeed';
+import { modeOf, type ModeFeedRow } from '../derive/modeFeed';
+import type { PauseState } from '../derive/pause';
 import { Glyph } from '../Glyph';
 import classes from './ModeDecisions.module.css';
 import { useModeControls } from './useModeControls';
@@ -113,8 +114,7 @@ function GateRedoNote({
 }
 
 /** The run page's notice while a console Pause is on its way or has landed,
-    or once the agent has paused the run itself. An agent still working has
-    either not stopped yet or picked the run back up, so it gets no notice. */
+    or once the agent has paused the run itself. */
 export function PausedBanner({
   pause,
   by,
@@ -128,7 +128,6 @@ export function PausedBanner({
   stage: string | null;
   mode: string | null;
 }) {
-  if (by === 'agent' && pause === 'pausing') return null;
   const where = stage ? ` after ${stage}` : '';
   const title =
     by === 'agent'
@@ -262,6 +261,7 @@ export function ModePanel({
   mode,
   rows,
   canControl,
+  canPause = canControl,
   pause,
   stage,
   defaultOpen = false,
@@ -271,6 +271,9 @@ export function ModePanel({
   mode: string;
   rows: ModeFeedRow[];
   canControl: boolean;
+  /** False under any hold: rt keeps the first hold, so a second one would
+      do nothing. */
+  canPause?: boolean;
   pause: PauseState;
   /** The step the run is on, for "stops after <step>". */
   stage: string | null;
@@ -338,7 +341,7 @@ export function ModePanel({
             </Group>
           </UnstyledButton>
         ) : null}
-        {canControl && shown === 'none' ? (
+        {canPause && shown === 'none' ? (
           <Button
             ml="auto"
             size="compact-sm"
