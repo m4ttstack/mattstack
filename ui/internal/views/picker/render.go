@@ -236,9 +236,13 @@ func groupHeaderLine(group string) string {
 }
 
 // groupHeadingLine paints a caller's heading across width: its right side
-// whole at the edge, its left clipped to what remains.
+// whole at the edge, its left clipped to what remains. A pane too narrow for
+// the right side keeps the end of it, where a caller puts its identifier.
 func groupHeadingLine(h protocol.PickGroupHeading, width int) string {
-	right := ansi.Truncate(previewSegs(readableSegs(h.Right)), max(width-2, 0), "…")
+	right := previewSegs(readableSegs(h.Right))
+	if over := lipgloss.Width(right) - max(width-2, 0); over > 0 {
+		right = ansi.TruncateLeft(right, over+1, "…")
+	}
 	avail := width - 2 - lipgloss.Width(right)
 	if right != "" {
 		avail--

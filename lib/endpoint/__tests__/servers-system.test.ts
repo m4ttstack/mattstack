@@ -226,7 +226,7 @@ describe("stopServers", () => {
   test("a server rt itself runs inside is left alone and says why", async () => {
     const io = stopSystem();
     const one = server(10, [10, 11, 12]);
-    expect(await stopServers([one], fresh([one]), new Set([10, 11]), io.system)).toEqual([{ server: one, result: "failed", why: "rt is running inside it." }]);
+    expect(await stopServers([one], fresh([one]), new Set([10, 11]), io.system)).toEqual([{ server: one, result: "refused", why: "rt is running inside it." }]);
     expect(io.sent).toEqual([]);
   });
 
@@ -251,13 +251,26 @@ describe("stopServers", () => {
     expect(io.killed()).toEqual([12]);
   });
 
+  test("a pid already gone at SIGTERM that is reused later is never killed", async () => {
+    const io = stopSystem({ gone: [11], ignoresTerm: [12] });
+    const reused: Array<string> = [];
+    const signal: ServerSystem["signal"] = (pid, sig) => {
+      if (pid !== 11 || sig === "SIGTERM") return io.system.signal(pid, sig);
+      if (sig !== 0) reused.push(sig);
+    };
+    const one = server(10, [10, 11, 12]);
+    expect((await stopServers([one], fresh([one]), NONE, { ...io.system, signal }))[0]!.result).toBe("stopped");
+    expect(reused).toEqual([]);
+    expect(io.killed()).toEqual([12]);
+  });
+
   test("a tree with a session or a shell running inside it is left alone and says why", async () => {
     const io = stopSystem();
     const all = [server(10, [10], { inside: "claude" }), server(20, [20], { inside: "codex" }), server(30, [30], { inside: "shell" })];
     expect((await stopServers(all, fresh(all), NONE, io.system)).map((o) => [o.result, o.why])).toEqual([
-      ["failed", "Claude is running inside it."],
-      ["failed", "codex is running inside it."],
-      ["failed", "A shell is running inside it."],
+      ["refused", "Claude is running inside it."],
+      ["refused", "codex is running inside it."],
+      ["refused", "A shell is running inside it."],
     ]);
     expect(io.sent).toEqual([]);
   });

@@ -176,7 +176,8 @@ fails the command; it never reads as nothing running.
   nested under it, is refused whole, with the reason: ending its parents would
   end it. So is a tree rt itself runs inside. rt's own process and its ancestors are never signalled.
 - Each row reports its own result, named by port and heading text: stopped,
-  already gone, or could not stop and why (`S5`). "Already gone" means its
+  already gone, left running and why (a refusal, not a failure), or could not
+  stop and why (`S5`). "Already gone" means its
   process is no longer running.
 - Claims stay, as after Ctrl-C, so the worktree gets the same port next time.
 

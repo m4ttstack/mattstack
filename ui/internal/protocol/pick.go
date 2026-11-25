@@ -164,8 +164,8 @@ type PickRequest struct {
 	GroupHeadings map[string]PickGroupHeading `json:"groupHeadings,omitempty"`
 }
 
-// PickGroupHeading is one group's heading: Right is pinned to the edge and
-// never clipped, Left takes what is left.
+// PickGroupHeading is one group's heading: Right is pinned to the edge, whole unless
+// the pane is narrower than it (its end survives), and Left takes what is left.
 type PickGroupHeading struct {
 	Left  []PickSegment `json:"left"`
 	Right []PickSegment `json:"right,omitempty"`

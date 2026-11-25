@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { EnrichedBranch, MRInfo } from "../../lib/enrich.ts";
 import type { RoleConfig } from "../../lib/endpoint/config.ts";
-import type { ServerGroup } from "../../lib/endpoint/server-groups.ts";
+import { groupServers, type ServerGroup } from "../../lib/endpoint/server-groups.ts";
 import type { RunningServer, ServerRules, ServerSnapshot } from "../../lib/endpoint/servers.ts";
 import type { FreshServers, StopOutcome } from "../../lib/endpoint/servers-system.ts";
 import { writeInterceptRules } from "../../lib/endpoint/shim.ts";
@@ -17,7 +17,7 @@ import * as out from "../../lib/ui/out.ts";
 import { __test__ as pickTest, type PickHandle } from "../../lib/ui/pick.ts";
 import { installFakePick } from "../../lib/ui/pick-fake.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { branchesOf, realServersDeps, serverBlocks, serverHints, serversCommand, type Lookup, type ServersDeps } from "../servers.ts";
+import { branchesOf, pickView, realServersDeps, serverBlocks, serverHints, serversCommand, type Lookup, type ServersDeps } from "../servers.ts";
 
 const IDENTITY = "remote:example.com%2Facme%2Fsample-app";
 const TREE = "/trees/calm-marble";
@@ -291,12 +291,11 @@ describe("serversCommand", () => {
   test("--json is frozen, with an empty stderr, and never picks or looks up tickets", async () => {
     const { run, calls } = harness({ canAsk: true, snapshots: [{ ...SNAPSHOT, procs: SNAPSHOT.procs.filter((p) => p.pid < 20), listeners: new Map([[11, [4001]]]) }] });
     await run(["--json"]);
-    expect(JSON.parse(io.stdout())).toEqual({
-      ok: true, repo: IDENTITY, servers: [{
-        role: "web", port: 4001, listening: true, worktree: { path: TREE, name: "calm-marble" }, branch: "web-214-login-rate-limit",
-        pid: 10, pids: [10, 11], startedAt: new Date(LSTART).toISOString(), leftBehind: false, agent: null,
-      }],
-    });
+    expect(io.stdout()).toBe(
+      `{"ok":true,"repo":"${IDENTITY}","servers":[{"role":"web","port":4001,"listening":true,` +
+      `"worktree":{"path":"/trees/calm-marble","name":"calm-marble"},"branch":"web-214-login-rate-limit","pid":10,"pids":[10,11],` +
+      `"startedAt":"${new Date(LSTART).toISOString()}","leftBehind":false,"agent":null}]}\n`,
+    );
     expect(io.stderr()).toBe("");
     expect([calls.pick, calls.enrich]).toEqual([0, 0]);
   });
@@ -304,7 +303,7 @@ describe("serversCommand", () => {
   test("--json with no rules is an empty list", async () => {
     const { run } = harness({ rules: { ...RULES, rules: [] } });
     await run(["--json"]);
-    expect(JSON.parse(io.stdout())).toEqual({ ok: true, repo: IDENTITY, servers: [] });
+    expect(io.stdout()).toBe(`{"ok":true,"repo":"${IDENTITY}","servers":[]}\n`);
     expect(io.stderr()).toBe("");
   });
 
@@ -368,6 +367,14 @@ describe("serversCommand", () => {
     expect(io.stdout()).toBe("[ok] Stopped web  :4001, web-214-login-rate-limit\n");
   });
 
+  test("a refused tree is a refusal with its reason, not a failed stop", async () => {
+    const { run } = harness({ canAsk: true, pick: [20], outcomes: ([s]) => [{ server: s!, result: "refused", why: "Claude is running inside it." }] });
+    await run();
+    expect(io.stdout()).toBe("");
+    expect(io.stderr()).toBe("[refused] Left api running  :10401, Add a login rate limit\n  why: Claude is running inside it.\n");
+    expect(process.exitCode).toBe(1);
+  });
+
   test("a stop that failed is a failure with its reason", async () => {
     const { run } = harness({ canAsk: true, pick: [20], outcomes: ([s]) => [{ server: s!, result: "failed", why: "It did not stop." }] });
     await run();
@@ -409,6 +416,14 @@ describe("serversCommand", () => {
     expect(calls.fresh!.procs).toContainEqual(expect.objectContaining({ pid: 10, startTime: later }));
     expect(calls.spare).toEqual(new Set([process.pid, 88]));
   });
+});
+
+test("rows with the same role and port say which worktree, so no two picks read the same", () => {
+  const twin = (pid: number, name: string, over: Partial<RunningServer> = {}) => server({ pid, port: null, listening: false, worktree: { path: `/trees/${name}`, name }, branch: name, ...over });
+  const view = (servers: RunningServer[]) =>
+    pickView(groupServers(servers, new Map())).rows.map((r) => r.left.slice(0, 2).map((s) => s.text).join("").replace(/ +/g, " ")).sort();
+  expect(view([twin(10, "calm-marble"), twin(20, "old-pond"), server({ pid: 30, role: "web", port: 4001 })])).toEqual(["api no port calm-marble", "api no port old-pond", "web :4001"]);
+  expect(view([twin(10, "calm-marble"), twin(20, "calm-marble")])).toEqual(["api no port calm-marble 10", "api no port calm-marble 20"]);
 });
 
 describe("realServersDeps.pick", () => {

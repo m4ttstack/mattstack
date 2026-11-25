@@ -537,7 +537,7 @@ export interface PickAction {
   footerHidden?: boolean;
 }
 
-/** One group's heading: `right` is pinned to the edge and never clipped, `left` takes what is left. */
+/** One group's heading: `right` is pinned to the edge, whole unless the pane is narrower than it (its end survives), and `left` takes what is left. */
 export interface PickGroupHeading {
   left: PickSegment[];
   right?: PickSegment[];

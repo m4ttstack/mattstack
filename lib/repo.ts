@@ -255,7 +255,7 @@ export async function requireRepoIdentity(commandLabel?: string): Promise<RepoId
   let selectedRepo = choices[0]!;
 
   if (choices.length > 1) {
-    if (!process.stdin.isTTY) failCannotAsk("repo");
+    if (!process.stdin.isTTY || process.argv.includes("--json") || process.env.RT_BATCH) failCannotAsk("repo");
 
     const { filterableSelect } = await import("./pick-wrappers.ts");
     const picked = await filterableSelect({

@@ -62,6 +62,14 @@ func TestGroupHeadingShorterThanItsRightStillFitsTheWidth(t *testing.T) {
 	}
 }
 
+func TestGroupHeadingTooNarrowForItsRightKeepsTheEnd(t *testing.T) {
+	m := New(headedRequest())
+	m.width = 16
+	if line := strings.TrimRight(ansi.Strip(headingLine(t, m, "WEB-214")), " "); !strings.HasSuffix(line, "WEB-214") || !strings.Contains(line, "…") {
+		t.Fatalf("the ticket id at the end should outlast the MR details: %q", line)
+	}
+}
+
 func TestGroupWithoutAHeadingKeepsItsPlainLine(t *testing.T) {
 	m := New(headedRequest())
 	m.width = 60

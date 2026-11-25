@@ -111,11 +111,25 @@ function isUsersOwn(proc: ServerProc): boolean {
   return isUserOrAgentProcess(asCandidate(proc)) || (proc.args.includes(".app/Contents/") && !proc.args.includes("/Python.app/Contents/"));
 }
 
-// A shell with no script and no -c.
-const INTERACTIVE_SHELL = /^-?(?:\S*\/)?(?:zsh|bash|fish|sh)(?: -(?!c\b)[-\w]+)*$/;
+const SHELL = /^-?(?:\S*\/)?(?:zsh|bash|fish|sh)$/;
+const SHELL_OPTIONS_WITH_OPERAND = new Set(["--rcfile", "--init-file", "-o", "+o", "-O", "+O", "-C", "--init-command"]);
+
+/** A shell a person types into: asked to be with -i, or given neither a command nor a script to run. */
+function isInteractiveShell(args: string): boolean {
+  const [shell, ...rest] = args.split(" ");
+  if (!SHELL.test(shell!)) return false;
+  for (let i = 0; i < rest.length; i++) {
+    const option = rest[i]!;
+    if (SHELL_OPTIONS_WITH_OPERAND.has(option)) i++;
+    else if (option === "--command" || /^-[a-zA-Z]*c[a-zA-Z]*$/.test(option)) return false;
+    else if (/^-[a-zA-Z]*i[a-zA-Z]*$/.test(option)) return true;
+    else if (!/^[-+]/.test(option)) return false;
+  }
+  return true;
+}
 
 function sessionName(proc: ServerProc): string | null {
-  return agentNameOf(asCandidate(proc)) ?? (INTERACTIVE_SHELL.test(proc.args) ? "shell" : null);
+  return agentNameOf(asCandidate(proc)) ?? (isInteractiveShell(proc.args) ? "shell" : null);
 }
 
 /** A submodule or another clone checked out inside the tree: git reads it as its own repo, so the shim matched no rule there. */

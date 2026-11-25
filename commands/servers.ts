@@ -105,8 +105,18 @@ function groupHeading(group: ServerGroup): PickGroupHeading {
   };
 }
 
+/** Role and port are all the selected strip prints, so a pair that repeats adds its worktree, then its pid. */
+function portCells(servers: RunningServer[]): (server: RunningServer) => string {
+  const short = (s: RunningServer) => portText(s);
+  const placed = (s: RunningServer) => `${portText(s)} ${s.worktree.name}`;
+  const alone = (s: RunningServer, cell: (s: RunningServer) => string) =>
+    servers.filter((other) => other.role === s.role && cell(other) === cell(s)).length === 1;
+  return (s) => (alone(s, short) ? short(s) : alone(s, placed) ? placed(s) : `${placed(s)} ${s.pid}`);
+}
+
 export function pickView(groups: ServerGroup[]): { rows: PickRow[]; groupHeadings: Record<string, PickGroupHeading> } {
   const all = groups.flatMap((group) => group.servers.map((row) => ({ group, row, uptime: formatUptime(row.server.etime) })));
+  const portCell = portCells(all.map(({ row }) => row.server));
   const roleWidth = Math.max(...all.map(({ row }) => row.server.role.length));
   const uptimeWidth = Math.max(...all.map(({ uptime }) => uptime.length));
   const rows = all.map(({ group, row, uptime }): PickRow => ({
@@ -115,7 +125,7 @@ export function pickView(groups: ServerGroup[]): { rows: PickRow[]; groupHeading
     group: group.key,
     left: [
       { text: `${row.server.role.padEnd(roleWidth)}  `, tone: "peach", bold: true },
-      { text: portText(row.server), tone: row.server.port === null ? "faint" : "textsoft", column: true },
+      { text: portCell(row.server), tone: row.server.port === null ? "faint" : "textsoft", column: true },
       ...(row.branch ? [{ text: `  ${row.branch}`, tone: "faint" }] : []),
       ...serverHints(row.server).map((hint) => ({ text: `  ${hint}`, tone: hint.endsWith(" session") ? "lav" : "peach" })),
     ],
@@ -199,16 +209,19 @@ async function enrichedWithin(deps: ServersDeps, lookup: Lookup, ms: number): Pr
 function printOutcomes(outcomes: StopOutcome[], groups: ServerGroup[]): void {
   const titles = new Map(groups.flatMap((group) => group.servers.map((row) => [row.server.pid, group.title] as const)));
   const done: Block[] = [];
+  const refused: Block[] = [];
   const failures: out.FailureInput[] = [];
   for (const { server, result, why } of outcomes) {
     const where = [server.port === null ? null : portText(server), titles.get(server.pid)].filter(Boolean).join(", ");
     if (result === "stopped") done.push(out.line("done", `Stopped ${server.role}`, where));
     else if (result === "gone") done.push(out.line("skipped", `${server.role} had already stopped`, where));
+    else if (result === "refused") refused.push(out.line("refused", `Left ${server.role} running`, where), out.callout("why", why ?? ""));
     else failures.push({ title: `Could not stop ${server.role}`, hint: where, why });
   }
   if (done.length > 0) out.print(...done);
+  if (refused.length > 0) out.note(...refused);
   for (const failure of failures) out.fail(failure);
-  if (failures.length > 0) process.exitCode = 1;
+  if (refused.length + failures.length > 0) process.exitCode = 1;
 }
 
 export async function serversCommand(args: string[], ctx: CommandContext, deps: ServersDeps = realServersDeps): Promise<void> {
