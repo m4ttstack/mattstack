@@ -126,6 +126,9 @@ jobs:
           key: turbo-${{ runner.os }}-${{ github.sha }}
           restore-keys: turbo-${{ runner.os }}-
       - run: find .git/turbo-cache -type f -mtime +7 -delete 2>/dev/null || true
+      # The board's wire test seals with the real tool.
+      - name: Install age
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq age
       - name: Apps and packages, plus rt's static gates (turbo)
         if: github.event_name == 'pull_request'
         env:

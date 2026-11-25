@@ -1,6 +1,7 @@
 /** The switchboard: a dumb store-and-forward relay for peer mr-boards and
     support requests. It understands envelopes, never payloads: no GitLab or
-    Slack credentials, no MR titles. Deployed standalone (Railway); boards and
+    Slack credentials, and text people write arrives sealed to its recipients'
+    keys, which are never here. Deployed standalone (Railway); boards and
     daemons only call outbound. */
 import { timingSafeEqual } from 'node:crypto';
 import { join } from 'path';

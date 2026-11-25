@@ -244,6 +244,31 @@ test("runOne resolve-latch resolves the reviewer's latch thread and reloads fres
   ]);
 });
 
+test('an ask whose note did not go says so, alone and in bulk', async () => {
+  const ask = { kind: 'ask', ask: 'review', reviewer: 'kim' } as const;
+  for (const [noteReason, said] of [
+    ['no-key', "Sent without your note. kim can't receive notes yet."],
+    ['unavailable', 'Sent without your note. This Mac could not lock it.'],
+  ] as const) {
+    const reply = () => ok({ noteReason });
+    const one = fakeDeps(reply);
+    await runOne(ask, mr(7), one.deps);
+    expect(one.events).toContain(`done ${said}`);
+    const queued = fakeDeps(() => ok({ noteReason, queued: true }));
+    await runOne(ask, mr(7), queued.deps);
+    expect(queued.events).toContain(
+      `done switchboard unreachable... queued the ask to kim. ${said.replace('Sent', 'Queued')}`
+    );
+  }
+  const many = fakeDeps(p => ok(p.iid === 8 ? { noteReason: 'no-key' } : {}));
+  await runMany(ask, [mr(7), mr(8), mr(9)], many.deps);
+  const toast = many.events.find(e => e.includes('without your note'))!;
+  expect(toast).toContain(
+    "!8 went without your note, kim can't receive notes yet"
+  );
+  expect(toast).not.toContain('!7 went');
+});
+
 test('a delivered ask settles its pending toast as asked', async () => {
   const { deps, events } = fakeDeps(() => ok({}));
   await runOne({ kind: 'ask', ask: 'review', reviewer: 'kim' }, mr(7), deps);

@@ -354,10 +354,10 @@ describe("teamPeer", () => {
 describe("teamAnnounce", () => {
   const sent: Array<{ slug: string; input: { title: string; message: string } }> = [];
   const sendWith =
-    (delivered: number): NonNullable<TeamDeps["announce"]> =>
+    (delivered: number, unreadable = 0): NonNullable<TeamDeps["announce"]> =>
     async (_p, slug, input) => {
       sent.push({ slug, input });
-      return { delivered };
+      return { delivered, unreadable };
     };
 
   beforeEach(() => {
@@ -368,7 +368,7 @@ describe("teamAnnounce", () => {
     const deps = depsWithZone({ announce: sendWith(3) });
     await teamAnnounce(["Update rt", "--message", "Today", "--team", "acme", "--json"], {}, deps);
     const { at: _at, ...body } = JSON.parse(deps.lines[0]!);
-    expect(body).toEqual({ contract: 1, delivered: 3 });
+    expect(body).toEqual({ contract: 1, delivered: 3, unreadable: 0 });
     expect(sent).toEqual([{ slug: "acme", input: { title: "Update rt", message: "Today" } }]);
   });
 
@@ -379,6 +379,33 @@ describe("teamAnnounce", () => {
     try {
       await teamAnnounce(["Update rt", "--message", "Today", "--team", "acme"], {}, deps);
       expect(io.stdout()).toContain("[needs you] Nobody will get this");
+    } finally {
+      io.restore();
+    }
+  });
+
+  for (const [unreadable, line] of [[3, "3 people cannot read it yet"], [1, "1 person cannot read it yet"]] as const) {
+    test(`says that ${line}`, async () => {
+      const deps = depsWithZone({ announce: sendWith(4, unreadable) });
+      const io = captureOut();
+      ui.__test__.setHuman(() => false);
+      try {
+        await teamAnnounce(["Update rt", "--message", "Today", "--team", "acme"], {}, deps);
+        expect(io.stdout()).toContain("Queued for 4 boards");
+        expect(io.stdout()).toContain(line);
+      } finally {
+        io.restore();
+      }
+    });
+  }
+
+  test("says nothing of it when everyone can read it", async () => {
+    const deps = depsWithZone({ announce: sendWith(4) });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamAnnounce(["Update rt", "--message", "Today", "--team", "acme"], {}, deps);
+      expect(io.stdout()).not.toContain("cannot read it");
     } finally {
       io.restore();
     }

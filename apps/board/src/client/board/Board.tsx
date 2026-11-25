@@ -103,7 +103,7 @@ import {
   remindToastName,
 } from './ask-band.ts';
 import { AskConfirmDialog } from './AskConfirmDialog.tsx';
-import { verbLane } from './asks/ask-copy.ts';
+import { noteNotSent, verbLane } from './asks/ask-copy.ts';
 import { AsksButton } from './asks/AsksButton.tsx';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
 import { ConsoleSettingsModal } from './ConsoleSettingsModal.tsx';
@@ -1133,8 +1133,14 @@ export function Board() {
       const r = await declineAsk(id, reason, note);
       load();
       if (!r.ok) throw new Error(askFailure(r));
+      const why = r.body?.noteReason;
+      const from = data?.asks?.pending.find(a => a.id === id)?.from;
+      if (why)
+        addToast(
+          noteNotSent('Declined', why, from ? people.short(from) : 'They')
+        );
     },
-    [load]
+    [addToast, data, load, people]
   );
   const handleAskAllow = useCallback(
     async (username: string, allow: boolean) => {

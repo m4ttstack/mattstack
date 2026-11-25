@@ -1,12 +1,19 @@
 import { expect, test } from "bun:test";
 
-import { parseAnnouncementPayload } from "../src/announcement.ts";
+import { ANNOUNCEMENT_PLACEHOLDER, announcementBinding, parseAnnouncementPayload } from "../src/announcement.ts";
 
 test("accepts a title and message", () => {
   expect(parseAnnouncementPayload({ title: "Update rt", message: "Today please" })).toEqual({
     title: "Update rt",
     message: "Today please",
   });
+});
+test("keeps sealed text and rejects one that is not a string", () => {
+  expect(parseAnnouncementPayload({ ...ANNOUNCEMENT_PLACEHOLDER, sealed: "YWdl" })).toEqual({ ...ANNOUNCEMENT_PLACEHOLDER, sealed: "YWdl" });
+  expect(parseAnnouncementPayload({ ...ANNOUNCEMENT_PLACEHOLDER, sealed: 7 })).toBeNull();
+});
+test("the binding names the envelope and its sender", () => {
+  expect(announcementBinding("e-1", "dev1")).toEqual({ type: "announcement", from: "dev1", subject: "e-1" });
 });
 test("rejects non-objects, missing fields and non-strings", () => {
   for (const bad of [null, "x", {}, { title: "a" }, { title: 1, message: "b" }])

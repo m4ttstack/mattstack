@@ -1,6 +1,7 @@
 /** Support requests and their statuses: a queue of its own, beside the board
     inbox. Two board builds can both read and ack the inbox, and an old one
     drops a type it does not know, so a request there could vanish unseen.
+    A request's body, and a status's reason, persona and link, arrive sealed.
     The wire is declared in `packages/rt-client/src/support.ts` and redeclared
     here because the relay image copies only `apps/board/switchboard/*.ts`. */
 import type { Database } from 'bun:sqlite';

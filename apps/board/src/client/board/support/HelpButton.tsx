@@ -184,7 +184,7 @@ export function HelpButton({ help }: { help: Help }) {
   const { read, request, open, setOpen } = help;
   const first = useRef<HTMLTextAreaElement>(null);
   const a = read.availability;
-  const face = pill(request, request ? askedOf(request) : '', read.persona);
+  const face = pill(request, request ? askedOf(request) : '');
   const disabled = !request && a.state === 'disabled' ? a.reason : null;
 
   const trigger = (
@@ -243,7 +243,7 @@ export function HelpButton({ help }: { help: Help }) {
     />
   ) : request ? (
     <StatusCard
-      card={requestCard(request, askedOf(request), read.persona, help.requests)}
+      card={requestCard(request, askedOf(request), help.requests)}
       words={request.text}
       host={askedOf(request)}
       hostDm={request.hostDm}

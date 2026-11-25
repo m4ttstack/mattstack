@@ -74,13 +74,16 @@ const openSlack = (r: HelpRequest): CardAction | undefined => {
   return href ? { kind: 'open-slack', href } : undefined;
 };
 
+/** The bot is named by its host's Mac, and a status can arrive without its
+    words. */
+const botOf = (r: HelpRequest, host: string) => r.persona ?? `${host}'s agent`;
+
 export function requestCard(
   r: HelpRequest,
   host: string,
-  persona: string,
   others: readonly HelpRequest[]
 ): Card {
-  const bot = r.persona ?? persona;
+  const bot = botOf(r, host);
   const direct = `Message ${host} directly`;
   switch (r.state) {
     case 'sent':
@@ -255,13 +258,9 @@ export interface Pill {
   href?: string;
 }
 
-export function pill(
-  r: HelpRequest | null,
-  host: string,
-  persona: string
-): Pill {
+export function pill(r: HelpRequest | null, host: string): Pill {
   if (!r) return { tone: 'rest', label: 'Need help?' };
-  const bot = r.persona ?? persona;
+  const bot = botOf(r, host);
   switch (r.state) {
     case 'sent':
       return r.away

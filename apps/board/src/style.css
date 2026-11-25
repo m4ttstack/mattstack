@@ -8036,6 +8036,13 @@ a.tui-id-card-ref:focus-visible {
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
+.tui-ask-unread {
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.4;
+}
 .tui-ask-card-note {
   margin: 0;
   padding: 6px 10px;

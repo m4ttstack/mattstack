@@ -13,6 +13,7 @@ const ready: ReadinessDeps = {
   boardToken: async () => "tok",
   relayAnswers: async () => true,
   supportKey: async () => "ready",
+  holdsKey: async () => true,
   orgIds: () => ({ forgeHost: "git.example.com", teamKeys: ["ACME"] }),
 };
 const CONNECT = "Connect Slack for support chats in Settings > Accounts";
@@ -60,6 +61,8 @@ describe("readiness", () => {
     ["an org with no support key", { supportKey: async () => "missing" }, "Your org has no support key yet, so an org admin runs rt team support on", null],
     ["a support key this Mac's own does not open", { supportKey: async () => "unreadable" }, "This Mac cannot open the org's support key", null],
     ["a support key this Mac cannot open", { supportKey: boom }, "This Mac cannot open the org's support key", null],
+    ["a Mac whose key is not the roster's", { holdsKey: async () => false }, "This Mac's key is not the one your org has for you", null],
+    ["a key that cannot be read", { holdsKey: boom }, "This Mac's key could not be read", null],
     ["no forge host", { orgIds: () => ({ forgeHost: null, teamKeys: ["ACME"] }) }, "Your org's settings name no forge host, which tickets need", null],
     ["no Linear team", { orgIds: () => ({ forgeHost: "git.example.com", teamKeys: null }) }, "Your org's settings name no Linear team, which tickets need", null],
   ];
@@ -75,6 +78,11 @@ describe("readiness", () => {
     expect((await readiness({ ...ready, linearKey: async () => null }))[0]!.command).toBe("rt secrets set rt linearSupportApiKey");
   });
 
+  test("a key the roster does not hold names the command that records it", async () => {
+    expect((await readiness({ ...ready, holdsKey: async () => false }))[0]!.command).toBe("rt team members sync");
+    expect((await readiness({ ...ready, holdsKey: boom }))[0]!.command).toBeUndefined();
+  });
+
   test("everything missing is named at once, and no error text reaches a person", async () => {
     const all = await readiness({
       slackScopes: boom,
@@ -85,9 +93,10 @@ describe("readiness", () => {
       boardToken: boom as never,
       relayAnswers: async () => false,
       supportKey: boom as never,
+      holdsKey: boom,
       orgIds: () => ({ forgeHost: null, teamKeys: null }),
     });
-    expect(all).toHaveLength(8);
+    expect(all).toHaveLength(9);
     expect(JSON.stringify(all)).not.toContain("sops");
   });
 });

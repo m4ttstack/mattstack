@@ -238,7 +238,7 @@ export interface NudgePassDeps {
   /** Whether this board's identity authored the MR; respond asks need it. */
   isOwnMr(mrUrl: string): boolean;
   launchAsk(mrUrl: string, iid: number, kind: AskKind): Promise<ReReviewLaunch>;
-  publishOutcome(to: string, payload: NudgeOutcomePayload): void;
+  publishOutcome(to: string, payload: NudgeOutcomePayload): Promise<unknown>;
   memory: DispatchMemory;
   cfg: TriageConfig;
   appendAudit(entry: AuditEntry): void;
@@ -280,7 +280,7 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
         result.skipped++;
         continue;
       }
-      deps.publishOutcome(nudge.from, {
+      await deps.publishOutcome(nudge.from, {
         mrUrl: nudge.mrUrl,
         iid: nudge.iid,
         nudgeId: nudge.id,
@@ -335,7 +335,7 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
         result.skipped++;
         continue;
       }
-      deps.publishOutcome(nudge.from, {
+      await deps.publishOutcome(nudge.from, {
         mrUrl: nudge.mrUrl,
         iid: nudge.iid,
         nudgeId: nudge.id,
@@ -359,7 +359,7 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
       if (nudge.notifiedAt) continue;
       const latest = deps.readNudges().find(x => x.id === nudge.id);
       if (!latest || latest.handled || latest.notifiedAt) continue;
-      deps.publishOutcome(nudge.from, {
+      await deps.publishOutcome(nudge.from, {
         mrUrl: nudge.mrUrl,
         iid: nudge.iid,
         nudgeId: nudge.id,
@@ -401,7 +401,7 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
       deps.markNudgeHandled(nudge.id, 'rejected', 'launch-failed', {
         replacing: 'launched',
       });
-      deps.publishOutcome(nudge.from, {
+      await deps.publishOutcome(nudge.from, {
         mrUrl: nudge.mrUrl,
         iid: nudge.iid,
         nudgeId: nudge.id,
@@ -419,7 +419,7 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
       result.rejected++;
       continue;
     }
-    deps.publishOutcome(nudge.from, {
+    await deps.publishOutcome(nudge.from, {
       mrUrl: nudge.mrUrl,
       iid: nudge.iid,
       nudgeId: nudge.id,

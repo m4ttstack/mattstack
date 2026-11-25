@@ -3,12 +3,24 @@ import {
   isOrgAdmin,
   readOrgRoles,
   roleOf,
+  textOpen,
   type OrgRoles,
 } from '@mattstack/rt-client';
 import { announcementNotice, notifyEscalation } from '../triage/notify.ts';
 import type { MaterializeDeps } from './inbox.ts';
 import { finishSentNudge, resolveSentNudge, writeNudge } from './nudges.ts';
 import { writePeerReview } from './peer-reviews.ts';
+import {
+  keepAnnouncement,
+  openKeptAnnouncements,
+} from './sealed-announcements.ts';
+import type { OpenText } from './sealed.ts';
+
+/** A tick waits on its opens, and a locked key waits on a dialog. */
+const TICK_OPEN_TIMEOUT_MS = 5_000;
+
+export const openInTick: OpenText = a =>
+  textOpen(a, { timeoutMs: TICK_OPEN_TIMEOUT_MS, retryBudgetMs: 0 });
 
 export function senderIsOrgAdmin(
   username: string,
@@ -25,22 +37,34 @@ export function senderIsOrgAdmin(
 export function boardMaterializeDeps(
   log: (line: string) => void
 ): Omit<MaterializeDeps, 'reportAuth'> {
+  const notifyAnnouncement: MaterializeDeps['notifyAnnouncement'] = (
+    id,
+    payload,
+    from
+  ) => {
+    const notice = announcementNotice(payload, from);
+    return notifyEscalation(notice.title, notice.message, 'rt', {
+      category: 'announcement',
+      id,
+    });
+  };
   return {
     writePeerReview,
     writeNudge,
-    resolveSentNudge: (mrUrl, resolution, from) =>
-      resolveSentNudge(mrUrl, resolution, undefined, from),
+    resolveSentNudge: (mrUrl, resolution, from, nudgeId) =>
+      resolveSentNudge(mrUrl, resolution, undefined, from, nudgeId),
     finishSentNudge: (mrUrl, finish, ifSentBefore, nudgeId, from) =>
       finishSentNudge(mrUrl, finish, ifSentBefore, undefined, nudgeId, from),
     log,
     isOrgAdmin: username =>
       senderIsOrgAdmin(username, currentOrg(), readOrgRoles),
-    notifyAnnouncement: (id, payload, from) => {
-      const notice = announcementNotice(payload, from);
-      return notifyEscalation(notice.title, notice.message, 'rt', {
-        category: 'announcement',
-        id,
-      });
-    },
+    notifyAnnouncement,
+    keepAnnouncement: a => keepAnnouncement(a),
+    openAnnouncements: () =>
+      openKeptAnnouncements({
+        open: openInTick,
+        notify: notifyAnnouncement,
+        log,
+      }),
   };
 }

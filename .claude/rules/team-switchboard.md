@@ -5,6 +5,7 @@ paths:
   - "lib/setup/validators/accounts.ts"
   - "commands/team.ts"
   - "lib/secrets/team-store.ts"
+  - "apps/board/src/peer/**"
 ---
 
 # Switchboard and team join
@@ -53,6 +54,18 @@ stored copies older rt wrote (`board.switchboardUrl`,
 are retired keys deleted by the `2026-10-02-retire-switchboard-url`
 migration, and `lib/__tests__/no-switchboard-url-setting.test.ts` fails any
 code that names one.
+
+Text that people or agents write never crosses the switchboard in the clear:
+it is sealed with `age` to the recipients' roster keys (`lib/team/sealed-text.ts`,
+served to the apps as the socket-only `text:seal` and `text:open`), bound to its
+message, and left out, never sent plain, when it cannot be sealed. Only rt reads
+keys, through `AgeKeySeam`. Routing facts (who, when, which MR, what state)
+stay readable. A new payload field is either a routing fact, added to
+`apps/board/src/__tests__/no-plain-text-on-the-wire.test.ts` and to the Privacy
+table in `apps/board/docs/peer-boards.md`, or it is sealed. Roster keys arrive
+with an admin's `rt team members sync`, so a roster entry can be without one.
+Read `docs/superpowers/specs/2026-11-25-switchboard-sealed-text-design.md`
+before adding a message or a field.
 
 The switchboard admin token lives in the org's admin-only secrets
 (`mattstack/org/admin-secrets/rt.json`, key `switchboardAdminToken`),

@@ -180,7 +180,7 @@ const card = (name: string, r: HelpRequest, others: HelpRequest[] = []) =>
   popup(
     name,
     <StatusCard
-      card={requestCard(r, 'Alex', 'Maude', others)}
+      card={requestCard(r, 'Alex', others)}
       words={r.text}
       host="Alex"
       hostDm={READY.hostDm}

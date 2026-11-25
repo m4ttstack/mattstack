@@ -55,6 +55,24 @@ export function presenceEnvelopes(
   );
 }
 
+/** The author's board telling whoever asked for a respond how it is going. */
+export function respondStateEnvelope(
+  asker: string,
+  p: Pick<
+    ReviewStatePayload,
+    'mrUrl' | 'iid' | 'status' | 'outcome' | 'updatedAt' | 'nudgeId'
+  >
+): DraftEnvelope {
+  return makeEnvelope(asker, 'respond-state', {
+    mrUrl: p.mrUrl,
+    iid: p.iid,
+    status: p.status,
+    outcome: p.outcome,
+    updatedAt: p.updatedAt,
+    nudgeId: p.nudgeId,
+  } satisfies ReviewStatePayload);
+}
+
 /** Envelopes for one review transition: none for this board's own MR or when
     `self` is the "all" view setting, which is no identity. */
 export function reviewSyncEnvelopes(input: {
