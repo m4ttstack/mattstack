@@ -6,7 +6,7 @@
  * depend on.
  */
 import { runPick, type PickHandle } from "./ui/pick.ts";
-import type { PickAction, PickEvent, PickRow, PickSegment } from "./ui/protocol.ts";
+import type { PickAction, PickEvent, PickGroupHeading, PickRow, PickSegment } from "./ui/protocol.ts";
 import { BackNavigation } from "./back-navigation.ts";
 import type { NavOption, NavPickerOpts, NavResult } from "./navigate.ts";
 
@@ -107,6 +107,11 @@ export async function filterableMultiselect(
     stderr?: boolean;
     /** Header-left breadcrumb (e.g. ["rt", "commit"]); Go renders this, not `message`. */
     breadcrumb?: string[];
+    /** Faint run appended after the bold breadcrumb segments; rides with `breadcrumb`, ignored without it. */
+    crumbSuffix?: string;
+    /** Headings keyed by PickRow.group. */
+    groupHeadings?: Record<string, PickGroupHeading>;
+    exact?: boolean;
   },
   extras: PickerExtras = {},
 ): Promise<string[] | null> {
@@ -120,7 +125,9 @@ export async function filterableMultiselect(
       ...(opts.initialValues !== undefined ? { initialValues: opts.initialValues } : {}),
       ...(extras.actions ? { actions: extras.actions } : {}),
       ...(extras.cap !== undefined ? { cap: extras.cap } : {}),
-      ...(opts.breadcrumb ? { breadcrumb: opts.breadcrumb } : {}),
+      ...(opts.breadcrumb ? { breadcrumb: opts.breadcrumb, ...(opts.crumbSuffix ? { crumbSuffix: opts.crumbSuffix } : {}) } : {}),
+      ...(opts.groupHeadings ? { groupHeadings: opts.groupHeadings } : {}),
+      ...(opts.exact ? { exact: true } : {}),
     },
     extras.onEvent ? { onEvent: extras.onEvent } : undefined,
   );

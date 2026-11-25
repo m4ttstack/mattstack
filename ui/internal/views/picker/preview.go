@@ -167,7 +167,7 @@ func previewSegs(segs []protocol.PickSegment) string {
 	var sb strings.Builder
 	for _, s := range segs {
 		st := fg(segColor(s))
-		if s.Tone == "" || s.Tone == "text" {
+		if s.Hex == "" && (s.Tone == "" || s.Tone == "text") {
 			st = fg(theme.TextSoft)
 		}
 		sb.WriteString(st.Bold(s.Bold).Render(rtrender.Clean(s.Text)))

@@ -13,6 +13,7 @@ import type { LinearTicket } from "../../lib/linear.ts";
 import { closeStateDb } from "../../lib/state/index.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
+import { installFakePick } from "../../lib/ui/pick-fake.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { branchesOf, realServersDeps, serverBlocks, serverHints, serversCommand, type ServersDeps } from "../servers.ts";
 
@@ -392,6 +393,38 @@ describe("serversCommand", () => {
     expect(calls.fresh!.servers.map((s) => [s.pid, s.startTime])).toEqual([[20, LSTART], [10, later]]);
     expect(calls.fresh!.procs).toContainEqual(expect.objectContaining({ pid: 10, startTime: later }));
     expect(calls.spare).toEqual(new Set([process.pid, 88]));
+  });
+});
+
+describe("realServersDeps.pick", () => {
+  let fake: ReturnType<typeof installFakePick> | undefined;
+  afterEach(() => {
+    fake?.restore();
+    fake = undefined;
+  });
+  const SERVERS = [server({ pid: 10, role: "web", port: 4001 }), server({ pid: 20, port: 10401 })];
+
+  test("the filter is exact, so marking what it shows never marks a near match", async () => {
+    fake = installFakePick([{ kind: "result", result: { action: "select", value: null, values: ["20"], query: "" } }]);
+    expect(await realServersDeps.pick("sample-app", SERVERS, Promise.resolve(new Map()))).toEqual([20]);
+    expect(fake.calls[0]!.request).toMatchObject({ multi: true, exact: true, breadcrumb: ["rt", "servers", "sample-app"] });
+    expect(fake.calls[0]!.request.actions!.map((a) => [a.id, a.label, a.key])).toEqual([["select", "stop", "enter"]]);
+  });
+
+  test("it opens on what is known at once, and ticket data lands as one update", async () => {
+    fake = installFakePick([{ kind: "result", result: { action: "cancel", value: null, query: "" } }]);
+    expect(await realServersDeps.pick("sample-app", SERVERS, Promise.resolve(ENRICHED))).toBeNull();
+    const { request, updates } = fake.calls[0]!;
+    expect(request.groupHeadings!["WEB-214"]!.left.map((s) => s.text)).toEqual(["WEB-214", "  web-214-login-rate-limit"]);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.groupHeadings!["WEB-214"]!.left.at(-1)).toEqual({ text: "Add a login rate limit", bold: true });
+    expect(updates[0]!.rows!.map((r) => r.value)).toEqual(request.rows.map((r) => r.value));
+  });
+
+  test("a lookup that found nothing leaves the first rows standing", async () => {
+    fake = installFakePick([{ kind: "result", result: { action: "cancel", value: null, query: "" } }]);
+    await realServersDeps.pick("sample-app", SERVERS, Promise.resolve(new Map()));
+    expect(fake.calls[0]!.updates).toEqual([]);
   });
 });
 

@@ -5,11 +5,12 @@ import { agentLabel, ancestorPids, findServers, type RunningServer, type ServerR
 import { readServerSnapshot, stopServers, type ServerRepo, type StopOutcome } from "../lib/endpoint/servers-system.ts";
 import { loadInterceptRules } from "../lib/endpoint/shim.ts";
 import { loadClaims } from "../lib/endpoint/store.ts";
-import { enrichBranches, type EnrichedBranch } from "../lib/enrich.ts";
+import { enrichBranches, mrSegments, type EnrichedBranch } from "../lib/enrich.ts";
 import { repoLabel } from "../lib/repo-label.ts";
 import { parseIdentity } from "../lib/settings/identity.ts";
 import * as out from "../lib/ui/out.ts";
-import type { Block, PickRow, Segment } from "../lib/ui/protocol.ts";
+import type { PickHandle } from "../lib/ui/pick.ts";
+import type { Block, PickAction, PickGroupHeading, PickRow, PickSegment, Segment } from "../lib/ui/protocol.ts";
 import { withTransientStep } from "../lib/ui/transient-step.ts";
 import { formatUptime } from "../lib/uptime.ts";
 
@@ -31,6 +32,8 @@ export interface ServersDeps {
 
 const LIST_ENRICH_DEADLINE_MS = 3_000;
 const READ_FAILED = "rt could not read what is running";
+/** The width rt cd pads its ticket states to. */
+const STATE_WIDTH = 15;
 
 const portText = (s: RunningServer) => (s.port === null ? "no port" : `:${s.port}`);
 
@@ -74,15 +77,44 @@ export function branchesOf(servers: RunningServer[]): Array<{ path: string; bran
   return [...byPath].map(([path, branch]) => ({ path, branch }));
 }
 
-function pickRows(groups: ServerGroup[]): PickRow[] {
-  return groups.flatMap((group) => group.servers.map((row) => ({
+const spaced = (parts: PickSegment[][]): PickSegment[] =>
+  parts.filter((part) => part.length > 0).flatMap((part, i) => (i === 0 ? part : [{ text: "  " }, ...part]));
+
+/** A known ticket leads with its state and title; before that the id or branch leads, so nothing waits on a lookup. */
+function groupHeading(group: ServerGroup): PickGroupHeading {
+  const { ticket, ticketId, title } = group;
+  const state: PickSegment[] = ticket?.stateName
+    ? [{ text: `[${ticket.stateName}]`.padEnd(STATE_WIDTH), ...(ticket.stateColor ? { hex: ticket.stateColor } : { tone: "dim" }) }]
+    : [];
+  const name: PickSegment[] = ticketId && !ticket
+    ? [{ text: ticketId, bold: true }, ...(title === ticketId ? [] : [{ text: `  ${title}`, tone: "faint" }])]
+    : [{ text: title, bold: true }, ...(group.detached ? [{ text: "  detached", tone: "faint" }] : [])];
+  return {
+    left: spaced([state, name]),
+    right: spaced([group.mr ? mrSegments(group.mr) : [], ticket && ticketId ? [{ text: ticketId, tone: "dimmer" }] : []]),
+  };
+}
+
+export function pickView(groups: ServerGroup[]): { rows: PickRow[]; groupHeadings: Record<string, PickGroupHeading> } {
+  const all = groups.flatMap((group) => group.servers.map((row) => ({ group, row, uptime: formatUptime(row.server.etime) })));
+  const roleWidth = Math.max(...all.map(({ row }) => row.server.role.length));
+  const uptimeWidth = Math.max(...all.map(({ uptime }) => uptime.length));
+  const rows = all.map(({ group, row, uptime }): PickRow => ({
     value: String(row.server.pid),
     match: serverMatch(group, row),
-    group: group.title,
-    left: [{ text: `${row.server.role} ${portText(row.server)}`, bold: true, column: true }],
-    right: [{ text: formatUptime(row.server.etime), tone: "dim" }],
-  })));
+    group: group.key,
+    left: [
+      { text: `${row.server.role.padEnd(roleWidth)}  `, tone: "peach", bold: true },
+      { text: portText(row.server), tone: row.server.port === null ? "faint" : "textsoft", column: true },
+      ...(row.branch ? [{ text: `  ${row.branch}`, tone: "faint" }] : []),
+      ...serverHints(row.server).map((hint) => ({ text: `  ${hint}`, tone: hint.endsWith(" session") ? "lav" : "peach" })),
+    ],
+    right: spaced([row.mr ? mrSegments(row.mr) : [], [{ text: uptime.padStart(uptimeWidth), tone: "dim" }]]),
+  }));
+  return { rows, groupHeadings: Object.fromEntries(groups.map((group) => [group.key, groupHeading(group)])) };
 }
+
+const STOP_ACTION: PickAction = { id: "select", label: "stop", key: "enter", scope: "item", group: "mark", primary: true };
 
 export const realServersDeps: ServersDeps = {
   rules: (identity) => {
@@ -99,13 +131,26 @@ export const realServersDeps: ServersDeps = {
     if (branches.length === 0) return new Map();
     return new Map((await enrichBranches(branches, remoteUrl, { silent: true })).map((eb) => [eb.path, eb]));
   },
-  pick: async (_label, servers) => {
+  pick: async (label, servers, enriched) => {
     const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
-    const picked = await filterableMultiselect(
-      { message: "Select servers to stop (or esc to exit)", options: [] },
-      { rows: pickRows(groupServers(servers, new Map())) },
+    const first = pickView(groupServers(servers, new Map()));
+    let handle: PickHandle | undefined;
+    const picked = filterableMultiselect(
+      {
+        message: "Select servers to stop (or esc to exit)",
+        options: [],
+        breadcrumb: ["rt", "servers", label],
+        crumbSuffix: "  ctrl-a marks all",
+        groupHeadings: first.groupHeadings,
+        // A fuzzy near match would be marked, then stopped, by ctrl-a.
+        exact: true,
+      },
+      { rows: first.rows, actions: [STOP_ACTION], onOpen: (opened) => { handle = opened; } },
     );
-    return picked?.map(Number) ?? null;
+    void enriched.then((answer) => {
+      if (answer.size > 0) handle?.update(pickView(groupServers(servers, answer)));
+    });
+    return (await picked)?.map(Number) ?? null;
   },
   stop: stopServers,
   // stdout too, so `rt servers | grep api` lists.

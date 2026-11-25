@@ -33,5 +33,15 @@
   "multi": true,
   "initialQuery": "on-deck",
   "crumbEvents": true,
-  "acceptNoMatch": true
+  "acceptNoMatch": true,
+  "groupHeadings": {
+    "ACME-1234": {
+      "left": [
+        { "text": "[In Review]", "hex": "#FF7979" },
+        { "text": "Split the settings page", "bold": true }
+      ],
+      "right": [{ "text": "ACME-1234", "tone": "dimmer" }]
+    },
+    "main": { "left": [{ "text": "main", "bold": true }] }
+  }
 }

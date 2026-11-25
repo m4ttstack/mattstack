@@ -159,6 +159,16 @@ type PickRequest struct {
 	// ColumnHeader is a line naming the list's columns, painted above the
 	// rows at their own indent. The caller pads rows and header alike.
 	ColumnHeader []PickSegment `json:"columnHeader,omitempty"`
+	// GroupHeadings paints a group's heading from segments, keyed by
+	// PickRow.Group. A group with no entry keeps the plain uppercase line.
+	GroupHeadings map[string]PickGroupHeading `json:"groupHeadings,omitempty"`
+}
+
+// PickGroupHeading is one group's heading: Right is pinned to the edge and
+// never clipped, Left takes what is left.
+type PickGroupHeading struct {
+	Left  []PickSegment `json:"left"`
+	Right []PickSegment `json:"right,omitempty"`
 }
 
 type PickUpdate struct {
@@ -183,6 +193,9 @@ type PickUpdate struct {
 	// nav's descend/up, where a filter typed in the parent must not carry
 	// into a child it may not match at all.
 	ResetQuery bool `json:"resetQuery,omitempty"`
+	// GroupHeadings replaces the request's headings whole; an update omitting
+	// it keeps them.
+	GroupHeadings map[string]PickGroupHeading `json:"groupHeadings,omitempty"`
 }
 
 type PickModal struct {

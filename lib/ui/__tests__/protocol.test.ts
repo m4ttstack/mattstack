@@ -12,6 +12,7 @@ import {
   type MissionModel,
   type PickRequest,
   type PickRow,
+  type PickGroupHeading,
   type PickPreview,
   type PickAction,
   type PickUpdate,
@@ -216,6 +217,16 @@ test("pick request fixture's withArgs field matches the Go parity fixture (PickR
   const cho = req.rows.find((r) => r.value.endsWith("/cho"));
   expect(bill?.withArgs).toBe(true);
   expect(cho?.withArgs).toBeUndefined();
+});
+
+test("pick fixtures carry group headings keyed by group, on the request and on an update", () => {
+  const req = fixture("pick-request.json") as PickRequest;
+  const heading: PickGroupHeading = req.groupHeadings!["ACME-1234"]!;
+  expect(heading.left[0]).toEqual({ text: "[In Review]", hex: "#FF7979" });
+  expect(heading.right).toEqual([{ text: "ACME-1234", tone: "dimmer" }]);
+  expect(req.groupHeadings!.main!.right).toBeUndefined();
+  const update = fixture("pick-update.json") as PickUpdate;
+  expect(Object.keys(update.groupHeadings!)).toEqual(["ACME-1234"]);
 });
 
 test("pick update and modal fixtures match their typed shape and round-trip", () => {
