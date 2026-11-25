@@ -1,5 +1,4 @@
 import { useState } from 'react';
-
 import { Button, Group, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import { notifications } from '@mattstack/app-kit/notifications';
@@ -64,6 +63,7 @@ export function SlackStop({ chat, live }: { chat: SlackChat; live: boolean }) {
   if (step === 'rest')
     return (
       <Button
+        size="compact-sm"
         variant="default"
         c="bad"
         leftSection={<Icon name="circleStop" size={14} />}
@@ -79,13 +79,19 @@ export function SlackStop({ chat, live }: { chat: SlackChat; live: boolean }) {
         Ends it now. {name}'s next request waits for you
       </Text>
       <Button
+        size="compact-sm"
         variant="default"
         onClick={() => setStep('rest')}
         disabled={step === 'stopping'}
       >
         Cancel
       </Button>
-      <Button color="bad" loading={step === 'stopping'} onClick={stop}>
+      <Button
+        size="compact-sm"
+        color="bad"
+        loading={step === 'stopping'}
+        onClick={stop}
+      >
         Stop chat
       </Button>
     </Group>
