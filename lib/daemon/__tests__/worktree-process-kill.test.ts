@@ -4,6 +4,7 @@ import { join, resolve } from "path";
 import { afterAll, describe, expect, test } from "bun:test";
 import type { SessionIdentity } from "../session-identity.ts";
 import {
+  agentNameOf,
   agentSessionsInside,
   attributeCwds,
   killWorktreeProcesses,
@@ -26,6 +27,12 @@ test("worktree-process-kill.ts imports no sync exec", () => {
   const src = readFileSync(resolve(import.meta.dir, "..", "worktree-process-kill.ts"), "utf8");
   expect(src).not.toMatch(/from\s+["']child_process["']/);
   expect(src).not.toMatch(/\bexecSync\b/);
+});
+
+test("agentNameOf names the agent a process is, through an interpreter too", () => {
+  expect(agentNameOf(row(1, 0, "claude", "/Users/me/.local/bin/claude --resume x"))).toBe("claude");
+  expect(agentNameOf(row(1, 0, "node", "node /opt/bin/codex"))).toBe("codex");
+  expect(agentNameOf(row(1, 0, "node", "node server.js"))).toBeNull();
 });
 
 describe("selectKillTargets", () => {

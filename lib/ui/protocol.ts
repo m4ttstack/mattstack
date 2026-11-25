@@ -537,6 +537,12 @@ export interface PickAction {
   footerHidden?: boolean;
 }
 
+/** One group's heading: `right` is pinned to the edge, whole unless the pane is narrower than it (its end survives), and `left` takes what is left. */
+export interface PickGroupHeading {
+  left: PickSegment[];
+  right?: PickSegment[];
+}
+
 export interface PickRequest {
   t: "pick";
   protocol: 1;
@@ -569,6 +575,8 @@ export interface PickRequest {
   // Opts a breadcrumb segment click into emitting a {action:"crumb",
   // value:"<segment index>"} event; without it a crumb click is inert.
   crumbEvents?: boolean;
+  /** Headings painted from segments, keyed by PickRow.group; a group with no entry keeps the plain uppercase line. */
+  groupHeadings?: Record<string, PickGroupHeading>;
 }
 
 export interface PickUpdate {
@@ -584,6 +592,8 @@ export interface PickUpdate {
   crumbSuffix?: string;
   /** Clears the typed query and re-ranks against the (possibly also-patched) rows. */
   resetQuery?: boolean;
+  /** Replaces the request's headings whole; an update omitting it keeps them. */
+  groupHeadings?: Record<string, PickGroupHeading>;
 }
 
 export interface PickModal {

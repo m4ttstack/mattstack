@@ -88,6 +88,7 @@ test("uptime reads as the largest unit that fits", () => {
   expect(__test__.formatUptime("00:09")).toBe("09s");
   expect(__test__.formatUptime("01:02:03")).toBe("1h2m");
   expect(__test__.formatUptime("2-01:02:03")).toBe("2d");
+  expect(__test__.formatUptime("03-02:11:00")).toBe("3d");
   expect(__test__.formatUptime("")).toBe("?");
 });
 

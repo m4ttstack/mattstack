@@ -210,4 +210,21 @@ describe("filterableMultiselect", () => {
     await filterableMultiselect({ message: "Pick some", options: [{ value: "a", label: "Alpha" }] });
     expect(fake.calls[0]!.request.breadcrumb).toBeUndefined();
   });
+
+  test("exact passes through, and is absent unless asked for", async () => {
+    fake = installFakePick([resultStep({ action: "select", values: ["a"] }), resultStep({ action: "select", values: ["a"] })]);
+    const options = [{ value: "a", label: "Alpha" }];
+    await filterableMultiselect({ message: "Pick some", options, exact: true });
+    await filterableMultiselect({ message: "Pick some", options });
+    expect(fake.calls.map((c) => c.request.exact)).toEqual([true, undefined]);
+  });
+
+  test("a header suffix and group headings pass through to the request", async () => {
+    fake = installFakePick([resultStep({ action: "select", values: ["a"] })]);
+    const groupHeadings = { g: { left: [{ text: "Group" }] } };
+    await filterableMultiselect({
+      message: "Pick some", options: [{ value: "a", label: "Alpha" }], breadcrumb: ["rt", "servers"], crumbSuffix: "  ctrl-a marks all", groupHeadings,
+    });
+    expect(fake.calls[0]!.request).toMatchObject({ crumbSuffix: "  ctrl-a marks all", groupHeadings });
+  });
 });

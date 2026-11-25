@@ -47,7 +47,7 @@ function failNoRepos(title: string): never {
 function failCannotAsk(what: "repo" | "worktree"): never {
   out.fail({
     title: "You are not in a git repo",
-    why: `rt knows more than one ${what} and cannot ask which one you mean without a terminal.`,
+    why: `rt knows more than one ${what} and cannot ask which one you mean.`,
     next: "Run this from inside the repo you mean",
   });
   process.exit(1);
@@ -243,7 +243,7 @@ function pickableRepos(repos: KnownRepo[]): KnownRepo[] {
  *
  * Used by commands that operate on repo-wide config (e.g. hooks, port).
  */
-export async function requireRepoIdentity(commandLabel?: string): Promise<RepoIdentity> {
+export async function requireRepoIdentity(commandLabel?: string, opts: { ask?: boolean } = {}): Promise<RepoIdentity> {
   let identity = getRepoIdentity();
   if (identity) return identity;
 
@@ -255,7 +255,7 @@ export async function requireRepoIdentity(commandLabel?: string): Promise<RepoId
   let selectedRepo = choices[0]!;
 
   if (choices.length > 1) {
-    if (!process.stdin.isTTY) failCannotAsk("repo");
+    if (opts.ask === false || !process.stdin.isTTY || process.env.RT_BATCH) failCannotAsk("repo");
 
     const { filterableSelect } = await import("./pick-wrappers.ts");
     const picked = await filterableSelect({

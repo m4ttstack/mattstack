@@ -23,5 +23,11 @@
   "actions": [
     { "id": "cd", "label": "cd here", "key": "enter", "scope": "item", "primary": true },
     { "id": "refresh", "label": "refresh", "key": "ctrl-r", "scope": "global", "event": true }
-  ]
+  ],
+  "groupHeadings": {
+    "ACME-1234": {
+      "left": [{ "text": "[In Review]", "hex": "#FF7979" }, { "text": "Token pipeline", "bold": true }],
+      "right": [{ "text": "!412 open", "tone": "dim" }]
+    }
+  }
 }

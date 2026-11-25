@@ -402,6 +402,9 @@ func (m *Model) applyUpdate(u protocol.PickUpdate) {
 	if u.Actions != nil {
 		m.req.Actions = reserveMenuKey(u.Actions)
 	}
+	if u.GroupHeadings != nil {
+		m.req.GroupHeadings = u.GroupHeadings
+	}
 	if u.Rows != nil {
 		value, hadCursor := m.cursorRowValue()
 		prevCursor := m.cursor

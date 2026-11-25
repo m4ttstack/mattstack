@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"rt-ui/internal/protocol"
 	"rt-ui/internal/theme"
@@ -118,7 +119,9 @@ func renderFrame(m *Model, target int) string {
 	thumbTop, thumbH := ThumbSpan(top, h, n)
 	for i := top; i < top+h; i++ {
 		if group, ok := headerBoundary(m, i); ok {
-			if len(m.req.ColumnHeader) > 0 {
+			if heading, ok := m.req.GroupHeadings[group]; ok {
+				lines = append(lines, groupHeadingLine(heading, rowWidth))
+			} else if len(m.req.ColumnHeader) > 0 {
 				lines = append(lines, groupRuleLine(group, rowWidth))
 			} else {
 				lines = append(lines, groupHeaderLine(group))
@@ -230,6 +233,36 @@ func headerCount(m *Model, top, h int) int {
 // the case conversion has to happen here instead.
 func groupHeaderLine(group string) string {
 	return onBg.Render("  ") + fg(theme.Meta).Render(strings.ToUpper(group))
+}
+
+// groupHeadingLine paints a caller's heading across width: its right side
+// whole at the edge, its left clipped to what remains. A pane too narrow for
+// the right side keeps the end of it, where a caller puts its identifier.
+func groupHeadingLine(h protocol.PickGroupHeading, width int) string {
+	right := previewSegs(readableSegs(h.Right))
+	if over := lipgloss.Width(right) - max(width-2, 0); over > 0 {
+		right = ansi.TruncateLeft(right, over+1, "…")
+	}
+	avail := width - 2 - lipgloss.Width(right)
+	if right != "" {
+		avail--
+	}
+	left := ansi.Truncate(previewSegs(readableSegs(h.Left)), max(avail, 0), "…")
+	fill := max(width-2-lipgloss.Width(left)-lipgloss.Width(right), 0)
+	return onBg.Render("  ") + left + onBg.Render(strings.Repeat(" ", fill)) + right
+}
+
+// readableSegs lifts each hex segment to a color that reads on the picker's
+// background.
+func readableSegs(segs []protocol.PickSegment) []protocol.PickSegment {
+	out := make([]protocol.PickSegment, len(segs))
+	for i, seg := range segs {
+		if seg.Hex != "" {
+			seg.Hex = theme.Hex(theme.Readable(lipgloss.Color(seg.Hex)))
+		}
+		out[i] = seg
+	}
+	return out
 }
 
 // thumbStyle/restStyle are this view's own two ThumbCell arguments: Panel
@@ -352,16 +385,26 @@ func selectedLabelsInOrder(m *Model) []string {
 	return labels
 }
 
-// rowLabel is a row's own label: the first left segment's text. A row's
-// full left text can carry further segments after it (a hint, e.g. a
-// worktree path) that the row itself renders alongside the label but the
-// selected panel deliberately leaves out -- it lists picks, not their
-// hints.
+// rowLabel is a row's own label: everything through its last Column segment,
+// or the first left segment when it has none. A row's full left text can
+// carry further segments after it (a hint, e.g. a worktree path) that the row
+// itself renders alongside the label but the selected panel deliberately
+// leaves out -- it lists picks, not their hints. A label of several segments
+// is padded for the list's columns, so the panel closes those gaps.
 func rowLabel(row protocol.PickRow) string {
-	if len(row.Left) == 0 {
-		return ""
+	keep := 1
+	for i, seg := range row.Left {
+		if seg.Column {
+			keep = i + 1
+		}
 	}
-	return row.Left[0].Text
+	switch {
+	case len(row.Left) == 0:
+		return ""
+	case keep == 1:
+		return row.Left[0].Text
+	}
+	return strings.Join(strings.Fields(plainConcat(row.Left[:keep])), " ")
 }
 
 // renderPanelRun re-styles the panel's prefix/label/separator runs -- faint
