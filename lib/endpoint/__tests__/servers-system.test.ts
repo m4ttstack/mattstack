@@ -15,13 +15,16 @@ function ok(stdout: string): RunResult {
 
 const TIMED_OUT: RunResult = { stdout: "", stderr: "", exitCode: -1, timedOut: true };
 
-interface Reads { ps?: RunResult; cwds?: RunResult; listeners?: RunResult; worktrees?: typeof WORKTREES | null }
+const COMMANDS = "   10 /Applications/mattstack.app/Contents/MacOS/rt\n   11 /Users/me/My Tools/parcel\n";
+
+interface Reads { ps?: RunResult; commands?: RunResult; cwds?: RunResult; listeners?: RunResult; worktrees?: typeof WORKTREES | null }
 
 function readSystem(reads: Reads = {}) {
   const calls: Array<{ argv: string[]; opts: { timeoutMs: number; env?: Record<string, string | undefined> } }> = [];
   const system: ServerSystem = {
     run: async (argv, opts) => {
       calls.push({ argv, opts });
+      if (argv.includes("pid=,comm=")) return reads.commands ?? ok(COMMANDS);
       if (argv[0] === "ps") return reads.ps ?? ok(PS);
       return argv.includes("cwd") ? reads.cwds ?? ok(CWDS) : reads.listeners ?? ok(LISTENERS);
     },
@@ -38,8 +41,8 @@ describe("readServerSnapshot", () => {
   test("the snapshot joins processes, folders, ports and worktrees", async () => {
     expect(await read()).toEqual({
       procs: [
-        { pid: 10, ppid: 1, etime: "18:00:00", startTime: LSTART, args: "rt intercept run doppler -- run -- parcel" },
-        { pid: 11, ppid: 10, etime: "18:00:00", startTime: LSTART, args: "parcel src/index.html" },
+        { pid: 10, ppid: 1, etime: "18:00:00", startTime: LSTART, command: "rt", args: "rt intercept run doppler -- run -- parcel" },
+        { pid: 11, ppid: 10, etime: "18:00:00", startTime: LSTART, command: "parcel", args: "parcel src/index.html" },
       ],
       cwds: new Map([[10, "/trees/calm-marble/apps/web"], [11, "/trees/calm-marble/apps/web"]]),
       listeners: new Map([[11, [4001, 9229]]]),
@@ -59,6 +62,9 @@ describe("readServerSnapshot", () => {
     expect(await read({ ps: { stdout: PS, stderr: "", exitCode: 1 } })).toBeNull();
     expect(await read({ ps: TIMED_OUT })).toBeNull();
     expect(await read({ ps: ok("no rows this can read\n") })).toBeNull();
+    expect(await read({ commands: TIMED_OUT })).toBeNull();
+    expect(await read({ commands: { stdout: COMMANDS, stderr: "", exitCode: 1 } })).toBeNull();
+    expect(await read({ commands: ok("") })).toBeNull();
     expect(await read({ cwds: TIMED_OUT })).toBeNull();
     expect(await read({ cwds: ok("") })).toBeNull();
     expect(await read({ cwds: { stdout: CWDS, stderr: "", exitCode: 143 } })).toBeNull();

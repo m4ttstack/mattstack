@@ -10,6 +10,8 @@ export interface ServerProc {
   ppid: number;
   etime: string;
   startTime: string;
+  /** Basename of the whole executable path, which `args` cannot give when the path holds a space. */
+  command: string;
   args: string;
 }
 
@@ -45,25 +47,29 @@ export interface RunningServer {
 
 const PS_ROW = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\d+:\d+:\d+\s+\d+)\s+(.+)$/;
 
-/** Reads `ps -A -o pid=,ppid=,etime=,lstart=,args=` as printed in the C locale. */
-export function parseServerProcs(psOutput: string): ServerProc[] {
+/** Reads `ps -A -o pid=,ppid=,etime=,lstart=,args=` as printed in the C locale, with `ps -A -o pid=,comm=` by pid. */
+export function parseServerProcs(psOutput: string, commands: Map<number, string>): ServerProc[] {
   const procs: ServerProc[] = [];
   for (const line of psOutput.split("\n")) {
     const row = PS_ROW.exec(line);
     if (!row) continue;
+    const pid = Number(row[1]);
+    const args = row[5]!.trimEnd();
     procs.push({
-      pid: Number(row[1]),
+      pid,
       ppid: Number(row[2]),
       etime: row[3]!,
       startTime: row[4]!.replace(/\s+/g, " "),
-      args: row[5]!.trimEnd(),
+      command: basename(commands.get(pid) ?? args.split(" ")[0]!),
+      args,
     });
   }
   return procs;
 }
 
-// Anchored because the shell or agent that typed the command line holds the same text.
-const INTERCEPT_ARGV = /^(?:(?:\S*\/)?rt|(?:\S*\/)?bun(?: \S+)* \S*\/cli\.ts) intercept run ([A-Za-z0-9._-]+) -- ?(.*)$/;
+// Anchored, and nothing but `run` and flags before cli.ts: a shell, an agent or
+// another rt verb can hold the rest of this text, and a match becomes a stop target.
+const INTERCEPT_ARGV = /^(?:(?:\S*\/)?rt|(?:\S*\/)?bun(?: run| -\S+)* \S*\/cli\.ts) intercept run ([A-Za-z0-9._-]+) -- ?(.*)$/;
 
 export function interceptCommandOf(args: string): { command: string; args: string[] } | null {
   const hit = INTERCEPT_ARGV.exec(args);
@@ -88,7 +94,12 @@ export function ancestorPids(procs: ServerProc[], pid: number): number[] {
 }
 
 function asCandidate(proc: ServerProc): KillCandidate {
-  return { pid: proc.pid, ppid: proc.ppid, command: basename(proc.args.split(" ")[0]!), fullCommand: proc.args };
+  return { pid: proc.pid, ppid: proc.ppid, command: proc.command, fullCommand: proc.args };
+}
+
+/** The user's own process, or an app such as a terminal or editor: a left-behind tree never starts there. */
+function isAboveServers(proc: ServerProc): boolean {
+  return isUserOrAgentProcess(asCandidate(proc)) || proc.args.includes(".app/Contents/");
 }
 
 /** Sorted by worktree name, role, port. */
@@ -148,7 +159,7 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
     if (role === undefined) continue;
     let root = pid;
     for (const up of ancestors(pid)) {
-      if (snapshot.cwds.get(up) !== cwd || isUserOrAgentProcess(asCandidate(byPid.get(up)!))) break;
+      if (snapshot.cwds.get(up) !== cwd || isAboveServers(byPid.get(up)!)) break;
       root = up;
     }
     if (!leftBehind.has(root)) leftBehind.set(root, { role, tree, leftBehind: true });

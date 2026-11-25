@@ -1,4 +1,4 @@
-import { parseCwdMap, parseListeningLsof } from "../port-scanner.ts";
+import { parseCwdMap, parseListeningLsof, parsePidValueMap } from "../port-scanner.ts";
 import { childEnv, runCapture, type RunResult } from "../subprocess.ts";
 import { listWorktreesAsync } from "../worktree/git-async.ts";
 import { parseServerProcs, type RunningServer, type ServerSnapshot } from "./servers.ts";
@@ -24,15 +24,18 @@ const lsofRan = (read: RunResult) => read.exitCode === 0 || read.exitCode === 1;
 
 /** Null when any read failed, so a caller never mistakes that for nothing running. */
 export async function readServerSnapshot(repoRoot: string, system: ServerSystem = realServerSystem): Promise<ServerSnapshot | null> {
-  const [ps, cwdRead, listenerRead, worktrees] = await Promise.all([
+  const [ps, commandRead, cwdRead, listenerRead, worktrees] = await Promise.all([
     system.run(["ps", "-A", "-o", "pid=,ppid=,etime=,lstart=,args="], { timeoutMs: 5_000, env: { ...childEnv(), LC_ALL: "C" } }),
+    system.run(["ps", "-A", "-o", "pid=,comm="], { timeoutMs: 5_000 }),
     system.run(["lsof", "-d", "cwd", "-Fpn"], { timeoutMs: 10_000 }),
     system.run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN"], { timeoutMs: 10_000 }),
     system.worktrees(repoRoot),
   ]);
-  const procs = parseServerProcs(ps.stdout);
+  const commands = parsePidValueMap(commandRead.stdout);
+  const procs = parseServerProcs(ps.stdout, commands);
   const cwds = parseCwdMap(cwdRead.stdout);
   if (ps.exitCode !== 0 || procs.length === 0) return null;
+  if (commandRead.exitCode !== 0 || commands.size === 0) return null;
   if (!lsofRan(cwdRead) || cwds.size === 0) return null;
   if (!lsofRan(listenerRead) || worktrees === null) return null;
 

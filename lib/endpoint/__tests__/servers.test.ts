@@ -11,14 +11,29 @@ import {
 
 const LSTART = "Tue Nov 24 14:45:47 2026";
 
-test("a ps row splits into pid, ppid, etime, start time and the full command line", () => {
-  expect(parseServerProcs(`  101     1 18:00:00 ${LSTART}     rt intercept run doppler -- run -- parcel src/index.html\nnot a row\n`)).toEqual([
-    { pid: 101, ppid: 1, etime: "18:00:00", startTime: LSTART, args: "rt intercept run doppler -- run -- parcel src/index.html" },
+test("a ps row splits into pid, ppid, etime, start time, command and the full command line", () => {
+  expect(parseServerProcs(
+    `  101     1 18:00:00 ${LSTART}     rt intercept run doppler -- run -- parcel src/index.html\nnot a row\n`,
+    new Map([[101, "/Applications/mattstack.app/Contents/MacOS/rt"]]),
+  )).toEqual([
+    { pid: 101, ppid: 1, etime: "18:00:00", startTime: LSTART, command: "rt", args: "rt intercept run doppler -- run -- parcel src/index.html" },
   ]);
 });
 
+test("a command whose path holds a space is read whole", () => {
+  const [proc] = parseServerProcs(
+    `  101     1 18:00:00 ${LSTART}     /Users/me/Application Support/Claude/claude --resume x\n`,
+    new Map([[101, "/Users/me/Application Support/Claude/claude"]]),
+  );
+  expect(proc!.command).toBe("claude");
+});
+
+test("a process that started after its command was read takes it from its command line", () => {
+  expect(parseServerProcs(`  101     1 00:00 ${LSTART}     /usr/local/bin/node server.js\n`, new Map())[0]!.command).toBe("node");
+});
+
 test("a single-digit day in the start time is kept with one space", () => {
-  expect(parseServerProcs("  102   101 05:12 Sun Nov  1 04:05:06 2026     node server.js")[0]!.startTime).toBe("Sun Nov 1 04:05:06 2026");
+  expect(parseServerProcs("  102   101 05:12 Sun Nov  1 04:05:06 2026     node server.js", new Map())[0]!.startTime).toBe("Sun Nov 1 04:05:06 2026");
 });
 
 test("an intercepted command is read from the installed rt and from a source checkout", () => {
@@ -36,6 +51,12 @@ test("a shell, an agent or a search holding the same words is not an intercepted
   expect(interceptCommandOf("/bin/zsh -c eval 'rt intercept run doppler -- run -- parcel'")).toBeNull();
   expect(interceptCommandOf("grep intercept run doppler -- run")).toBeNull();
   expect(interceptCommandOf("rt intercept status")).toBeNull();
+});
+
+test("a bun process that only mentions an intercepted command is not one", () => {
+  expect(interceptCommandOf("bun /opt/bin/codex exec fix /code/rt/cli.ts intercept run doppler -- run -- node src/server")).toBeNull();
+  expect(interceptCommandOf("bun run --preload=/x.ts /code/rt/cli.ts chat post room why is /code/rt/cli.ts intercept run doppler -- run")).toBeNull();
+  expect(interceptCommandOf("rt chat post room why is rt intercept run doppler -- run")).toBeNull();
 });
 
 const MAIN = "/code/sample-app";
@@ -62,14 +83,14 @@ function rules(claims: Array<{ worktree: string; role: string; port: number; pid
   };
 }
 
-interface Row { pid: number; ppid: number; args: string; cwd: string; ports?: number[] }
+interface Row { pid: number; ppid: number; args: string; cwd: string; ports?: number[]; command?: string }
 
 function snap(rows: Row[], worktrees: ServerSnapshot["worktrees"] = [
   { path: MAIN, branch: "main" },
   { path: TREE, branch: "feature/login" },
 ]): ServerSnapshot {
   return {
-    procs: rows.map(({ pid, ppid, args }) => ({ pid, ppid, args, etime: "18:00:00", startTime: LSTART })),
+    procs: rows.map(({ pid, ppid, args, command = args.split(" ")[0]!.split("/").pop()! }) => ({ pid, ppid, args, command, etime: "18:00:00", startTime: LSTART })),
     cwds: new Map(rows.map((r) => [r.pid, r.cwd])),
     listeners: new Map(rows.filter((r) => r.ports).map((r) => [r.pid, r.ports!])),
     worktrees,
@@ -199,6 +220,29 @@ test("an agent inside a tree, and everything under it, is not in the tree's pids
     { pid: 13, ppid: 12, args: "node helper.js", cwd: API, ports: [10400] },
   ]), rules([{ worktree: TREE, role: "api", port: 10400 }]));
   expect(found.map((s) => [s.pids, s.port, s.listening])).toEqual([[[10, 11], 10400, false]]);
+});
+
+const SPACED_AGENT = { args: "/Users/me/Application Support/Claude/claude.app/Contents/MacOS/claude --resume x", command: "claude" };
+
+test("an agent whose path holds a space is named above a server and spared inside one", () => {
+  const above = findServers(snap([{ pid: 5, ppid: 1, cwd: API, ...SPACED_AGENT }, ...apiTree(API, [10400], 5)]), rules());
+  expect(above.map((s) => [s.pid, s.agent])).toEqual([[10, "claude"]]);
+  const inside = findServers(snap([
+    ...apiTree(API).slice(0, 2),
+    { pid: 12, ppid: 11, cwd: API, ...SPACED_AGENT },
+    { pid: 13, ppid: 12, args: "node helper.js", cwd: API },
+  ]), rules());
+  expect(inside.map((s) => s.pids)).toEqual([[10, 11]]);
+});
+
+test("a left-behind tree never climbs into an agent or an app in the same folder", () => {
+  const under = (top: { args: string; command: string }) => findServers(snap([
+    { pid: 9, ppid: 1, cwd: API, ...top },
+    { pid: 11, ppid: 9, args: "doppler run -- node src/server", cwd: API },
+    { pid: 13, ppid: 11, args: "node src/server", cwd: API, ports: [10400] },
+  ]), rules([{ worktree: TREE, role: "api", port: 10400 }])).map((s) => [s.pid, s.pids]);
+  expect(under(SPACED_AGENT)).toEqual([[11, [11, 13]]]);
+  expect(under({ args: "/Applications/Ghostty.app/Contents/MacOS/ghostty", command: "ghostty" })).toEqual([[11, [11, 13]]]);
 });
 
 test("a server whose rt process is gone is left behind, from the topmost process in the same folder", () => {

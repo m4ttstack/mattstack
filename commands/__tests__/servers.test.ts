@@ -114,7 +114,7 @@ const RULES: ServerRules = {
   ],
 };
 
-const proc = (pid: number, ppid: number, args: string) => ({ pid, ppid, etime: "18:00:00", startTime: LSTART, args });
+const proc = (pid: number, ppid: number, args: string) => ({ pid, ppid, etime: "18:00:00", startTime: LSTART, command: args.split(" ")[0]!, args });
 
 const SNAPSHOT: ServerSnapshot = {
   procs: [
