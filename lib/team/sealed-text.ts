@@ -160,13 +160,14 @@ export function createSealedText(deps: SealedTextDeps): SealedText {
   };
 }
 
-export function realSealedText(): SealedText {
+/** `org` defaults to the one this Mac reads settings from, asked for at each use. */
+export function realSealedText(org?: string): SealedText {
   return createSealedText({
     ageBin: () => findBundledTool("age"),
     ageKey: createRealAgeKeySeam(),
     roster: () => {
-      const org = currentOrg();
-      return org === null ? [] : readOrgRoster(org);
+      const from = org ?? currentOrg();
+      return from === null ? [] : readOrgRoster(from);
     },
     now: () => Date.now(),
   });
