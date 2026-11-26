@@ -14,7 +14,7 @@ SANDBOX="$(mktemp -d)"; trap 'rm -rf "$SANDBOX"' EXIT
 mkdir -p "$SANDBOX/bin" "$SANDBOX/home/.mattstack/rt/chat/sessions" "$SANDBOX/repo"
 cat > "$SANDBOX/bin/rt" <<'STUB'
 #!/usr/bin/env bash
-echo "$* @ $PWD" >> "$RT_STUB_CALLS"
+echo "$* @ $PWD budget=${RT_DAEMON_RETRY_BUDGET_MS:-}" >> "$RT_STUB_CALLS"
 case "$1 $2" in
   "settings get") printf '{"ok":true,"key":"chat.autoSignIn","value":%s}\n' "${RT_STUB_ENABLED:-false}" ;;
   "chat sign-in") printf '%s\n' "${RT_STUB_SIGNIN:-}"; exit "${RT_STUB_SIGNIN_EXIT:-0}" ;;
@@ -39,14 +39,14 @@ check() { # name expected actual
 # run PAYLOAD [ENTRYPOINT] [PANE] -- sets $out/$err/$rc/$calls
 run() {
   : > "$RT_STUB_CALLS"
-  out="$(printf '%s' "$1" | env HOME="$SANDBOX/home" CLAUDE_CODE_ENTRYPOINT="${2-cli}" HERDR_PANE_ID="${3-w1:p1}" "$HOOK" 2>"$ERRFILE")"
+  out="$(printf '%s' "$1" | env -u RT_DAEMON_RETRY_BUDGET_MS HOME="$SANDBOX/home" CLAUDE_CODE_ENTRYPOINT="${2-cli}" HERDR_PANE_ID="${3-w1:p1}" "$HOOK" 2>"$ERRFILE")"
   rc=$?
   err="$(cat "$ERRFILE" 2>/dev/null)"
   calls="$(cat "$RT_STUB_CALLS")"
 }
 
-SETTINGS_CALL="settings get chat.autoSignIn --repo $REPO --json @ $REPO"
-SIGNIN_CALL="chat sign-in --session sess-a --json @ $REPO"
+SETTINGS_CALL="settings get chat.autoSignIn --repo $REPO --json @ $REPO budget="
+SIGNIN_CALL="chat sign-in --session sess-a --json @ $REPO budget=2000"
 
 # ── setting on, interactive pane session: signs in and tells the agent ──────
 export RT_STUB_ENABLED=true RT_STUB_SIGNIN="$SIGNED_IN"

@@ -31,7 +31,9 @@ command -v rt >/dev/null 2>&1 || exit 0
 enabled="$(rt settings get chat.autoSignIn --repo "$cwd" --json 2>/dev/null | jq -r '.value' 2>/dev/null)"
 [ "$enabled" = "true" ] || exit 0
 
-result="$(rt chat sign-in --session "$session_id" --json 2>/dev/null)" || exit 0
+# The hook's limit is 10s, rt retries an absent daemon for 20s per call by
+# default, and sign-in makes two daemon calls (pane lookup, then sign-in).
+result="$(RT_DAEMON_RETRY_BUDGET_MS=2000 rt chat sign-in --session "$session_id" --json 2>/dev/null)" || exit 0
 fields="$(printf '%s' "$result" | jq -r 'select(.ok == true) | [(.name // .handle // empty), (.room // empty)] | @tsv' 2>/dev/null)"
 [ -n "$fields" ] || exit 0
 IFS=$'\t' read -r name room <<< "$fields"
