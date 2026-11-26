@@ -9,7 +9,12 @@ import { Database } from 'bun:sqlite';
 
 import { parseDraftEnvelope } from '../src/peer/envelope.ts';
 import { readCappedText } from './capped-body.ts';
-import { ENVELOPE_TTL_MS, SwitchboardStore } from './store.ts';
+import { ORG_TOKEN_PREFIX } from './orgs.ts';
+import {
+  ENVELOPE_TTL_MS,
+  SwitchboardStore,
+  UsernameTakenError,
+} from './store.ts';
 import { makeSupportHandler } from './support.ts';
 import {
   makeTeamInviteHandler,
@@ -42,6 +47,63 @@ function sameSecret(got: string, want: string): boolean {
   return timingSafeEqual(digest(got), digest(want));
 }
 
+const unauthorized = () => new Response('unauthorized', { status: 401 });
+
+export type AdminScope = { kind: 'operator' } | { kind: 'org'; org: string };
+
+/** The master may not look like an org token, so rt can tell the two apart
+    offline. A short one only warns: refusing it would crash-loop the live
+    relay on deploy and cut off every board. */
+export function masterTokenProblem(
+  token: string
+): { refuse: boolean; message: string } | null {
+  if (token.startsWith(ORG_TOKEN_PREFIX))
+    return {
+      refuse: true,
+      message: `SWITCHBOARD_ADMIN_TOKEN starts with ${ORG_TOKEN_PREFIX}, which marks an org's switchboard token. Set it to the relay operator's token instead.`,
+    };
+  if (token.length < 32)
+    return {
+      refuse: false,
+      message:
+        'SWITCHBOARD_ADMIN_TOKEN is shorter than 32 characters: rotate it to at least 32 random characters, e.g. openssl rand -hex 32',
+    };
+  return null;
+}
+
+/** The `{ username[, org] }` body of POST /boards and POST /invites. */
+async function readAdminBody(
+  req: Request
+): Promise<{ username: string; org: string | undefined } | Response> {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return new Response('invalid json', { status: 400 });
+  }
+  const { username, org } = (body ?? {}) as {
+    username?: unknown;
+    org?: unknown;
+  };
+  if (typeof username !== 'string' || !username.trim())
+    return new Response('expected { username }', { status: 400 });
+  if (org !== undefined && org !== null && typeof org !== 'string')
+    return new Response('expected org to be an org id', { status: 400 });
+  return { username, org: typeof org === 'string' ? org : undefined };
+}
+
+function adminWrite<T>(write: () => T): T | Response {
+  try {
+    return write();
+  } catch (err) {
+    if (err instanceof UsernameTakenError)
+      return json(409, { error: 'username-taken' });
+    if (err instanceof Error && err.message === 'name-an-org')
+      return json(400, { error: 'name-an-org' });
+    throw err;
+  }
+}
+
 export function makeFetchHandler(
   store: SwitchboardStore,
   adminToken: string,
@@ -52,6 +114,35 @@ export function makeFetchHandler(
   waiters: InboxWaiters = new InboxWaiters(),
   supportWaiters: InboxWaiters = new InboxWaiters()
 ) {
+  const adminScope = (req: Request): AdminScope | null => {
+    const token = bearer(req);
+    if (token === null) return null;
+    if (sameSecret(token, adminToken)) return { kind: 'operator' };
+    const org = store.orgs.authOrg(token);
+    return org === null ? null : { kind: 'org', org };
+  };
+  /** The org an admin write lands in: undefined is the legacy org. An org
+      token gets the same 403 for every id that is not its own, so it learns
+      nothing about other orgs. */
+  const targetOrg = (
+    scope: AdminScope,
+    named: string | undefined
+  ): { org: string | undefined } | Response => {
+    if (scope.kind === 'org')
+      return named === undefined || named === scope.org
+        ? { org: scope.org }
+        : json(403, { error: 'org-mismatch' });
+    if (named !== undefined && !store.orgs.exists(named))
+      return new Response('no such org', { status: 404 });
+    return { org: named };
+  };
+  // The awaited stamp before POST /orgs is the one the gate relies on.
+  const stampMaster = () =>
+    store.orgs.stampLegacyMaster(adminToken).catch((err: unknown) => {
+      console.error('switchboard: could not stamp the legacy master', err);
+    });
+  void stampMaster();
+
   const teamInviteRoutes = makeTeamInviteHandler(teamInvites, now);
   const supportRoutes = makeSupportHandler(store.support, supportWaiters, now);
   const pingLimiter = new RateLimiter(TELEMETRY_PINGS_PER_HOUR, 60 * 60_000);
@@ -67,27 +158,35 @@ export function makeFetchHandler(
     if (relayed) return relayed;
 
     if (pathname === '/boards') {
-      if (bearer(req) !== adminToken)
-        return new Response('unauthorized', { status: 401 });
+      const scope = adminScope(req);
+      if (!scope) return unauthorized();
       if (req.method === 'GET')
-        return json(200, { boards: store.listBoards() });
+        return json(200, {
+          boards:
+            scope.kind === 'operator'
+              ? store.listBoards()
+              : store
+                  .listBoards(scope.org)
+                  .map(({ username, createdAt }) => ({ username, createdAt })),
+        });
       if (req.method !== 'POST')
         return new Response('method not allowed', { status: 405 });
-      let body: unknown;
-      try {
-        body = await req.json();
-      } catch {
-        return new Response('invalid json', { status: 400 });
-      }
-      const username = (body as { username?: unknown })?.username;
-      if (typeof username !== 'string' || !username.trim())
-        return new Response('expected { username }', { status: 400 });
-      return json(201, store.registerBoard(username));
+      const body = await readAdminBody(req);
+      if (body instanceof Response) return body;
+      const target = targetOrg(scope, body.org);
+      if (target instanceof Response) return target;
+      const board = adminWrite(() =>
+        store.registerBoard(body.username, target.org)
+      );
+      if (board instanceof Response) return board;
+      if (scope.kind === 'operator' && body.org === undefined)
+        await stampMaster();
+      return json(201, board);
     }
 
     if (pathname.startsWith('/boards/') && req.method === 'DELETE') {
-      if (bearer(req) !== adminToken)
-        return new Response('unauthorized', { status: 401 });
+      const scope = adminScope(req);
+      if (!scope) return unauthorized();
       let username: string;
       try {
         username = decodeURIComponent(pathname.slice('/boards/'.length));
@@ -96,7 +195,12 @@ export function makeFetchHandler(
       }
       if (!username.trim())
         return new Response('expected /boards/<username>', { status: 400 });
-      if (!store.deleteBoard(username))
+      if (
+        !store.deleteBoard(
+          username,
+          scope.kind === 'org' ? scope.org : undefined
+        )
+      )
         return new Response('no such board', { status: 404 });
       return json(200, { ok: true });
     }
@@ -104,18 +208,41 @@ export function makeFetchHandler(
     if (pathname === '/invites') {
       if (req.method !== 'POST')
         return new Response('method not allowed', { status: 405 });
-      if (bearer(req) !== adminToken)
-        return new Response('unauthorized', { status: 401 });
-      let body: unknown;
-      try {
-        body = await req.json();
-      } catch {
-        return new Response('invalid json', { status: 400 });
+      const scope = adminScope(req);
+      if (!scope) return unauthorized();
+      const body = await readAdminBody(req);
+      if (body instanceof Response) return body;
+      const target = targetOrg(scope, body.org);
+      if (target instanceof Response) return target;
+      const invite = adminWrite(() =>
+        store.createInvite(body.username, now(), target.org)
+      );
+      if (invite instanceof Response) return invite;
+      if (scope.kind === 'operator' && body.org === undefined)
+        await stampMaster();
+      return json(201, invite);
+    }
+
+    if (pathname === '/orgs' || pathname.startsWith('/orgs/')) {
+      if (adminScope(req)?.kind !== 'operator') return unauthorized();
+      if (pathname === '/orgs') {
+        if (req.method === 'GET') return json(200, { orgs: store.orgs.list() });
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        await store.orgs.stampLegacyMaster(adminToken);
+        if (await store.orgs.masterGateClosed(adminToken))
+          return json(409, { error: 'rotate-master-first' });
+        const { id } = store.orgs.create(now());
+        return json(201, { id, token: store.orgs.mintToken(id, now()) });
       }
-      const username = (body as { username?: unknown })?.username;
-      if (typeof username !== 'string' || !username.trim())
-        return new Response('expected { username }', { status: 400 });
-      return json(201, store.createInvite(username, now()));
+      const minting = /^\/orgs\/([^/]+)\/token$/.exec(pathname);
+      if (!minting) return new Response('not found', { status: 404 });
+      if (req.method !== 'POST')
+        return new Response('method not allowed', { status: 405 });
+      const id = minting[1]!;
+      const token = store.orgs.mintToken(id, now());
+      if (token === null) return new Response('no such org', { status: 404 });
+      return json(200, { id, token });
     }
 
     if (pathname === '/invites/redeem') {
@@ -150,6 +277,11 @@ export function makeFetchHandler(
         return new Response('this invite is for a different board handle', {
           status: 409,
         });
+      if (r.error === 'taken')
+        return new Response(
+          'that username already has a board in another org',
+          { status: 409 }
+        );
       return new Response(
         'invite expired or already used; ask for a fresh one',
         { status: 410 }
@@ -236,7 +368,7 @@ export function makeFetchHandler(
 
     const token = bearer(req);
     const username = token ? store.authBoard(token) : null;
-    if (!username) return new Response('unauthorized', { status: 401 });
+    if (!username) return unauthorized();
 
     const support = await supportRoutes(req, pathname, username);
     if (support) return support;
@@ -246,9 +378,11 @@ export function makeFetchHandler(
       // the tokens stay between the relay and each board.
       if (req.method !== 'GET')
         return new Response('method not allowed', { status: 405 });
+      const org = store.boardOrg(username);
+      if (org === null) return unauthorized();
       return json(200, {
-        peers: store.listBoards().map(b => b.username),
-        askable: store.listAskableUsernames(),
+        peers: store.listBoards(org).map(b => b.username),
+        askable: store.listAskableUsernames(org),
       });
     }
 
@@ -286,12 +420,7 @@ export function makeFetchHandler(
       const at = stamp();
       const result = store.publish(username, draft, at);
       if (!result.ok) return json(422, { error: result.error });
-      waiters.wake(
-        draft.to === '*'
-          ? waiters.boards().filter(u => u !== username)
-          : [draft.to],
-        at
-      );
+      waiters.wake(store.recipients(username, draft.to), at);
       return json(201, { ok: true, delivered: result.delivered });
     }
 
@@ -354,6 +483,12 @@ if (import.meta.main) {
     console.error('SWITCHBOARD_ADMIN_TOKEN is required');
     process.exit(1);
   }
+  const problem = masterTokenProblem(adminToken);
+  if (problem?.refuse) {
+    console.error(problem.message);
+    process.exit(1);
+  }
+  if (problem) console.warn(problem.message);
   const dbPath =
     process.env.SWITCHBOARD_DB || join(import.meta.dir, 'switchboard.sqlite');
   const db = new Database(dbPath);

@@ -453,7 +453,12 @@ export function makeSupportHandler(
           status: 400,
         });
       }
-      return json(200, store.host(host));
+      return json(
+        200,
+        store.sameOrg(username, host)
+          ? store.host(host)
+          : { accepting: false, lastSeenAt: null }
+      );
     }
 
     return null;

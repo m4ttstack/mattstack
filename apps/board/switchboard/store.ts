@@ -117,8 +117,8 @@ export class SwitchboardStore {
     sweepNullOrgs(db, Date.now());
   }
 
-  /** With no org, the board goes into the legacy org. A register for a
-      username already in the same org reissues its token. */
+  /** A register for a username already in the same org reissues its token:
+      a peer rotate, a re-join and a re-invite rely on it. */
   registerBoard(
     username: string,
     orgId?: string
@@ -137,9 +137,8 @@ export class SwitchboardStore {
     return { username: canonical, token };
   }
 
-  /** The org a write for this username lands in. Throws when no org is
-      named and there is no legacy org to fall back on, or when another org
-      holds the username. Call it inside the write's transaction. */
+  /** Call it inside the write's transaction, so no other org can take the
+      username between the check and the write. */
   private writeOrg(
     canonical: string,
     orgId: string | undefined,

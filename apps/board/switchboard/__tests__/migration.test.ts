@@ -4,12 +4,15 @@ import { join } from 'path';
 import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 
+import { makeFetchHandler } from '../server.ts';
 import {
   hashToken,
   INVITE_TTL_MS,
   sweepNullOrgs,
   SwitchboardStore,
 } from '../store.ts';
+import { TeamInviteStore } from '../team-invites.ts';
+import { TelemetryStore } from '../telemetry.ts';
 
 // The relay's schema before orgs, copied verbatim from store.ts at 4bb7f8907f.
 const PRE_CHANGE_SCHEMA = [
@@ -143,5 +146,63 @@ describe('a pre-change database', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  test('over a pre-change database, the handler keeps every board working', async () => {
+    const MASTER = 'pre-change-master';
+    const { db } = preChangeDb();
+    const store = new SwitchboardStore(db);
+    const handler = makeFetchHandler(
+      store,
+      MASTER,
+      () => NOW,
+      new TeamInviteStore(db),
+      new TelemetryStore(db),
+      null
+    );
+    const call = (path: string, token: string, body?: unknown) =>
+      handler(
+        new Request(`http://x${path}`, {
+          method: body !== undefined ? 'POST' : 'GET',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+        })
+      );
+    const boardsStillWork = async () => {
+      for (const token of [ADA, GRACE])
+        expect((await call('/inbox', token)).status).toBe(200);
+    };
+    const legacy = store.orgs.legacyId()!;
+
+    for (const [token, peer] of [
+      [ADA, 'grace'],
+      [GRACE, 'ada'],
+    ] as const) {
+      const peers = (await (await call('/peers', token)).json()) as {
+        peers: string[];
+      };
+      expect(peers.peers).toContain(peer);
+    }
+
+    const reg = await call('/boards', MASTER, { username: 'linus' });
+    expect(reg.status).toBe(201);
+    expect(store.boardOrg('linus')).toBe(legacy);
+    await boardsStillWork();
+
+    const minted = await call(`/orgs/${legacy}/token`, MASTER, {});
+    expect(minted.status).toBe(200);
+    const first = ((await minted.json()) as { token: string }).token;
+    expect((await call('/boards', first)).status).toBe(200);
+    await boardsStillWork();
+
+    const rotated = await call(`/orgs/${legacy}/token`, MASTER, {});
+    expect(rotated.status).toBe(200);
+    const second = ((await rotated.json()) as { token: string }).token;
+    expect((await call('/boards', first)).status).toBe(401);
+    expect((await call('/boards', second)).status).toBe(200);
+    await boardsStillWork();
   });
 });
