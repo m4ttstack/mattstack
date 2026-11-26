@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { RoleConfig } from "../config.ts";
@@ -434,6 +434,33 @@ describe("a claimed folder git dropped while the folder stayed", () => {
   test("is another repo's when its .git points anywhere else", () => {
     mkdirSync(join(dir, "other", ".git", "worktrees"), { recursive: true });
     expect(findIn(join(dir, "calm-marble"), `gitdir: ${join(dir, "other", ".git", "worktrees", "calm-marble")}\n`)).toEqual([]);
+  });
+});
+
+describe("a worktree reached through a symlink", () => {
+  let dir: string;
+  let real: string;
+  let link: string;
+  beforeEach(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-linked-")));
+    real = join(dir, "real", "calm-marble");
+    link = join(dir, "calm-marble");
+    mkdirSync(join(real, "apps", "api"), { recursive: true });
+    symlinkSync(real, link);
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  test("git's symlinked path holds the servers lsof reports under the real one", () => {
+    const found = findServers(snap(apiTree(join(real, "apps", "api"), [10400]), [{ path: link, branch: "feature/login" }]), rules());
+    expect(found.map((s) => [s.worktree.path, s.branch, s.removed])).toEqual([[link, "feature/login", false]]);
+  });
+
+  test("a claim made through the symlink finds the server left behind on its port", () => {
+    const found = findServers(
+      snap([{ pid: 13, ppid: 1, args: "node src/server", cwd: join(real, "apps", "api"), ports: [10400] }], [{ path: real, branch: "feature/login" }]),
+      rules([{ worktree: link, role: "api", port: 10400 }]),
+    );
+    expect(found.map((s) => [s.role, s.port, s.leftBehind, s.removed])).toEqual([["api", 10400, true, false]]);
   });
 });
 

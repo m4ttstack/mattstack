@@ -101,6 +101,21 @@ test("the hints name the agent, then what is odd about the server", () => {
   expect(serverHints(server({ inside: "shell" }))).toEqual(["shell inside"]);
 });
 
+describe("realServersDeps.enrich", () => {
+  test("a detached server needs no lookup", async () => {
+    expect(await realServersDeps.enrich([server({ branch: null })], undefined)).toEqual(new Map());
+  });
+
+  test("answers by worktree path, each server's own branch", async () => {
+    const gone = server({ worktree: { path: "/trees/.trash/old-1", name: "old-1" }, branch: "web-198-order-totals", removed: true });
+    const found = await realServersDeps.enrich([gone, server()], undefined);
+    expect([...found].map(([path, eb]) => [path, eb.branch]).sort()).toEqual([
+      ["/trees/.trash/old-1", "web-198-order-totals"],
+      [TREE, "web-214-login-rate-limit"],
+    ]);
+  });
+});
+
 test("a removed worktree is never the first branch looked up, since git is run in the first one's folder", () => {
   const gone = server({ worktree: { path: "/trees/.trash/old-1", name: "old-1" }, branch: "web-198-order-totals", removed: true });
   expect(branchesOf([gone, server()]).map((b) => b.path)).toEqual([TREE, "/trees/.trash/old-1"]);
@@ -408,6 +423,13 @@ describe("serversCommand", () => {
     const { run, calls } = harness({ canAsk: true, pick: [10], snapshots: [SNAPSHOT, null] });
     await expect(run()).rejects.toBeInstanceOf(UserActionableError);
     expect(calls.stop).toBe(0);
+  });
+
+  test("a re-read that fails with a lookup still pending is the typed failure, so the dispatch seam ends the process", async () => {
+    const { run, calls } = harness({ canAsk: true, pick: [10], snapshots: [SNAPSHOT, null], enrich: NEVER, deadlinePasses: true });
+    const error = await run().catch((err: unknown) => err);
+    expect(error).toMatchObject({ code: "servers-read-failed" });
+    expect([calls.stop, calls.exits]).toEqual([0, []]);
   });
 
   test("the stop compares against the re-read, and spares rt's ancestors as they are then", async () => {
