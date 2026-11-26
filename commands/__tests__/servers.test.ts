@@ -17,7 +17,7 @@ import * as out from "../../lib/ui/out.ts";
 import { __test__ as pickTest, type PickHandle } from "../../lib/ui/pick.ts";
 import { installFakePick } from "../../lib/ui/pick-fake.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { branchesOf, pickView, realServersDeps, serverBlocks, serverHints, serversCommand, type Lookup, type ServersDeps } from "../servers.ts";
+import { askDaemonToRefresh, branchesOf, pickView, realServersDeps, serverBlocks, serverHints, serversCommand, type Lookup, type ServersDeps } from "../servers.ts";
 
 const IDENTITY = "remote:example.com%2Facme%2Fsample-app";
 const TREE = "/trees/calm-marble";
@@ -99,6 +99,18 @@ test("the hints name the agent, then what is odd about the server", () => {
   expect(serverHints(server({ agent: "claude", removed: true }))).toEqual(["Claude session", "worktree removed"]);
   expect(serverHints(server({ inside: "claude", listening: false }))).toEqual(["Claude session inside", "not listening"]);
   expect(serverHints(server({ inside: "shell" }))).toEqual(["shell inside"]);
+});
+
+describe("askDaemonToRefresh", () => {
+  test("sends one cache refresh, without waiting out a daemon that is starting", async () => {
+    const sent: unknown[][] = [];
+    await askDaemonToRefresh(async (...args) => { sent.push(args); return null; });
+    expect(sent).toEqual([["cache:refresh", undefined, 1_000, { retryBudgetMs: 0 }]]);
+  });
+
+  test("a daemon that is down or fails changes nothing", async () => {
+    await askDaemonToRefresh(async () => { throw new Error("no daemon"); });
+  });
 });
 
 describe("realServersDeps.enrich", () => {
@@ -187,7 +199,7 @@ function harness(over: Over = {}) {
   const calls = {
     snapshot: 0, enrich: 0, pick: 0, stop: 0, slept: [] as number[], spare: new Set<number>(), picked: [] as RunningServer[],
     fresh: null as FreshServers | null, exits: [] as number[], cancelled: false, landedAtPick: undefined as Lookup["landed"] | undefined,
-    flushes: 0, refreshed: [] as Array<{ servers: RunningServer[]; remoteUrl: string | undefined }>,
+    flushes: 0, refreshes: 0,
   };
   const deps: ServersDeps = {
     rules: () => over.rules ?? RULES,
@@ -224,7 +236,7 @@ function harness(over: Over = {}) {
       } as unknown as Promise<void>;
     },
     flushed: async () => { calls.flushes++; },
-    refreshLater: (servers, remoteUrl) => { calls.refreshed.push({ servers, remoteUrl }); },
+    refreshLater: async () => { calls.refreshes++; },
     exit: (code) => { calls.exits.push(code); },
   };
   return { calls, run: (args: string[] = [], over: Partial<ServersDeps> = {}) => serversCommand(args, CTX, { ...deps, ...over }) };
@@ -298,13 +310,18 @@ describe("serversCommand", () => {
     expect(order).toEqual(["flush", "0"]);
   });
 
-  test("a lookup cut short by the exit leaves a detached refresh to fill the cache, and one that landed does not", async () => {
+  test("a lookup cut short by the exit asks the daemon to fill the cache before exiting, and one that landed does not", async () => {
     const slow = harness({ enrich: NEVER, deadlinePasses: true });
-    await slow.run();
-    expect(slow.calls.refreshed.map((r) => [r.servers.map((s) => s.pid).sort(), r.remoteUrl])).toEqual([[[10, 20], CTX.identity!.remoteUrl]]);
+    let answer!: () => void;
+    const running = slow.run([], { refreshLater: () => new Promise<void>((resolve) => { answer = resolve; }) });
+    for (let tries = 0; !answer && tries < 50; tries++) await Bun.sleep(1);
+    expect(slow.calls.exits).toEqual([]);
+    answer();
+    await running;
+    expect(slow.calls.exits).toEqual([0]);
     const quick = harness();
     await quick.run();
-    expect(quick.calls.refreshed).toEqual([]);
+    expect(quick.calls.refreshes).toBe(0);
   });
 
   test("nothing running is one line, at a terminal too, and no picker opens", async () => {

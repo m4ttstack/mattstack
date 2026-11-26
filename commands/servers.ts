@@ -5,7 +5,8 @@ import { agentLabel, ancestorPids, findServers, type RunningServer, type ServerR
 import { readServerSnapshot, stopServers, type ServerRepo, type StopOutcome } from "../lib/endpoint/servers-system.ts";
 import { loadInterceptRules } from "../lib/endpoint/shim.ts";
 import { loadClaims } from "../lib/endpoint/store.ts";
-import { enrichBranches, mrSegments, spawnCacheRefresh, type EnrichedBranch } from "../lib/enrich.ts";
+import { daemonQuery } from "../lib/daemon-client.ts";
+import { enrichBranches, mrSegments, type EnrichedBranch } from "../lib/enrich.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { repoLabel } from "../lib/repo-label.ts";
 import { parseIdentity } from "../lib/settings/identity.ts";
@@ -30,8 +31,8 @@ export interface ServersDeps {
   sleep(ms: number, cancel: AbortSignal): Promise<void>;
   /** Everything printed so far has gone out. */
   flushed(): Promise<void>;
-  /** Fills the branch cache from a detached child, for a lookup the exit cuts short. */
-  refreshLater(servers: RunningServer[], remoteUrl: string | undefined): void;
+  /** Has the daemon fill the branch cache, for a lookup the exit cuts short. */
+  refreshLater(): Promise<void>;
   exit(code: number): void;
 }
 
@@ -138,6 +139,17 @@ export function pickView(groups: ServerGroup[]): { rows: PickRow[]; groupHeading
 
 const STOP_ACTION: PickAction = { id: "select", label: "stop", key: "enter", scope: "item", group: "mark", primary: true };
 
+const REFRESH_ASK_MS = 1_000;
+
+/** Fire and forget: the daemon's refresh outlives this process, and a daemon that is down or starting is not waited on. */
+export async function askDaemonToRefresh(query: typeof daemonQuery = daemonQuery): Promise<void> {
+  try {
+    await query("cache:refresh", undefined, REFRESH_ASK_MS, { retryBudgetMs: 0 });
+  } catch {
+    // Best effort: the next run looks the branches up again.
+  }
+}
+
 export const realServersDeps: ServersDeps = {
   rules: (identity) => {
     const id = parseIdentity(identity);
@@ -191,10 +203,7 @@ export const realServersDeps: ServersDeps = {
       });
     }),
   flushed: out.flushed,
-  refreshLater: (servers, remoteUrl) => {
-    const branches = branchesOf(servers);
-    if (branches.length > 0) spawnCacheRefresh(branches, remoteUrl);
-  },
+  refreshLater: () => askDaemonToRefresh(),
   exit: (code) => process.exit(code),
 };
 
@@ -284,7 +293,7 @@ export async function serversCommand(args: string[], ctx: CommandContext, deps: 
   else out.print(...serverBlocks(label, groupServers(servers, await enrichedWithin(deps, lookup, LIST_ENRICH_DEADLINE_MS))));
   // A forge lookup has no timeout of its own, and a pending one holds the process open.
   if (lookup.landed) return;
-  deps.refreshLater(servers, remoteUrl || undefined);
+  await deps.refreshLater();
   await deps.flushed();
   deps.exit(Number(process.exitCode ?? 0));
 }
