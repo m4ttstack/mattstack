@@ -39,6 +39,8 @@ test("agentNameOf names the script after an interpreter's flags", () => {
   expect(agentNameOf(row(1, 0, "node", "node --no-warnings /opt/bin/codex"))).toBe("codex");
   expect(agentNameOf(row(1, 0, "bun", "bun --bun /opt/bin/codex"))).toBe("codex");
   expect(agentNameOf(row(1, 0, "node", "node --no-warnings server.js"))).toBeNull();
+  expect(agentNameOf(row(1, 0, "node", "node --require /tmp/codex server.js"))).toBeNull();
+  expect(agentNameOf(row(1, 0, "node", "node -r ./x /opt/bin/codex"))).toBe("codex");
 });
 
 describe("selectKillTargets", () => {
