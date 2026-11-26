@@ -17,6 +17,7 @@ interface World {
   flavor?: "dev" | "prod";
   appBuildFails?: boolean;
   githubDown?: boolean;
+  noApp?: boolean;
 }
 
 function setup(w: World = {}) {
@@ -34,12 +35,13 @@ function setup(w: World = {}) {
     "/Applications/mattstack-dev.app/Contents/Info.plist": "",
     "/scratch/unpacked/mattstack-dev.app/Contents/Info.plist": "",
   };
+  if (w.noApp) delete files["/Applications/mattstack-dev.app/Contents/Info.plist"];
   const release = w.release ?? "2.23.0";
   const probes = fakeProbes({
     home: "/Users/collab",
     env: { PATH: "/usr/bin" },
     files,
-    dirs: { "/Applications/mattstack-dev.app": ["Contents"] },
+    dirs: w.noApp ? {} : { "/Applications/mattstack-dev.app": ["Contents"] },
     fetch: async () => ({ status: 200, headers: {}, body: `abc123  mattstack-dev-${release}.zip\n` }),
     exec: (argv) => {
       const a = argv.join(" ");
@@ -133,6 +135,20 @@ describe("runDevAutoUpdate", () => {
     expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "current" });
     expect(t.checked()).toBe(0);
     expect(t.statuses).toEqual([]);
+  });
+
+  test("a locally built dev app clears a hold an earlier run recorded, orgOff included", async () => {
+    const t = setup({ releaseBuild: false });
+    await runDevAutoUpdate(t.s, runner, t.d);
+    expect(t.state.cleared).toBe(1);
+  });
+
+  test("no dev app installed: current, nothing fetched, installed or swapped, and a recorded hold is cleared", async () => {
+    const t = setup({ noApp: true });
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "current" });
+    expect(t.order).toEqual([]);
+    expect(t.statuses).toEqual([]);
+    expect(t.state.cleared).toBe(1);
   });
 
   test("a prod Mac: current, nothing touched", async () => {

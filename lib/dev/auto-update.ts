@@ -50,11 +50,16 @@ export async function runDevAutoUpdate(s: DevSeams, stage: StageRunner, d: DevAu
   return d.lock(async () => {
     const clone = s.storedSourcePath();
     if (s.flavor !== "dev" || !clone || !s.probes.exists(join(clone, "cli.ts"))) return CURRENT;
+    // No dev app, or one built on this Mac, is not this run's to update, so
+    // a hold an earlier run recorded no longer says anything true.
     const installed = await readInstalledDevApp(s.probes);
-    if (installed && !installed.releaseBuild) return CURRENT;
+    if (!installed || !installed.releaseBuild) {
+      d.clearHeld();
+      return CURRENT;
+    }
     const pick = await newestRelease(s);
     if (!pick) return CURRENT;
-    if (installed && compareVersions(installed.version, pick.release.version) >= 0) {
+    if (compareVersions(installed.version, pick.release.version) >= 0) {
       d.clearHeld();
       return CURRENT;
     }
