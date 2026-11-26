@@ -55,8 +55,11 @@ definition moved to the org repo.
   and keeps working with an org token unchanged. A board whose `.env`
   holds a master shows every org's boards in its roster's peered badge
   (`/peer/boards`). Step 3 of the move clears every such `.env`, and after
-  the move only the operator's own board may keep a master. That is the
-  operator's own choice on their own Mac, and the runbook says so.
+  the move no board keeps a master, the operator's own included: a master
+  in a board's `.env` is read second by the released rt, whose "differs"
+  advice would write it into the admin-only file once the second-org gate
+  has lifted. The operator keeps the master outside rt and the board, and
+  hands it only to `operator.ts` through `SWITCHBOARD_OPERATOR_TOKEN`.
 
 ## Anti-goals
 
@@ -70,8 +73,9 @@ definition moved to the org repo.
   name or label. The operator keeps their own note of which id is which org.
 - An oracle across orgs. Another org's board answers exactly as a username
   nobody holds would (`unknown-recipient`, 404, a host that is not
-  accepting). The one deliberate exception is the 409 on a username that is
-  already taken, which the ticket asks for.
+  accepting). The deliberate exceptions are the 409 on a username that is
+  already taken, which the ticket asks for, and the 403 on an `org` field
+  that is not the caller's own, which answers the same for every id.
 
 ## Constraints
 
@@ -130,31 +134,41 @@ There was one sensible way to build this, and Matt took it:
    it.
 2. **The migration and rotation order** (each step is safe on its own, and
    no board token changes):
+   0. Before the new rt release reaches the org's owners and admins (it
+      stops using a master kept on the Mac as soon as it lands), each of
+      them checks access while their Mac still holds its own copy. The
+      `org.admin-secrets` row must not read `skipped` (on the old rt and the
+      new one alike, `skipped` there means this Mac's age key is not the one
+      the roster holds), and `rt team admin-secrets` must report nobody
+      under `withoutKey`. Fix any Mac that fails before going on.
    1. Deploy the relay. Existing boards and invites land in one *legacy* org
       that has no token yet. The master token acts as that org on the old
       routes, so the rt released today is unaffected.
    2. The operator mints the legacy org's token.
    3. Every owner and admin clears the master from their Mac: the
       environment rt runs in, the local secret, and their board's `.env`
-      (then restarts the board, which reads `.env` only at start). The
-      operator also removes `switchboardAdminToken` from the legacy org's
-      member-wide team secrets, where an older join kept it and every member
-      can read it. The shared admin-only file still holds the master, so
-      nothing stops working, and on the new rt the `org.admin-secrets` row
-      names each copy. This comes before the share, so no older rt is left
-      holding a master it could write back over the org token (an older
-      rt's "differs" advice is `--replace-token`, and it reads the
-      environment first). Before moving on, the runbook checks that every
-      owner and admin can open the admin-only file: `rt team admin-secrets`
-      reports nobody under `withoutKey`, and no admin's row reads
-      `skipped`. The new rt ignores a master kept on the Mac, so an admin
-      who cannot open the file loses admin actions as soon as they update.
+      (then restarts the board, which reads `.env` only at start). An org
+      admin also removes `switchboardAdminToken` from the legacy org's
+      member-wide team secrets (`mattstack/org/secrets/rt.json`), where an
+      older join kept it and every member can read it. rt has no verb that
+      removes one key there, so the runbook gives the hand edit
+      (`sops mattstack/org/secrets/rt.json` in the org clone, delete the
+      key, commit and publish), and an rt verb for it is a follow-up. The
+      shared admin-only file still holds the master, so nothing stops
+      working, and on the new rt the `org.admin-secrets` row names each
+      copy. This comes before the share, so no older rt is left holding a
+      master it could write back over the org token (an older rt's
+      "differs" advice is `--replace-token`, and it reads the environment
+      first).
    4. Matt runs the new rt's
       `rt team admin-secrets --token-stdin --replace-token` to put the org
       token in the org's admin-only file. The other admins get it on their
-      next pull.
+      next pull, then restart their boards, which keep the admin token they
+      read at start (`apps/board/src/server.ts` memoizes it), so their
+      peered badge does not fail after step 5.
    5. The operator rotates the master on Railway last. That also kills the
-      copy in the org repo's git history.
+      copy in the org repo's git history, and lifts the second-org gate.
+      From here no Mac and no board keeps the master.
 3. **Docs and the command tree:** the write fence widens to
    `.claude/rules/team-switchboard.md`, `apps/board/docs/peer-boards.md` and
    `lib/command-tree-def.ts` (the `team admin-secrets` node, plus any
@@ -189,14 +203,24 @@ two ways, and both record the fingerprint:
   it, and moves every NULL row into it. The step does nothing once the
   rows are filled.
 - **Lazily,** on the master's first `POST /boards` or `POST /invites` that
-  names no `org`. So a fresh relay answers today's request bodies exactly
-  as it does now.
+  names no `org`, and on a store-level `registerBoard(username)` or
+  `createInvite(username)` with no org, while no non-legacy org exists. So a
+  fresh relay answers today's request bodies exactly as it does now, and the
+  suites that call the store directly keep working. Once a non-legacy org
+  exists, a master call that names no org and finds no legacy org is
+  `400 {"error":"name-an-org"}`, so the lazy path can never re-arm the
+  second-org gate.
+
+`SwitchboardStore` builds the `OrgStore` from its own database, as it builds
+`SupportStore`, so `new SwitchboardStore(db)` and `makeFetchHandler`'s
+positional parameters stay as they are.
 
 If NULL rows turn up while a non-legacy org exists, the relay was rolled
-back to an older image and then forward again, and rt cannot tell whose
-those rows are. The sweep logs them and leaves them alone, and a board
-whose row has no org gets a 401 (fail closed). The runbook says: no rollback
-past this change once a second org exists.
+back to an older image and then forward again, and the relay cannot tell
+whose those rows are. The sweep logs them and leaves them alone, a board
+whose row has no org gets a 401, and redeeming an invite whose row has no
+org is refused (fail closed). The runbook says: no rollback past this
+change once a second org exists.
 
 `boards.username` stays the primary key, so a username is unique across the
 relay. Every other table (`asks_off`, `envelopes`, `support_messages`,
@@ -211,8 +235,10 @@ each username belongs to exactly one org.
   rt test imports both and asserts they are equal.
 - **The master** stays `SWITCHBOARD_ADMIN_TOKEN` on Railway; renaming the
   variable would be a Railway change with no gain. The relay refuses to
-  start when it starts with `sbo_`, so rt can tell the two apart offline. It
-  is compared in constant time (the `/boards` checks use `!==` today).
+  start when it starts with `sbo_`, so rt can tell the two apart offline,
+  or when it is shorter than 32 characters, since `relay_meta` keeps its
+  unsalted sha256. It is compared in constant time (the `/boards` checks use
+  `!==` today).
 - **Board tokens** do not change.
 
 The relay resolves a bearer on an admin route to one of three scopes:
@@ -229,7 +255,10 @@ The admin routes keep their request and response shapes:
 | `GET /boards` | Every board, each with an added `org` field | Its own org's boards, shaped as today |
 | `POST /boards {username[, org]}` | Registers into `org`, or the legacy org when `org` is missing (made lazily if there is none). An unknown `org` is 404 | Registers into its own org. An `org` naming any other org is `403 {"error":"org-mismatch"}`, never honored |
 | `DELETE /boards/<u>` | Any board | Its own org's boards only. Another org's board is 404 |
-| `POST /invites {username[, org]}` | As `POST /boards` | Its own org |
+| `POST /invites {username[, org]}` | As `POST /boards` | Its own org. An `org` naming any other org is `403 {"error":"org-mismatch"}` |
+
+The 403 answers any `org` that is not the caller's own, whether that id
+exists or not, so an org token learns nothing about other orgs' ids.
 
 - **Register and reissue.** A register for a username in the same org
   reissues its token, as today; `rt team peer --rotate`, a re-join and a
@@ -275,7 +304,10 @@ only calls the routes above: `orgs` (list), `mint` (a new org), and
 `token <id>` (mint or rotate). It reads the master from
 `SWITCHBOARD_OPERATOR_TOKEN`, never `SWITCHBOARD_ADMIN_TOKEN`, which every
 rt reader and the board treat as an admin token and an older rt would
-share. It reads `SWITCHBOARD_URL` with the production default, and prints
+share. It reads `SWITCHBOARD_URL` with the production default, under rt's
+rule for an override (`acceptedOverride` in
+`packages/rt-client/src/switchboard.ts`: https, or http only to loopback),
+so the master never goes to an address in the clear. It prints
 the new token once to stdout, never to a file. Its CLI runs only under
 `import.meta.main`, since the relay image's `COPY switchboard/*.ts` ships
 it too. It is not part of rt or the app bundle.
@@ -285,15 +317,27 @@ it too. It is not part of rt or the app bundle.
 - **`packages/rt-client/src/switchboard.ts`:** `ORG_TOKEN_PREFIX` and
   `isOrgToken`. Rebuild rt-client's `dist/` after touching it.
 - **Picking the admin token** (`lib/team/board-peers.ts`, my call after the
-  builder check and review): `pickAdminToken` takes the sources in their
-  usual order (environment, the board's `.env`, the admin-only file, the
-  local secret) and returns the first org token. Failing that, it returns a
-  token that is not an org token only when it came from the org's
-  admin-only file, which is where #829 put the master. A master in the
-  environment, a board's `.env` or the local secret is never used, because
-  rt cannot tell which org it would act for. On the relay, a master with no
-  `org` lands in the legacy org and lists or deletes any board, so a second
-  org created on a Mac holding it would mix into the legacy org.
+  builder check and two reviews). Neither an org token nor a master says
+  which org it belongs to, so rt picks by where the token came from.
+  `pickAdminToken` tries, in order:
+  1. the named org's admin-only file, when it holds an org token;
+  2. this Mac's own sources, org tokens only, and only when this Mac has
+     exactly one org clone. Each caller keeps its own sources in their
+     usual order: readers through `readAdminToken` use the environment,
+     the board's `.env`, then the local secret; invite and join use only
+     the local secret, as today;
+  3. the named org's admin-only file, when it holds a master, which is
+     where #829 put it.
+
+  It returns null when none of these gives a token. A master in the
+  environment, a board's `.env` or the local secret is never used: on the
+  relay, a master with no `org` lands in the legacy org and lists or deletes
+  any board, so a second org created on a Mac holding it would mix into the
+  legacy org. On a Mac in two orgs, a token kept on the Mac could be either
+  org's, so only the named org's file counts. Otherwise
+  `rt team peer --team B` would register into org A, and
+  `rt team members remove --team B` would read org A's 404 as "not peered",
+  while the removed member's board in org B kept working.
   `readAdminToken`, `readStoredAdminToken`, invite's read and join's
   `rejoinAdminToken` all use it. So the legacy org keeps working until step
   5, and a master left on a Mac never shadows the org's token. "No org
@@ -305,8 +349,8 @@ it too. It is not part of rt or the app bundle.
   can read it, and #829 kept that store only as join's fallback. Reading it
   would hand operator reach (and later an org's admin reach) to every
   member, so the new rt drops the source, and step 3 removes the value. A
-  re-join on a Mac with no admin token falls back to the re-invite path, as
-  it already does in an org that never kept it there.
+  re-join on a Mac with no admin token returns `{peering: "idle"}`
+  (`join.ts`), as it already does in an org that never kept it there.
 - **The `account.board-peering` row** (`lib/setup/validators/accounts.ts`)
   decides `canSelfInvite` through `pickAdminToken`, so a Mac holding only an
   operator token is not told to run `rt team peer`, which would refuse it.
@@ -326,7 +370,10 @@ it too. It is not part of rt or the app bundle.
   - Without `--token-stdin`, the verb reads this Mac's own sources as
     today (environment, the board's `.env`, the local secret), raw rather
     than through `pickAdminToken`, so it can see an operator token and say
-    so. A token that is not an org token is never written: the outcome is a new `operator`, drawn as
+    so. On a Mac with more than one org clone it reads none of them (a
+    token kept on the Mac could be either org's), so sharing there takes
+    `--token-stdin`. A token that is not an org token is never written: the
+    outcome is a new `operator`, drawn as
     a `refused` line ("This Mac's switchboard token is the relay operator's,
     so rt did not share it"), with the next step "ask the relay operator for
     your org's token, then `rt team admin-secrets --token-stdin`". Locking
@@ -350,7 +397,8 @@ it too. It is not part of rt or the app bundle.
      <where> (the operator keeps it outside rt), then re-check. One step is
      listed for each place that holds it.
   3. The existing "not shared yet" verdict and the "differs" verdict count
-     only org tokens.
+     only org tokens, and only on a Mac with exactly one org clone, for the
+     same reason as `pickAdminToken`.
 
   When the admins rule does not exist yet and this Mac holds only an
   operator token, the row shows verdict 2, never "share it". The row stays
@@ -408,11 +456,19 @@ Each acceptance bullet in RT-613 is proved by a test:
   run a fresh relay with today's master calls and must pass unchanged:
   `lib/daemon/__tests__/peer-waker-relay.test.ts` and
   `lib/support/__tests__/end-to-end.test.ts`.
-- **Review fixes.** An org token's `org` field naming another org is 403.
-  `POST /orgs` is 409 until the master is rotated, and allowed after. NULL
-  rows found beside a non-legacy org are left alone, and their boards get
-  401. Join never reads the member-wide secrets. The board-peering row
-  decides through `pickAdminToken`.
+- **Review fixes.**
+  - Relay: an org token's `org` naming another org, existing or not, is 403
+    on `POST /boards` and `POST /invites`. `POST /orgs` is 409 until the
+    master is rotated, and allowed after. A master call with no org, once a
+    non-legacy org exists and no legacy org does, is 400. NULL rows found
+    beside a non-legacy org are left alone: their boards get 401, and their
+    invites cannot be redeemed. The relay refuses to start with a master
+    that is short or carries the `sbo_` prefix.
+  - rt: join never reads the member-wide secrets. The board-peering row
+    decides through `pickAdminToken`. On a Mac with two org clones, a token
+    kept on the Mac is never used for either org.
+  - Operator script: it refuses an http `SWITCHBOARD_URL` that is not
+    loopback.
 - **rt picks the org token first, and uses a master only from the org's
   shared stores.** Covered in `board-peers.test.ts`, `invite.test.ts`,
   `join.test.ts` and `peer.test.ts`: a master in the environment, a board's
@@ -433,6 +489,13 @@ Each acceptance bullet in RT-613 is proved by a test:
 - `POST /orgs` waits until the master is rotated, which the relay enforces
   through the legacy fingerprint.
 - The operator script takes the master from `SWITCHBOARD_OPERATOR_TOKEN`.
+- `--token-stdin` checks the token against the relay before it writes, so a
+  typo never replaces a working token.
+- A board in another org answers exactly as a username nobody holds would.
+  The only exceptions are the 409 on a username that is taken and the 403
+  on an org field that is not the caller's own.
+- On a Mac with more than one org clone, rt reads no token from this Mac's
+  own sources, only from the named org's admin-only file.
 
 ## Follow-ups
 
@@ -441,10 +504,8 @@ Each acceptance bullet in RT-613 is proved by a test:
   ever used.
 - A guard in the board app (`loadSwitchboardAdminToken`) that ignores a
   master in the board's `.env`.
-- `--token-stdin` checks the token against the relay before it writes, so a
-  typo never replaces a working token.
-- A board in another org answers exactly as a username nobody holds would.
-  The only exception is the 409 on a username that is taken.
+- An rt verb that removes one key from the member-wide team secrets. Today
+  that takes a hand sops edit (step 3).
 
 ## Left to the builder
 
