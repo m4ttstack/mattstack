@@ -20,7 +20,7 @@ import { rtCommand } from "../packages/rt-client/src/index.ts";
 import { RT_DIR } from "../lib/daemon-config.ts";
 import { trayQuery } from "../lib/daemon-client.ts";
 import { notify } from "../lib/notifier.ts";
-import { createUpdateLock } from "../lib/setup/update-lock.ts";
+import { devUpdateLock, underDevUpdateLock } from "../lib/dev/update-lock.ts";
 import { getKvValue, setKvValueCritical } from "../lib/state/kv-blob.ts";
 import { exitUserError, failureFor, logFailureDetail, UserActionableError } from "../lib/errors.ts";
 import { processFlavor } from "../lib/flavor.ts";
@@ -110,15 +110,7 @@ function realAutoDeps(): DevAutoDeps {
       write: (v) => { setKvValueCritical("dev-auto-update", "announced", v); },
       notify: (n) => notify(n.title, n.message, undefined, "setup_update", undefined, n.id),
     }),
-    lock: async (fn) => {
-      const lock = createUpdateLock(join(RT_DIR, "dev-update.lock"));
-      if (!lock.acquire()) return "locked";
-      try {
-        return await fn();
-      } finally {
-        lock.release();
-      }
-    },
+    lock: (fn) => underDevUpdateLock(devUpdateLock(RT_DIR), fn),
     logFailure: (detail, output) => logCliEvent("warn", "dev", detail, { output: withoutUrls(output) }),
   };
 }
@@ -272,7 +264,7 @@ export async function devUpdate(args: string[], _ctx: CommandContext = {}): Prom
     return;
   }
   const release = args.includes("--release");
-  await run(args, (s, stage) => runDevUpdate(s, stage, { release, clone: realCloneSync() }), (r, stages, json) => {
+  await run(args, (s, stage) => runDevUpdate(s, stage, { release, clone: realCloneSync(), lock: (fn) => underDevUpdateLock(devUpdateLock(RT_DIR), fn) }), (r, stages, json) => {
     if (json) out.json(devEnvelope({ ok: true, clone: r.clone, stages }, new Date()));
     else out.print(...devUpdateBlocks(r));
   });

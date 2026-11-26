@@ -78,6 +78,12 @@ describe("rt dev", () => {
     expect(text).toContain("gh auth login");
   });
 
+  test("another dev update running is a refusal, not a failure", () => {
+    const f = failureBlocks(new UserActionableError("dev-update-running", "Another dev update is running", {}, { next: "rt dev update" }));
+    if (!f.note || f.status !== "refused") throw new Error("expected a refusal");
+    expect(renderPlain(f.blocks)).toStartWith("[refused] Another dev update is running");
+  });
+
   test.each([
     ["dev-no-repo-root", "This Mac has no repo folder chosen yet", "rt setup repo-root set <folder>"],
     ["dev-tool-missing", "go is not installed", "open https://go.dev/dl/"],

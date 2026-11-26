@@ -3,6 +3,10 @@ import { basename } from "path";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { DevSeams, StageRunner } from "../seams.ts";
 import { runDevUpdate, rtUiStale, type CloneSync } from "../update.ts";
+import { mkdtempSync, utimesSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { DEV_UPDATE_LOCK_MAX_AGE_MS, devUpdateLock } from "../update-lock.ts";
 
 const CLONE = "/Users/collab/Documents/GitHub/mattstack";
 const BUN = "/Users/collab/.bun/bin/bun";
@@ -110,6 +114,22 @@ describe("runDevUpdate", () => {
     expect(probes.calls.exec).toEqual([]);
   });
 
+  test("a hand run while the hourly run holds the lock refuses and touches nothing", async () => {
+    const { s, probes } = seams({});
+    await expect(runDevUpdate(s, runner, { lock: async () => "locked" })).rejects.toMatchObject({ code: "dev-update-running" });
+    expect(probes.calls.exec).toEqual([]);
+  });
+
+  test("a hand run takes the lock around the whole run", async () => {
+    const { s } = seams({});
+    let inside = false;
+    let ran = false;
+    await runDevUpdate(s, async (t, task) => { ran ||= inside; return runner(t, task); }, {
+      lock: async (fn) => { inside = true; try { return await fn(); } finally { inside = false; } },
+    });
+    expect(ran).toBe(true);
+  });
+
   test("swaps in a newer release dev app, then re-registers the apps", async () => {
     const { s, probes, swapCmds } = seams({});
     const r = await runDevUpdate(s, runner);
@@ -202,4 +222,24 @@ describe("rtUiStale", () => {
   test("missing binary is stale", async () => expect(await rtUiStale(seams({ uiBinary: false }).s, CLONE)).toBe(true));
   test("a newer source file is stale", async () => expect(await rtUiStale(seams({ newerUnderUi: true }).s, CLONE)).toBe(true));
   test("fresh is not stale", async () => expect(await rtUiStale(seams({}).s, CLONE)).toBe(false));
+});
+
+describe("devUpdateLock", () => {
+  test("a live run's lock still holds an hour in: the run's own timeouts add up past 30 minutes", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-dev-lock-"));
+    const path = join(dir, "dev-update.lock");
+    writeFileSync(path, "4242");
+    const hourAgo = (Date.now() - 60 * 60_000) / 1000;
+    utimesSync(path, hourAgo, hourAgo);
+    expect(devUpdateLock(dir, { pid: 1, alive: (pid) => pid === 4242 }).acquire()).toBe(false);
+  });
+
+  test("the cap still frees a lock whose pid was reused long after its run died", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-dev-lock-"));
+    const path = join(dir, "dev-update.lock");
+    writeFileSync(path, "4242");
+    const past = (Date.now() - DEV_UPDATE_LOCK_MAX_AGE_MS - 60_000) / 1000;
+    utimesSync(path, past, past);
+    expect(devUpdateLock(dir, { pid: 1, alive: () => true }).acquire()).toBe(true);
+  });
 });

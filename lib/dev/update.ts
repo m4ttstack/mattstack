@@ -45,7 +45,20 @@ export async function rtUiStale(s: DevSeams, clone: string): Promise<boolean> {
 }
 
 /** `release` swaps a dev app built on this Mac for the release's, which a plain update leaves alone. */
-export async function runDevUpdate(s: DevSeams, stage: StageRunner, opts: { release?: boolean; clone?: CloneSync } = {}): Promise<DevUpdateResult> {
+export async function runDevUpdate(
+  s: DevSeams,
+  stage: StageRunner,
+  opts: { release?: boolean; clone?: CloneSync; lock?: <T>(fn: () => Promise<T>) => Promise<T | "locked"> } = {},
+): Promise<DevUpdateResult> {
+  if (!opts.lock) return updateUnlocked(s, stage, opts);
+  const r = await opts.lock(() => updateUnlocked(s, stage, opts));
+  if (r === "locked") {
+    throw new UserActionableError("dev-update-running", "Another dev update is running", {}, { why: "The hourly update may be installing. Try again in a few minutes.", next: "rt dev update" });
+  }
+  return r;
+}
+
+async function updateUnlocked(s: DevSeams, stage: StageRunner, opts: { release?: boolean; clone?: CloneSync }): Promise<DevUpdateResult> {
   const clone = s.storedSourcePath();
   if (s.flavor !== "dev" || !clone) {
     throw new UserActionableError("dev-not-set-up", "This Mac isn't set up to run mattstack from a clone", {}, { next: "rt dev setup" });
