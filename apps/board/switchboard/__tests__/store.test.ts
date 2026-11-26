@@ -178,6 +178,34 @@ describe('orgs', () => {
     });
   });
 
+  test('a NULL-org open invite holds its username: register and invite are refused for an org, and the row is unchanged', () => {
+    const { db, s, a } = twoOrgs();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO invites (code_hash, username, created_at, expires_at) VALUES (?, ?, ?, ?)`,
+      [hashToken('eve-code'), 'eve', now, now + 60_000]
+    );
+    const invite = () =>
+      db
+        .query<unknown, [string]>(`SELECT * FROM invites WHERE username = ?`)
+        .all('eve');
+    const before = invite();
+    expect(before).toEqual([
+      {
+        code_hash: hashToken('eve-code'),
+        username: 'eve',
+        created_at: now,
+        expires_at: now + 60_000,
+        redeemed_at: null,
+        org_id: null,
+      },
+    ]);
+    expect(() => s.registerBoard('eve', a)).toThrow(UsernameTakenError);
+    expect(() => s.createInvite('Eve', now, a)).toThrow(UsernameTakenError);
+    expect(invite()).toEqual(before);
+    expect(s.boardOrg('eve')).toBeNull();
+  });
+
   test('re-register in the same org still reissues', () => {
     const { s, a } = twoOrgs();
     const first = s.registerBoard('ada', a).token;

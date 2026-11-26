@@ -498,6 +498,26 @@ describe('/orgs', () => {
     ).toEqual({ status: 409, text: '{"error":"rotate-master-first"}' });
   });
 
+  for (const path of ['/boards', '/invites'])
+    test(`a master POST ${path} with no org stamps the legacy master`, async () => {
+      const { store, call } = setup();
+      expect(store.orgs.legacyId()).toBeNull();
+      expect(
+        (await call(path, { token: ADMIN, body: { username: 'ada' } })).status
+      ).toBe(201);
+      expect(await store.orgs.masterGateClosed(ADMIN)).toBe(true);
+    });
+
+  test('the awaited backstop stamps before the gate', async () => {
+    const { store, call } = setup();
+    store.registerBoard('ada');
+    expect(store.orgs.legacyId()).not.toBeNull();
+    expect(await store.orgs.masterGateClosed(ADMIN)).toBe(false);
+    expect(
+      await answer(call('/orgs', { method: 'POST', token: ADMIN }))
+    ).toEqual({ status: 409, text: '{"error":"rotate-master-first"}' });
+  });
+
   test('after a master POST /invites with no org, one rotation lifts the gate', async () => {
     const { db, call } = setup();
     await call('/invites', { token: ADMIN, body: { username: 'ada' } });
