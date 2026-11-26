@@ -20,12 +20,16 @@ Each step is safe on its own, and no board token changes. Do them in order.
    - The `org.admin-secrets` row must not read `skipped`. On the old rt and the
      new one alike, `skipped` means this Mac's age key is not the one the
      roster holds.
-   - `rt team admin-secrets` must report nobody under `withoutKey`.
+   - `rt team admin-secrets` must name nobody who "cannot open them yet" (in
+     `rt team admin-secrets --json`, nobody under `withoutKey`).
 
    Fix any Mac that fails before going on.
-1. **Deploy the relay.** Existing boards and invites land in one legacy org
-   that has no token yet. The master acts as that org on the old routes, so
-   the rt released today is unaffected.
+1. **Merge the relay change.** The relay deploys itself when the PR merges to
+   `main` (Railway's watch paths, see
+   [Operator setup](../apps/board/docs/peer-boards.md#operator-setup-run-a-switchboard)).
+   Existing boards and invites land in one legacy org that has no token yet.
+   The master acts as that org on the old routes, so the rt released today is
+   unaffected.
 2. **The operator mints the legacy org's token.** `mint` is not the command
    here (it makes a new org, and is refused before step 5). Run
    `bun apps/board/switchboard/operator.ts orgs`, take the id on the row
@@ -40,7 +44,9 @@ Each step is safe on its own, and no board token changes. Do them in order.
      personal store by hand. The age key lives only in the keychain, and sops
      reads it from `SOPS_AGE_KEY`. Run this from `~/.mattstack/user` (sops
      matches `.sops.yaml` relative to that folder), delete the
-     `switchboardAdminToken` line in the editor, then save and quit:
+     `switchboardAdminToken` line in the editor, then save and quit. When it
+     was the last key, also delete the comma at the end of the line before
+     it, or sops refuses the save and reopens the editor:
 
      ```sh
      cd ~/.mattstack/user
@@ -54,27 +60,44 @@ Each step is safe on its own, and no board token changes. Do them in order.
 
    An org admin also removes `switchboardAdminToken` from the legacy org's
    member-wide team secrets, where an older join kept it and every member can
-   read it. rt has no verb for one key there, so edit by hand in the org clone:
-   run `sops mattstack/org/secrets/rt.json`, delete the key, then commit and
-   publish.
+   read it. rt has no verb for one key there, so edit by hand in the org
+   clone. Run this from the clone (sops matches its `.sops.yaml` relative to
+   that folder), with your org's folder name in place of `<org>`:
+
+   ```sh
+   cd ~/.mattstack/orgs/<org>
+   SOPS_AGE_KEY="$(security find-generic-password -a mattstack -s mattstack-age-key -w)" sops mattstack/org/secrets/rt.json
+   ```
+
+   Delete the `switchboardAdminToken` line, and the comma before it when it
+   was the last key, then save and quit. Commit the file unless rt's daemon
+   already has (`git status` shows it clean), then push it:
+
+   ```sh
+   git commit -m "Remove the relay operator's token from the member secrets" mattstack/org/secrets/rt.json
+   rt team publish --team <org>
+   ```
 
    The shared admin-only file still holds the master, so nothing stops working
    meanwhile. On the new rt the `org.admin-secrets` row names each copy.
-4. **Matt puts the org token in the admin-only file.** He runs
-   `rt team admin-secrets --token-stdin --replace-token` and paste the org
-   token. The other admins get it on their next pull, then restart their
-   boards (a board keeps the token it read at start), so their peered badge
-   does not fail after step 5.
+4. **Matt puts the org token in the admin-only file.** He copies the org
+   token, then runs
+   `pbpaste | rt team admin-secrets --token-stdin --replace-token` (typed in
+   by hand instead, the token ends with Ctrl-D). The other admins get it on
+   their next pull, then restart their boards (a board keeps the token it read
+   at start), so their peered badge does not fail after step 5.
 5. **The operator rotates the master on Railway, last.** Set
    `SWITCHBOARD_ADMIN_TOKEN` to at least 32 random characters
    (`openssl rand -hex 32`). This also kills the copy in the org repo's git
-   history and lifts the second-org gate. From here no Mac and no board keeps
-   the master, the operator's included.
+   history and lifts the second-org gate. From here no board keeps the master,
+   the operator's own included, and rt keeps it on no Mac. The operator then
+   sets their own `SWITCHBOARD_OPERATOR_TOKEN` (kept outside rt) to the new
+   master, or every `operator.ts` call gets a 401. The rules for the master's value are in
+   [Operator setup](../apps/board/docs/peer-boards.md#operator-setup-run-a-switchboard).
 
-The relay refuses to start when `SWITCHBOARD_ADMIN_TOKEN` starts with `sbo_`,
-and warns when it is under 32 characters.
-
-There is no rollback once a second org exists.
+Rolling the relay back is safe for boards until a second org exists: board
+tokens work on the old image, but org tokens get a 401 there until it rolls
+forward again. Once a second org exists, there is no rollback.
 
 ## The operator script
 
@@ -87,16 +110,18 @@ bun apps/board/switchboard/operator.ts <orgs | mint | token <org id>>
 - It reads the master from `SWITCHBOARD_OPERATOR_TOKEN`, never from
   `SWITCHBOARD_ADMIN_TOKEN`.
 - It reads the relay URL from `SWITCHBOARD_URL`, default
-  `https://switchboard.mattstack.dev` (https, or http to localhost only).
+  `https://switchboard.mattstack.dev` (https, or http to a loopback host only:
+  `localhost`, `127.0.0.1` or `[::1]`).
 - `orgs` lists the orgs.
 - `mint` creates a new org and prints its token once on stdout. Before step 5
   the relay refuses it. Give the token to the org's owner, who runs
-  `rt team admin-secrets --token-stdin` to share it with the org's admins.
+  `pbpaste | rt team admin-secrets --token-stdin` to share it with the org's
+  admins.
 - `token <org id>` mints or rotates that org's token.
 
 ## Rotating an org token
 
 Run `token <org id>`. Rotating leaves the org's boards untouched. Give the new
-token to an owner or admin, who runs
-`rt team admin-secrets --token-stdin --replace-token`. The other admins pull and
+token to an owner or admin, who copies it and runs
+`pbpaste | rt team admin-secrets --token-stdin --replace-token`. The other admins pull and
 restart their boards.

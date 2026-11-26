@@ -31,7 +31,9 @@ the org's switchboard token, in practice the org admin's (`lib/team/peer.ts`): w
 board under the username this Mac recorded for the org, the handle join
 registers (else `board.defaultMember`, else the org forge's login), stores the
 token in that same `switchboardToken` secret, and leaves a board whose token
-already works alone; `rt team create` runs it and degrades to a warning. `rt team members remove` deletes the member's
+already works alone; `rt team create` runs it and degrades to a warning. A
+username another org holds fails with `username-taken`, which `rt team peer`
+cannot clear, so create's warning names it with no `rt team peer` step. `rt team members remove` deletes the member's
 board registration and `rt team status --json` reports `peered` per member.
 The board's own roster only shows a read-only peered badge; it no longer
 invites, removes or joins.
@@ -68,8 +70,7 @@ Read `docs/superpowers/specs/2026-11-25-switchboard-sealed-text-design.md`
 before adding a message or a field.
 
 The org's switchboard token (an `sbo_` token the relay operator mints; the
-relay's master token never lives on a Mac, and the operator's steps are in
-`docs/switchboard-org-tokens.md`) lives in the org's admin-only secrets
+operator's steps are in `docs/switchboard-org-tokens.md`) lives in the org's admin-only secrets
 (`mattstack/org/admin-secrets/rt.json`, key `switchboardAdminToken`),
 locked by `.sops.yaml`'s admins rule to the age keys the roster records for
 the org's owners and admins (`lib/team/admin-secrets.ts`).
@@ -83,11 +84,17 @@ Mac that cannot open the file reads it as absent. The daemon's `secrets:read` bo
 puts this Mac's token in when the file holds none (`--replace-token` after
 the token changes; `--token-stdin` reads it from stdin, trimmed and checked
 against the relay). It and the row never share a token that is not an org
-token. A username another org holds fails with `username-taken`; `rt team members sync` and `remove` run the same sync,
+token; `rt team members sync` and `remove` run the same sync,
 and the `org.admin-secrets` row asks for it when the roles drift or this
 Mac's token is not shared yet, and reads `skipped` instead on a Mac whose
 age key is not the one the roster holds, since the verb refuses there. An rt older than this refuses a `.sops.yaml`
 with both rules, so share the token only once every admin runs this rt.
+
+The relay's master token lives on no Mac only once the move in
+`docs/switchboard-org-tokens.md` is done. Until its step 4 replaces it, rt
+still accepts a master the admin-only file holds (`pickAdminToken` in
+`lib/team/board-peers.ts`, its last pick), and that fallback can be removed
+only after step 5.
 
 Change invite, join, peer and the row together or not
 at all; `lib/team/invite.ts`, `lib/team/join.ts`, `lib/team/peer.ts`,
