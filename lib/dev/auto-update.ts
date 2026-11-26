@@ -9,14 +9,15 @@ import { UserActionableError } from "../errors.ts";
 import { chooseDevRelease, listDevReleases, readInstalledDevApp } from "./dev-app.ts";
 import type { CloneCheck, CloneHold } from "./clone-guards.ts";
 import { registerApps } from "./setup.ts";
-import type { DevSeams, StageRunner } from "./seams.ts";
-import { buildRtUi, ensureDevApp, requireGh, toolchainEnv } from "./stages.ts";
+import type { ChosenDevRelease, DevSeams, StageRunner } from "./seams.ts";
+import { buildRtUi, ensureDevApp, toolchainEnv } from "./stages.ts";
 import { compareVersions, parseBunPin, parseGoPin, probeDevTools } from "./tools.ts";
 import { buildServedApps, rtUiStale } from "./update.ts";
 
 export type DevHold = CloneHold | "daemonBusy" | "orgOff" | "updateFailed";
 export type DevAutoOutcome =
   | { kind: "current" }
+  | { kind: "unchecked"; detail: string }
   | { kind: "held"; version: string; hold: DevHold; detail: string }
   | { kind: "updated"; version: string; daemonRestarted: boolean };
 
@@ -43,6 +44,12 @@ export interface DevAutoDeps {
   lock<T>(fn: () => Promise<T>): Promise<T | "locked">;
   /** The detached run's output goes nowhere, so a failure's own output is kept here. */
   logFailure(detail: string, output: string): void;
+  /**
+   * The releases could not be listed. Records that this Mac is not checking
+   * unless a hold already says more; `signedOut` marks a cause that never
+   * clears by itself, which the person is told about once.
+   */
+  unchecked(detail: string, signedOut: boolean): void;
 }
 
 const CURRENT: DevAutoOutcome = { kind: "current" };
@@ -58,7 +65,12 @@ export async function runDevAutoUpdate(s: DevSeams, stage: StageRunner, d: DevAu
       d.clearHeld();
       return CURRENT;
     }
-    const pick = await newestRelease(s);
+    const look = await newestRelease(s);
+    if ("unreadable" in look) {
+      d.unchecked(look.unreadable, look.signedOut);
+      return { kind: "unchecked", detail: look.unreadable };
+    }
+    const pick = look.pick;
     if (!pick) return CURRENT;
     if (compareVersions(installed.version, pick.release.version) >= 0) {
       d.clearHeld();
@@ -140,13 +152,22 @@ async function asStep<T>(fn: () => Promise<T>, detail: string): Promise<T> {
   }
 }
 
-/** No release, or GitHub not answering, both mean there is nothing to install this hour. */
-async function newestRelease(s: DevSeams) {
+type ReleaseLook = { pick: ChosenDevRelease | null } | { unreadable: string; signedOut: boolean };
+
+/** No release with a dev app means nothing to install; a lookup that failed means rt does not know. */
+async function newestRelease(s: DevSeams): Promise<ReleaseLook> {
+  const gh = s.gh();
+  if (!gh) {
+    return { unreadable: "rt could not ask GitHub for releases: this app does not include the GitHub command-line tool rt needs. Reinstall mattstack.", signedOut: true };
+  }
   try {
-    return await chooseDevRelease(s.probes, await listDevReleases(s.probes, requireGh(s)));
+    return { pick: await chooseDevRelease(s.probes, await listDevReleases(s.probes, gh)) };
   } catch (err) {
-    if (err instanceof UserActionableError) return null;
-    throw err;
+    const said = err instanceof UserActionableError ? (err.log ?? "") : "";
+    if (/gh auth login|not logged in/i.test(said)) {
+      return { unreadable: "rt could not ask GitHub for releases: gh is not signed in. Run gh auth login.", signedOut: true };
+    }
+    return { unreadable: "rt could not ask GitHub for releases. It tries again within the hour.", signedOut: false };
   }
 }
 

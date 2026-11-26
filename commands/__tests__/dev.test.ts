@@ -42,6 +42,12 @@ describe("rt dev", () => {
     expect(held).toContain("Your clone has uncommitted changes.");
   });
 
+  test("--auto says when it could not check for a release, and why", () => {
+    const text = renderPlain(devAutoBlocks({ kind: "unchecked", detail: "rt could not ask GitHub for releases. It tries again within the hour." }));
+    expect(text).toContain("rt could not check for a new dev app");
+    expect(text).toContain("It tries again within the hour.");
+  });
+
   test("--auto says when the daemon was not restarted, and how to restart it", () => {
     const text = renderPlain(devAutoBlocks({ kind: "updated", version: "2.23.0", daemonRestarted: false }));
     expect(text).toContain("The daemon still runs the code from before the update");

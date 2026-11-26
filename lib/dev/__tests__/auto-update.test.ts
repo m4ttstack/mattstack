@@ -17,6 +17,7 @@ interface World {
   flavor?: "dev" | "prod";
   appBuildFails?: boolean;
   githubDown?: boolean;
+  signedOut?: boolean;
   noApp?: boolean;
   appRunning?: boolean;
 }
@@ -59,6 +60,7 @@ function setup(w: World = {}) {
       if (a.includes("MSDevReleaseBuild")) return w.releaseBuild === false ? { code: 1, stdout: "", stderr: "" } : { code: 0, stdout: "true\n", stderr: "" };
       if (a.includes("api repos/m4ttstack/mattstack/releases")) {
         if (w.githubDown) return { code: 1, stdout: "", stderr: "HTTP 502" };
+        if (w.signedOut) return { code: 4, stdout: "", stderr: "To get started with GitHub CLI, please run:  gh auth login" };
         return {
           code: 0,
           stderr: "",
@@ -100,6 +102,7 @@ function setup(w: World = {}) {
   const statuses: Array<{ offeredVersion: string | null; heldVersion: string | null; hold: string | null }> = [];
   const notices: Array<[string, string, string]> = [];
   const failures: Array<[string, string]> = [];
+  const unchecked: Array<[string, boolean]> = [];
   let checked = 0;
   const state = { autoUpdate: true, busy: false, clone: { ok: true, behind: 3 } as CloneCheck, installExit: 0, ffExit: 0, cleared: 0, installBun: "", restartOk: true };
   const d: DevAutoDeps = {
@@ -114,8 +117,9 @@ function setup(w: World = {}) {
     notifyOnce: (version, hold, detail) => { notices.push([version, hold, detail]); },
     lock: async (fn) => fn(),
     logFailure: (detail, output) => { failures.push([detail, output]); },
+    unchecked: (detail, signedOut) => { unchecked.push([detail, signedOut]); },
   };
-  return { s, d, order, statuses, notices, failures, state, checked: () => checked };
+  return { s, d, order, statuses, notices, failures, unchecked, state, checked: () => checked };
 }
 
 describe("runDevAutoUpdate", () => {
@@ -127,11 +131,29 @@ describe("runDevAutoUpdate", () => {
     expect(t.state.cleared).toBe(1);
   });
 
-  test("GitHub not answering keeps a recorded hold", async () => {
+  test("GitHub not answering is unchecked, not current: a recorded hold stays, and the miss is recorded", async () => {
     const t = setup({ githubDown: true });
-    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "current" });
+    const detail = "rt could not ask GitHub for releases. It tries again within the hour.";
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "unchecked", detail });
+    expect(t.unchecked).toEqual([[detail, false]]);
     expect(t.state.cleared).toBe(0);
     expect(t.checked()).toBe(0);
+  });
+
+  test("gh signed out is unchecked and marked for the person, since it never fixes itself", async () => {
+    const t = setup({ signedOut: true });
+    const detail = "rt could not ask GitHub for releases: gh is not signed in. Run gh auth login.";
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "unchecked", detail });
+    expect(t.unchecked).toEqual([[detail, true]]);
+  });
+
+  test("no gh at all is unchecked and marked for the person", async () => {
+    const t = setup();
+    t.s.gh = () => null;
+    const out = await runDevAutoUpdate(t.s, runner, t.d);
+    expect(out).toMatchObject({ kind: "unchecked" });
+    expect(t.unchecked).toEqual([[(out as { detail: string }).detail, true]]);
+    expect((out as { detail: string }).detail).toContain("GitHub command-line tool");
   });
 
   test("the clone's packages install with the bun that was probed", async () => {

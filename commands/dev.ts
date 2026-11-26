@@ -104,6 +104,13 @@ function realAutoDeps(): DevAutoDeps {
     writeStatus: writeAppUpdate,
     clearHeld: () => {
       if (readAppUpdateHold(RT_DIR) !== null) writeAppUpdate({ offeredVersion: null, heldVersion: null, hold: null });
+      if (getKvValue<string | null>("dev-auto-update", "unchecked", null) !== null) setKvValueCritical("dev-auto-update", "unchecked", null);
+    },
+    unchecked: (detail, signedOut) => {
+      if (readAppUpdateHold(RT_DIR) === null) writeAppUpdate({ offeredVersion: null, heldVersion: null, hold: "releasesUnreadable" });
+      if (!signedOut || getKvValue<string | null>("dev-auto-update", "unchecked", null) === detail) return;
+      setKvValueCritical("dev-auto-update", "unchecked", detail);
+      notify("mattstack-dev can't check for updates", detail, undefined, "setup_update", undefined, "dev_update:unchecked");
     },
     notifyOnce: createNotifyOnce({
       read: () => getKvValue<string | null>("dev-auto-update", "announced", null),
@@ -185,6 +192,7 @@ export function devSetupBlocks(r: DevSetupResult): Block[] {
 export function devAutoBlocks(r: DevAutoOutcome | "locked"): Block[] {
   if (r === "locked") return [out.line("skipped", "Another dev update is running")];
   if (r.kind === "current") return [out.line("done", "Your dev setup is up to date")];
+  if (r.kind === "unchecked") return [out.line("pending", "rt could not check for a new dev app", r.detail)];
   if (r.kind === "updated") {
     const done = out.line("done", `Updated to mattstack-dev ${r.version}`);
     if (r.daemonRestarted) return [done];
