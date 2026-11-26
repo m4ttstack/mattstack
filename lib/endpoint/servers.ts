@@ -80,8 +80,12 @@ export function parseServerProcs(psOutput: string, commands: Map<number, string>
 // another rt verb can hold the rest of this text, and a match becomes a stop target.
 const INTERCEPT_ARGV = /^(?:(?:\S*\/)?rt|(?:\S*\/)?bun(?: run| -\S+)* \S*\/cli\.ts) intercept run ([A-Za-z0-9._-]+) -- ?(.*)$/;
 
+// ps drops the quoting around a path that holds a space, so only a cli.ts on disk there says where the path ends.
+const SPACED_SOURCE_ARGV = /^(?:\S*\/)?bun(?: run| -\S+)* (\/.* .*\/cli\.ts) intercept run ([A-Za-z0-9._-]+) -- ?(.*)$/;
+
 export function interceptCommandOf(args: string): { command: string; args: string[] } | null {
-  const hit = INTERCEPT_ARGV.exec(args);
+  const spaced = SPACED_SOURCE_ARGV.exec(args);
+  const hit = INTERCEPT_ARGV.exec(args) ?? (spaced && existsSync(spaced[1]!) ? spaced.slice(1) : null);
   if (!hit) return null;
   const rest = hit[2]!;
   return { command: hit[1]!, args: rest === "" ? [] : rest.split(" ") };
@@ -102,8 +106,11 @@ export function ancestorPids(procs: ServerProc[], pid: number): number[] {
   return ancestorsIn(new Map(procs.map((p) => [p.pid, p.ppid])), pid);
 }
 
+const INTERPRETER_FLAGS = /^((?:\S*\/)?(?:node|bun|deno|python3?))(?: -\S+)+(?= )/;
+
+/** An interpreter's own flags dropped, so the script it runs names the process. */
 function asCandidate(proc: ServerProc): KillCandidate {
-  return { pid: proc.pid, ppid: proc.ppid, command: proc.command, fullCommand: proc.args };
+  return { pid: proc.pid, ppid: proc.ppid, command: proc.command, fullCommand: proc.args.replace(INTERPRETER_FLAGS, "$1") };
 }
 
 /** A shell, agent or multiplexer, or an app such as an editor. A framework Python runs from an app bundle and is not one. */
@@ -186,11 +193,27 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
     return tree && !inNestedRepo(cwd, tree.real) ? tree : undefined;
   };
 
+  const children = new Map<number, number[]>();
+  for (const proc of snapshot.procs) children.set(proc.ppid, [...(children.get(proc.ppid) ?? []), proc.pid]);
+  /** lsof can miss a process's folder; a child starts in its parent's, so the nearest child's stands in. */
+  const cwdOf = (pid: number) => {
+    const queue = [pid];
+    const seen = new Set(queue);
+    for (const at of queue) {
+      const cwd = snapshot.cwds.get(at);
+      if (cwd !== undefined) return cwd;
+      for (const child of children.get(at) ?? []) {
+        if (!seen.has(child)) queue.push(child), seen.add(child);
+      }
+    }
+    return undefined;
+  };
+
   const repoRules = rules.map((rule) => ({ ...rule, repoRemote: null }));
   const matched = new Map<number, { role: string; tree: Tree }>();
   for (const proc of snapshot.procs) {
     const run = interceptCommandOf(proc.args);
-    const cwd = snapshot.cwds.get(proc.pid);
+    const cwd = run ? cwdOf(proc.pid) : undefined;
     if (!run || cwd === undefined) continue;
     const tree = treeOf(cwd);
     if (!tree) continue;
@@ -200,7 +223,10 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
 
   const roots = new Map<number, { role: string; tree: Tree; leftBehind: boolean }>();
   for (const [pid, at] of matched) {
-    const nested = ancestors(pid).some((up) => matched.get(up)?.role === at.role && matched.get(up)?.tree === at.tree);
+    const above = ancestors(pid);
+    const outer = above.findIndex((up) => matched.get(up)?.role === at.role && matched.get(up)?.tree === at.tree);
+    // One an agent started is its own: stopping the outer one spares the agent and everything under it.
+    const nested = outer >= 0 && !above.slice(0, outer).some((up) => agentAt(up) !== null);
     if (!nested) roots.set(pid, { ...at, leftBehind: false });
   }
 

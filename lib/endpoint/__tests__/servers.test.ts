@@ -46,6 +46,23 @@ test("an intercepted command is read from the installed rt and from a source che
   expect(interceptCommandOf("/Users/me/.bun/bin/bun run --preload=/Users/me/restore-cwd.ts /code/rt/cli.ts intercept run doppler -- run -- parcel")).toEqual(want);
 });
 
+describe("a source checkout whose path holds a space", () => {
+  let dir: string;
+  beforeEach(() => { dir = realpathSync(mkdtempSync(join(tmpdir(), "rt dev "))); });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  test("runs an intercepted command when its cli.ts is there", () => {
+    writeFileSync(join(dir, "cli.ts"), "");
+    expect(interceptCommandOf(`/Users/me/.bun/bin/bun run --preload=/x.ts ${dir}/cli.ts intercept run doppler -- run -- parcel`))
+      .toEqual({ command: "doppler", args: ["run", "--", "parcel"] });
+  });
+
+  test("is only a mention when the words before cli.ts are no path", () => {
+    writeFileSync(join(dir, "cli.ts"), "");
+    expect(interceptCommandOf(`bun /opt/bin/codex exec fix ${dir}/cli.ts intercept run doppler -- run -- parcel`)).toBeNull();
+  });
+});
+
 test("an intercepted command with no arguments has none", () => {
   expect(interceptCommandOf("rt intercept run doppler --")).toEqual({ command: "doppler", args: [] });
 });
@@ -236,6 +253,34 @@ test("an agent whose path holds a space is named above a server and spared insid
     { pid: 13, ppid: 12, args: "node helper.js", cwd: API },
   ]), rules());
   expect(inside.map((s) => s.pids)).toEqual([[10, 11]]);
+});
+
+test("a same-role server an agent started inside a server's tree is its own row", () => {
+  const found = findServers(snap([
+    ...apiTree(API, [10400]),
+    { pid: 20, ppid: 11, args: "claude --resume x", cwd: API },
+    { pid: 30, ppid: 20, args: API_RUN, cwd: API },
+    { pid: 31, ppid: 30, args: "node src/server", cwd: API, ports: [10401] },
+  ]), rules([{ worktree: TREE, role: "api", port: 10400 }]));
+  expect(found.map((s) => [s.pid, s.pids, s.agent, s.inside])).toEqual([
+    [10, [10, 11, 12, 13], null, "claude"],
+    [30, [30, 31], "claude", null],
+  ]);
+});
+
+test("an intercept run whose folder lsof did not report takes its nearest child's", () => {
+  const found = snap(apiTree(API, [10400]));
+  found.cwds.delete(10);
+  found.cwds.delete(11);
+  expect(findServers(found, rules()).map((s) => [s.pid, s.pids])).toEqual([[10, [10, 11, 12, 13]]]);
+});
+
+test("an agent launched with interpreter flags is named above a server and inside one", () => {
+  const agent = "node --no-warnings --enable-source-maps /opt/bin/codex exec fix";
+  const above = findServers(snap([{ pid: 5, ppid: 1, args: agent, cwd: API }, ...apiTree(API, [10400], 5)]), rules());
+  expect(above.map((s) => s.agent)).toEqual(["codex"]);
+  const inside = findServers(snap([...apiTree(API).slice(0, 2), { pid: 12, ppid: 11, args: agent, cwd: API }]), rules());
+  expect(inside.map((s) => [s.pids, s.inside])).toEqual([[[10, 11], "codex"]]);
 });
 
 test("a left-behind tree never climbs into an agent or an app in the same folder", () => {
