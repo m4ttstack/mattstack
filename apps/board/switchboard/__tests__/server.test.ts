@@ -472,25 +472,35 @@ describe('the master on the admin routes', () => {
   });
 });
 
+async function quietly(run: () => Promise<void>): Promise<void> {
+  const warn = spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    await run();
+  } finally {
+    warn.mockRestore();
+  }
+}
+
 describe('/orgs', () => {
-  test('POST /orgs is 409 rotate-master-first while the master matches the legacy stamp', async () => {
-    const { db, call } = setup();
-    await register(call, ADMIN, 'ada');
-    expect(
-      await answer(call('/orgs', { method: 'POST', token: ADMIN }))
-    ).toEqual({ status: 409, text: '{"error":"rotate-master-first"}' });
-    const rotated = setup(db, 'rotated-master-0123456789abcdef0123');
-    const res = await rotated.call('/orgs', {
-      method: 'POST',
-      token: 'rotated-master-0123456789abcdef0123',
-    });
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as { id: string; token: string };
-    expect(Object.keys(body).sort()).toEqual(['id', 'token']);
-    expect(body.id).toMatch(/^[0-9a-f]{32}$/);
-    expect(body.token).toMatch(ORG_TOKEN_RE);
-    expect(rotated.store.orgs.authOrg(body.token)).toBe(body.id);
-  });
+  test('POST /orgs is 409 rotate-master-first while the master matches the legacy stamp', () =>
+    quietly(async () => {
+      const { db, call } = setup();
+      await register(call, ADMIN, 'ada');
+      expect(
+        await answer(call('/orgs', { method: 'POST', token: ADMIN }))
+      ).toEqual({ status: 409, text: '{"error":"rotate-master-first"}' });
+      const rotated = setup(db, 'rotated-master-0123456789abcdef0123');
+      const res = await rotated.call('/orgs', {
+        method: 'POST',
+        token: 'rotated-master-0123456789abcdef0123',
+      });
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { id: string; token: string };
+      expect(Object.keys(body).sort()).toEqual(['id', 'token']);
+      expect(body.id).toMatch(/^[0-9a-f]{32}$/);
+      expect(body.token).toMatch(ORG_TOKEN_RE);
+      expect(rotated.store.orgs.authOrg(body.token)).toBe(body.id);
+    }));
 
   test('on a fresh relay, a master POST /invites {username} with no org, then POST /orgs, is 409 rotate-master-first', async () => {
     const { call } = setup();
@@ -523,19 +533,20 @@ describe('/orgs', () => {
     ).toEqual({ status: 409, text: '{"error":"rotate-master-first"}' });
   });
 
-  test('after a master POST /invites with no org, one rotation lifts the gate', async () => {
-    const { db, call } = setup();
-    await call('/invites', { token: ADMIN, body: { username: 'ada' } });
-    const rotated = setup(db, 'another-master-0123456789abcdef0123');
-    expect(
-      (
-        await rotated.call('/orgs', {
-          method: 'POST',
-          token: 'another-master-0123456789abcdef0123',
-        })
-      ).status
-    ).toBe(201);
-  });
+  test('after a master POST /invites with no org, one rotation lifts the gate', () =>
+    quietly(async () => {
+      const { db, call } = setup();
+      await call('/invites', { token: ADMIN, body: { username: 'ada' } });
+      const rotated = setup(db, 'another-master-0123456789abcdef0123');
+      expect(
+        (
+          await rotated.call('/orgs', {
+            method: 'POST',
+            token: 'another-master-0123456789abcdef0123',
+          })
+        ).status
+      ).toBe(201);
+    }));
 
   test('a fresh relay with no legacy org lets the master make an org', async () => {
     const { store, call } = setup();
@@ -746,6 +757,39 @@ describe('a rotated master and the legacy org token', () => {
     } finally {
       error.mockRestore();
       warn.mockRestore();
+    }
+  });
+
+  test('the revoke warns with the id it cleared and leaves no promise unhandled when a later store read throws', async () => {
+    const { db, legacy, old } = await legacyRelay();
+    const unhandled: unknown[] = [];
+    const onUnhandled = (err: unknown) => unhandled.push(err);
+    process.on('unhandledRejection', onUnhandled);
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const error = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const rotated = setup(db, B, store => {
+        store.orgs.legacyId = () => {
+          throw new Error('SQLITE_BUSY');
+        };
+      });
+      const retired = () =>
+        db
+          .query<unknown, []>(
+            `SELECT 1 FROM relay_meta WHERE key = 'legacy_token_retired'`
+          )
+          .get() !== null;
+      for (let i = 0; i < 400 && !retired(); i++) await Bun.sleep(5);
+      expect(retired()).toBe(true);
+      await Bun.sleep(20);
+      expect(unhandled).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]![0])).toContain(legacy);
+      expect((await rotated.call('/boards', { token: old })).status).toBe(401);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+      warn.mockRestore();
+      error.mockRestore();
     }
   });
 

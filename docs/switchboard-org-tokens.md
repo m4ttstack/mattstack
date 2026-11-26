@@ -12,7 +12,8 @@ org (`409 rotate-master-first`) until the master is rotated.
 
 ## The move, steps 0 to 6
 
-Each step is safe on its own, and no board token changes. Do them in order.
+No board token changes at any step. Do them in order, and run step 6 right
+after step 5.
 
 0. **Check access first.** Before the new rt release reaches the legacy org's
    owners and admins (it stops using a master kept on the Mac as soon as it
@@ -104,7 +105,9 @@ Each step is safe on its own, and no board token changes. Do them in order.
    `bun apps/board/switchboard/operator.ts token <legacy id>`, the same id as
    in step 2. Matt shares the token with
    `pbpaste | rt team admin-secrets --token-stdin --replace-token`. The other
-   admins pull, then restart their boards.
+   admins pull, then restart their boards. If `operator.ts` prints
+   `the relay answered 503: relay-not-ready`, the relay logged that the revoke
+   failed: restart the relay, then run this step.
 
 Rolling the relay back is safe for boards until a second org exists: board
 tokens work on the old image, but org tokens get a 401 there until it rolls

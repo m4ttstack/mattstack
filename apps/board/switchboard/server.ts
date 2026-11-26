@@ -121,10 +121,10 @@ export function makeFetchHandler(
   const legacyRetired: Promise<boolean> = store.orgs
     .retireLegacyToken(adminToken, now())
     .then(
-      revoked => {
-        if (revoked)
+      cleared => {
+        if (cleared !== null)
           console.warn(
-            `switchboard: the master changed since the legacy org was stamped, so the legacy org's token was revoked; mint a new one with operator.ts token ${store.orgs.legacyId()}`
+            `switchboard: the master changed since the legacy org was stamped, so the legacy org's token was revoked; mint a new one with operator.ts token ${cleared}`
           );
         return true;
       },

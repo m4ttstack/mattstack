@@ -139,7 +139,7 @@ describe('retiring the legacy org token', () => {
     const { id: other } = orgs.create(3000);
     const otherToken = orgs.mintToken(other, 3000)!;
 
-    expect(await orgs.retireLegacyToken('master-b', 5000)).toBe(true);
+    expect(await orgs.retireLegacyToken('master-b', 5000)).toBe(legacy);
     expect(orgs.authOrg(old)).toBeNull();
     expect(orgs.authOrg(otherToken)).toBe(other);
     expect(retired(db)).toBe('5000');
@@ -149,7 +149,7 @@ describe('retiring the legacy org token', () => {
 
     const fresh = orgs.mintToken(legacy, 6000)!;
     for (const master of ['master-b', 'master-c'])
-      expect(await orgs.retireLegacyToken(master, 7000)).toBe(false);
+      expect(await orgs.retireLegacyToken(master, 7000)).toBeNull();
     expect(orgs.authOrg(fresh)).toBe(legacy);
     expect(retired(db)).toBe('5000');
   });
@@ -158,9 +158,9 @@ describe('retiring the legacy org token', () => {
     const { db, orgs } = setup();
     const legacy = orgs.ensureLegacy(1000)!;
     const token = orgs.mintToken(legacy, 2000)!;
-    expect(await orgs.retireLegacyToken('master-b', 3000)).toBe(false);
+    expect(await orgs.retireLegacyToken('master-b', 3000)).toBeNull();
     await orgs.stampLegacyMaster('master-a');
-    expect(await orgs.retireLegacyToken('master-a', 4000)).toBe(false);
+    expect(await orgs.retireLegacyToken('master-a', 4000)).toBeNull();
     expect(orgs.authOrg(token)).toBe(legacy);
     expect(retired(db)).toBeNull();
   });

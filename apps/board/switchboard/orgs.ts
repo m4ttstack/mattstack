@@ -149,22 +149,24 @@ export class OrgStore {
 
   /** Every legacy member held the stamped master, so a legacy org token
       minted under it dies on the first start with another master. Once per
-      database: a later rotation never revokes the token minted after it. */
-  async retireLegacyToken(master: string, now: number): Promise<boolean> {
+      database: a later rotation never revokes the token minted after it.
+      Returns the id of the legacy org it cleared, or null. */
+  async retireLegacyToken(master: string, now: number): Promise<string | null> {
     const stamp = this.stamp();
-    if (stamp === null || this.meta(LEGACY_TOKEN_RETIRED) !== null)
-      return false;
-    if (await Bun.password.verify(master, stamp)) return false;
-    return this.db.transaction((): boolean => {
-      if (this.meta(LEGACY_TOKEN_RETIRED) !== null) return false;
-      this.db.run(
-        `UPDATE orgs SET token_hash = NULL, token_at = NULL WHERE legacy = 1`
-      );
+    if (stamp === null || this.meta(LEGACY_TOKEN_RETIRED) !== null) return null;
+    if (await Bun.password.verify(master, stamp)) return null;
+    return this.db.transaction((): string | null => {
+      if (this.meta(LEGACY_TOKEN_RETIRED) !== null) return null;
+      const cleared = this.db
+        .query<{ id: string }, []>(
+          `UPDATE orgs SET token_hash = NULL, token_at = NULL WHERE legacy = 1 RETURNING id`
+        )
+        .get();
       this.db.run(`INSERT INTO relay_meta (key, value) VALUES (?, ?)`, [
         LEGACY_TOKEN_RETIRED,
         String(now),
       ]);
-      return true;
+      return cleared?.id ?? null;
     })();
   }
 
