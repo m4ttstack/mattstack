@@ -18,7 +18,7 @@ export type DevHold = CloneHold | "daemonBusy" | "orgOff" | "updateFailed";
 export type DevAutoOutcome =
   | { kind: "current" }
   | { kind: "held"; version: string; hold: DevHold; detail: string }
-  | { kind: "updated"; version: string };
+  | { kind: "updated"; version: string; daemonRestarted: boolean };
 
 import type { DevAutoStatus } from "./app-update-status.ts";
 export type { DevAutoStatus };
@@ -33,7 +33,8 @@ export interface DevAutoDeps {
   /** bun install --frozen-lockfile */
   /** `bun` is the path the tools stage probed; Go's directory comes first in `env.PATH`. */
   install(clone: string, env: Record<string, string>, bun: string): Promise<{ exitCode: number; tail: string }>;
-  restartDaemon(): Promise<void>;
+  /** True once the tray took the restart; false when no tray answered. */
+  restartDaemon(): Promise<boolean>;
   writeStatus(s: DevAutoStatus): void;
   /** Clears a held status left by an earlier run; writes nothing when none is recorded. */
   clearHeld(): void;
@@ -79,6 +80,7 @@ export async function runDevAutoUpdate(s: DevSeams, stage: StageRunner, d: DevAu
     if ("missing" in tools) return held("updateFailed", tools.missing);
 
     let current = "";
+    let relaunched = false;
     const step: StageRunner = (title, task) => {
       current = title;
       return stage(title, task);
@@ -105,7 +107,8 @@ export async function runDevAutoUpdate(s: DevSeams, stage: StageRunner, d: DevAu
         await asStep(() => registerApps(s, clone, io), "Serving the apps from your clone failed.");
         return { status: "done", title: "The apps run from your clone" };
       });
-      await step("Update the dev app", (io) => asStep(() => ensureDevApp(s, io, "update", pick), "Installing the dev app failed."));
+      await step("Update the dev app", (io) =>
+        asStep(() => ensureDevApp(s, io, "update", pick, { onInstalled: (r) => { relaunched = r.relaunchedPid !== null; } }), "Installing the dev app failed."));
     } catch (err) {
       if (err instanceof StepFailed) {
         d.logFailure(err.message, err.output);
@@ -115,9 +118,10 @@ export async function runDevAutoUpdate(s: DevSeams, stage: StageRunner, d: DevAu
       d.logFailure(detail, err instanceof Error ? (err.stack ?? err.message) : String(err));
       return held("updateFailed", detail);
     }
-    await d.restartDaemon();
+    // The swap's relaunch of a running app already restarted the daemon.
+    const daemonRestarted = relaunched || (await d.restartDaemon());
     d.writeStatus({ offeredVersion: version, heldVersion: null, hold: null });
-    return { kind: "updated", version };
+    return { kind: "updated", version, daemonRestarted };
   });
 }
 

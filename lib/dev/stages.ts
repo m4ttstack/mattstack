@@ -92,7 +92,13 @@ export async function findDevRelease(s: DevSeams): Promise<ChosenDevRelease> {
   return chosen;
 }
 
-export async function ensureDevApp(s: DevSeams, io: StageIO, mode: "setup" | "update", chosen?: ChosenDevRelease, opts: { replaceLocal?: boolean } = {}): Promise<StageEnding> {
+export async function ensureDevApp(
+  s: DevSeams,
+  io: StageIO,
+  mode: "setup" | "update",
+  chosen?: ChosenDevRelease,
+  opts: { replaceLocal?: boolean; onInstalled?: (r: { relaunchedPid: number | null }) => void } = {},
+): Promise<StageEnding> {
   const installed = await readInstalledDevApp(s.probes);
   const local = installed !== null && !installed.releaseBuild;
   if (mode === "update" && local && !opts.replaceLocal) {
@@ -104,6 +110,7 @@ export async function ensureDevApp(s: DevSeams, io: StageIO, mode: "setup" | "up
   }
   io.sub(`Downloading the dev app ${pick.release.version}`);
   const r = await installDevAppFromRelease(s, pick);
+  opts.onInstalled?.(r);
   const version = pick.release.version !== s.prodVersion ? `${pick.release.version}, the newest release with a dev app` : pick.release.version;
   const relaunched = r.relaunchedPid !== null ? " and reopened it" : "";
   return { status: "done", title: `Installed the dev app${relaunched}`, hint: version };

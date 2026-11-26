@@ -100,9 +100,7 @@ function realAutoDeps(): DevAutoDeps {
     checkClone: sync.checkClone,
     fastForward: sync.fastForward,
     install: sync.install,
-    restartDaemon: async () => {
-      await trayQuery("/daemon/restart", "POST");
-    },
+    restartDaemon: async () => (await trayQuery("/daemon/restart", "POST"))?.ok === true,
     writeStatus: writeAppUpdate,
     clearHeld: () => {
       if (readAppUpdateHold(RT_DIR) !== null) writeAppUpdate({ offeredVersion: null, heldVersion: null, hold: null });
@@ -195,7 +193,11 @@ export function devSetupBlocks(r: DevSetupResult): Block[] {
 export function devAutoBlocks(r: DevAutoOutcome | "locked"): Block[] {
   if (r === "locked") return [out.line("skipped", "Another dev update is running")];
   if (r.kind === "current") return [out.line("done", "Your dev setup is up to date")];
-  if (r.kind === "updated") return [out.line("done", `Updated to mattstack-dev ${r.version}`)];
+  if (r.kind === "updated") {
+    const done = out.line("done", `Updated to mattstack-dev ${r.version}`);
+    if (r.daemonRestarted) return [done];
+    return [done, out.line("pending", "The daemon still runs the code from before the update", "mattstack-dev did not answer"), out.callout("next", out.cmd("rt daemon restart"))];
+  }
   return [out.line("pending", `An update to mattstack-dev ${r.version} is waiting`, r.detail)];
 }
 

@@ -36,10 +36,17 @@ describe("rt dev", () => {
   test("--auto says what happened in one line", () => {
     expect(renderPlain(devAutoBlocks({ kind: "current" }))).toContain("Your dev setup is up to date");
     expect(renderPlain(devAutoBlocks("locked"))).toContain("Another dev update is running");
-    expect(renderPlain(devAutoBlocks({ kind: "updated", version: "2.23.0" }))).toContain("Updated to mattstack-dev 2.23.0");
+    expect(renderPlain(devAutoBlocks({ kind: "updated", version: "2.23.0", daemonRestarted: true }))).toContain("Updated to mattstack-dev 2.23.0");
     const held = renderPlain(devAutoBlocks({ kind: "held", version: "2.23.0", hold: "dirtyTree", detail: "Your clone has uncommitted changes." }));
     expect(held).toContain("An update to mattstack-dev 2.23.0 is waiting");
     expect(held).toContain("Your clone has uncommitted changes.");
+  });
+
+  test("--auto says when the daemon was not restarted, and how to restart it", () => {
+    const text = renderPlain(devAutoBlocks({ kind: "updated", version: "2.23.0", daemonRestarted: false }));
+    expect(text).toContain("The daemon still runs the code from before the update");
+    expect(text).toContain("rt daemon restart");
+    expect(renderPlain(devAutoBlocks({ kind: "updated", version: "2.23.0", daemonRestarted: true }))).not.toContain("still runs");
   });
 
   test("update summary names the clone", () => {

@@ -18,6 +18,7 @@ interface World {
   appBuildFails?: boolean;
   githubDown?: boolean;
   noApp?: boolean;
+  appRunning?: boolean;
 }
 
 function setup(w: World = {}) {
@@ -71,9 +72,18 @@ function setup(w: World = {}) {
       return { code: 0, stdout: "", stderr: "" };
     },
   });
+  let appPids = w.appRunning ? "111" : "";
   const s: DevSeams = {
     probes,
-    swap: { exec: async () => { once("swap"); return { stdout: "", stderr: "", exitCode: 0 }; }, sleep: async () => {} },
+    swap: {
+      exec: async (argv) => {
+        once("swap");
+        if (argv[0] === "kill") appPids = "";
+        if (argv.includes("/usr/bin/open") && w.appRunning) appPids = "222";
+        return { stdout: argv[0] === "pgrep" ? appPids : "", stderr: "", exitCode: 0 };
+      },
+      sleep: async () => {},
+    },
     download: async () => {},
     scratchDir: () => "/scratch",
     flavor: w.flavor ?? "dev",
@@ -91,14 +101,14 @@ function setup(w: World = {}) {
   const notices: Array<[string, string, string]> = [];
   const failures: Array<[string, string]> = [];
   let checked = 0;
-  const state = { autoUpdate: true, busy: false, clone: { ok: true, behind: 3 } as CloneCheck, installExit: 0, ffExit: 0, cleared: 0, installBun: "" };
+  const state = { autoUpdate: true, busy: false, clone: { ok: true, behind: 3 } as CloneCheck, installExit: 0, ffExit: 0, cleared: 0, installBun: "", restartOk: true };
   const d: DevAutoDeps = {
     autoUpdateOn: () => state.autoUpdate,
     daemonBusy: async () => state.busy,
     checkClone: async () => { checked++; once("fetch"); return state.clone; },
     fastForward: async () => { once("ff"); return { exitCode: state.ffExit, stderr: state.ffExit === 0 ? "" : "error: Not possible to fast-forward, aborting." }; },
     install: async (_c, _env, bun) => { once("install"); state.installBun = bun; return { exitCode: state.installExit, tail: "lockfile changed" }; },
-    restartDaemon: async () => { once("restart"); },
+    restartDaemon: async () => { once("restart"); return state.restartOk; },
     writeStatus: (st) => { statuses.push(st); },
     clearHeld: () => { state.cleared++; },
     notifyOnce: (version, hold, detail) => { notices.push([version, hold, detail]); },
@@ -190,13 +200,26 @@ describe("runDevAutoUpdate", () => {
   test("a daemon that does not answer does not hold", async () => {
     const t = setup();
     t.d.daemonBusy = async () => false;
-    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "updated", version: "2.23.0" });
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "updated", version: "2.23.0", daemonRestarted: true });
   });
 
   test("all clear: fast-forward, install, helper, register, then swap, then restart, in that order", async () => {
     const t = setup();
-    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "updated", version: "2.23.0" });
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "updated", version: "2.23.0", daemonRestarted: true });
     expect(t.order).toEqual(["fetch", "tools", "ff", "install", "ui", "apps", "register", "swap", "restart"]);
+  });
+
+  test("a swap that relaunched the running app restarts nothing more: the relaunch restarted the daemon", async () => {
+    const t = setup({ appRunning: true });
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "updated", version: "2.23.0", daemonRestarted: true });
+    expect(t.order).not.toContain("restart");
+  });
+
+  test("a restart nobody answered says so instead of a plain updated", async () => {
+    const t = setup();
+    t.state.restartOk = false;
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "updated", version: "2.23.0", daemonRestarted: false });
+    expect(t.statuses.at(-1)).toEqual({ offeredVersion: "2.23.0", heldVersion: null, hold: null });
   });
 
   test("a failed install is held updateFailed naming bun install, and the app is not swapped", async () => {
