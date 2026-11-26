@@ -1061,6 +1061,13 @@ async function pruneLogs($) {
 // mods/human-todos/src/store.ts
 import { atom, read, update } from "claude-code";
 
+// mods/human-todos/src/wrapper.ts
+function wrapped(token, script, cwd) {
+  const wrapper = `trap : INT; printf "__todo_pid_${token} %s\\n" $$; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`;
+  return `zsh -c ${quote(wrapper)} todo ${quote(script)} ${quote(cwd)}`;
+}
+var killGroup = (pgid) => ["/bin/sh", "-c", `kill -KILL -- -${pgid}`];
+
 // mods/human-todos/src/herdr.ts
 var POLL_MS = 1000;
 var SCAN_LINES = 400;
@@ -1294,8 +1301,7 @@ async function startHerdr($, todo) {
       return end(token);
     }
     await patchTodo($, todo.id, { token, paneId: placed.paneId, tabId: placed.tabId, herdrSession: session, liveTail: [], isStopping: false, pgid: undefined });
-    const wrapper = `trap : INT; printf "__todo_pid_${token} %s\\n" $$; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`;
-    const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(`zsh -c ${quote(wrapper)} todo ${quote(todo.script ?? "")} ${quote(cwd)}`)}`);
+    const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(wrapped(token, todo.script ?? "", cwd))}`);
     if (typed.exitCode !== 0)
       throw new Error("herdr would not run the script");
   } catch (err) {
@@ -1321,6 +1327,28 @@ async function stopHerdr($, todo) {
     return;
   await patchTodo($, todo.id, { isStopping: false });
   $.ui.toast(`Could not stop #${todo.id}`);
+}
+async function forceStopHerdr($, todo) {
+  const token = todo.token;
+  if (!token || !todo.paneId || !todo.herdrSession)
+    return;
+  const text = await readPane($, todo.herdrSession, todo.paneId);
+  const scan = text === null ? undefined : scanPane(text, token, todo.script ?? "");
+  const pgid = todo.pgid ?? scan?.pgid;
+  if (pgid === undefined) {
+    $.ui.toast(`No process found for #${todo.id}, so Force stop sent ctrl+c again`);
+    return stopHerdr($, todo);
+  }
+  const killed = await $.process.run(killGroup(pgid)).catch(() => null);
+  if (killed?.exitCode !== 0) {
+    $.ui.toast(`Could not force stop #${todo.id}`);
+    return;
+  }
+  const run = runs.get(token);
+  if (run)
+    run.isGone = true;
+  await conclude($, token, todo, { kind: "stopped", outputTail: (scan?.output ?? run?.output ?? []).join(`
+`) });
 }
 async function showLog($, todo) {
   return `${await logFolder($)}/${await $.session.id()}-${todo.id}-herdr.log`;
@@ -1959,7 +1987,7 @@ function stopRun($, todo) {
   return todo.runner === "herdr" ? stopHerdr($, todo) : stopLocal($, todo);
 }
 function forceStopRun($, todo) {
-  return todo.runner === "herdr" ? stopHerdr($, todo) : forceStopLocal($, todo);
+  return todo.runner === "herdr" ? forceStopHerdr($, todo) : forceStopLocal($, todo);
 }
 function showRun($, todo) {
   return todo.runner === "herdr" ? showHerdr($, todo) : showLocal($, todo);

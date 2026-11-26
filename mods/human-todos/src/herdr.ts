@@ -3,6 +3,7 @@ import type { EngineInterface, Timer } from 'claude-code'
 import type { Todo } from '../types'
 import { LIVE_LINES_HERDR, TITLE, clipLines, fileName, newToken, quote } from './items'
 import { logFolder } from './logs'
+import { killGroup, wrapped } from './wrapper'
 import { report } from './report'
 import type { Outcome } from './report'
 import { getWorkspace, listTodos, patchTodo, setWorkspace } from './store'
@@ -267,10 +268,7 @@ export async function startHerdr($: EngineInterface, todo: Todo): Promise<void> 
       return end(token)
     }
     await patchTodo($, todo.id, { token, paneId: placed.paneId, tabId: placed.tabId, herdrSession: session, liveTail: [], isStopping: false, pgid: undefined })
-    // A reused tab's shell can be in any folder, so the script goes to the one Confirm showed, or does not run. The builtin, quietly: a cd
-    // function or a chpwd hook in .zshenv could lead elsewhere.
-    const wrapper = `trap : INT; printf "__todo_pid_${token} %s\\n" $$; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`
-    const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(`zsh -c ${quote(wrapper)} todo ${quote(todo.script ?? '')} ${quote(cwd)}`)}`)
+    const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(wrapped(token, todo.script ?? '', cwd))}`)
     if (typed.exitCode !== 0) throw new Error('herdr would not run the script')
   } catch (err) {
     end(token)
@@ -291,6 +289,28 @@ export async function stopHerdr($: EngineInterface, todo: Todo): Promise<void> {
   if (isSent) return
   await patchTodo($, todo.id, { isStopping: false })
   $.ui.toast(`Could not stop #${todo.id}`)
+}
+
+// The wrapper dies with its group and prints no exit marker, so the stop is reported here rather than left to the idle polls.
+// A run from before the wrapper printed its pid has no group to kill; ctrl+c again is all herdr can do for it.
+export async function forceStopHerdr($: EngineInterface, todo: Todo): Promise<void> {
+  const token = todo.token
+  if (!token || !todo.paneId || !todo.herdrSession) return
+  const text = await readPane($, todo.herdrSession, todo.paneId)
+  const scan = text === null ? undefined : scanPane(text, token, todo.script ?? '')
+  const pgid = todo.pgid ?? scan?.pgid
+  if (pgid === undefined) {
+    $.ui.toast(`No process found for #${todo.id}, so Force stop sent ctrl+c again`)
+    return stopHerdr($, todo)
+  }
+  const killed = await $.process.run(killGroup(pgid)).catch(() => null)
+  if (killed?.exitCode !== 0) {
+    $.ui.toast(`Could not force stop #${todo.id}`)
+    return
+  }
+  const run = runs.get(token)
+  if (run) run.isGone = true
+  await conclude($, token, todo, { kind: 'stopped', outputTail: (scan?.output ?? run?.output ?? []).join('\n') })
 }
 
 async function showLog($: EngineInterface, todo: Todo): Promise<string> {

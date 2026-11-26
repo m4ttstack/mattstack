@@ -391,6 +391,75 @@ test('Stop sends ctrl+c to the tab, and the marker that follows reports stopped'
   expect(sent[0]).toMatch(/^\[Human Todos\] The user stopped #1 "T" before it finished\. It is open again\. Output: (\(no output\)|\/home\/u\/Library\/Caches\/human-todos\/runs\/sess-1-1-\d+\.log)$/)
 })
 
+test("Force stop kills the process group of a script that ignores ctrl+c and reports it stopped", async ($, on) => {
+  const { run1, fake, item, clock, pane, sent, toasts, ran } = await seeded($, on, [todo({ script: "trap '' INT TERM; sleep 60" })])
+  fake.state.isCtrlCEnding = false
+  await run1('1')
+  const paneId = item('1')?.paneId ?? ''
+  fake.print(paneId, 'waiting')
+  await press(pane, '1', 'stop')
+  await clock.advance(1000)
+  expect(item('1')).toMatchObject({ status: 'running', isStopping: true })
+
+  await press(pane, '1', 'forceStop')
+
+  expect(ran).toContainEqual(['/bin/sh', '-c', `kill -KILL -- -${fake.panes.get(paneId)?.pid}`])
+  expect(fake.panes.get(paneId)?.isKilled).toBe(true)
+  expect(toasts).toEqual(['Stopping #1', 'Force stopping #1'])
+  expect(item('1')).toMatchObject({ status: 'open', note: 'Stopped', outputTail: 'waiting', isStopping: false })
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toMatch(/^\[Human Todos\] The user stopped #1 "T" before it finished\. It is open again\. Output: /)
+  expect(fake.ran('herdr pane send-keys')).toHaveLength(1)
+  await clock.advance(5000)
+  expect(sent).toHaveLength(1)
+})
+
+test('Force stop before any poll has recorded the process group reads it from the pane', async ($, on) => {
+  const { run1, fake, item, pane, sent } = await seeded($, on, [todo({})])
+  fake.state.isCtrlCEnding = false
+  await run1('1')
+  await press(pane, '1', 'stop')
+  expect(item('1')?.pgid).toBeUndefined()
+
+  await press(pane, '1', 'forceStop')
+
+  expect(fake.panes.get(item('1')?.paneId ?? '')?.isKilled).toBe(true)
+  expect(item('1')).toMatchObject({ status: 'open', note: 'Stopped' })
+  expect(sent).toHaveLength(1)
+})
+
+test('with no process group known, Force stop sends ctrl+c again and says so', async ($, on) => {
+  const { run1, fake, item, clock, pane, sent, toasts, ran } = await seeded($, on, [todo({})])
+  fake.state.isCtrlCEnding = false
+  fake.state.printsPid = false
+  await run1('1')
+  await press(pane, '1', 'stop')
+  await clock.advance(1000)
+
+  await press(pane, '1', 'forceStop')
+
+  expect(ran.some(argv => argv.at(-1)?.startsWith('kill'))).toBe(false)
+  expect(fake.ran('herdr pane send-keys')).toEqual([`herdr pane send-keys '${item('1')?.paneId}' ctrl+c`, `herdr pane send-keys '${item('1')?.paneId}' ctrl+c`])
+  expect(toasts).toEqual(['Stopping #1', 'Force stopping #1', 'No process found for #1, so Force stop sent ctrl+c again'])
+  expect(item('1')).toMatchObject({ status: 'running', isStopping: true })
+  expect(sent).toEqual([])
+})
+
+test('a kill that fails leaves the run running and says so', async ($, on) => {
+  const { run1, fake, item, clock, pane, sent, toasts } = await seeded($, on, [todo({})])
+  fake.state.isCtrlCEnding = false
+  fake.state.isKillRefused = true
+  await run1('1')
+  await press(pane, '1', 'stop')
+  await clock.advance(1000)
+
+  await press(pane, '1', 'forceStop')
+
+  expect(toasts).toEqual(['Stopping #1', 'Force stopping #1', 'Could not force stop #1'])
+  expect(item('1')).toMatchObject({ status: 'running', isStopping: true })
+  expect(sent).toEqual([])
+})
+
 test('a Stop that herdr refuses puts the button back and says so', async ($, on) => {
   const { run1, fake, item, clock, pane, toasts, sent } = await seeded($, on, [todo({})])
   await run1('1')
