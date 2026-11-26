@@ -10,7 +10,7 @@ registers into any org and replaces any org's token. Until step 5 below, every
 owner and admin of the legacy org holds it. So the relay refuses to mint a new
 org (`409 rotate-master-first`) until the master is rotated.
 
-## The move, steps 0 to 5
+## The move, steps 0 to 6
 
 Each step is safe on its own, and no board token changes. Do them in order.
 
@@ -85,8 +85,8 @@ Each step is safe on its own, and no board token changes. Do them in order.
    `pbpaste | rt team admin-secrets --token-stdin --replace-token` (typed in
    by hand instead, the token ends with Ctrl-D). The other admins get it on
    their next pull, then restart their boards (a board keeps the token it read
-   at start), so their peered badge does not fail after step 5.
-5. **The operator rotates the master on Railway, last.** Set
+   at start), so no board still uses the master when step 5 rotates it.
+5. **The operator rotates the master on Railway.** Set
    `SWITCHBOARD_ADMIN_TOKEN` to at least 32 random characters
    (`openssl rand -hex 32`). This also kills the copy in the org repo's git
    history and lifts the second-org gate. From here no board keeps the master,
@@ -94,10 +94,24 @@ Each step is safe on its own, and no board token changes. Do them in order.
    sets their own `SWITCHBOARD_OPERATOR_TOKEN` (kept outside rt) to the new
    master, or every `operator.ts` call gets a 401. The rules for the master's value are in
    [Operator setup](../apps/board/docs/peer-boards.md#operator-setup-run-a-switchboard).
+6. **The operator mints the legacy org's token again, right after step 5.**
+   Anyone who held the old master could mint a legacy org token between steps
+   2 and 5, so on its first start with the new master the relay revokes the
+   legacy org's token, and every token minted under the old master is dead. It
+   logs a line saying so. Until this step is done, admin actions and the
+   boards' peered badge fail. Board tokens and board-to-board traffic are not
+   affected. With `SWITCHBOARD_OPERATOR_TOKEN` set to the new master, run
+   `bun apps/board/switchboard/operator.ts token <legacy id>`, the same id as
+   in step 2. Matt shares the token with
+   `pbpaste | rt team admin-secrets --token-stdin --replace-token`. The other
+   admins pull, then restart their boards.
 
 Rolling the relay back is safe for boards until a second org exists: board
 tokens work on the old image, but org tokens get a 401 there until it rolls
-forward again. Once a second org exists, there is no rollback.
+forward again. Once a second org exists, there is no rollback. The old image
+ignores orgs entirely: every board can list and reach every other org's
+boards, and org tokens stop working. Rolling forward again cannot tell the
+rows written meanwhile apart, so they keep no org and fail closed.
 
 ## The operator script
 
