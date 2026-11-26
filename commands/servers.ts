@@ -5,7 +5,7 @@ import { agentLabel, ancestorPids, findServers, type RunningServer, type ServerR
 import { readServerSnapshot, stopServers, type ServerRepo, type StopOutcome } from "../lib/endpoint/servers-system.ts";
 import { loadInterceptRules } from "../lib/endpoint/shim.ts";
 import { loadClaims } from "../lib/endpoint/store.ts";
-import { requestDaemonOnce } from "../lib/daemon-client.ts";
+import { daemonSocketQuery } from "../lib/daemon-client.ts";
 import { enrichBranches, mrSegments, type EnrichedBranch } from "../lib/enrich.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { repoLabel } from "../lib/repo-label.ts";
@@ -142,7 +142,7 @@ const STOP_ACTION: PickAction = { id: "select", label: "stop", key: "enter", sco
 const REFRESH_ASK_MS = 1_000;
 
 /** Fire and forget: the daemon's refresh outlives this process, and a daemon that is down or starting is left as it is. */
-export async function askDaemonToRefresh(query: typeof requestDaemonOnce = requestDaemonOnce): Promise<void> {
+export async function askDaemonToRefresh(query: typeof daemonSocketQuery = daemonSocketQuery): Promise<void> {
   try {
     await query("cache:refresh", undefined, REFRESH_ASK_MS);
   } catch {
