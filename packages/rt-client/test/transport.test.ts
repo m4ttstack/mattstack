@@ -374,6 +374,55 @@ describe("rtCommand: retry while the daemon restarts", () => {
     }
   });
 
+  test("RT_DAEMON_RETRY_BUDGET_MS=2000 (the chat hook's budget): no daemon gives up in about 2s", async () => {
+    const sock = freshSock();
+    const prior = process.env.RT_DAEMON_RETRY_BUDGET_MS;
+    process.env.RT_DAEMON_RETRY_BUDGET_MS = "2000";
+    try {
+      const started = Date.now();
+      const res = await rtCommand("ping", {}, { sockPath: sock });
+      const elapsed = Date.now() - started;
+      expect(res.ok).toBe(false);
+      expect(elapsed).toBeGreaterThanOrEqual(1_900);
+      expect(elapsed).toBeLessThan(3_500);
+    } finally {
+      if (prior === undefined) delete process.env.RT_DAEMON_RETRY_BUDGET_MS;
+      else process.env.RT_DAEMON_RETRY_BUDGET_MS = prior;
+    }
+  });
+
+  test("RT_DAEMON_RETRY_BUDGET_MS=2000: a stale socket gives up in about 2s", async () => {
+    const sock = await staleSocket();
+    const prior = process.env.RT_DAEMON_RETRY_BUDGET_MS;
+    process.env.RT_DAEMON_RETRY_BUDGET_MS = "2000";
+    try {
+      const started = Date.now();
+      const res = await rtCommand("ping", {}, { sockPath: sock });
+      const elapsed = Date.now() - started;
+      expect(res.ok).toBe(false);
+      expect(elapsed).toBeGreaterThanOrEqual(1_900);
+      expect(elapsed).toBeLessThan(3_500);
+    } finally {
+      if (prior === undefined) delete process.env.RT_DAEMON_RETRY_BUDGET_MS;
+      else process.env.RT_DAEMON_RETRY_BUDGET_MS = prior;
+    }
+  });
+
+  test("RT_DAEMON_RETRY_BUDGET_MS=2000: a daemon that comes up 1s later is answered", async () => {
+    const sock = freshSock();
+    serveLater(sock, 1_000);
+    const prior = process.env.RT_DAEMON_RETRY_BUDGET_MS;
+    process.env.RT_DAEMON_RETRY_BUDGET_MS = "2000";
+    try {
+      const started = Date.now();
+      const res = await rtCommand("ping", {}, { sockPath: sock });
+      expect(res).toEqual({ ok: true, data: { n: 1 } });
+    } finally {
+      if (prior === undefined) delete process.env.RT_DAEMON_RETRY_BUDGET_MS;
+      else process.env.RT_DAEMON_RETRY_BUDGET_MS = prior;
+    }
+  });
+
   test("the test preload turns retrying off, so a missing daemon fails fast in tests", () => {
     expect(process.env.RT_DAEMON_RETRY_BUDGET_MS).toBe("0");
   });

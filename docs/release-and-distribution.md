@@ -364,43 +364,11 @@ restart by hand takes the same path. Calls made during it are not lost:
   `daemonQuery` (rt) waits 3 seconds for it to come back before it asks
   the app to start the daemon. `rt events wait` and `rt gate wait`
   reconnect.
-- A new daemon whose API port another process holds parks and retries the
-  port for as long as it takes. Meanwhile `rt.sock` answers `rt daemon is
-  waiting for port <port>, which another process is using; see rt daemon
-  logs` (HTTP 503, `parked: true`, no `unavailable` key), so no client
-  retries it.
-- A socket that has gone unanswered, or answered only starting or
-  stopping, for 20 seconds cools off for 30: a long-lived client's calls in
-  that window make one attempt instead of waiting, and get the daemon's
-  starting reply back as is. The first real answer ends it.
-- `rt daemon restart` reports success once the new daemon serves, not when
-  it binds. `rt daemon start` leaves a starting or parked daemon alone; on a
-  stopping one it waits out the drain, gives launchd's replacement 3
-  seconds to bind, and starts one only if none did.
-- A request whose connection was made and then dropped or timed out is
-  never sent again: the daemon may already have acted on it.
-
-A session started before this shipped keeps its old client code, without
-the retry, until `/reload-plugins` or a new session.
-
-### The daemon restart
-
-The relaunched app restarts the daemon (`launchctl kickstart -k`), and a
-restart by hand takes the same path. Calls made during it are not lost:
-
-- The old daemon answers `rt daemon is restarting; try again in a moment`
-  (HTTP 503, `unavailable: "stopping"`), ends open long-polls
-  (`events:wait`, `gate:wait`) with their normal empty reply, and gives
-  requests already running up to 5 seconds to finish before it exits.
-- The new daemon binds `rt.sock` early in boot and answers `rt daemon is starting;
-  try again in a moment` (`unavailable: "starting"`) until its handlers
-  exist and the API server is bound.
-- Both clients send a request again while the daemon answers that it is
-  unavailable, for about 20 seconds. When nothing listens on the socket,
-  `rtCommand` (rt-client) keeps trying for the same 20 seconds, and
-  `daemonQuery` (rt) waits 3 seconds for it to come back before it asks
-  the app to start the daemon. `rt events wait` and `rt gate wait`
-  reconnect.
+- A caller on a time limit of its own, such as a Claude Code hook, shortens
+  the retry: set `RT_DAEMON_RETRY_BUDGET_MS=<ms>` in its environment, which
+  bounds each daemon call it makes, or pass a per-call timeout of 5 seconds or
+  less. The chat plugin's sign-in hook sets 2000; its sign-in makes two daemon
+  calls, so with no daemon it gives up after about 4 seconds.
 - A new daemon whose API port another process holds parks and retries the
   port for as long as it takes. Meanwhile `rt.sock` answers `rt daemon is
   waiting for port <port>, which another process is using; see rt daemon
