@@ -205,6 +205,34 @@ describe('invites and orgs', () => {
     expect(row).toEqual({ redeemed_at: null });
   });
 
+  test("redeem's 409 leaves the other org's board token and inbox intact", async () => {
+    const { db, store, fetch } = handler();
+    const a = store.orgs.create(1).id;
+    const b = store.orgs.create(2).id;
+    const inv = store.createInvite('grace', 1000, a);
+    db.run(
+      `INSERT INTO boards (username, token_hash, created_at, org_id) VALUES (?, ?, ?, ?)`,
+      ['grace', hashToken('b-grace'), 1500, b]
+    );
+    const linus = store.registerBoard('linus', b).username;
+    expect(
+      store.publish(
+        linus,
+        { id: 'e1', to: 'grace', type: 'review-state', sentAt: 1, payload: {} },
+        1600
+      )
+    ).toEqual({ ok: true, delivered: 1 });
+    expect((await redeem(fetch, inv.code, 'grace')).status).toBe(409);
+    const inbox = await fetch(
+      req('/inbox', { headers: { authorization: 'Bearer b-grace' } })
+    );
+    expect(inbox.status).toBe(200);
+    const { envelopes } = (await inbox.json()) as {
+      envelopes: Array<{ id: string; from: string }>;
+    };
+    expect(envelopes.map(e => [e.id, e.from])).toEqual([['e1', 'linus']]);
+  });
+
   test("an org token's invite lands in its org", async () => {
     const { store, fetch } = handler();
     const a = store.orgs.create(1).id;

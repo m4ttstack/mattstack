@@ -356,6 +356,34 @@ describe('org tokens on the admin routes', () => {
     expect(store.boardOrg('grace')).toBe(a.id);
   });
 
+  test("a 409 on another org's POST /boards and POST /invites leaves the first board's token and inbox intact", async () => {
+    const { store, call } = setup();
+    const a = mintOrg(store);
+    const b = mintOrg(store);
+    const ada = await register(call, a.token, 'ada');
+    const cy = await register(call, a.token, 'cy');
+    expect(
+      (await call('/envelopes', { token: cy, body: draft('e1', 'ada') })).status
+    ).toBe(201);
+    expect(
+      await answer(
+        call('/boards', { token: b.token, body: { username: ' Ada ' } })
+      )
+    ).toEqual({ status: 409, text: '{"error":"username-taken"}' });
+    expect(
+      await answer(
+        call('/invites', { token: b.token, body: { username: 'ADA' } })
+      )
+    ).toEqual({ status: 409, text: '{"error":"username-taken"}' });
+    const inbox = await call('/inbox', { token: ada });
+    expect(inbox.status).toBe(200);
+    const { envelopes } = (await inbox.json()) as {
+      envelopes: Array<{ id: string; from: string }>;
+    };
+    expect(envelopes.map(e => [e.id, e.from])).toEqual([['e1', 'cy']]);
+    expect(store.boardOrg('ada')).toBe(a.id);
+  });
+
   test("an org token's POST /invites for a username another org holds is 409 username-taken", async () => {
     const { store, call } = setup();
     const a = mintOrg(store);
