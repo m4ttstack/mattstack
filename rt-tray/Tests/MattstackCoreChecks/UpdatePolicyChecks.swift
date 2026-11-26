@@ -170,6 +170,17 @@ let updatePolicyChecks: [Check] = [
         c.expectEqual(UpdateNotice.waiting(version: "2.28.0", hold: .setupRunning),
                       UpdateNotice.Copy(title: "mattstack 2.28.0 is ready", body: "Installs once setup finishes and mattstack's windows close"))
     },
+    Check("UpdatePolicy.orgOffWrite: a setting read that timed out never writes or clears orgOff") { c in
+        c.expectEqual(UpdatePolicy.orgOffWrite(settingAnswered: false, silent: false, heldVersion: nil, hold: nil), .leave)
+        c.expectEqual(UpdatePolicy.orgOffWrite(settingAnswered: false, silent: true, heldVersion: nil, hold: UpdateStatus.orgOff), .leave)
+    },
+    Check("UpdatePolicy.orgOffWrite: an answered setting records or clears orgOff") { c in
+        c.expectEqual(UpdatePolicy.orgOffWrite(settingAnswered: true, silent: false, heldVersion: nil, hold: nil), .record)
+        c.expectEqual(UpdatePolicy.orgOffWrite(settingAnswered: true, silent: false, heldVersion: nil, hold: UpdateStatus.orgOff), .leave)
+        c.expectEqual(UpdatePolicy.orgOffWrite(settingAnswered: true, silent: false, heldVersion: "2.40.0", hold: "windowsOpen"), .leave)
+        c.expectEqual(UpdatePolicy.orgOffWrite(settingAnswered: true, silent: true, heldVersion: nil, hold: UpdateStatus.orgOff), .clear)
+        c.expectEqual(UpdatePolicy.orgOffWrite(settingAnswered: true, silent: true, heldVersion: nil, hold: nil), .leave)
+    },
     Check("UpdatePolicy: a run in flight holds updates with no window open") { c in
         c.expectEqual(UpdatePolicy.setupBusy(windowRunning: false, runInFlight: true), true)
         c.expectEqual(UpdatePolicy.setupBusy(windowRunning: true, runInFlight: false), true)
