@@ -135,6 +135,34 @@ describe("checkClone", () => {
     expect(await checkClone(failing, clone)).toEqual({ ok: false, hold: "fetchFailed", detail: "rt could not fetch origin/main." });
   });
 
+  test("a git status that fails or times out holds statusFailed, not dirtyTree", async () => {
+    const { clone } = fixture();
+    const failing: CloneGuardDeps = {
+      ...deps,
+      git: async (cwd, args, opts) => (args.includes("status") ? { stdout: "", exitCode: 143 } : deps.git(cwd, args, opts)),
+    };
+    expect(await checkClone(failing, clone)).toEqual({ ok: false, hold: "statusFailed", detail: "rt could not read your clone's status: git status failed or took too long." });
+  });
+
+  test("git status runs with --no-optional-locks, so it never takes index.lock", async () => {
+    const { clone } = fixture();
+    const seen: string[][] = [];
+    const recording: CloneGuardDeps = { ...deps, git: async (cwd, args, opts) => { seen.push(args); return deps.git(cwd, args, opts); } };
+    await checkClone(recording, clone);
+    const status = seen.find((a) => a.includes("status"))!;
+    expect(status.indexOf("--no-optional-locks")).toBeGreaterThanOrEqual(0);
+    expect(status.indexOf("--no-optional-locks")).toBeLessThan(status.indexOf("status"));
+  });
+
+  test("the fetch brings no tags into the clone", async () => {
+    const { clone, upstream } = fixture();
+    advanceOrigin(upstream, 1);
+    git(upstream, "tag", "v9.9.9");
+    git(upstream, "push", "origin", "v9.9.9");
+    expect(await checkClone(deps, clone)).toEqual({ ok: true, behind: 1 });
+    expect(git(clone, "tag", "-l").trim()).toBe("");
+  });
+
   test("checkClone leaves HEAD, the index and the working tree as they were", async () => {
     const { clone, upstream } = fixture();
     advanceOrigin(upstream, 1);
