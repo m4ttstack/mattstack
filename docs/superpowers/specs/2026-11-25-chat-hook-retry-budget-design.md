@@ -19,7 +19,7 @@ Non-goals: changing rt's 20s default, its cool-off, or any interactive call.
 ## Approaches
 
 1. **In the hook, via `RT_DAEMON_RETRY_BUDGET_MS` (picked).** The hook runs
-   `rt chat sign-in` with `RT_DAEMON_RETRY_BUDGET_MS=3000`. rt-client has read
+   `rt chat sign-in` with `RT_DAEMON_RETRY_BUDGET_MS=2000`. rt-client has read
    that variable at call time since #1255, so this works with every rt that has
    the 20s retry, and an older rt ignores it. The variable becomes a documented
    contract for hook callers.
@@ -33,17 +33,28 @@ The shepherd picked 1.
 ## Design
 
 - `auto-sign-in.sh`: prefix the sign-in call with
-  `RT_DAEMON_RETRY_BUDGET_MS=3000`. `rt settings get` runs in-process and never
-  touches the daemon, so it needs no budget. With the daemon down, sign-in
-  fails at its first daemon call (`chatSignIn`); `chatJoin` runs only after it
-  succeeds. So the worst case is about 3s plus process start-up.
-- 3s covers the ~1s restart gap with room for a slow launchd start, and leaves
-  7s of the 10s limit for start-up and the settings read.
+  `RT_DAEMON_RETRY_BUDGET_MS=2000`. `rt settings get` runs in-process and never
+  touches the daemon, so it needs no budget.
+- Sign-in makes two daemon calls before it gives up with no daemon. First
+  `liveSelfPaneRef()` (`lib/self-pane.ts`) asks `pane:self`, since the hook
+  runs only with `HERDR_PANE_ID` set and Claude Code exports
+  `CLAUDE_CODE_SESSION_ID`; it falls back to the env pane on failure. Then
+  `chatSignIn`, which fails the command (`chatJoin` runs only after it
+  succeeds). The env var overrides each call's own budget (the lookup's 2s
+  included), and a 2s budget never reaches the 20s cool-off threshold, so each
+  call retries its full 2s: about 4s of retrying, plus two rt process starts
+  and git spawns. That leaves several seconds of the 10s limit.
+- A restart: the pane lookup absorbs the first 2s of the gap and sign-in the
+  next 2s, so a gap of up to about 4s still signs in. The old daemon can answer
+  "stopping" for up to 5s while in-flight requests drain, so a long drain can
+  outlast it; the hook then skips, as it does with no daemon, and the user
+  signs in by hand. Fitting 5s would cost the no-daemon case its margin.
 - Bump the chat plugin's `version` one past main's right before the push.
 - Docs: in `docs/release-and-distribution.md`, under "The daemon restart", add a
   bullet: a caller on its own time limit shortens the retry with
   `RT_DAEMON_RETRY_BUDGET_MS=<ms>`, or with a per-call timeout of 5s or less.
-  The chat sign-in hook sets 3000.
+  The chat sign-in hook sets 2000. The file has that section twice,
+  word for word (a merge artifact); delete the second copy.
 
 ## Other hooks (checked on main)
 
@@ -54,6 +65,9 @@ The shepherd picked 1.
 | mattstack `pipeline-gate-stop.sh` | 30s | `bounded_rt` caps all `rt` calls at 25s |
 | mattstack `superpowers-execution-note.sh` | 5s | `settings get` (no daemon), 3s subprocess cap |
 | fresh-context mod exit call | n/a | `timeoutMs: 1000`, so the retry is 1s |
+| mattstack `account-record.sh` (`rt usage record-account`) | 5s | local, no rt-client transport |
+| mattstack `disable-model-invocation-reapply.sh` (`rt skills disable-model-invocation reapply`) | 5s | local, no rt-client transport |
+| mattstack `progress-record.sh` (`rt progress record`) | 5s | local, no rt-client transport |
 
 Nothing else needs a change.
 
@@ -61,10 +75,15 @@ Nothing else needs a change.
 
 - `marketplace/plugins/chat/hooks/tests/test-auto-sign-in.sh`: the stub records
   the `RT_DAEMON_RETRY_BUDGET_MS` it receives, and the case asserts the sign-in
-  call gets `3000` while the settings read gets nothing.
-- `packages/rt-client/test/`: with `RT_DAEMON_RETRY_BUDGET_MS=3000`, an
-  `rtCommand` to a socket nobody listens on returns within about 3.5s, and one
-  whose server binds about 1s later is answered.
+  call gets `2000` while the settings read gets nothing.
+- The same file, real path: when the repo's `cli.ts` is reachable, the hook
+  runs against real `rt chat sign-in` (only the settings read is stubbed) under
+  a sandbox HOME and socket, with `HERDR_PANE_ID` and `CLAUDE_CODE_SESSION_ID`
+  set. With no daemon it ends inside 7s, silently, exit 0. With a fake daemon
+  that binds the socket 1s in, it prints the signed-in note.
+- `packages/rt-client/test/transport.test.ts`: with the env var at 2000, a
+  missing and a stale socket give up in about 2s, and a server that binds 1s
+  late is answered.
 
 ## Left to the builder
 
