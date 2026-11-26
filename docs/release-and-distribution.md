@@ -365,10 +365,13 @@ restart by hand takes the same path. Calls made during it are not lost:
   the app to start the daemon. `rt events wait` and `rt gate wait`
   reconnect.
 - A caller on a time limit of its own, such as a Claude Code hook, shortens
-  the retry: set `RT_DAEMON_RETRY_BUDGET_MS=<ms>` in its environment, which
-  bounds each daemon call it makes, or pass a per-call timeout of 5 seconds or
-  less. The chat plugin's sign-in hook sets 2000; its sign-in makes two daemon
-  calls, so with no daemon it gives up after about 4 seconds.
+  `rtCommand`'s retry: set `RT_DAEMON_RETRY_BUDGET_MS=<ms>` in its
+  environment, which bounds each `rtCommand` call it makes, or pass a per-call
+  timeout of 5 seconds or less. It does not shorten `daemonQuery`, whose wait
+  and app restart take several seconds more, so such a caller should reach
+  the daemon only through rt-client. The chat plugin's sign-in hook sets 2000;
+  its sign-in makes two `rtCommand` calls, so with no daemon it gives up after
+  about 4 seconds.
 - A new daemon whose API port another process holds parks and retries the
   port for as long as it takes. Meanwhile `rt.sock` answers `rt daemon is
   waiting for port <port>, which another process is using; see rt daemon
