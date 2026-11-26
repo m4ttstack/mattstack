@@ -158,13 +158,36 @@ describe("the org.admin-secrets row", () => {
     expect((all!.action as { steps: string[] }).steps).toEqual([
       "Remove it from the environment rt runs in; the relay operator keeps it outside rt",
       "Remove it from the board's .env; the relay operator keeps it outside rt",
-      "Remove it from rt's secrets; the relay operator keeps it outside rt",
+      "Remove it from rt's secrets by hand, as step 3 of docs/switchboard-org-tokens.md shows; the relay operator keeps it outside rt",
       "Re-check this row",
     ]);
 
     const one = await adminSecretsRow(machine({ extra: { [BOARD_ENV]: `SWITCHBOARD_ADMIN_TOKEN=${MASTER}\n` } }), "acme", holding(TOKEN));
     expect(one!.detail).toBe("This Mac keeps the relay operator's switchboard token in the board's .env");
     expect((one!.action as { steps: string[] }).steps).toEqual(["Remove it from the board's .env; the relay operator keeps it outside rt", "Re-check this row"]);
+  });
+
+  test("while the file still shares the master, this Mac's own copies are named first", async () => {
+    const r = await adminSecretsRow(machine({ env: { SWITCHBOARD_ADMIN_TOKEN: MASTER }, extra: { [BOARD_ENV]: `SWITCHBOARD_ADMIN_TOKEN=${MASTER}\n` } }), "acme", withFile(MASTER, MASTER));
+    expect(r).toMatchObject({ id: ADMIN_SECRETS_ROW_ID, status: "needs-you", required: false });
+    expect(r!.detail).toBe("This Mac keeps the relay operator's switchboard token in the environment rt runs in, the board's .env and rt's secrets");
+    expect((r!.action as { steps: string[] }).steps).toEqual([
+      "Remove it from the environment rt runs in; the relay operator keeps it outside rt",
+      "Remove it from the board's .env; the relay operator keeps it outside rt",
+      "Remove it from rt's secrets by hand, as step 3 of docs/switchboard-org-tokens.md shows; the relay operator keeps it outside rt",
+      "Re-check this row",
+    ]);
+
+    for (const [p, secrets] of [
+      [machine({ env: { SWITCHBOARD_ADMIN_TOKEN: MASTER } }), withFile(MASTER, null)],
+      [machine({ extra: { [BOARD_ENV]: `SWITCHBOARD_ADMIN_TOKEN=${MASTER}\n` } }), withFile(MASTER, null)],
+      [machine(), withFile(MASTER, MASTER)],
+    ] as const) {
+      expect((await adminSecretsRow(p, "acme", secrets))!.detail).toStartWith("This Mac keeps the relay operator's switchboard token in ");
+    }
+
+    const cleared = await adminSecretsRow(machine(), "acme", withFile(MASTER, null));
+    expect(cleared!.detail).toBe("The org shares the relay operator's token, not its own");
   });
 
   test('a master on this Mac never produces "cannot use it yet"', async () => {
