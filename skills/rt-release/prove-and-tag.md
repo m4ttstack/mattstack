@@ -201,8 +201,8 @@ fast-browser and any rt file keep the walkthrough.
 The walkthrough runs only on this machine (GitHub runners cannot nest virtualization), takes
 about 25 minutes per scenario, and every run needs the `mattstack-golden-26` image plus: `MATTSTACK_VMTEST_PAT`
 (`gh auth token` works for GitHub; `--forge gitlab` needs a GitLab PAT, which the harness exports
-as `GITLAB_TOKEN`), `MATTSTACK_VMTEST_ORG=matts-hasura-demo` and
-`MATTSTACK_VMTEST_ORG_CONFIRM=matts-hasura-demo` (the README's default org does not exist),
+as `GITLAB_TOKEN`), `MATTSTACK_VMTEST_ORG=mattstack-testing` and
+`MATTSTACK_VMTEST_ORG_CONFIRM=mattstack-testing` (the throwaway org m4ttheweric owns; the README's default org does not exist),
 `VM_CACHE=~/Documents/GitHub/repo-tools/rt-tray/vm/.cache` (the golden's ssh key; a fresh
 worktree has no `.cache` of its own), `MATTSTACK_VMTEST_TRACK_REPO=github.com/m4ttheweric/glance-conformance`
 (join's tracked repo must be on the run's forge, and the fixture's is on gitlab.com) and
