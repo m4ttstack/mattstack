@@ -63,12 +63,16 @@ export function groupServers(servers: RunningServer[], enriched: Map<string, Enr
   return groups.sort((a, b) => oldest(a) - oldest(b) || a.key.localeCompare(b.key));
 }
 
+export const NO_PORT = "no port";
+export const portText = (s: RunningServer) => (s.port === null ? NO_PORT : `:${s.port}`);
+
 /** The row's filter text. */
 export function serverMatch(group: ServerGroup, { server, mr: rowMr }: GroupedServer): string {
   const mr = rowMr ?? group.mr;
   return [
     server.role,
-    server.port === null ? null : `:${server.port}`,
+    portText(server),
+    server.worktree.name,
     group.ticketId,
     group.ticket?.stateName,
     group.title,

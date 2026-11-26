@@ -127,12 +127,12 @@ test("groups run oldest server first, rows by branch then role", () => {
   expect(groups[2]!.servers.map((r) => r.server.role)).toEqual(["api", "web"]);
 });
 
-test("the filter text holds role, port, ticket, state, title, branch, MR title and MR state", () => {
+test("the filter text holds role, port, worktree, ticket, state, title, branch, MR title and MR state", () => {
   const [group] = groupServers([server("api", "red-kite", "web-198-order-totals")], enriched({
     tree: "red-kite", branch: "web-198-order-totals", linearId: "WEB-198",
     ticket: ticket("WEB-198", "Fix rounding in order totals", "Done"), mr: mr(398, "Fix totals", { state: "merged" }),
   }));
-  expect(serverMatch(group!, group!.servers[0]!)).toBe("api :10400 WEB-198 Done Fix rounding in order totals web-198-order-totals Fix totals merged");
+  expect(serverMatch(group!, group!.servers[0]!)).toBe("api :10400 red-kite WEB-198 Done Fix rounding in order totals web-198-order-totals Fix totals merged");
 });
 
 test("a row of a ticket on several branches is filtered by its own branch and MR", () => {
@@ -143,9 +143,9 @@ test("a row of a ticket on several branches is filtered by its own branch and MR
   expect(serverMatch(group!, group!.servers[0]!)).toEndWith("web-240-forms Forms closed");
 });
 
-test("a server with no port is filtered by its other words", () => {
+test("a server with no port is filtered by the words its row shows", () => {
   const [group] = groupServers([server("api", "calm-marble", "web-231-search", { port: null })], new Map());
-  expect(serverMatch(group!, group!.servers[0]!)).toStartWith("api WEB-231 ");
+  expect(serverMatch(group!, group!.servers[0]!)).toStartWith("api no port calm-marble WEB-231 ");
 });
 
 test("an MR reads in the words rt cd uses", () => {

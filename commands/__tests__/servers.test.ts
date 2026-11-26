@@ -437,7 +437,12 @@ test("rows with the same role and port say which worktree, so no two picks read 
   expect(view([twin(10, "calm-marble"), twin(20, "old-pond"), server({ pid: 30, role: "web", port: 4001 })])).toEqual(["api no port calm-marble", "api no port old-pond", "web :4001"]);
   expect(view([twin(10, "calm-marble"), twin(20, "calm-marble")])).toEqual(["api no port calm-marble 10", "api no port calm-marble 20"]);
   const { rows } = pickView(groupServers([twin(10, "calm-marble"), twin(20, "calm-marble")], new Map()));
-  expect(rows.map((r) => r.match!.endsWith(` no port calm-marble ${r.value}`))).toEqual([true, true]);
+  expect(rows.map((r) => r.match!.endsWith(` ${r.value}`) && r.match!.includes(" no port calm-marble "))).toEqual([true, true]);
+});
+
+test("a single row with no port is found by typing no port", () => {
+  const { rows } = pickView(groupServers([server({ pid: 10, port: null, listening: false })], new Map()));
+  expect(rows[0]!.match).toContain("no port");
 });
 
 describe("realServersDeps.pick", () => {

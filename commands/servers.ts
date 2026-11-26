@@ -1,6 +1,6 @@
 import type { CommandContext } from "../lib/command-tree.ts";
 import { loadEndpointConfig } from "../lib/endpoint/config.ts";
-import { groupServers, mrText, serverMatch, type GroupedServer, type ServerGroup } from "../lib/endpoint/server-groups.ts";
+import { groupServers, mrText, NO_PORT, portText, serverMatch, type GroupedServer, type ServerGroup } from "../lib/endpoint/server-groups.ts";
 import { agentLabel, ancestorPids, findServers, type RunningServer, type ServerRules, type ServerSnapshot } from "../lib/endpoint/servers.ts";
 import { readServerSnapshot, stopServers, type ServerRepo, type StopOutcome } from "../lib/endpoint/servers-system.ts";
 import { loadInterceptRules } from "../lib/endpoint/shim.ts";
@@ -42,9 +42,6 @@ const PICK_ENRICH_DEADLINE_MS = 10_000;
 const READ_FAILED = "rt could not read what is running";
 /** The width rt cd pads its ticket states to. */
 const STATE_WIDTH = 15;
-
-const NO_PORT = "no port";
-const portText = (s: RunningServer) => (s.port === null ? NO_PORT : `:${s.port}`);
 
 export function serverHints(s: RunningServer): string[] {
   return [
@@ -122,7 +119,7 @@ export function pickView(groups: ServerGroup[]): { rows: PickRow[]; groupHeading
   const uptimeWidth = Math.max(...all.map(({ uptime }) => uptime.length));
   const rows = all.map(({ group, row, uptime }): PickRow => ({
     value: String(row.server.pid),
-    match: portCell(row.server) === portText(row.server) ? serverMatch(group, row) : `${serverMatch(group, row)} ${portCell(row.server)}`,
+    match: portCell(row.server).endsWith(` ${row.server.worktree.name} ${row.server.pid}`) ? `${serverMatch(group, row)} ${row.server.pid}` : serverMatch(group, row),
     group: group.key,
     left: [
       { text: `${row.server.role.padEnd(roleWidth)}  `, tone: "peach", bold: true },
