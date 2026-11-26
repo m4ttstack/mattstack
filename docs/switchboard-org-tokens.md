@@ -26,12 +26,29 @@ Each step is safe on its own, and no board token changes. Do them in order.
 1. **Deploy the relay.** Existing boards and invites land in one legacy org
    that has no token yet. The master acts as that org on the old routes, so
    the rt released today is unaffected.
-2. **The operator mints the legacy org's token.**
+2. **The operator mints the legacy org's token.** `mint` is not the command
+   here (it makes a new org, and is refused before step 5). Run
+   `bun apps/board/switchboard/operator.ts orgs`, take the id on the row
+   marked `legacy`, then run
+   `bun apps/board/switchboard/operator.ts token <that id>`. The token it
+   prints goes to Matt, who runs step 4.
 3. **Every owner and admin clears the master from their Mac.** This comes
    before the share, so no older rt is left holding a master it could write
    back over the org token. Clear each of:
    - The environment rt runs in.
-   - The local secret.
+   - The local secret. rt has no verb that deletes a secret, so edit the
+     personal store by hand. The age key lives only in the keychain, and sops
+     reads it from `SOPS_AGE_KEY`. Run this from `~/.mattstack/user` (sops
+     matches `.sops.yaml` relative to that folder), delete the
+     `switchboardAdminToken` line in the editor, then save and quit:
+
+     ```sh
+     cd ~/.mattstack/user
+     SOPS_AGE_KEY="$(security find-generic-password -a mattstack -s mattstack-age-key -w)" sops secrets/rt.json
+     ```
+
+     The keychain may ask you to allow the read. If the file has no
+     `switchboardAdminToken` key, there is nothing to remove.
    - The board's `.env`, then restart the board (it reads `.env` only at
      start).
 
@@ -43,7 +60,7 @@ Each step is safe on its own, and no board token changes. Do them in order.
 
    The shared admin-only file still holds the master, so nothing stops working
    meanwhile. On the new rt the `org.admin-secrets` row names each copy.
-4. **Put the org token in the admin-only file.** Run
+4. **Matt puts the org token in the admin-only file.** He runs
    `rt team admin-secrets --token-stdin --replace-token` and paste the org
    token. The other admins get it on their next pull, then restart their
    boards (a board keeps the token it read at start), so their peered badge
