@@ -19,7 +19,7 @@ const PANE = {
 const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'run', title: 'T', script: 'make', status: 'open', ...over })
 
 const wrapperFor = (token: string, script: string, cwd = '/work') =>
-  `zsh -c 'trap : INT; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?' todo '${script.replace(/'/g, `'\\''`)}' '${cwd}'`
+  `zsh -c 'trap : INT; printf "__todo_pid_${token} %s\\n" $$; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?' todo '${script.replace(/'/g, `'\\''`)}' '${cwd}'`
 
 // `gitDir` is what git answers for the session folder's shared git dir; left out, the folder is not in a git repo.
 // `servers` are the herdr sessions running beside the visible one (mattstack's background server by default).
@@ -194,8 +194,22 @@ test('quotes, a dollar, a backslash and a newline in a script survive the wrappe
   expect(typed).toBe(wrapperFor(tokenOf('1'), script))
   const [shell, flag, inline, name, given] = words(typed)
   expect([shell, flag, name]).toEqual(['zsh', '-c', 'todo'])
-  expect(inline).toBe(`trap : INT; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${tokenOf('1')} %s\\n" $?`)
+  expect(inline).toBe(`trap : INT; printf "__todo_pid_${tokenOf('1')} %s\\n" $$; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${tokenOf('1')} %s\\n" $?`)
   expect(given).toBe(script)
+})
+
+test("the first poll records the process group the wrapper's pid line names, and that line is never output", async ($, on) => {
+  const { run1, fake, item, clock } = await seeded($, on, [todo({})])
+  await run1('1')
+  const pane = item('1')?.paneId ?? ''
+  fake.print(pane, 'one')
+
+  await clock.advance(1000)
+
+  expect(item('1')).toMatchObject({ status: 'running', pgid: fake.panes.get(pane)?.pid, liveTail: ['one'] })
+  fake.finish(pane, 0)
+  await clock.advance(1000)
+  expect(item('1')).toMatchObject({ status: 'done', outputTail: 'one' })
 })
 
 test('each second the live tail is the last 3 lines after the echoed command, until the marker', async ($, on) => {

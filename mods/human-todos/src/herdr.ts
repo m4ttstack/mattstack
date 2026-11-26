@@ -167,16 +167,20 @@ async function readPane($: EngineInterface, session: string, paneId: string, lin
 }
 
 // The typed command echoes first, one terminal line per line of the script, so output starts after those.
-function scanPane(text: string, token: string, script: string): { isEchoed: boolean; output: string[]; exitCode?: number } {
+// The wrapper prints its pid before the script runs; the pane's shell made it the leader of the job's process group.
+function scanPane(text: string, token: string, script: string): { isEchoed: boolean; output: string[]; exitCode?: number; pgid?: number } {
   const lines = text.split('\n')
   const marker = `__todo_exit_${token}`
+  const pidMarker = `__todo_pid_${token} `
   const echoed = lines.findLastIndex(line => line.includes(marker) && line.includes('%s'))
   const body = lines.slice(echoed === -1 ? 0 : echoed + script.split('\n').length)
+  const pidLine = body.findIndex(line => /^\d+$/.test(line.trim().slice(pidMarker.length)) && line.trimStart().startsWith(pidMarker))
+  const pgid = pidLine === -1 ? undefined : Number((body[pidLine] ?? '').trim().slice(pidMarker.length))
   const end = body.findIndex(line => line.trimStart().startsWith(`${marker} `))
-  const output = (end === -1 ? body : body.slice(0, end)).filter(line => line.trim() !== '')
-  if (end === -1) return { isEchoed: echoed !== -1, output }
+  const output = (end === -1 ? body : body.slice(0, end)).filter((line, i) => i !== pidLine && line.trim() !== '')
+  if (end === -1) return { isEchoed: echoed !== -1, output, pgid }
   const code = Number.parseInt((body[end] ?? '').trimStart().slice(marker.length + 1), 10)
-  return { isEchoed: echoed !== -1, output, exitCode: Number.isNaN(code) ? -1 : code }
+  return { isEchoed: echoed !== -1, output, exitCode: Number.isNaN(code) ? -1 : code, pgid }
 }
 
 function end(token: string): void {
@@ -204,6 +208,7 @@ async function pollOnce($: EngineInterface, token: string, run: Run): Promise<vo
 
   const scan = scanPane(text, token, todo.script ?? '')
   run.output = scan.output
+  if (scan.pgid !== undefined && scan.pgid !== todo.pgid) await patchTodo($, todo.id, { pgid: scan.pgid })
   const outputTail = scan.output.join('\n')
   if (scan.exitCode !== undefined) {
     await conclude($, token, todo, todo.isStopping ? { kind: 'stopped', outputTail } : { kind: 'ran', exitCode: scan.exitCode, outputTail })
@@ -261,10 +266,10 @@ export async function startHerdr($: EngineInterface, todo: Todo): Promise<void> 
       if (placed.tabId) await herdr($, session, `tab close ${quote(placed.tabId)}`)
       return end(token)
     }
-    await patchTodo($, todo.id, { token, paneId: placed.paneId, tabId: placed.tabId, herdrSession: session, liveTail: [], isStopping: false })
+    await patchTodo($, todo.id, { token, paneId: placed.paneId, tabId: placed.tabId, herdrSession: session, liveTail: [], isStopping: false, pgid: undefined })
     // A reused tab's shell can be in any folder, so the script goes to the one Confirm showed, or does not run. The builtin, quietly: a cd
     // function or a chpwd hook in .zshenv could lead elsewhere.
-    const wrapper = `trap : INT; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`
+    const wrapper = `trap : INT; printf "__todo_pid_${token} %s\\n" $$; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`
     const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(`zsh -c ${quote(wrapper)} todo ${quote(todo.script ?? '')} ${quote(cwd)}`)}`)
     if (typed.exitCode !== 0) throw new Error('herdr would not run the script')
   } catch (err) {

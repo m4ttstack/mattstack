@@ -1194,15 +1194,18 @@ function scanPane(text, token, script) {
   const lines = text.split(`
 `);
   const marker = `__todo_exit_${token}`;
+  const pidMarker = `__todo_pid_${token} `;
   const echoed = lines.findLastIndex((line) => line.includes(marker) && line.includes("%s"));
   const body = lines.slice(echoed === -1 ? 0 : echoed + script.split(`
 `).length);
+  const pidLine = body.findIndex((line) => /^\d+$/.test(line.trim().slice(pidMarker.length)) && line.trimStart().startsWith(pidMarker));
+  const pgid = pidLine === -1 ? undefined : Number((body[pidLine] ?? "").trim().slice(pidMarker.length));
   const end = body.findIndex((line) => line.trimStart().startsWith(`${marker} `));
-  const output = (end === -1 ? body : body.slice(0, end)).filter((line) => line.trim() !== "");
+  const output = (end === -1 ? body : body.slice(0, end)).filter((line, i) => i !== pidLine && line.trim() !== "");
   if (end === -1)
-    return { isEchoed: echoed !== -1, output };
+    return { isEchoed: echoed !== -1, output, pgid };
   const code = Number.parseInt((body[end] ?? "").trimStart().slice(marker.length + 1), 10);
-  return { isEchoed: echoed !== -1, output, exitCode: Number.isNaN(code) ? -1 : code };
+  return { isEchoed: echoed !== -1, output, exitCode: Number.isNaN(code) ? -1 : code, pgid };
 }
 function end(token) {
   runs.get(token)?.poller?.cancel();
@@ -1229,6 +1232,8 @@ async function pollOnce($, token, run) {
   run.unreadPolls = 0;
   const scan = scanPane(text, token, todo.script ?? "");
   run.output = scan.output;
+  if (scan.pgid !== undefined && scan.pgid !== todo.pgid)
+    await patchTodo($, todo.id, { pgid: scan.pgid });
   const outputTail = scan.output.join(`
 `);
   if (scan.exitCode !== undefined) {
@@ -1288,8 +1293,8 @@ async function startHerdr($, todo) {
         await herdr($, session, `tab close ${quote(placed.tabId)}`);
       return end(token);
     }
-    await patchTodo($, todo.id, { token, paneId: placed.paneId, tabId: placed.tabId, herdrSession: session, liveTail: [], isStopping: false });
-    const wrapper = `trap : INT; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`;
+    await patchTodo($, todo.id, { token, paneId: placed.paneId, tabId: placed.tabId, herdrSession: session, liveTail: [], isStopping: false, pgid: undefined });
+    const wrapper = `trap : INT; printf "__todo_pid_${token} %s\\n" $$; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`;
     const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(`zsh -c ${quote(wrapper)} todo ${quote(todo.script ?? "")} ${quote(cwd)}`)}`);
     if (typed.exitCode !== 0)
       throw new Error("herdr would not run the script");

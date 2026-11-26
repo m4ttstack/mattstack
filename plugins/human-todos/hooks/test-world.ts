@@ -216,7 +216,8 @@ export function words(command: string): string[] {
   return out
 }
 
-type FakePane = { tab: string; lines: string[]; isIdle: boolean; isAlive: boolean; typed?: string }
+// `pid` is the process group the wrapper's shell leads once a script is typed; `isKilled` once Force stop killed that group.
+type FakePane = { tab: string; lines: string[]; isIdle: boolean; isAlive: boolean; typed?: string; pid?: number; isKilled?: boolean }
 type Reply = { exitCode: number; stdout: string; stderr: string }
 
 // Stands for herdr and rt. A test hands `run` the command a plugin ran through `/bin/zsh -lc`.
@@ -234,7 +235,7 @@ export function herdrFake({ hasRt = true, servers: running = { [BG]: true } }: {
   const workspaceServer = new Map<string, string | undefined>()
   const panes = new Map<string, FakePane>()
   const labels = new Map<string, string>()
-  const state = { hasRt, isCtrlCEnding: true, isCreateRefused: false, isRunRefused: false, isMissing: false, canStart: true }
+  const state = { hasRt, isCtrlCEnding: true, isKillRefused: false, printsPid: true, isCreateRefused: false, isRunRefused: false, isMissing: false, canStart: true }
   let seq = 0
   const ok = (stdout = ''): Reply => ({ exitCode: 0, stdout, stderr: '' })
   const no = (): Reply => ({ exitCode: 1, stdout: '', stderr: 'failed' })
@@ -262,6 +263,15 @@ export function herdrFake({ hasRt = true, servers: running = { [BG]: true } }: {
     const [head, a, b] = w
     if (command === 'command -v rt') return state.hasRt ? ok('/bin/rt') : no()
     if (head === 'rt') return ok()
+    // The shell kills the wrapper's whole group, so its pane goes back to the prompt with no exit marker.
+    const killed = /^kill -KILL -- -(\d+)$/.exec(command)
+    if (killed) {
+      const pane = [...panes.values()].find(p => p.pid === Number(killed[1]) && !p.isKilled && !p.isIdle)
+      if (state.isKillRefused || !pane) return { exitCode: 1, stdout: '', stderr: 'kill: No such process' }
+      pane.isKilled = true
+      pane.isIdle = true
+      return ok()
+    }
     if (head !== 'herdr' && head !== 'nohup') return undefined
     if (state.isMissing) return { exitCode: 127, stdout: '', stderr: 'zsh: command not found: herdr' }
     if (head === 'nohup') {
@@ -311,6 +321,9 @@ export function herdrFake({ hasRt = true, servers: running = { [BG]: true } }: {
         pane.typed = w[4]
         pane.isIdle = false
         pane.lines.push(...(w[4] ?? '').split('\n'))
+        pane.pid = 5000 + ++seq
+        const token = tokenOf(pane)
+        if (state.printsPid && token && pane.typed?.includes(`__todo_pid_${token} %s`)) pane.lines.push(`__todo_pid_${token} ${pane.pid}`)
         return ok()
       }
       case 'pane read': {

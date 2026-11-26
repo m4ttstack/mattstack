@@ -35,6 +35,8 @@ export type Todo = {
   herdrSession?: string
   tabId?: string
   token?: string
+  // The process group a herdr run's wrapper leads, which Force stop kills.
+  pgid?: number
   logPath?: string
 }
 
