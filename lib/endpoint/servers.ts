@@ -1,5 +1,5 @@
-import { existsSync } from "fs";
-import { basename, dirname, join } from "path";
+import { existsSync, readFileSync } from "fs";
+import { basename, dirname, join, resolve } from "path";
 import { agentNameOf, isUserOrAgentProcess, type KillCandidate } from "../daemon/worktree-process-kill.ts";
 import { canon } from "../fs-canon.ts";
 import type { EndpointClaim } from "../state/index.ts";
@@ -146,6 +146,19 @@ function inNestedRepo(cwd: string, treeRoot: string): boolean {
   return false;
 }
 
+/** A folder whose `.git` file still points into the main checkout's worktrees: git dropped it, and the folder stayed. */
+function droppedFrom(folder: string, mainCheckout: string | undefined): boolean {
+  if (mainCheckout === undefined) return false;
+  let gitFile: string;
+  try {
+    gitFile = readFileSync(join(folder, ".git"), "utf8");
+  } catch {
+    return false;
+  }
+  const target = /^gitdir: (.+)$/m.exec(gitFile)?.[1]?.trim();
+  return target !== undefined && canon(dirname(resolve(folder, target))) === canon(join(mainCheckout, ".git", "worktrees"));
+}
+
 /** Sorted by worktree name, role, port. */
 export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: ServerRules): RunningServer[] {
   const byPid = new Map(snapshot.procs.map((p) => [p.pid, p]));
@@ -158,8 +171,12 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
 
   const listed = snapshot.worktrees.map((w) => ({ path: w.path, branch: w.branch, removed: w.removed ?? false, real: canon(w.path) }));
   const placed = claims.map((c) => ({ role: c.role, port: c.port, path: c.worktree, tree: canon(c.worktree) }));
-  // Claims are keyed by remote, so a folder that still exists unlisted is another clone's, or another repo's by now.
-  const deleted = new Map(placed.filter((c) => !listed.some((t) => t.real === c.tree) && !existsSync(c.tree)).map((c) => [c.tree, c.path]));
+  // Git lists the main checkout first.
+  const mainCheckout = listed.find((t) => !t.removed)?.path;
+  // Claims are keyed by remote, so a folder that still exists unlisted is another clone's, or another repo's by now, unless its .git says otherwise.
+  const deleted = new Map(placed
+    .filter((c) => !listed.some((t) => t.real === c.tree) && (!existsSync(c.tree) || droppedFrom(c.tree, mainCheckout)))
+    .map((c) => [c.tree, c.path]));
   // Longest first, so a tree nested in the main checkout wins over it.
   const trees = [...listed, ...[...deleted].map(([real, path]) => ({ path, branch: null, removed: true, real }))]
     .sort((a, b) => b.real.length - a.real.length);

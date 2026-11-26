@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { RoleConfig } from "../config.ts";
@@ -358,6 +358,38 @@ test("a claimed folder that still exists but git does not list is not this repo'
   } finally {
     rmSync(other, { recursive: true, force: true });
   }
+});
+
+describe("a claimed folder git dropped while the folder stayed", () => {
+  let dir: string;
+  beforeEach(() => { dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-dropped-"))); });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  const findIn = (tree: string, gitFile: string) => {
+    const main = join(dir, "main");
+    mkdirSync(join(main, ".git", "worktrees"), { recursive: true });
+    mkdirSync(tree, { recursive: true });
+    writeFileSync(join(tree, ".git"), gitFile);
+    return findServers(
+      snap(apiTree(join(tree, "apps", "api"), [10400]), [{ path: main, branch: "main" }]),
+      rules([{ worktree: tree, role: "api", port: 10400 }]),
+    );
+  };
+
+  test("is this repo's when its .git points into this repo's worktrees", () => {
+    const tree = join(dir, "calm-marble");
+    const found = findIn(tree, `gitdir: ${join(dir, "main", ".git", "worktrees", "calm-marble")}\n`);
+    expect(found.map((s) => [s.worktree.path, s.branch, s.removed])).toEqual([[tree, null, true]]);
+  });
+
+  test("is this repo's when that gitdir is written relative to the folder", () => {
+    const tree = join(dir, "calm-marble");
+    expect(findIn(tree, "gitdir: ../main/.git/worktrees/calm-marble\n").map((s) => s.removed)).toEqual([true]);
+  });
+
+  test("is another repo's when its .git points anywhere else", () => {
+    mkdirSync(join(dir, "other", ".git", "worktrees"), { recursive: true });
+    expect(findIn(join(dir, "calm-marble"), `gitdir: ${join(dir, "other", ".git", "worktrees", "calm-marble")}\n`)).toEqual([]);
+  });
 });
 
 test("a claimed worktree git still lists is not a removed one", () => {
