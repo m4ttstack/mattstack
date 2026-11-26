@@ -64,6 +64,13 @@ export function safeRealpath(p: string): string {
   }
 }
 
+const INTERPRETER_FLAGS = /^((?:\S*\/)?(?:node|bun|deno|python3?))(?: (?:(?:-r|-C|--require|--import|--loader|--experimental-loader|--conditions|--preload|--cwd|--config|--env-file) \S+|-\S+))+(?= )/;
+
+/** A command line with an interpreter's own flags (and the values of the ones that take a separate value) dropped, so the script it runs comes next. */
+export function stripInterpreterFlags(args: string): string {
+  return args.replace(INTERPRETER_FLAGS, "$1");
+}
+
 function stripLoginDash(name: string): string {
   return name.startsWith("-") ? name.slice(1) : name;
 }
@@ -76,7 +83,7 @@ function argv0Name(proc: KillCandidate): string {
  *  an interpreter) the basename of the script it runs. A login shell's
  *  leading `-` is stripped from each. */
 function processNames(proc: KillCandidate): string[] {
-  const argv = proc.fullCommand.split(" ");
+  const argv = stripInterpreterFlags(proc.fullCommand).split(" ");
   const names = [stripLoginDash(proc.command), argv0Name(proc)];
   if (INTERPRETER_BINS.has(names[1]!) && argv[1]) {
     names.push(stripLoginDash(basename(argv[1])));
