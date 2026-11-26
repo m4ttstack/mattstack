@@ -23,13 +23,14 @@ import type { SetupIntent } from "../intent.ts";
 import type { Probes } from "../probes.ts";
 import type { PackRequirements } from "../requirements.ts";
 import { readSetupState } from "../state.ts";
-import type { TeamSnapshot, UserIntegrationOverrides } from "../team-settings.ts";
+import { discoverOrgs, type TeamSnapshot, type UserIntegrationOverrides } from "../team-settings.ts";
 import { slackSupportRow, type SlackCheck } from "./slack-support.ts";
 import { forgeRole, missingScopes, recommendedScopeWarning, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
 import { ghSessionToken } from "../../team/forge-token.ts";
 import { roleFor } from "../../team/roles.ts";
-import { boardEnvHas, boardPeering } from "../../team/board-token.ts";
+import { boardEnvValue, boardPeering } from "../../team/board-token.ts";
+import { pickAdminToken } from "../../team/board-peers.ts";
 import { slackSecretWait, slackWaitRowDetail, type SlackSecretWait } from "../team-slack-secret.ts";
 import { confirmedGitlabHost } from "../gitlab-host.ts";
 
@@ -317,21 +318,21 @@ async function boardPeeringRow(p: Probes, secrets: SecretPresence, team: TeamSna
   if (peering.kind === "unpeered") {
     const unpeered = `This Mac is in ${peering.teams.join(", ")}, but its board has no switchboard token, so it cannot peer.`;
     const joinedSome = peering.teams.some((slug) => !readTeamLocal(p, slug).createdByRt);
-    // Registering a board takes only the switchboard admin token, whoever holds it and wherever it is kept.
-    // rt team peer reads the admin-only file of this org alone.
+    // The token rt team peer would pick, so a Mac it would refuse is never sent there.
     const canSelfInvite =
-      Boolean(p.env.SWITCHBOARD_ADMIN_TOKEN) ||
-      boardEnvHas(p, "SWITCHBOARD_ADMIN_TOKEN") ||
-      (await secrets.hasAdmin?.(team.slug, "switchboardAdminToken")) != null ||
-      (await secrets.has("rt", "switchboardAdminToken")) !== null;
-    // A creator without the admin token, and no other org admin to ask, has no way to peer from here.
+      (await pickAdminToken(
+        (await secrets.hasAdmin?.(team.slug, "switchboardAdminToken")) ?? null,
+        [async () => p.env.SWITCHBOARD_ADMIN_TOKEN || null, async () => boardEnvValue(p, "SWITCHBOARD_ADMIN_TOKEN"), () => secrets.has("rt", "switchboardAdminToken")],
+        discoverOrgs(p).length === 1,
+      )) !== null;
+    // A creator without the org's switchboard token, and no other org admin to ask, has no way to peer from here.
     if (!canSelfInvite && !joinedSome) return null;
     if (canSelfInvite) {
       return row({
         ...BOARD_PEERING_BASE,
         optionalNote: "Your board does not peer until you connect it with rt team peer.",
         status: "needs-you",
-        detail: `${unpeered} This Mac holds the switchboard admin token, so you can connect your own board with rt team peer.`,
+        detail: `${unpeered} This Mac holds the org's switchboard token, so you can connect your own board with rt team peer.`,
         action: SELF_INVITE_STEPS,
       });
     }

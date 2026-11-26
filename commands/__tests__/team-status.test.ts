@@ -748,8 +748,8 @@ describe("teamStatus", () => {
     });
 
     test("any other needs-you reads needs-you", async () => {
-      const mismatch = row({ ...syncRow("The org shares a different switchboard admin token from this Mac's"), action: { type: "steps", label: "Show steps…", steps: ["If this Mac's token is the newer one, run rt team admin-secrets --replace-token"] } });
-      expect(await stateFor(mismatch)).toEqual({ state: "needs-you", detail: "The org shares a different switchboard admin token from this Mac's" });
+      const mismatch = row({ ...syncRow("The org shares a different switchboard token from this Mac's"), action: { type: "steps", label: "Show steps…", steps: ["If this Mac's token is the newer one, run rt team admin-secrets --replace-token"] } });
+      expect(await stateFor(mismatch)).toEqual({ state: "needs-you", detail: "The org shares a different switchboard token from this Mac's" });
     });
 
     test("skipped reads not-this-mac", async () => {
