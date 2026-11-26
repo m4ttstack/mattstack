@@ -60,8 +60,9 @@
   - `legacyId(): string | null`
   - `hasNonLegacy(): boolean`
   - `ensureLegacy(now: number): string | null`. It returns the legacy id, creating the org when none exists and `!hasNonLegacy()`. Otherwise it returns null.
-  - `stampLegacyMaster(masterHash: string): void`. It records `relay_meta.legacy_master_hash` once (`INSERT OR IGNORE`), and only while a legacy org exists.
-  - `masterGateClosed(masterHash: string): boolean`. True while the stored hash equals `masterHash`.
+  - `stampLegacyMaster(master: string): Promise<void>`. While a legacy org exists and nothing is stamped yet, it stores `Bun.password.hash(master)` (argon2id, salted) as `relay_meta.legacy_master_hash`. It never overwrites a stamp, and hashes only when it writes.
+    - Salted, because the master may be short and stays live from step 1 to step 5, and a copy of the db from that window must not let anyone guess it offline.
+  - `masterGateClosed(master: string): Promise<boolean>`. True while `Bun.password.verify(master, stamp)` holds.
 - Produces (`store.ts`): `SwitchboardStore.orgs: OrgStore`, and an exported `sweepNullOrgs(db, now): { moved: number; skipped: number }`, which the constructor calls.
 
 - [ ] **Step 1: Write `orgs.test.ts`.**
@@ -70,7 +71,8 @@
   - `mintToken on an unknown id returns null`
   - `ensureLegacy creates one legacy org, then returns the same id`
   - `ensureLegacy returns null once a non-legacy org exists and no legacy org does`
-  - `masterGateClosed is true for the stamped hash, false for any other, and false when nothing is stamped`
+  - `masterGateClosed is true for the stamped master, false for any other, and false when nothing is stamped`
+  - `the stamp is not the master's plain sha256`
   - `stampLegacyMaster does nothing without a legacy org, and never overwrites a stamp`
 - [ ] **Step 2: Write `migration.test.ts`.**
   - Build a database with today's exact `CREATE TABLE` statements for `boards`, `invites`, `asks_off` and `envelopes`, copied from `store.ts` at `4bb7f8907f`. Insert two boards (known token hashes, from `hashToken`) and one open invite, then `new SwitchboardStore(db)`.
@@ -127,6 +129,8 @@
   - **`invite-store.test.ts`:**
     - `redeem registers into the invite's org`
     - `redeem returns taken, and consumes nothing, when another org registered the username since`
+      - The holder check refuses that register while the invite is open, so the test inserts the other org's `boards` row by hand. Never loosen the holder check to reach this state.
+      - An "open" invite is one that is unredeemed and unexpired (`redeemed_at IS NULL AND expires_at > now`).
     - `redeem of a NULL-org invite is unknown`
   - **`support.test.ts`:**
     - `support publish to another org's board is unknown-recipient`
@@ -147,7 +151,11 @@
 - Produces:
   - `export type AdminScope = { kind: 'operator' } | { kind: 'org'; org: string }`.
   - `export function masterTokenProblem(token: string): { refuse: boolean; message: string } | null`, used in `import.meta.main`.
-  - `makeFetchHandler`'s positional parameters do not change. At construction it calls `store.orgs.stampLegacyMaster(hashToken(adminToken))` when a legacy org exists, and again after any master register that names no org.
+  - `makeFetchHandler`'s positional parameters do not change. `store.orgs.stampLegacyMaster(adminToken)` runs at four points:
+    1. at construction (fire and forget; it does nothing without a legacy org);
+    2. after a master `POST /boards` that names no org;
+    3. after a master `POST /invites` that names no org;
+    4. as a backstop, awaited just before `POST /orgs` checks `masterGateClosed(adminToken)`.
 
 - [ ] **Step 1: Add the failing tests to `server.test.ts`.** Create orgs with `store.orgs.create` and `mintToken`.
   - `an org token cannot list, register, reissue or delete another org's board`:
@@ -160,7 +168,8 @@
   - `the master with no org registers into the legacy org on a fresh relay` (today's body, today's 201 `{username, token}`).
   - `the master with no org after a non-legacy org exists, and no legacy org, is 400 name-an-org`
   - `POST /orgs is 409 rotate-master-first while the master matches the legacy stamp`: build a second handler over the same db with a different master and expect 201 `{id, token}`, the token matching `ORG_TOKEN_RE`.
-  - `on a fresh relay, a master POST /invites {username} with no org, then POST /orgs, is 409 rotate-master-first`. The route calls `stampLegacyMaster(hashToken(adminToken))` just before its gate check, so every lazy path is covered.
+  - `on a fresh relay, a master POST /invites {username} with no org, then POST /orgs, is 409 rotate-master-first`
+  - `after a master POST /invites with no org, one rotation lifts the gate`: build a new handler over the same db with a new master, and its `POST /orgs` is 201.
   - `an org token's POST /invites for a username another org holds is 409 username-taken`
   - `the master's POST /boards {username, org: <unknown>} is 404`
   - `POST /orgs/<unknown>/token is 404`
@@ -173,9 +182,9 @@
   - `/envelopes to * reaches only the caller's org; a direct send to another org is 422 unknown-recipient`
   - `/support/messages to another org is 422; /support/host/<other org's user> reads {accepting:false,lastSeenAt:null}`
   - `today's request bodies get today's response shapes`, covering every route in the spec's tables with no `org` field sent.
-  - `masterTokenProblem refuses sbo_ and warns under 32 characters`
+  - `masterTokenProblem refuses sbo_ and warns under 32 characters`. The warning text contains `rotate`, `32` and `openssl rand -hex 32`.
 - [ ] **Step 2: Add to `invite-server.test.ts`.**
-  - `redeem answers 409 when another org took the username`
+  - `redeem answers 409 when another org took the username`, with the other org's board row inserted by hand, as in Task 2.
   - `an org token's invite lands in its org`
 - [ ] **Step 3: Add to `inbox-wait.test.ts`.**
   - `a broadcast wakes only the sender's org`: a waiter in another org stays asleep until its timeout.
@@ -276,7 +285,10 @@
   - `TokenOutcome` gains `"operator"`.
   - `placeToken` never writes a token that is not an org token. `syncAdminSecrets` skips its `notThisMac` check for such a token.
   - `TeamDeps.readStdin?: () => Promise<string>`, defaulting to `new Response(Bun.stdin.stream()).text()`.
-  - `TeamDeps.teamSecretsSeams?: (slug: string) => SecretsSeams`, defaulting to `createRealTeamSecretsSeams`. `teamAdminSecrets` uses it, and `deps.membersSeams` replaces the inline `realMembersSeams()`, so its tests never run real sops or age. Tests use `lib/secrets/__tests__/team-fakes.ts`.
+  - `teamAdminSecrets` uses the existing `deps.secrets ?? createRealTeamSecretsSeams(slug)`, as the support verbs do. Its tests pass `secrets` built from `lib/secrets/__tests__/team-fakes.ts` and pass `membersSeams`, so they never run real sops or age.
+  - The `--token-stdin` relay check goes through `deps.probes.fetch` at `switchboardUrl(deps.probes.env)`, as `readPeeredBoards` does, never a global `fetch`.
+    - A status 0 answer is `switchboard-unreachable` ("rt could not reach the switchboard", why: "Nothing was changed.").
+    - Any other non-200 answer is `org-token-rejected`.
   - Errors: `not-org-token` ("That is not an org switchboard token", why: "Org tokens start with sbo_. The relay operator's own token is never shared.") and `org-token-rejected` ("The switchboard did not accept that token", why: "Nothing was changed. Check the token with the relay operator.").
   - Create prints `out.line("pending", "Your board connects once the relay operator gives this org its switchboard token")` when `autoPeer` hits `peer-needs-admin`, then two `next` callouts in order: `rt team admin-secrets --token-stdin`, then `rt team peer`.
   - Tree node description: "Share your org's switchboard token with its owners and admins, and keep it locked to them". New flag row: `{ name: "Token from stdin", flag: "--token-stdin", type: "boolean", default: false, hint: "Read your org's switchboard token from stdin and share it" }`.
@@ -289,6 +301,8 @@
     - `--token-stdin trims, checks against GET /boards, then shares`
     - `--token-stdin refuses a master with not-org-token and writes nothing`
     - `--token-stdin refuses when the relay answers 401, with org-token-rejected`
+    - `--token-stdin with the relay unreachable (status 0) fails with switchboard-unreachable`
+    - `in the unused state, a master on this Mac still prints the refused line and the next step`
     - `without --token-stdin, a master on this Mac prints the refused line and still relocks`
     - `on a two-org Mac without --token-stdin, no token is read from this Mac`
     - `the removal callout names the relay operator`
@@ -299,6 +313,7 @@
   - Without `--token-stdin`, `teamAdminSecrets` reads this Mac's raw sources (env `SWITCHBOARD_ADMIN_TOKEN`, then `boardEnvValue(p, "SWITCHBOARD_ADMIN_TOKEN")`, then the local secret), and only on a one-org Mac.
   - The `operator` block is `out.line("refused", "This Mac's switchboard token is the relay operator's, so rt did not share it")` plus a `next` callout: `rt team admin-secrets --token-stdin`.
   - Reword the "switchboard admin token" copy in `commands/team.ts` (`TOKEN_BLOCKS`, `adminSecretsBlocks`, the removal callout) to the spec's terms.
+  - `adminSecretsBlocks`' early return for `state: "unused"` also appends `TOKEN_BLOCKS[result.token]()`, so `operator` shows there too. Its hint becomes "this Mac holds no org switchboard token to share".
 - [ ] **Step 4: Run Step 2's command plus the command-tree tests, and expect PASS.**
 - [ ] **Step 5: Commit.** `team admin-secrets: share only org tokens; add --token-stdin`
 
@@ -372,5 +387,9 @@ Runs after the final whole-branch review is clean, before any push or PR (Matt's
     - the migration steps 0 to 5.
   - The two declared deviations from the spec.
 - [ ] **Step 2: Publish it** with `herd_milestone`, artifact that file, summary `RT-613 ready for security review`. The security reviewer is dispatched by the shepherd, on a model no weaker than this session's, and DMs its findings.
-- [ ] **Step 3: Fix each finding** with its test, re-run the touched suites and `bun run typecheck`, and commit. Answer the reviewer by DM.
+- [ ] **Step 3: Fix each finding** with its test, re-run the touched suites and `bun run typecheck`, and commit.
+  - Add the fix commits to the request file.
+  - Point the reviewer at the spec and RT-613's acceptance list.
+  - Publish the request again with `herd_milestone`, so approval covers a re-check of the fixes.
+  - Answer the reviewer by DM.
 - [ ] **Step 4: Only after that milestone is approved,** push with `git_push` and open the PR with `mr_create` (`draft: false`). The description carries the operator's steps for Matt, the declared deviations, the follow-ups and the security review's verdict.
