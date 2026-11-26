@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { killGroup, wrapped } from './wrapper'
 
 // A herdr pane is an interactive zsh on a pty, which puts each typed command in its own process group; `script` gives one here.
-test("Force stop's kill ends a real run of a script that ignores INT and TERM within a second", async () => {
+// The call is BSD script's, and Linux CI has neither it nor zsh.
+test.skipIf(process.platform !== 'darwin')("Force stop's kill ends a real run of a script that ignores INT and TERM within a second", async () => {
   const home = mkdtempSync(join(tmpdir(), 'todos-force-'))
   const typed = wrapped('tok1', "trap '' INT TERM; sleep 60", home)
   const child = Bun.spawn(['script', '-q', '/dev/null', 'zsh', '-fic', typed], {
