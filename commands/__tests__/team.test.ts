@@ -324,6 +324,28 @@ describe("teamCreate connects the creator's board", () => {
     }
   });
 
+  test("a username another org holds names that org's claim and offers no rt team peer", async () => {
+    const deps = baseDeps({
+      probes: register(409),
+      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? ORG_TOKEN : null),
+      peerSeams: { boardUsername: async () => "matt", localStoreReady: async () => true, writeLocalSecret: async () => {} },
+    });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    warnTest.reset();
+    setWarningLog(() => {});
+    try {
+      await teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git"], {}, deps);
+      expect(io.stdout()).toContain("Created the acme org");
+      expect(io.stderr()).toContain("The org is ready, but rt could not connect your board");
+      expect(io.stderr()).toContain("Another org on the switchboard already has a board for matt");
+      expect(io.stderr()).not.toContain("rt team peer");
+    } finally {
+      warnTest.reset();
+      io.restore();
+    }
+  });
+
   test("create with no org token prints the pending line and the next step", async () => {
     const probes = fakeProbes({ home: "/home/x", files: adminFiles, env: { SWITCHBOARD_ADMIN_TOKEN: "the-relay-operators-own-token" } });
     const deps = baseDeps({

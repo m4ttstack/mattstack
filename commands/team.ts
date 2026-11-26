@@ -463,11 +463,16 @@ async function autoPeer(deps: TeamDeps, slug: string): Promise<PeerResult | "nee
     return await peerOwnBoard(deps.probes, slug, { rotate: false }, peerSeamsFor(deps));
   } catch (err) {
     if (err instanceof UserActionableError && err.code === "peer-needs-admin") return "needs-org-token";
+    const message = err instanceof Error ? err.message : String(err);
+    const title = "The org is ready, but rt could not connect your board";
+    // rt team peer would hit the same 409, so only the relay operator can clear it.
+    if (err instanceof UserActionableError && err.code === "username-taken") {
+      warn("team", `board peering after create: ${message}`, { show: { title, hint: err.why ? `${message}. ${err.why}` : message } });
+      return null;
+    }
     const why = err instanceof UserActionableError ? err.why : undefined;
     const next = err instanceof UserActionableError && err.next ? err.next : "rt team peer";
-    warn("team", `board peering after create: ${err instanceof Error ? err.message : String(err)}`, {
-      show: { title: "The org is ready, but rt could not connect your board", hint: why, next: out.cmd(next) },
-    });
+    warn("team", `board peering after create: ${message}`, { show: { title, hint: why, next: out.cmd(next) } });
     return null;
   }
 }

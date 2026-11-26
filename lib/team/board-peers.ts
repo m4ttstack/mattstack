@@ -63,7 +63,10 @@ async function readAdminFile(admin: AdminSource | null): Promise<string | null> 
   return admin ? await admin.read(admin.org, "switchboardAdminToken").catch(() => null) : null;
 }
 
-/** The org's switchboard token rt keeps itself: the org's admin-only file and this Mac's local secret. A throwing local read is the caller's to handle. */
+/**
+ * The org's switchboard token rt keeps itself: the org's admin-only file and this Mac's local secret. A throwing local read is the caller's to handle.
+ * `oneOrg` defaults to true so the daemon's board scope (`lib/daemon/handlers/secrets.ts`) keeps serving a token kept on the Mac; it only feeds the board's read-only peered badge.
+ */
 export async function readStoredAdminToken(readLocal: ReadLocalSecret, admin: AdminSource | null, oneOrg = true): Promise<string | null> {
   return pickAdminToken(await readAdminFile(admin), [() => readLocal("switchboardAdminToken")], oneOrg);
 }
@@ -84,8 +87,8 @@ export function canonicalHandle(handle: string): string {
 
 /**
  * The enrolled boards, as canonical usernames, or null when nothing on this
- * Mac can ask: the admin token lists every board, and a peered board's own
- * token lists its peers. A failed or malformed answer is also null, since a
+ * Mac can ask: the org's switchboard token lists the org's boards, and a
+ * peered board's own token lists its peers. A failed or malformed answer is also null, since a
  * wrong "not peered" would read as a removal that never happened.
  */
 export async function readPeeredBoards(p: Probes, readSecret: ReadLocalSecret, adminSource: AdminSource | null): Promise<Set<string> | null> {
