@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { __test__, suppressDaemonDownWarning } from "../daemon-client.ts";
+import { __test__, requestDaemonOnce, suppressDaemonDownWarning } from "../daemon-client.ts";
 import * as out from "../ui/out.ts";
 import { captureOut } from "../ui/__tests__/capture-out.ts";
 
@@ -26,4 +26,11 @@ test("a caller that owns the screen can silence it", () => {
   suppressDaemonDownWarning();
   __test__.warnDaemonDown();
   expect(io.stderr()).toBe("");
+});
+
+test("a one-shot request to a daemon that is down answers null at once, restarts nothing and prints nothing", async () => {
+  const started = Date.now();
+  expect(await requestDaemonOnce("cache:refresh", undefined, 1_000)).toBeNull();
+  expect(Date.now() - started).toBeLessThan(500);
+  expect([io.stdout(), io.stderr()]).toEqual(["", ""]);
 });

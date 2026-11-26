@@ -5,7 +5,7 @@ import { agentLabel, ancestorPids, findServers, type RunningServer, type ServerR
 import { readServerSnapshot, stopServers, type ServerRepo, type StopOutcome } from "../lib/endpoint/servers-system.ts";
 import { loadInterceptRules } from "../lib/endpoint/shim.ts";
 import { loadClaims } from "../lib/endpoint/store.ts";
-import { daemonQuery } from "../lib/daemon-client.ts";
+import { requestDaemonOnce } from "../lib/daemon-client.ts";
 import { enrichBranches, mrSegments, type EnrichedBranch } from "../lib/enrich.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { repoLabel } from "../lib/repo-label.ts";
@@ -141,10 +141,10 @@ const STOP_ACTION: PickAction = { id: "select", label: "stop", key: "enter", sco
 
 const REFRESH_ASK_MS = 1_000;
 
-/** Fire and forget: the daemon's refresh outlives this process, and a daemon that is down or starting is not waited on. */
-export async function askDaemonToRefresh(query: typeof daemonQuery = daemonQuery): Promise<void> {
+/** Fire and forget: the daemon's refresh outlives this process, and a daemon that is down or starting is left as it is. */
+export async function askDaemonToRefresh(query: typeof requestDaemonOnce = requestDaemonOnce): Promise<void> {
   try {
-    await query("cache:refresh", undefined, REFRESH_ASK_MS, { retryBudgetMs: 0 });
+    await query("cache:refresh", undefined, REFRESH_ASK_MS);
   } catch {
     // Best effort: the next run looks the branches up again.
   }

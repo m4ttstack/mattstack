@@ -102,10 +102,10 @@ test("the hints name the agent, then what is odd about the server", () => {
 });
 
 describe("askDaemonToRefresh", () => {
-  test("sends one cache refresh, without waiting out a daemon that is starting", async () => {
+  test("sends one cache refresh", async () => {
     const sent: unknown[][] = [];
     await askDaemonToRefresh(async (...args) => { sent.push(args); return null; });
-    expect(sent).toEqual([["cache:refresh", undefined, 1_000, { retryBudgetMs: 0 }]]);
+    expect(sent).toEqual([["cache:refresh", undefined, 1_000]]);
   });
 
   test("a daemon that is down or fails changes nothing", async () => {
