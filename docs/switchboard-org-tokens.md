@@ -95,6 +95,9 @@ after step 5.
    sets their own `SWITCHBOARD_OPERATOR_TOKEN` (kept outside rt) to the new
    master, or every `operator.ts` call gets a 401. The rules for the master's value are in
    [Operator setup](../apps/board/docs/peer-boards.md#operator-setup-run-a-switchboard).
+   Never set the old master back after this step: the relay revokes the
+   legacy org's token only once, and it refuses to mint any org token under
+   the old master again (`409 rotate-master-first`).
 6. **The operator mints the legacy org's token again, right after step 5.**
    Anyone who held the old master could mint a legacy org token between steps
    2 and 5, so on its first start with the new master the relay revokes the
@@ -108,6 +111,30 @@ after step 5.
    admins pull, then restart their boards. If `operator.ts` prints
    `the relay answered 503: relay-not-ready`, the relay logged that the revoke
    failed: restart the relay, then run this step.
+
+   Then the operator checks the legacy org's boards. Anyone who read the old
+   master could register an extra board before step 5, and its board token
+   still works after it. Compare the `boards=` count on the `legacy` row of
+
+   ```sh
+   bun apps/board/switchboard/operator.ts orgs
+   ```
+
+   and the boards whose `org` is the legacy id in
+
+   ```sh
+   curl -sS -H "Authorization: Bearer $SWITCHBOARD_OPERATOR_TOKEN" \
+     "${SWITCHBOARD_URL:-https://switchboard.mattstack.dev}/boards"
+   ```
+
+   against the org's roster. Delete each board nobody recognises, by its
+   `username` from that list. This revokes its token and drops what waits in
+   its inbox, and the relay answers `{"ok":true}`:
+
+   ```sh
+   curl -sS -X DELETE -H "Authorization: Bearer $SWITCHBOARD_OPERATOR_TOKEN" \
+     "${SWITCHBOARD_URL:-https://switchboard.mattstack.dev}/boards/<username>"
+   ```
 
 Rolling the relay back is safe for boards until a second org exists: board
 tokens work on the old image, but org tokens get a 401 there until it rolls

@@ -266,6 +266,13 @@ export function makeFetchHandler(
       if (!minting) return new Response('not found', { status: 404 });
       if (req.method !== 'POST')
         return new Response('method not allowed', { status: 405 });
+      // The revoke runs once, so a token minted under the leaked master set
+      // back after it would outlive the next rotation.
+      if (
+        store.orgs.legacyTokenRetired() &&
+        (await store.orgs.masterGateClosed(adminToken))
+      )
+        return json(409, { error: 'rotate-master-first' });
       const id = minting[1]!;
       const token = store.orgs.mintToken(id, now());
       if (token === null) return new Response('no such org', { status: 404 });

@@ -793,6 +793,26 @@ describe('a rotated master and the legacy org token', () => {
     }
   });
 
+  test('after the revoke, the old master set back cannot mint an org token, and the new master still can', async () => {
+    const { db, legacy } = await legacyRelay();
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const rotated = setup(db, B);
+      const fresh = await mintLegacy(rotated.call, B, legacy);
+      const back = setup(db, ADMIN);
+      expect(
+        await answer(
+          back.call(`/orgs/${legacy}/token`, { method: 'POST', token: ADMIN })
+        )
+      ).toEqual({ status: 409, text: '{"error":"rotate-master-first"}' });
+      expect((await back.call('/boards', { token: fresh })).status).toBe(200);
+      const again = setup(db, B);
+      await mintLegacy(again.call, B, legacy);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   test('a restart with the same master keeps the legacy token', async () => {
     const { db, old } = await legacyRelay();
     const restarted = setup(db, ADMIN);

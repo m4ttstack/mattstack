@@ -170,6 +170,10 @@ export class OrgStore {
     })();
   }
 
+  legacyTokenRetired(): boolean {
+    return this.meta(LEGACY_TOKEN_RETIRED) !== null;
+  }
+
   async masterGateClosed(master: string): Promise<boolean> {
     const stamp = this.stamp();
     return stamp !== null && (await Bun.password.verify(master, stamp));
