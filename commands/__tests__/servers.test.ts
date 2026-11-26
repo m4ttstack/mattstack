@@ -187,6 +187,7 @@ function harness(over: Over = {}) {
   const calls = {
     snapshot: 0, enrich: 0, pick: 0, stop: 0, slept: [] as number[], spare: new Set<number>(), picked: [] as RunningServer[],
     fresh: null as FreshServers | null, exits: [] as number[], cancelled: false, landedAtPick: undefined as Lookup["landed"] | undefined,
+    flushes: 0, refreshed: [] as Array<{ servers: RunningServer[]; remoteUrl: string | undefined }>,
   };
   const deps: ServersDeps = {
     rules: () => over.rules ?? RULES,
@@ -222,9 +223,11 @@ function harness(over: Over = {}) {
         })),
       } as unknown as Promise<void>;
     },
+    flushed: async () => { calls.flushes++; },
+    refreshLater: (servers, remoteUrl) => { calls.refreshed.push({ servers, remoteUrl }); },
     exit: (code) => { calls.exits.push(code); },
   };
-  return { calls, run: (args: string[] = []) => serversCommand(args, CTX, deps) };
+  return { calls, run: (args: string[] = [], over: Partial<ServersDeps> = {}) => serversCommand(args, CTX, { ...deps, ...over }) };
 }
 
 const NEVER = () => new Promise<Map<string, EnrichedBranch>>(() => {});
@@ -279,6 +282,29 @@ describe("serversCommand", () => {
     const failed = harness({ ...slow, pick: [10], outcomes: ([s]) => [{ server: s!, result: "failed", why: "It did not stop." }] });
     await failed.run();
     expect([listed, escaped, stopped, failed].map((h) => h.calls.exits)).toEqual([[0], [0], [0], [1]]);
+  });
+
+  test("a forced exit waits for the output to flush", async () => {
+    const { run, calls } = harness({ enrich: NEVER, deadlinePasses: true });
+    const order: string[] = [];
+    let flush!: () => void;
+    const deps = { flushed: () => new Promise<void>((resolve) => { order.push("flush"); flush = resolve; }) };
+    const running = run([], deps);
+    for (let tries = 0; !flush && tries < 50; tries++) await Bun.sleep(1);
+    expect([order, calls.exits]).toEqual([["flush"], []]);
+    flush();
+    await running;
+    order.push(...calls.exits.map(String));
+    expect(order).toEqual(["flush", "0"]);
+  });
+
+  test("a lookup cut short by the exit leaves a detached refresh to fill the cache, and one that landed does not", async () => {
+    const slow = harness({ enrich: NEVER, deadlinePasses: true });
+    await slow.run();
+    expect(slow.calls.refreshed.map((r) => [r.servers.map((s) => s.pid).sort(), r.remoteUrl])).toEqual([[[10, 20], CTX.identity!.remoteUrl]]);
+    const quick = harness();
+    await quick.run();
+    expect(quick.calls.refreshed).toEqual([]);
   });
 
   test("nothing running is one line, at a terminal too, and no picker opens", async () => {

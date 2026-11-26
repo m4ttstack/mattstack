@@ -5,7 +5,7 @@ import { agentLabel, ancestorPids, findServers, type RunningServer, type ServerR
 import { readServerSnapshot, stopServers, type ServerRepo, type StopOutcome } from "../lib/endpoint/servers-system.ts";
 import { loadInterceptRules } from "../lib/endpoint/shim.ts";
 import { loadClaims } from "../lib/endpoint/store.ts";
-import { enrichBranches, mrSegments, type EnrichedBranch } from "../lib/enrich.ts";
+import { enrichBranches, mrSegments, spawnCacheRefresh, type EnrichedBranch } from "../lib/enrich.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { repoLabel } from "../lib/repo-label.ts";
 import { parseIdentity } from "../lib/settings/identity.ts";
@@ -28,6 +28,10 @@ export interface ServersDeps {
   canAsk(): boolean;
   /** Settles early when `cancel` aborts, so a lookup that answers first leaves no timer holding the process open. */
   sleep(ms: number, cancel: AbortSignal): Promise<void>;
+  /** Everything printed so far has gone out. */
+  flushed(): Promise<void>;
+  /** Fills the branch cache from a detached child, for a lookup the exit cuts short. */
+  refreshLater(servers: RunningServer[], remoteUrl: string | undefined): void;
   exit(code: number): void;
 }
 
@@ -186,6 +190,11 @@ export const realServersDeps: ServersDeps = {
         resolve();
       });
     }),
+  flushed: out.flushed,
+  refreshLater: (servers, remoteUrl) => {
+    const branches = branchesOf(servers);
+    if (branches.length > 0) spawnCacheRefresh(branches, remoteUrl);
+  },
   exit: (code) => process.exit(code),
 };
 
@@ -274,5 +283,8 @@ export async function serversCommand(args: string[], ctx: CommandContext, deps: 
   if (deps.canAsk()) await pickAndStop();
   else out.print(...serverBlocks(label, groupServers(servers, await enrichedWithin(deps, lookup, LIST_ENRICH_DEADLINE_MS))));
   // A forge lookup has no timeout of its own, and a pending one holds the process open.
-  if (!lookup.landed) deps.exit(Number(process.exitCode ?? 0));
+  if (lookup.landed) return;
+  deps.refreshLater(servers, remoteUrl || undefined);
+  await deps.flushed();
+  deps.exit(Number(process.exitCode ?? 0));
 }

@@ -387,6 +387,27 @@ describe("the two writers agent-only verbs use", () => {
   }
 });
 
+test("flushed resolves only once stdout and stderr have both written what came before", async () => {
+  const pending: Array<() => void> = [];
+  const held = (sink: string[]) => ((text: string, callback: () => void) => {
+    sink.push(text);
+    pending.push(callback);
+    return false;
+  }) as typeof process.stdout.write;
+  process.stdout.write = held(stdout);
+  process.stderr.write = held(stderr);
+  let settled = false;
+  const flushed = out.flushed().then(() => { settled = true; });
+  await Promise.resolve();
+  expect([stdout, stderr]).toEqual([[""], [""]]);
+  pending[0]!();
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  pending[1]!();
+  await flushed;
+  expect(settled).toBe(true);
+});
+
 describe("holdStdout", () => {
   test("until released, stdout writes and human text go to stderr; a payload after release is stdout's alone", () => {
     const io = captureOut();

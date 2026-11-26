@@ -762,7 +762,7 @@ export async function refreshAllMRs(
 
 // ─── Detached cache refresh ──────────────────────────────────────────────────
 
-function spawnCacheRefresh(
+export function spawnCacheRefresh(
   branches: Array<{ path: string; branch: string }>,
   remoteUrl: string | undefined,
 ): void {
