@@ -23,10 +23,12 @@ import { joinLink, joinLinkBase, pasteBlock } from "../../lib/team/invite.ts";
 import { readTeamLocal, writeTeamLocal, teamLocalPath, updateTeamLocal, type TeamLocalRecord } from "../../lib/team/team-local.ts";
 import { cleanupOrgWorlds, orgWorld } from "../../lib/team/__tests__/org-world.ts";
 import { expectNoToken, rtHelperHost } from "../../lib/team/__tests__/rt-credential-argv.ts";
+import { orgToken } from "../../lib/team/__tests__/org-token-fixtures.ts";
 
 const FAKE_PUBLIC_KEY = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
 const FAKE_PRIVATE_KEY = "AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ";
 const ZONE_DIR = "/home/x/.mattstack/orgs/acme";
+const ORG_TOKEN = orgToken("a");
 const adminFiles = {
   [`${ZONE_DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
   [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
@@ -261,7 +263,7 @@ describe("teamCreate connects the creator's board", () => {
     const written: Array<[string, string]> = [];
     const deps = baseDeps({
       probes: register(200),
-      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin" : null),
+      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? ORG_TOKEN : null),
       peerSeams: { boardUsername: async () => "matt", localStoreReady: async () => true, writeLocalSecret: async (k, v) => void written.push([k, v]) },
     });
 
@@ -274,7 +276,7 @@ describe("teamCreate connects the creator's board", () => {
   test("a switchboard that refuses is a warning, never a failed create", async () => {
     const deps = baseDeps({
       probes: register(503),
-      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin" : null),
+      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? ORG_TOKEN : null),
       peerSeams: { boardUsername: async () => "matt", localStoreReady: async () => true, writeLocalSecret: async () => {} },
     });
     const io = captureOut();
@@ -294,7 +296,7 @@ describe("teamCreate connects the creator's board", () => {
   test("a peer refusal that names its own fix keeps that fix as the next step", async () => {
     const deps = baseDeps({
       probes: register(200),
-      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin" : null),
+      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? ORG_TOKEN : null),
       peerSeams: {
         boardUsername: async () => {
           throw new UserActionableError("forge-host-unconfirmed", "rt will not send your GitLab token to gitlab.evil.example", {}, { next: "rt setup gitlab connect --host gitlab.evil.example" });
@@ -323,10 +325,11 @@ describe("teamPeer", () => {
     const deps = depsWithZone({
       probes: fakeProbes({
         home: "/home/x",
-        dirs: { [ZONE_DIR]: [] },
+        files: adminFiles,
+        dirs: { [ZONE_DIR]: [], "/home/x/.mattstack/orgs": ["acme"] },
         fetch: async (url, init) => (init?.method === "POST" ? { status: 200, body: JSON.stringify({ token: "t" }), headers: {} } : url.endsWith("/boards") ? { status: 200, body: JSON.stringify({ boards: [] }), headers: {} } : { status: 404, body: "", headers: {} }),
       }),
-      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin" : null),
+      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? ORG_TOKEN : null),
       peerSeams: { boardUsername: async () => "Matt", localStoreReady: async () => true, writeLocalSecret: async () => {} },
     });
 
@@ -343,7 +346,7 @@ describe("teamPeer", () => {
     try {
       const code = await runExpectingProcessExit(() => teamPeer(["--team", "acme"], {}, deps));
       expect(code).toBe(2);
-      expect(io.stderr()).toContain("[refused] Only a Mac holding the switchboard admin token can connect its own board");
+      expect(io.stderr()).toContain("[refused] Only a Mac holding the org's switchboard token can connect its own board");
       expect(io.stderr()).toContain("rt team join");
     } finally {
       io.restore();
@@ -578,7 +581,7 @@ describe("teamInvite", () => {
   function inviteDeps(overrides: { exec?: ExecScript; record?: Partial<TeamLocalRecord>; onRelay?: () => void; adminToken?: string } = {}): TeamDeps & { lines: string[]; exitCodes: number[] } {
     const probes = fakeProbes({
       home,
-      dirs: { [teamDir]: [], [join(teamDir, "mattstack", "teams")]: ["widgets"] },
+      dirs: { [teamDir]: [], [join(teamDir, "mattstack", "teams")]: ["widgets"], [join(home, ".mattstack", "orgs")]: ["acme"] },
       files: {
         [join(teamDir, ".git", "config")]: GIT_CONFIG,
         [join(teamDir, "mattstack", "org", "settings.org.jsonc")]: JSON.stringify({
@@ -631,7 +634,7 @@ describe("teamInvite", () => {
 
   describe("board peering the invite could not carry is never silent", () => {
     test("--json reports peering missing with the warning, and still mints", async () => {
-      const deps = inviteDeps({ adminToken: "admin-1" });
+      const deps = inviteDeps({ adminToken: ORG_TOKEN });
       const stderr = spyOn(console, "error").mockImplementation(() => {});
       try {
         await teamInvite(["--handle", "zaphod", "--json"], {}, deps);
@@ -647,7 +650,7 @@ describe("teamInvite", () => {
 
     test("--require-peering refuses with exit 2 before the relay is touched", async () => {
       let relayCalls = 0;
-      const deps = inviteDeps({ adminToken: "admin-1", onRelay: () => { relayCalls++; } });
+      const deps = inviteDeps({ adminToken: ORG_TOKEN, onRelay: () => { relayCalls++; } });
 
       const code = await runExpectingProcessExit(() => teamInvite(["--handle", "zaphod", "--require-peering", "--json"], {}, deps));
 
@@ -658,7 +661,7 @@ describe("teamInvite", () => {
     });
 
     test("human mode: an invite that could not connect the board is a failure, not a refusal", async () => {
-      const deps = inviteDeps({ adminToken: "admin-1" });
+      const deps = inviteDeps({ adminToken: ORG_TOKEN });
       const io = captureOut();
       ui.__test__.setHuman(() => false);
       try {

@@ -2,6 +2,15 @@ import { emitSettingsWarning } from "./settings/resolve.ts";
 
 export const SWITCHBOARD_URL = "https://switchboard.mattstack.dev";
 
+/** Declared again in `apps/board/switchboard/orgs.ts`, because the relay image cannot import rt-client; a parity test pins the two equal. */
+export const ORG_TOKEN_PREFIX = "sbo_";
+const ORG_TOKEN_RE = new RegExp(`^${ORG_TOKEN_PREFIX}[0-9a-f]{64}$`);
+
+/** An org's own switchboard token. The relay refuses a master token with this prefix, so anything else is the relay operator's. */
+export function isOrgToken(token: string | null | undefined): boolean {
+  return typeof token === "string" && ORG_TOKEN_RE.test(token);
+}
+
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const warnedOverrides = new Set<string>();
 

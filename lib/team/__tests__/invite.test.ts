@@ -16,6 +16,7 @@ import { readInviteRecords } from "../invite-records.ts";
 import { INVITE_TTL_DAYS, joinLink, joinLinkBase, mintInvite, pasteBlock, realMintInviteSeams, type MintInviteSeams } from "../invite.ts";
 import type { RelayClient } from "../relay-client.ts";
 import { expectNoToken, rtHelperHost } from "./rt-credential-argv.ts";
+import { orgClones, orgToken } from "./org-token-fixtures.ts";
 import { SWITCHBOARD_URL } from "../../../packages/rt-client/src/switchboard.ts";
 import type { setSetting } from "../../settings/write.ts";
 
@@ -136,12 +137,22 @@ function probesWithRemote(remote: string, extraFiles: Record<string, string> = {
   return fakeProbes({ home: HOME, files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(remote), ...TEAM_FILES, ...extraFiles } });
 }
 
+/** The same Mac with its org clone as `discoverOrgs` sees it, so a token kept on this Mac counts. */
+function oneOrgProbesWithRemote(remote: string, fetch?: Probes["fetch"]): ReturnType<typeof fakeProbes> {
+  return fakeProbes({ home: HOME, dirs: ONE_ORG.dirs, files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(remote), ...TEAM_FILES, ...ONE_ORG.files }, ...(fetch ? { fetch } : {}) });
+}
+
 const TEAM_FILES = {
   "/home/.mattstack/orgs/acme/mattstack/teams/widgets/settings.team.jsonc": "{}",
   "/home/.mattstack/orgs/acme/mattstack/teams/gadgets/settings.team.jsonc": "{}",
 };
 
 const REMOTE = "git@github.com:acme/widgets.git";
+
+const ONE_ORG = orgClones(HOME, SLUG);
+const ADMIN_FILE = orgToken("a");
+const ADMIN_LOCAL = orgToken("b");
+const MASTER = "the-relay-operators-own-token";
 
 const CODE = "01234-56789-ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567-89ABC-DEFGH-JKMNP-QRSTV-WXYZ0-12345-6789A-BC";
 const PLAIN = "0123456789ABCDEFGHJKMNPQRSTVWXYZ0123456789ABCDEFGHJKMNPQRSTVWXYZ0123456789ABC";
@@ -357,58 +368,61 @@ describe("mintInvite", () => {
     const fetchCalls: { url: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }[] = [];
     const p = fakeProbes({
       home: HOME,
-      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES },
+      dirs: ONE_ORG.dirs,
+      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES, ...ONE_ORG.files },
       fetch: async (url, init) => {
         fetchCalls.push({ url, init });
         return { status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-9" }), headers: {} };
       },
     });
     const { seams } = baseSeams({
-      readAdminSecret: async (org, key) => (org === SLUG && key === "switchboardAdminToken" ? "admin-file" : null),
-      readLocalSecret: async () => "admin-local",
+      readAdminSecret: async (org, key) => (org === SLUG && key === "switchboardAdminToken" ? ADMIN_FILE : null),
+      readLocalSecret: async () => ADMIN_LOCAL,
     });
 
     const result = await mintInvite(p, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(result.peering).toBe("embedded");
-    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-file");
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe(`Bearer ${ADMIN_FILE}`);
   });
 
   test("a Mac that cannot open the admin-only file still uses its own secret", async () => {
     const fetchCalls: { url: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }[] = [];
     const p = fakeProbes({
       home: HOME,
-      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES },
+      dirs: ONE_ORG.dirs,
+      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES, ...ONE_ORG.files },
       fetch: async (url, init) => {
         fetchCalls.push({ url, init });
         return { status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-9" }), headers: {} };
       },
     });
-    const { seams } = baseSeams({ readAdminSecret: async () => null, readLocalSecret: async () => "admin-local" });
+    const { seams } = baseSeams({ readAdminSecret: async () => null, readLocalSecret: async () => ADMIN_LOCAL });
 
     await mintInvite(p, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
-    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-local");
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe(`Bearer ${ADMIN_LOCAL}`);
   });
 
   test("an admin token on this Mac: mint registers the member's board on the built-in switchboard and seals only the token", async () => {
     const fetchCalls: { url: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }[] = [];
     const p = fakeProbes({
       home: HOME,
-      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES },
+      dirs: ONE_ORG.dirs,
+      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES, ...ONE_ORG.files },
       fetch: async (url, init) => {
         fetchCalls.push({ url, init });
         return { status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-9" }), headers: {} };
       },
     });
-    const { seams } = baseSeams({ readLocalSecret: async () => "admin-1" });
+    const { seams } = baseSeams({ readLocalSecret: async () => ADMIN_LOCAL });
     const relay = fakeRelayClient();
 
     const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(fetchCalls).toHaveLength(1);
     expect(fetchCalls[0]!.url).toBe(`${SWITCHBOARD_URL}/boards`);
-    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-1");
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe(`Bearer ${ADMIN_LOCAL}`);
     expect(JSON.parse(fetchCalls[0]!.init?.body ?? "{}")).toEqual({ username: "zaphod" });
     const { idHex, key } = decodeCode(result.code);
     const pointer = await open(relay.createCalls[0]!.ciphertext, key, idHex);
@@ -420,13 +434,14 @@ describe("mintInvite", () => {
     const p = fakeProbes({
       home: HOME,
       env: { RT_SWITCHBOARD_URL: "http://127.0.0.1:7940" },
-      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES },
+      dirs: ONE_ORG.dirs,
+      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES, ...ONE_ORG.files },
       fetch: async (url) => {
         urls.push(url);
         return { status: 201, body: JSON.stringify({ token: "tok-9" }), headers: {} };
       },
     });
-    const { seams } = baseSeams({ readLocalSecret: async () => "admin-1" });
+    const { seams } = baseSeams({ readLocalSecret: async () => ADMIN_LOCAL });
 
     await mintInvite(p, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
@@ -434,7 +449,7 @@ describe("mintInvite", () => {
   });
 
   test("no admin token on this Mac: no register, no warning, and the pointer carries no switchboard", async () => {
-    const p = probesWithRemote(REMOTE);
+    const p = oneOrgProbesWithRemote(REMOTE);
     const { seams, warnings } = baseSeams({ readLocalSecret: async () => null });
     const relay = fakeRelayClient();
 
@@ -448,7 +463,7 @@ describe("mintInvite", () => {
   });
 
   test("a throwing readLocalSecret stays inside optional peering: the mint still succeeds, warned", async () => {
-    const p = probesWithRemote(REMOTE);
+    const p = oneOrgProbesWithRemote(REMOTE);
     const { seams, warnings } = baseSeams({
       readLocalSecret: async () => {
         throw new Error("keychain sulking");
@@ -469,10 +484,11 @@ describe("mintInvite", () => {
   test("a failing switchboard register: the mint still succeeds without a sealed token, warned", async () => {
     const p = fakeProbes({
       home: HOME,
-      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES },
+      dirs: ONE_ORG.dirs,
+      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES, ...ONE_ORG.files },
       fetch: async () => ({ status: 500, body: "", headers: {} }),
     });
-    const { seams, warnings } = baseSeams({ readLocalSecret: async () => "admin-1" });
+    const { seams, warnings } = baseSeams({ readLocalSecret: async () => ADMIN_LOCAL });
     const relay = fakeRelayClient();
 
     const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
@@ -488,18 +504,20 @@ describe("mintInvite", () => {
     const registered = () =>
       fakeProbes({
         home: HOME,
-        files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES },
+        dirs: ONE_ORG.dirs,
+      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES, ...ONE_ORG.files },
         fetch: async () => ({ status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-9" }), headers: {} }),
       });
     const refused = () =>
       fakeProbes({
         home: HOME,
-        files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES },
+        dirs: ONE_ORG.dirs,
+      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES, ...ONE_ORG.files },
         fetch: async () => ({ status: 401, body: "", headers: {} }),
       });
 
     test("an embedded board token reports peering embedded, with no warning", async () => {
-      const { seams } = baseSeams({ readLocalSecret: async () => "admin-1" });
+      const { seams } = baseSeams({ readLocalSecret: async () => ADMIN_LOCAL });
 
       const result = await mintInvite(registered(), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
@@ -510,14 +528,14 @@ describe("mintInvite", () => {
     test("no admin token reports peering none", async () => {
       const { seams } = baseSeams();
 
-      const result = await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
+      const result = await mintInvite(oneOrgProbesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
       expect(result.peering).toBe("none");
       expect(result.peeringWarning).toBeUndefined();
     });
 
     test("a token that could not be minted reports peering missing, and the reason goes to the warning's log text", async () => {
-      const { seams, warnings } = baseSeams({ readLocalSecret: async () => "admin-1" });
+      const { seams, warnings } = baseSeams({ readLocalSecret: async () => ADMIN_LOCAL });
 
       const result = await mintInvite(refused(), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
@@ -527,7 +545,7 @@ describe("mintInvite", () => {
     });
 
     test("requirePeering refuses a token that could not be minted before anything reaches the relay", async () => {
-      const { seams } = baseSeams({ readLocalSecret: async () => "admin-1" });
+      const { seams } = baseSeams({ readLocalSecret: async () => ADMIN_LOCAL });
       const relay = fakeRelayClient();
 
       const caught = await mintInvite(refused(), relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW, requirePeering: true }, seams).catch((err: unknown) => err);
@@ -541,7 +559,7 @@ describe("mintInvite", () => {
     for (const step of ["pull", "roster push"] as const) {
       test(`a ${step} that fails registers no board, so no board token is left unused`, async () => {
         const fail = async () => { throw new UserActionableError("org-changed-concurrently", "Someone else changed the org at the same time, so rt made no invite"); };
-        const { seams } = baseSeams({ readLocalSecret: async () => "admin-1", ...(step === "pull" ? { pullOrg: fail } : { publishRoster: fail }) });
+        const { seams } = baseSeams({ readLocalSecret: async () => ADMIN_LOCAL, ...(step === "pull" ? { pullOrg: fail } : { publishRoster: fail }) });
         const p = registered();
 
         await expect(mintInvite(p, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams)).rejects.toBeInstanceOf(UserActionableError);
@@ -550,16 +568,48 @@ describe("mintInvite", () => {
       });
     }
 
+    test("a 409 from register becomes the username-taken embed failure", async () => {
+      const taken = () => oneOrgProbesWithRemote(REMOTE, async () => ({ status: 409, body: JSON.stringify({ error: "username-taken" }), headers: {} }));
+      const { seams, warnings } = baseSeams({ readLocalSecret: async () => ADMIN_LOCAL });
+
+      const result = await mintInvite(taken(), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
+
+      expect(result.peering).toBe("missing");
+      expect(warnings).toContain("board peering: another org on the switchboard already has a board for zaphod");
+
+      const relay = fakeRelayClient();
+      const caught = await mintInvite(taken(), relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW, requirePeering: true }, seams).catch((err: unknown) => err);
+      expect((caught as UserActionableError).code).toBe("peering-not-embedded");
+      expect((caught as UserActionableError).log).toBe("another org on the switchboard already has a board for zaphod");
+      expect(relay.createCalls).toEqual([]);
+    });
+
+    test("a local master is never sent", async () => {
+      const p = oneOrgProbesWithRemote(REMOTE, async () => ({ status: 201, body: JSON.stringify({ token: "tok-9" }), headers: {} }));
+      const { seams, warnings } = baseSeams({ readLocalSecret: async () => MASTER });
+
+      const result = await mintInvite(p, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
+
+      expect(result.peering).toBe("none");
+      expect(p.calls.fetch).toEqual([]);
+      expect(warnings).toEqual([]);
+
+      const withFile = oneOrgProbesWithRemote(REMOTE, async () => ({ status: 201, body: JSON.stringify({ token: "tok-9" }), headers: {} }));
+      const fileSeams = baseSeams({ readLocalSecret: async () => MASTER, readAdminSecret: async () => ADMIN_FILE }).seams;
+      expect((await mintInvite(withFile, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, fileSeams)).peering).toBe("embedded");
+      expect(withFile.calls.fetchInits.map((c) => c.init?.headers?.Authorization)).toEqual([`Bearer ${ADMIN_FILE}`]);
+    });
+
     test("requirePeering refuses a Mac with no admin token before anything reaches the relay or the roster", async () => {
       const { seams, writeCalls } = baseSeams();
       const relay = fakeRelayClient();
-      const p = probesWithRemote(REMOTE);
+      const p = oneOrgProbesWithRemote(REMOTE);
 
       const caught = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW, requirePeering: true }, seams).catch((err: unknown) => err);
 
       expect(caught).toBeInstanceOf(UserActionableError);
       expect((caught as UserActionableError).code).toBe("peering-not-embedded");
-      expect((caught as UserActionableError).why).toContain("switchboard admin token");
+      expect((caught as UserActionableError).why).toBe("This Mac does not hold the org's switchboard token, so it cannot register their board.");
       expect(relay.createCalls).toEqual([]);
       expect(writeCalls).toEqual([]);
       expect(p.calls.fetch).toEqual([]);

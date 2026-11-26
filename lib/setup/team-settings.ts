@@ -95,7 +95,7 @@ export function probeUserSettingsReader(p: Pick<Probes, "home" | "readFile">): S
 }
 
 /** Every org clone's slug: subdirectories of `<home>/.mattstack/orgs` that hold `mattstack/org/settings.org.jsonc`. Deliberately built off `Probes` (`p.home`/`p.readDir`/`p.exists`) rather than `listOrgs()`, which resolves `process.env.HOME` at call time: a context built from a fake `Probes` must never leak the real ambient HOME into which team it resolves. */
-export function discoverOrgs(p: Probes): string[] {
+export function discoverOrgs(p: Pick<Probes, "home" | "readDir" | "exists">): string[] {
   const dir = orgsDirUnder(p.home);
   return p.readDir(dir).filter((name) => p.exists(join(dir, name, "mattstack", "org", "settings.org.jsonc"))).sort();
 }

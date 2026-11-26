@@ -15,7 +15,7 @@ import { intentPath, readIntent, type InvitePointer, type SetupIntent } from "..
 import type { Probes } from "../../setup/probes.ts";
 import type { SettingsReader } from "../../setup/team-settings.ts";
 import { decodeCode, encodeCode, openReply, seal } from "../invite-crypto.ts";
-import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, type JoinRedeemSeams } from "../join.ts";
+import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams } from "../join.ts";
 import type { RelayClient } from "../relay-client.ts";
 import type { ShownWarning } from "../../ui/warn.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
@@ -26,6 +26,7 @@ import { readTeamLocal, teamLocalPath, updateTeamLocal } from "../team-local.ts"
 import { ORG_CLONE_FOLDERS } from "../org-clone.ts";
 import * as isolation from "../../../packages/rt-client/src/test-isolation.ts";
 import { expectNoToken, rtHelperHost } from "./rt-credential-argv.ts";
+import { orgClones, orgToken } from "./org-token-fixtures.ts";
 
 const HOME = "/home";
 const ID_HEX = "0102030405060708090a0b0c0d0e0f10";
@@ -49,6 +50,11 @@ const rosterWith = (...usernames: string[]) => JSON.stringify({ "mattstack.roste
 
 const NOW = new Date("2026-08-22T00:00:00.000Z");
 const SB = SWITCHBOARD_URL;
+const ADMIN_FILE = orgToken("a");
+const ADMIN_LOCAL = orgToken("b");
+/** The org clone `ORG_STORE` already sits in, listed so `discoverOrgs` sees a one-org Mac and a token kept on it counts. */
+const ONE_ORG_DIRS = orgClones(HOME, "acme").dirs;
+const fileToken = (async (_slug: string, _domain: string, key: string) => (key === "switchboardAdminToken" ? ADMIN_FILE : null)) as JoinRedeemSeams["readAdminSecret"];
 
 function gitConfigWithRemote(remote: string): string {
   return `[remote "origin"]\n\turl = ${remote}\n`;
@@ -140,14 +146,12 @@ function fakeAgeKeySeamLocked(): AgeKeySeam {
 function baseJoinRedeemSeams(overrides: Partial<JoinRedeemSeams> = {}): {
   seams: JoinRedeemSeams;
   calls: {
-    readTeamSecret: unknown[][];
     forgeLogin: unknown[][];
     secretWrites: { key: string; value: string }[];
     userSettingWrites: { key: string; value: unknown }[];
   };
 } {
   const calls = {
-    readTeamSecret: [] as unknown[][],
     forgeLogin: [] as unknown[][],
     secretWrites: [] as { key: string; value: string }[],
     userSettingWrites: [] as { key: string; value: unknown }[],
@@ -155,10 +159,6 @@ function baseJoinRedeemSeams(overrides: Partial<JoinRedeemSeams> = {}): {
   const seams: JoinRedeemSeams = {
     ageKeySeam: fakeAgeKeySeam(),
     read: fakeRead(),
-    readTeamSecret: (async (...args: unknown[]) => {
-      calls.readTeamSecret.push(args);
-      return null;
-    }) as JoinRedeemSeams["readTeamSecret"],
     readAdminSecret: (async () => null) as JoinRedeemSeams["readAdminSecret"],
     readLocalSecret: async () => null,
     forgeLogin: (async (...args: unknown[]) => {
@@ -1003,6 +1003,7 @@ describe("joinRedeem", () => {
 
   const posting = (fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[]) =>
     redeemProbes({
+      dirs: ONE_ORG_DIRS,
       fetch: async (url, init) => {
         fetchCalls.push({ url, init });
         return { status: 201, body: JSON.stringify({ username: "dev2", token: "tok-1" }), headers: {} };
@@ -1011,56 +1012,102 @@ describe("joinRedeem", () => {
 
   test("a re-join reads the org's admin-only file first", async () => {
     const fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[] = [];
-    // readTeamSecret keeps the default recording stub, so the last assertion proves it was never asked.
-    const { seams, calls } = baseJoinRedeemSeams({
-      readAdminSecret: (async (_slug: string, _domain: string, key: string) => (key === "switchboardAdminToken" ? "admin-file" : null)) as JoinRedeemSeams["readAdminSecret"],
-      readLocalSecret: async () => "admin-local",
+    const localReads: string[] = [];
+    const { seams } = baseJoinRedeemSeams({
+      readAdminSecret: fileToken,
+      readLocalSecret: async (key) => {
+        localReads.push(key);
+        return ADMIN_LOCAL;
+      },
     });
 
     const result = await joinRedeem(posting(fetchCalls), fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
 
     expect(result.peering).toBe("applied");
-    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-file");
-    expect(calls.readTeamSecret).toEqual([]);
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe(`Bearer ${ADMIN_FILE}`);
+    expect(localReads).toEqual([]);
   });
 
   test("then this Mac's own secret", async () => {
     const fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[] = [];
-    const { seams } = baseJoinRedeemSeams({ readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin-local" : null), readTeamSecret: async () => "admin-legacy" });
+    const { seams } = baseJoinRedeemSeams({ readLocalSecret: async (key) => (key === "switchboardAdminToken" ? ADMIN_LOCAL : null) });
 
     await joinRedeem(posting(fetchCalls), fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
 
-    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-local");
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe(`Bearer ${ADMIN_LOCAL}`);
   });
 
-  test("and last the member-wide team secrets an older org kept it in", async () => {
+  test("rejoin never reads member-wide team secrets", async () => {
     const fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[] = [];
-    const { seams } = baseJoinRedeemSeams({ readTeamSecret: async () => "admin-legacy" });
+    const teamReads: unknown[][] = [];
+    const seams = Object.assign(baseJoinRedeemSeams().seams, {
+      readTeamSecret: async (...args: unknown[]) => {
+        teamReads.push(args);
+        return ADMIN_FILE;
+      },
+    });
 
-    await joinRedeem(posting(fetchCalls), fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+    const result = await joinRedeem(posting(fetchCalls), fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
 
-    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-legacy");
+    expect(result.peering).toBe("idle");
+    expect(fetchCalls).toEqual([]);
+    expect(teamReads).toEqual([]);
+    expect("readTeamSecret" in realJoinRedeemSeams()).toBe(false);
   });
 
-  test("a local secret that throws falls through to the team secrets", async () => {
+  test("rejoin with no admin token is idle", async () => {
     const fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[] = [];
-    const { seams } = baseJoinRedeemSeams({ readLocalSecret: async () => { throw new Error("keychain sulking"); }, readTeamSecret: async () => "admin-legacy" });
+
+    const result = await joinRedeem(posting(fetchCalls), fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+
+    expect(result.peering).toBe("idle");
+    expect("peeringFix" in result).toBe(false);
+    expect(fetchCalls).toEqual([]);
+  });
+
+  test("a local master is never sent on rejoin", async () => {
+    const fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[] = [];
+    const { seams } = baseJoinRedeemSeams({ readLocalSecret: async () => "the-relay-operators-own-token" });
+
+    const result = await joinRedeem(posting(fetchCalls), fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+
+    expect(result.peering).toBe("idle");
+    expect(fetchCalls).toEqual([]);
+  });
+
+  test("a 409 on rejoin warns and asks for a re-invite", async () => {
+    const warnings: string[] = [];
+    const p = redeemProbes({ fetch: async () => ({ status: 409, body: JSON.stringify({ error: "username-taken" }), headers: {} }) });
+    const { seams, calls } = baseJoinRedeemSeams({ readAdminSecret: fileToken, warn: (m) => warnings.push(m) });
+
+    const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+
+    expect(result.access).toBe("ok");
+    expect(result.peering).toBe("unavailable");
+    expect(result.peeringFix).toBe("Ask matt to invite dev2 again and join with the new invite.");
+    expect(warnings).toContain("board peering: another org on the switchboard already has a board for dev2");
+    expect(calls.secretWrites).toEqual([]);
+  });
+
+  test("a local secret that throws is never asked once the file gives an org token", async () => {
+    const fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[] = [];
+    const { seams } = baseJoinRedeemSeams({ readAdminSecret: fileToken, readLocalSecret: async () => { throw new Error("keychain sulking"); } });
 
     await joinRedeem(posting(fetchCalls), fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
 
-    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-legacy");
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe(`Bearer ${ADMIN_FILE}`);
   });
 
   test("an admin-only reader that throws falls through to this Mac's own secret", async () => {
     const fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[] = [];
     const { seams } = baseJoinRedeemSeams({
       readAdminSecret: (async () => { throw new Error("sops crashed"); }) as JoinRedeemSeams["readAdminSecret"],
-      readLocalSecret: async () => "admin-local",
+      readLocalSecret: async () => ADMIN_LOCAL,
     });
 
     await joinRedeem(posting(fetchCalls), fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
 
-    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-local");
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe(`Bearer ${ADMIN_LOCAL}`);
   });
 
   test("no pointer token + a readable admin token → peering applied: POSTs /boards, stores the returned board token as the local switchboardToken secret", async () => {
@@ -1073,7 +1120,7 @@ describe("joinRedeem", () => {
     });
     const relay = fakeRelay();
     const { seams, calls } = baseJoinRedeemSeams({
-      readTeamSecret: async () => "admin-token-xyz",
+      readAdminSecret: fileToken,
     });
 
     const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
@@ -1082,7 +1129,7 @@ describe("joinRedeem", () => {
     expect(fetchCalls).toHaveLength(1);
     expect(fetchCalls[0]!.url).toBe(`${SB}/boards`);
     expect(fetchCalls[0]!.init?.method).toBe("POST");
-    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-token-xyz");
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe(`Bearer ${ADMIN_FILE}`);
     expect(JSON.parse(fetchCalls[0]!.init?.body ?? "{}")).toEqual({ username: "dev2" });
     expect(calls.secretWrites).toEqual([{ key: "switchboardToken", value: "tok-1" }]);
   });
@@ -1093,10 +1140,14 @@ describe("joinRedeem", () => {
     const relay = fakeRelay({ fetch: relayServing(embedded) });
     const secretReads: unknown[] = [];
     const { seams, calls } = baseJoinRedeemSeams({
-      readTeamSecret: (async (...args: unknown[]) => {
+      readAdminSecret: (async (...args: unknown[]) => {
         secretReads.push(args);
-        return null;
-      }) as JoinRedeemSeams["readTeamSecret"],
+        return ADMIN_FILE;
+      }) as JoinRedeemSeams["readAdminSecret"],
+      readLocalSecret: async (key) => {
+        secretReads.push([key]);
+        return ADMIN_LOCAL;
+      },
     });
 
     const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
@@ -1157,7 +1208,7 @@ describe("joinRedeem", () => {
         return { status: 201, body: JSON.stringify({ token: "tok-1" }), headers: {} };
       },
     });
-    const { seams } = baseJoinRedeemSeams({ readTeamSecret: async () => "admin-token" });
+    const { seams } = baseJoinRedeemSeams({ readAdminSecret: fileToken });
 
     const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
 
@@ -1165,11 +1216,11 @@ describe("joinRedeem", () => {
     expect(urls).toEqual(["http://localhost:7940/boards"]);
   });
 
-  test("a throwing readTeamSecret stays inside peering: unavailable, join still ok", async () => {
-    const p = redeemProbes();
+  test("a throwing local secret read stays inside peering: unavailable, join still ok", async () => {
+    const p = redeemProbes({ dirs: ONE_ORG_DIRS });
     const relay = fakeRelay();
     const { seams } = baseJoinRedeemSeams({
-      readTeamSecret: async () => {
+      readLocalSecret: async () => {
         throw new Error("keychain sulking");
       },
     });
@@ -1180,12 +1231,12 @@ describe("joinRedeem", () => {
     expect(result.peering).toBe("unavailable");
   });
 
-  test("a team-secrets failure inside peering keeps its next command in the warning", async () => {
-    const p = redeemProbes();
+  test("a secrets failure inside peering keeps its next command in the warning", async () => {
+    const p = redeemProbes({ dirs: ONE_ORG_DIRS });
     const relay = fakeRelay();
     const shown: Array<ShownWarning | undefined> = [];
     const { seams } = baseJoinRedeemSeams({
-      readTeamSecret: async () => {
+      readLocalSecret: async () => {
         throw new UserActionableError("team-secrets-unreadable", "This Mac cannot read the acme team's secrets yet", { team: "acme" }, { why: "No key matches.", next: "rt team pull", log: "sops -d /x/rt.json: no key" });
       },
       warn: (_message, copy) => {
@@ -1204,11 +1255,11 @@ describe("joinRedeem", () => {
   });
 
   test("a plain error inside peering warns with no next command", async () => {
-    const p = redeemProbes();
+    const p = redeemProbes({ dirs: ONE_ORG_DIRS });
     const relay = fakeRelay();
     const shown: Array<ShownWarning | undefined> = [];
     const { seams } = baseJoinRedeemSeams({
-      readTeamSecret: async () => {
+      readLocalSecret: async () => {
         throw new Error("keychain sulking\nsecond line");
       },
       warn: (_message, copy) => {
@@ -1225,7 +1276,7 @@ describe("joinRedeem", () => {
     const p = redeemProbes({ fetch: async () => ({ status: 201, body: "not json", headers: {} }) });
     const relay = fakeRelay();
     const { seams, calls } = baseJoinRedeemSeams({
-      readTeamSecret: async () => "admin-token",
+      readAdminSecret: fileToken,
     });
 
     const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
@@ -1242,7 +1293,7 @@ describe("joinRedeem", () => {
     });
     const relay = fakeRelay();
     const { seams } = baseJoinRedeemSeams({
-      readTeamSecret: async () => "admin-token",
+      readAdminSecret: fileToken,
       writeLocalSecret: async () => {
         throw new Error("keychain locked");
       },
@@ -1376,7 +1427,7 @@ describe("joinRedeem", () => {
     test("a register the switchboard refused: peeringFix asks the owner for a fresh invite for this handle", async () => {
       const p = redeemProbes({ fetch: async () => ({ status: 500, body: "", headers: {} }) });
       const relay = fakeRelay();
-      const { seams } = baseJoinRedeemSeams({ readTeamSecret: async () => "admin-token" });
+      const { seams } = baseJoinRedeemSeams({ readAdminSecret: fileToken });
 
       const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
 
@@ -1388,9 +1439,9 @@ describe("joinRedeem", () => {
     });
 
     test("a join that ends with peering unavailable records only its provenance: the setup row reads the gap from the tokens themselves", async () => {
-      const p = redeemProbes();
+      const p = redeemProbes({ dirs: ONE_ORG_DIRS });
       const { seams } = baseJoinRedeemSeams({
-        readTeamSecret: async () => {
+        readLocalSecret: async () => {
           throw new Error("not a recipient yet");
         },
       });
@@ -1419,10 +1470,10 @@ describe("joinRedeem", () => {
     });
   });
 
-  test("no sealed token and no admin token in the team's secrets → peering idle, no request attempted", async () => {
-    const p = redeemProbes();
+  test("no sealed token and no admin token → peering idle, no request attempted", async () => {
+    const p = redeemProbes({ dirs: ONE_ORG_DIRS });
     const relay = fakeRelay();
-    const { seams } = baseJoinRedeemSeams({ readTeamSecret: async () => null });
+    const { seams } = baseJoinRedeemSeams();
 
     const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
 
@@ -1435,7 +1486,7 @@ describe("joinRedeem", () => {
     const p = redeemProbes({ fetch: async () => ({ status: 500, body: "", headers: {} }) });
     const relay = fakeRelay();
     const { seams } = baseJoinRedeemSeams({
-      readTeamSecret: async () => "admin-token",
+      readAdminSecret: fileToken,
     });
 
     const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
@@ -1831,9 +1882,7 @@ describe("joinRedeem", () => {
     const p = redeemProbes();
     const relay = fakeRelay();
     const factorySlugs: string[] = [];
-    const { seams } = baseJoinRedeemSeams({
-      readTeamSecret: async () => null,
-    });
+    const { seams } = baseJoinRedeemSeams();
 
     await joinRedeem(
       p,
