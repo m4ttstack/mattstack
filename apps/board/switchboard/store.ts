@@ -5,6 +5,7 @@ import {
   type DraftEnvelope,
   type Envelope,
 } from '../src/peer/envelope.ts';
+import { OrgStore } from './orgs.ts';
 import { SupportStore } from './support.ts';
 
 export const ENVELOPE_TTL_MS = 7 * 24 * 60 * 60_000;
@@ -25,11 +26,57 @@ function mintCode(): string {
   return crypto.randomUUID().replaceAll('-', '');
 }
 
+function addOrgColumn(db: Database, table: 'boards' | 'invites'): void {
+  const columns = db
+    .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+    .all();
+  if (!columns.some(c => c.name === 'org_id'))
+    db.run(`ALTER TABLE ${table} ADD COLUMN org_id TEXT`);
+}
+
+/** Moves every board and invite with no org into the legacy org. Rows with
+    no org beside a non-legacy org mean the relay was rolled back past orgs
+    and forward again, so nobody can tell whose they are: they stay NULL,
+    and a NULL row never authenticates or redeems. */
+export function sweepNullOrgs(
+  db: Database,
+  now: number
+): { moved: number; skipped: number } {
+  const orgs = new OrgStore(db);
+  return db.transaction(() => {
+    const orphans = (table: 'boards' | 'invites') =>
+      db
+        .query<{ username: string }, []>(
+          `SELECT username FROM ${table} WHERE org_id IS NULL ORDER BY username`
+        )
+        .all()
+        .map(r => r.username);
+    const boards = orphans('boards');
+    const invites = orphans('invites');
+    const count = boards.length + invites.length;
+    if (count === 0) return { moved: 0, skipped: 0 };
+    if (orgs.hasNonLegacy()) {
+      console.warn(
+        `switchboard: left ${count} rows with no org alone, since a non-legacy org exists; they fail closed. boards: ${boards.join(', ') || 'none'}; invites: ${invites.join(', ') || 'none'}`
+      );
+      return { moved: 0, skipped: count };
+    }
+    const legacy = orgs.ensureLegacy(now)!;
+    const moved =
+      db.run(`UPDATE boards SET org_id = ? WHERE org_id IS NULL`, [legacy])
+        .changes +
+      db.run(`UPDATE invites SET org_id = ? WHERE org_id IS NULL`, [legacy])
+        .changes;
+    return { moved, skipped: 0 };
+  })();
+}
+
 /** The relay's entire persistence. It stores envelopes it never inspects:
     payload stays an opaque JSON string end to end. Per-recipient rows make
     broadcast, ack, and TTL prune single statements. */
 export class SwitchboardStore {
   readonly support: SupportStore;
+  readonly orgs: OrgStore;
 
   constructor(private db: Database) {
     this.support = new SupportStore(db);
@@ -57,15 +104,20 @@ export class SwitchboardStore {
       expires_at INTEGER NOT NULL,
       redeemed_at INTEGER
     )`);
+    addOrgColumn(db, 'boards');
+    addOrgColumn(db, 'invites');
+    this.orgs = new OrgStore(db);
+    sweepNullOrgs(db, Date.now());
   }
 
   registerBoard(username: string): { username: string; token: string } {
     const canonical = canonicalUsername(username);
     const token = mintToken();
+    const now = Date.now();
     this.db.run(
-      `INSERT INTO boards (username, token_hash, created_at) VALUES (?, ?, ?)
+      `INSERT INTO boards (username, token_hash, created_at, org_id) VALUES (?, ?, ?, ?)
        ON CONFLICT(username) DO UPDATE SET token_hash = excluded.token_hash`,
-      [canonical, hashToken(token), Date.now()]
+      [canonical, hashToken(token), now, this.orgs.ensureLegacy(now)]
     );
     return { username: canonical, token };
   }
@@ -73,7 +125,7 @@ export class SwitchboardStore {
   authBoard(token: string): string | null {
     const row = this.db
       .query<{ username: string }, [string]>(
-        `SELECT username FROM boards WHERE token_hash = ?`
+        `SELECT username FROM boards WHERE token_hash = ? AND org_id IS NOT NULL`
       )
       .get(hashToken(token));
     return row?.username ?? null;
@@ -91,8 +143,14 @@ export class SwitchboardStore {
     this.db.transaction(() => {
       this.db.run(`DELETE FROM invites WHERE username = ?`, [canonical]);
       this.db.run(
-        `INSERT INTO invites (code_hash, username, created_at, expires_at) VALUES (?, ?, ?, ?)`,
-        [hashToken(code), canonical, now, expiresAt]
+        `INSERT INTO invites (code_hash, username, created_at, expires_at, org_id) VALUES (?, ?, ?, ?, ?)`,
+        [
+          hashToken(code),
+          canonical,
+          now,
+          expiresAt,
+          this.orgs.ensureLegacy(now),
+        ]
       );
     })();
     return { code, username: canonical, expiresAt };
