@@ -14,7 +14,7 @@ SANDBOX="$(mktemp -d)"; trap 'rm -rf "$SANDBOX"' EXIT
 mkdir -p "$SANDBOX/bin" "$SANDBOX/home/.mattstack/rt/chat/sessions" "$SANDBOX/repo"
 cat > "$SANDBOX/bin/rt" <<'STUB'
 #!/usr/bin/env bash
-echo "$* @ $PWD" >> "$RT_STUB_CALLS"
+echo "$* @ $PWD budget=${RT_DAEMON_RETRY_BUDGET_MS:-}" >> "$RT_STUB_CALLS"
 case "$1 $2" in
   "settings get") printf '{"ok":true,"key":"chat.autoSignIn","value":%s}\n' "${RT_STUB_ENABLED:-false}" ;;
   "chat sign-in") printf '%s\n' "${RT_STUB_SIGNIN:-}"; exit "${RT_STUB_SIGNIN_EXIT:-0}" ;;
@@ -39,14 +39,14 @@ check() { # name expected actual
 # run PAYLOAD [ENTRYPOINT] [PANE] -- sets $out/$err/$rc/$calls
 run() {
   : > "$RT_STUB_CALLS"
-  out="$(printf '%s' "$1" | env HOME="$SANDBOX/home" CLAUDE_CODE_ENTRYPOINT="${2-cli}" HERDR_PANE_ID="${3-w1:p1}" "$HOOK" 2>"$ERRFILE")"
+  out="$(printf '%s' "$1" | env -u RT_DAEMON_RETRY_BUDGET_MS HOME="$SANDBOX/home" CLAUDE_CODE_ENTRYPOINT="${2-cli}" HERDR_PANE_ID="${3-w1:p1}" "$HOOK" 2>"$ERRFILE")"
   rc=$?
   err="$(cat "$ERRFILE" 2>/dev/null)"
   calls="$(cat "$RT_STUB_CALLS")"
 }
 
-SETTINGS_CALL="settings get chat.autoSignIn --repo $REPO --json @ $REPO"
-SIGNIN_CALL="chat sign-in --session sess-a --json @ $REPO"
+SETTINGS_CALL="settings get chat.autoSignIn --repo $REPO --json @ $REPO budget="
+SIGNIN_CALL="chat sign-in --session sess-a --json @ $REPO budget=2000"
 
 # ── setting on, interactive pane session: signs in and tells the agent ──────
 export RT_STUB_ENABLED=true RT_STUB_SIGNIN="$SIGNED_IN"
@@ -109,6 +109,91 @@ check "no session_id: never calls rt" "" "$calls"
 # ── no cwd in the payload: falls back to the hook's own directory ───────────
 out="$(cd "$REPO" && printf '%s' '{"session_id":"sess-a","source":"startup"}' | env HOME="$SANDBOX/home" CLAUDE_CODE_ENTRYPOINT=cli HERDR_PANE_ID=w1:p1 RT_STUB_CALLS="$RT_STUB_CALLS" "$HOOK" 2>/dev/null)"
 check "no cwd: still signs in" "true" "$([ -n "$out" ] && echo true || echo false)"
+
+# ── real rt against a fake daemon: the hook's budget, end to end ────────────
+# The stub above cannot show that rt itself gives up in time, so this section
+# runs the repo's own cli.ts. Skipped where cli.ts is absent (the published
+# marketplace copy) or bun is missing.
+CLI="$DIR/../../../../../cli.ts"
+if [ ! -f "$CLI" ] || ! command -v bun >/dev/null 2>&1; then
+  echo "skip real-rt: no cli.ts"
+else
+  CLI="$(cd "$(dirname "$CLI")" && pwd -P)/cli.ts"
+  # A unix socket path must stay under macOS's 104 bytes.
+  SOCKDIR="$SANDBOX"
+  if [ "${#SANDBOX}" -gt 70 ]; then
+    SOCKDIR="$(mktemp -d /tmp/rtq.XXXXXX)"
+    trap 'rm -rf "$SANDBOX" "$SOCKDIR"' EXIT
+  fi
+  RSOCK="$SOCKDIR/rt.sock"
+  mkdir -p "$SANDBOX/realbin" "$SANDBOX/realhome" "$SANDBOX/plain"
+  RREPO="$(cd "$SANDBOX/plain" && pwd -P)"
+  cat > "$SANDBOX/realbin/rt" <<REALSTUB
+#!/usr/bin/env bash
+if [ "\$1 \$2" = "settings get" ]; then
+  printf '{"ok":true,"key":"chat.autoSignIn","value":true}\n'
+  exit 0
+fi
+exec bun "$CLI" "\$@"
+REALSTUB
+  chmod +x "$SANDBOX/realbin/rt"
+
+  cat > "$SANDBOX/fake-daemon.ts" <<'FAKE'
+import { appendFileSync } from "node:fs";
+const [sock, log, delayMs] = process.argv.slice(2);
+const answers: Record<string, unknown> = {
+  "pane:self": { paneId: null },
+  "chat:sign-in": { handle: "remy.k3f9", baseHandle: "remy", name: "mattstack-beorn", reclaimed: false, continued: false, sessionId: "sess-r", room: null },
+  "chat:join": { handle: "remy.k3f9", name: "mattstack-beorn", memberCount: 1, unread: 0 },
+};
+setTimeout(() => {
+  Bun.serve({
+    unix: sock,
+    fetch(req) {
+      const cmd = new URL(req.url).pathname.slice(1);
+      appendFileSync(log, `${cmd}\n`);
+      return Response.json({ ok: true, data: answers[cmd] ?? {} });
+    },
+  });
+}, Number(delayMs));
+FAKE
+
+  # real_run PAYLOAD -- sets $out/$rc/$elapsed, with the sandbox env rt needs
+  # so it never reaches the real HOME or the real daemon
+  now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time*1000'; }
+  real_run() {
+    rm -f "$SANDBOX/realhome/.mattstack/rt/chat/sessions/sess-r.json"
+    local start; start=$(now_ms)
+    out="$(printf '%s' "$1" | env -u RT_DAEMON_RETRY_BUDGET_MS \
+      PATH="$SANDBOX/realbin:$PATH" HOME="$SANDBOX/realhome" \
+      RT_DAEMON_SOCK="$RSOCK" RT_APP_SOCKET="$SOCKDIR/tray.sock" \
+      NODE_ENV=test RT_SKIP_SETUP=1 CI=true CLAUDE_CODE_SESSION_ID=sess-r \
+      CLAUDE_CODE_ENTRYPOINT=cli HERDR_PANE_ID=w1:p1 "$HOOK" 2>/dev/null)"
+    rc=$?
+    elapsed=$(($(now_ms) - start))
+  }
+  RPAYLOAD="{\"session_id\":\"sess-r\",\"source\":\"startup\",\"cwd\":\"$RREPO\"}"
+
+  rm -f "$RSOCK"
+  real_run "$RPAYLOAD"
+  check "real rt, no daemon: no stdout" "" "$out"
+  check "real rt, no daemon: exits 0" "0" "$rc"
+  check "real rt, no daemon: ends inside 7s" "yes" "$([ "$elapsed" -lt 7000 ] && echo yes || echo no)"
+
+  DAEMON_LOG="$SANDBOX/daemon-requests"
+  : > "$DAEMON_LOG"
+  DAEMON_PID=""
+  trap '[ -z "$DAEMON_PID" ] || kill "$DAEMON_PID" 2>/dev/null; rm -rf "$SANDBOX" "$SOCKDIR"' EXIT
+  bun "$SANDBOX/fake-daemon.ts" "$RSOCK" "$DAEMON_LOG" 1000 &
+  DAEMON_PID=$!
+  real_run "$RPAYLOAD"
+  kill "$DAEMON_PID" 2>/dev/null; wait "$DAEMON_PID" 2>/dev/null
+  DAEMON_PID=""
+  rm -f "$RSOCK"
+  want='{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"rt chat: you are signed in as mattstack-beorn; chat messages arrive in your context automatically."}}'
+  check "real rt, late daemon: injects the signed-in note" "$want" "$out"
+  check "real rt, late daemon: asks the daemon for the pane, then signs in" "pane:self"$'\n'"chat:sign-in" "$(cat "$DAEMON_LOG")"
+fi
 
 echo
 if [ "$fails" -eq 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi
