@@ -13,7 +13,7 @@ import * as ui from "../../lib/ui/out.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { setWarningLog, __test__ as warnTest } from "../../lib/ui/warn.ts";
-import { realTeamDeps, teamAdd, teamAnnounce, teamCreate, teamInvite, manageMembershipBlocks, teamManageMembership, teamPeer, teamPublish, teamPull, teamPush, teamStatus, type TeamDeps } from "../team.ts";
+import { adminSecretsBlocks, realTeamDeps, teamAdd, teamAdminSecrets, teamAnnounce, teamCreate, teamInvite, manageMembershipBlocks, teamManageMembership, teamPeer, teamPublish, teamPull, teamPush, teamStatus, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
@@ -24,6 +24,9 @@ import { readTeamLocal, writeTeamLocal, teamLocalPath, updateTeamLocal, type Tea
 import { cleanupOrgWorlds, orgWorld } from "../../lib/team/__tests__/org-world.ts";
 import { expectNoToken, rtHelperHost } from "../../lib/team/__tests__/rt-credential-argv.ts";
 import { orgToken } from "../../lib/team/__tests__/org-token-fixtures.ts";
+import { seamsWithKey } from "../../lib/secrets/__tests__/team-fakes.ts";
+import { adminSecretsFile, readAdminSecret, readTeamRecipients, teamSopsYamlPath, writeTeamRecipients } from "../../lib/secrets/team-store.ts";
+import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 
 const FAKE_PUBLIC_KEY = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
 const FAKE_PRIVATE_KEY = "AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ";
@@ -233,7 +236,9 @@ describe("teamCreate", () => {
     ui.__test__.setHuman(() => false);
     try {
       await teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git"], {}, deps);
-      expect(io.stdout()).toBe("[ok] Created the acme org  https://github.com/acme/repo.git\n");
+      expect(io.stdout()).toBe(
+        "[ok] Created the acme org  https://github.com/acme/repo.git\n[not yet] Your board connects once the relay operator gives this org its switchboard token\n  next: rt team admin-secrets --token-stdin\n  next: rt team peer\n",
+      );
       expect(deps.lines).toEqual([]);
     } finally {
       io.restore();
@@ -317,6 +322,188 @@ describe("teamCreate connects the creator's board", () => {
       warnTest.reset();
       io.restore();
     }
+  });
+
+  test("create with no org token prints the pending line and the next step", async () => {
+    const probes = fakeProbes({ home: "/home/x", files: adminFiles, env: { SWITCHBOARD_ADMIN_TOKEN: "the-relay-operators-own-token" } });
+    const deps = baseDeps({
+      probes,
+      readLocalSecret: async () => "the-relay-operators-own-token",
+    });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git"], {}, deps);
+      const text = io.stdout();
+      const pending = text.indexOf("[not yet] Your board connects once the relay operator gives this org its switchboard token\n");
+      const share = text.indexOf("  next: rt team admin-secrets --token-stdin\n");
+      const peer = text.indexOf("  next: rt team peer\n");
+      expect(pending).toBeGreaterThan(-1);
+      expect(share).toBeGreaterThan(pending);
+      expect(peer).toBeGreaterThan(share);
+      expect(probes.calls.fetch).toEqual([]);
+    } finally {
+      io.restore();
+    }
+
+    const jsonProbes = register(200);
+    const json = baseDeps({ probes: jsonProbes });
+    const jsonIo = captureOut();
+    try {
+      await teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git", "--json"], {}, json);
+      expect(jsonIo.stdout()).toBe("");
+    } finally {
+      jsonIo.restore();
+    }
+    expect(Object.keys(JSON.parse(json.lines[0]!)).sort()).toEqual(["at", "contract", "created", "dir", "name", "remote", "rolesDeferred", "slug", "team"]);
+    expect(jsonProbes.calls.fetchInits.some((c) => c.init?.method === "POST")).toBe(false);
+  });
+});
+
+describe("teamAdminSecrets", () => {
+  const ADMIN_KEY = "age1dev1";
+  const MASTER = "the-relay-operators-own-token";
+  const MEMBERS_RULE = "creation_rules:\n  - path_regex: mattstack/org/secrets/.*\n    age: age1dev1\n";
+  const ORG_STORE = { "mattstack.org": { owners: [], admins: ["dev1"], teams: {} }, "mattstack.roster": [{ username: "dev1", agePublicKey: ADMIN_KEY, teams: [] }] };
+  const ENVELOPE_KEYS = ["added", "at", "contract", "holders", "reencrypted", "removed", "state", "token", "withoutKey"];
+
+  function adminSecretsDeps(opts: { stdin?: string; boards?: number; env?: Record<string, string>; orgs?: string[]; local?: string | null; rule?: string[] } = {}) {
+    const made = seamsWithKey("AGE-TEAM-KEY", "acme", ADMIN_KEY);
+    made.execSeam.writeFile(teamSopsYamlPath("acme"), MEMBERS_RULE);
+    if (opts.rule) writeTeamRecipients("acme", opts.rule, made.seams, "admins");
+    made.execSeam.calls = [];
+    const orgs = opts.orgs ?? ["acme"];
+    const localReads: string[] = [];
+    const probes = fakeProbes({
+      home: "/home/x",
+      env: opts.env ?? {},
+      files: { ...adminFiles, ...Object.fromEntries(orgs.filter((o) => o !== "acme").map((o) => [`/home/x/.mattstack/orgs/${o}/mattstack/org/settings.org.jsonc`, "{}"])) },
+      dirs: { [ZONE_DIR]: [], "/home/x/.mattstack/orgs": orgs },
+      fetch: async () => ({ status: opts.boards ?? 200, body: JSON.stringify({ boards: [] }), headers: {} }),
+    });
+    const deps = baseDeps({
+      probes,
+      secrets: made.seams,
+      membersSeams: { readTeamStore: () => ORG_STORE } as unknown as MembersSeams,
+      readLocalSecret: async (key) => {
+        localReads.push(key);
+        return opts.local ?? null;
+      },
+      readStdin: async () => opts.stdin ?? "",
+    });
+    return { deps, probes, localReads, ...made };
+  }
+
+  test("--token-stdin trims, checks against GET /boards, then shares", async () => {
+    const { deps, probes, seams, localReads } = adminSecretsDeps({ stdin: `  ${ORG_TOKEN}\n` });
+
+    await teamAdminSecrets(["--team", "acme", "--token-stdin", "--json"], {}, deps);
+
+    expect(probes.calls.fetchInits.map((c) => [c.url, c.init?.method ?? "GET", c.init?.headers?.Authorization])).toEqual([[`${switchboardUrl()}/boards`, "GET", `Bearer ${ORG_TOKEN}`]]);
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ state: "updated", token: "seeded", added: [ADMIN_KEY] });
+    expect(await readAdminSecret("acme", "rt", "switchboardAdminToken", seams)).toBe(ORG_TOKEN);
+    expect(localReads).toEqual([]);
+  });
+
+  test("--token-stdin refuses a master with not-org-token and writes nothing", async () => {
+    const { deps, probes, execSeam } = adminSecretsDeps({ stdin: `${MASTER}\n` });
+
+    const code = await runExpectingProcessExit(() => teamAdminSecrets(["--team", "acme", "--token-stdin", "--json"], {}, deps));
+
+    expect(code).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error.code).toBe("not-org-token");
+    expect(probes.calls.fetch).toEqual([]);
+    expect(execSeam.fileExists(adminSecretsFile("acme", "rt"))).toBe(false);
+    expect(execSeam.calls).toEqual([]);
+
+    const human = adminSecretsDeps({ stdin: MASTER });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      expect(await runExpectingProcessExit(() => teamAdminSecrets(["--team", "acme", "--token-stdin"], {}, human.deps))).toBe(2);
+      expect(io.stderr()).toContain("[refused] That is not an org switchboard token\n");
+      expect(io.stderr()).toContain("Org tokens start with sbo_. The relay operator's own token is never shared.");
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("--token-stdin refuses when the relay answers 401, with org-token-rejected", async () => {
+    const { deps, execSeam } = adminSecretsDeps({ stdin: ORG_TOKEN, boards: 401 });
+
+    expect(await runExpectingProcessExit(() => teamAdminSecrets(["--team", "acme", "--token-stdin", "--json"], {}, deps))).toBe(2);
+
+    expect(JSON.parse(deps.lines[0]!).error).toMatchObject({ code: "org-token-rejected", message: "The switchboard did not accept that token" });
+    expect(execSeam.fileExists(adminSecretsFile("acme", "rt"))).toBe(false);
+    expect(execSeam.calls).toEqual([]);
+  });
+
+  test("--token-stdin with the relay unreachable (status 0) fails with switchboard-unreachable", async () => {
+    const { deps, execSeam } = adminSecretsDeps({ stdin: ORG_TOKEN, boards: 0 });
+
+    expect(await runExpectingProcessExit(() => teamAdminSecrets(["--team", "acme", "--token-stdin", "--json"], {}, deps))).toBe(2);
+
+    expect(JSON.parse(deps.lines[0]!).error).toMatchObject({ code: "switchboard-unreachable", message: "rt could not reach the switchboard" });
+    expect(execSeam.fileExists(adminSecretsFile("acme", "rt"))).toBe(false);
+  });
+
+  test("in the unused state, a master on this Mac still prints the refused line and the next step", async () => {
+    const { deps, execSeam } = adminSecretsDeps({ env: { SWITCHBOARD_ADMIN_TOKEN: MASTER } });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamAdminSecrets(["--team", "acme"], {}, deps);
+      expect(io.stdout()).toBe(
+        "[skipped] This org keeps no admin-only secrets yet  this Mac holds no org switchboard token to share\n[refused] This Mac's switchboard token is the relay operator's, so rt did not share it\n  next: Ask the relay operator for your org's token, then run rt team admin-secrets --token-stdin\n",
+      );
+    } finally {
+      io.restore();
+    }
+    expect(execSeam.readFile(teamSopsYamlPath("acme"))).toBe(MEMBERS_RULE);
+  });
+
+  test("without --token-stdin, a master on this Mac prints the refused line and still relocks", async () => {
+    const { deps, seams, execSeam } = adminSecretsDeps({ local: MASTER, rule: ["age1old"] });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamAdminSecrets(["--team", "acme"], {}, deps);
+      expect(io.stdout()).toContain("[ok] Locked the admin-only secrets to the org's owners and admins  dev1\n");
+      expect(io.stdout()).toContain("[refused] This Mac's switchboard token is the relay operator's, so rt did not share it\n");
+      expect(io.stdout()).toContain("rt team admin-secrets --token-stdin");
+    } finally {
+      io.restore();
+    }
+    expect(readTeamRecipients("acme", seams, "admins")).toEqual([ADMIN_KEY]);
+    expect(execSeam.fileExists(adminSecretsFile("acme", "rt"))).toBe(false);
+  });
+
+  test("on a two-org Mac without --token-stdin, no token is read from this Mac", async () => {
+    const { deps, localReads, execSeam } = adminSecretsDeps({ orgs: ["acme", "beta"], env: { SWITCHBOARD_ADMIN_TOKEN: ORG_TOKEN }, local: ORG_TOKEN });
+
+    await teamAdminSecrets(["--team", "acme", "--json"], {}, deps);
+
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ state: "unused", token: "none" });
+    expect(localReads).toEqual([]);
+    expect(execSeam.fileExists(adminSecretsFile("acme", "rt"))).toBe(false);
+  });
+
+  test("the removal callout names the relay operator", () => {
+    const text = renderPlain(adminSecretsBlocks({ state: "updated", holders: ["dev1"], withoutKey: [], added: [], removed: ["age1dev3"], reencrypted: [], token: "none" }));
+    expect(text).toContain("Anyone taken off keeps any value they already opened. Ask the relay operator to change the org's switchboard token, then share the new one with rt team admin-secrets --token-stdin --replace-token");
+    expect(text).not.toContain("admin token");
+  });
+
+  test("--json keys are unchanged", async () => {
+    const plain = adminSecretsDeps();
+    await teamAdminSecrets(["--team", "acme", "--json"], {}, plain.deps);
+    expect(Object.keys(JSON.parse(plain.deps.lines[0]!)).sort()).toEqual(ENVELOPE_KEYS);
+
+    const operator = adminSecretsDeps({ local: MASTER, rule: [ADMIN_KEY] });
+    await teamAdminSecrets(["--team", "acme", "--json"], {}, operator.deps);
+    const body = JSON.parse(operator.deps.lines[0]!);
+    expect(Object.keys(body).sort()).toEqual(ENVELOPE_KEYS);
+    expect(body.token).toBe("operator");
   });
 });
 

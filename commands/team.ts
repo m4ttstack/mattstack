@@ -52,7 +52,7 @@ import { usageFailure } from "../lib/ui/usage.ts";
 import { warn } from "../lib/ui/warn.ts";
 import { UserActionableError, exitUserError, logFailureDetail } from "../lib/errors.ts";
 import { createRealProbes, readStdinJson, type Probes } from "../lib/setup/probes.ts";
-import { readTeamSnapshot, stripUserinfo, type SettingsReader } from "../lib/setup/team-settings.ts";
+import { discoverOrgs, readTeamSnapshot, stripUserinfo, type SettingsReader } from "../lib/setup/team-settings.ts";
 import { forgeLogin } from "../lib/team/forge.ts";
 import { addTeam, type AddTeamSeams } from "../lib/team/add.ts";
 import { setSetting } from "../lib/settings/write.ts";
@@ -66,7 +66,8 @@ import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, re
 import { adminSecretsRowSafe, ADMIN_SECRETS_SYNC_STEPS } from "../lib/setup/validators/admin-secrets.ts";
 import type { Row } from "../lib/setup/contract.ts";
 import { syncAdminSecrets, type AdminSecretsResult, type TokenOutcome } from "../lib/team/admin-secrets.ts";
-import { canonicalHandle, readAdminToken, readPeeredBoards, realReadAdminSecret, realReadLocalSecret, type ReadAdminSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
+import { canonicalHandle, readPeeredBoards, realReadAdminSecret, realReadLocalSecret, type ReadAdminSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
+import { boardEnvValue } from "../lib/team/board-token.ts";
 import { MembersKeyError, MembersSyncAbortedError, membersAddToTeam, membersDropFromTeam, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { sendAnnouncement } from "../lib/team/announce.ts";
 import { realSealedText } from "../lib/team/sealed-text.ts";
@@ -84,7 +85,7 @@ import { withoutUrls } from "../lib/team/redact.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { checkedOutBranch } from "../lib/team/org-branch.ts";
 import { useBranch, type BranchUse } from "../lib/team/trial-branch.ts";
-import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
+import { isOrgToken, switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { daemonQuery } from "../lib/daemon-client.ts";
 import type { TeamSnapshotEntry } from "../lib/daemon/team-snapshots.ts";
@@ -111,7 +112,7 @@ export interface TeamDeps {
   ageKeySeam?: AgeKeySeam;
   /** `json` gates the interactive TTY prompt: a machine caller must never block waiting on a terminal that isn't there. */
   readCode?: (json: boolean) => Promise<string>;
-  /** Overrides `joinRedeem`'s `read`/`readTeamSecret`/`forgeLogin`/`warn` seams, real by default, so a test never has to rely on the isolated test HOME happening to lack a team switchboard admin token. */
+  /** Overrides `joinRedeem`'s `read`/`readAdminSecret`/`forgeLogin`/`warn` seams, real by default, so a test never has to rely on the isolated test HOME happening to lack an org switchboard token. */
   joinRedeemSeams?: Partial<JoinRedeemSeams>;
   /** Overrides `mintInvite`'s seams; real by default. */
   mintInviteSeams?: Partial<MintInviteSeams>;
@@ -129,6 +130,8 @@ export interface TeamDeps {
   readLocalSecret?: ReadLocalSecret;
   /** The org's admin-only secrets reader (`teamStatus`, `teamPeer`, `members remove`); real by default. */
   readAdminSecret?: ReadAdminSecret;
+  /** All of stdin, for `rt team admin-secrets --token-stdin`; real stdin by default. */
+  readStdin?: () => Promise<string>;
   /** Overrides `peerOwnBoard`'s seams; real by default, with `readLocalSecret` above as its secret reader. */
   peerSeams?: Partial<PeerSeams>;
   /** Overrides `renameOrg`'s seams; real by default. */
@@ -282,6 +285,7 @@ const REFUSAL_CODES = new Set([
   "invite-off-main",
   "org-detached",
   "peer-needs-admin",
+  "not-org-token",
   "announce-not-admin",
   "board-registered-elsewhere",
   "bad-org-name",
@@ -430,7 +434,7 @@ export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps
         ? out.line("done", `Created the ${result.slug} org`, result.remote)
         : out.line("skipped", `The ${result.slug} org is already set up`, result.remote),
       ...(result.rolesDeferred ? [out.callout("next", "Connect your forge account in Setup so rt can make you this org's admin")] : []),
-      ...(peered ? peerBlocks(peered) : []),
+      ...(peered === "needs-org-token" ? NEEDS_ORG_TOKEN_BLOCKS() : peered ? peerBlocks(peered) : []),
     );
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
@@ -447,12 +451,18 @@ function peerSeamsFor(deps: TeamDeps): PeerSeams {
   };
 }
 
-/** A creator holding the admin token gets their board connected with the org; anything that goes wrong is a warning, never a failed create. */
-async function autoPeer(deps: TeamDeps, slug: string): Promise<PeerResult | null> {
+const NEEDS_ORG_TOKEN_BLOCKS = (): Block[] => [
+  out.line("pending", "Your board connects once the relay operator gives this org its switchboard token"),
+  out.callout("next", out.cmd("rt team admin-secrets --token-stdin")),
+  out.callout("next", out.cmd("rt team peer")),
+];
+
+/** A creator holding the org's switchboard token gets their board connected with the org; anything that goes wrong is a warning, never a failed create. */
+async function autoPeer(deps: TeamDeps, slug: string): Promise<PeerResult | "needs-org-token" | null> {
   try {
     return await peerOwnBoard(deps.probes, slug, { rotate: false }, peerSeamsFor(deps));
   } catch (err) {
-    if (err instanceof UserActionableError && err.code === "peer-needs-admin") return null;
+    if (err instanceof UserActionableError && err.code === "peer-needs-admin") return "needs-org-token";
     const why = err instanceof UserActionableError ? err.why : undefined;
     const next = err instanceof UserActionableError && err.next ? err.next : "rt team peer";
     warn("team", `board peering after create: ${err instanceof Error ? err.message : String(err)}`, {
@@ -539,20 +549,25 @@ export async function teamAnnounce(args: string[], _ctx: CommandContext = {}, de
   }
 }
 
-const TOKEN_BLOCKS: Record<TokenOutcome, () => Block[]> = {
-  seeded: () => [out.line("done", "Shared this Mac's switchboard admin token with them")],
-  replaced: () => [out.line("done", "Replaced the switchboard admin token they share with this Mac's")],
-  differs: () => [
-    out.line("needs-you", "The org shares a different switchboard admin token from this Mac's", "keep theirs unless yours is the newer one"),
-    out.callout("next", out.cmd("rt team admin-secrets --replace-token")),
+const TOKEN_BLOCKS: Record<TokenOutcome, (fromStdin: boolean) => Block[]> = {
+  seeded: () => [out.line("done", "Shared the org's switchboard token with them")],
+  replaced: () => [out.line("done", "Replaced the org's switchboard token they share")],
+  differs: (fromStdin) => [
+    out.line("needs-you", "The org already shares a different switchboard token", "keep theirs unless yours is the newer one"),
+    out.callout("next", out.cmd(fromStdin ? "rt team admin-secrets --token-stdin --replace-token" : "rt team admin-secrets --replace-token")),
+  ],
+  operator: () => [
+    out.line("refused", "This Mac's switchboard token is the relay operator's, so rt did not share it"),
+    out.callout("next", ["Ask the relay operator for your org's token, then run ", out.cmd("rt team admin-secrets --token-stdin")]),
   ],
   kept: () => [],
   none: () => [],
 };
 
-export function adminSecretsBlocks(result: AdminSecretsResult): Block[] {
+export function adminSecretsBlocks(result: AdminSecretsResult, opts: { fromStdin?: boolean } = {}): Block[] {
+  const tokenBlocks = TOKEN_BLOCKS[result.token](opts.fromStdin === true);
   if (result.state === "unused") {
-    return [out.line("skipped", "This org keeps no admin-only secrets yet", "this Mac holds no switchboard admin token to share")];
+    return [out.line("skipped", "This org keeps no admin-only secrets yet", "this Mac holds no org switchboard token to share"), ...tokenBlocks];
   }
   const who = result.holders.join(", ");
   const relocked = result.added.length > 0 || result.removed.length > 0;
@@ -560,19 +575,49 @@ export function adminSecretsBlocks(result: AdminSecretsResult): Block[] {
     relocked
       ? out.line("done", "Locked the admin-only secrets to the org's owners and admins", who)
       : out.line("skipped", "The admin-only secrets already open for exactly the org's owners and admins", who),
-    ...TOKEN_BLOCKS[result.token](),
+    ...tokenBlocks,
     ...(result.withoutKey.length > 0 ? [out.callout("note", `${result.withoutKey.join(", ")} cannot open them yet: the roster has no age key for them.`)] : []),
-    ...(result.removed.length > 0 ? [out.callout("note", "Anyone taken off keeps any value they already opened. Change the switchboard admin token to shut them out.")] : []),
+    ...(result.removed.length > 0
+      ? [out.callout("note", ["Anyone taken off keeps any value they already opened. Ask the relay operator to change the org's switchboard token, then share the new one with ", out.cmd("rt team admin-secrets --token-stdin --replace-token")])]
+      : []),
   ];
+}
+
+/** Trimmed, since a paste carries a newline. A token the relay does not accept never reaches the file, so a typo cannot replace a working token. */
+async function orgTokenFromStdin(deps: TeamDeps): Promise<string> {
+  const token = (await (deps.readStdin ?? (() => new Response(Bun.stdin.stream()).text()))()).trim();
+  if (!isOrgToken(token)) {
+    throw new UserActionableError("not-org-token", "That is not an org switchboard token", {}, {
+      why: "Org tokens start with sbo_. The relay operator's own token is never shared.",
+    });
+  }
+  const res = await deps.probes.fetch(`${switchboardUrl(deps.probes.env)}/boards`, { headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 0) throw new UserActionableError("switchboard-unreachable", "rt could not reach the switchboard", {}, { why: "Nothing was changed." });
+  if (res.status !== 200) {
+    throw new UserActionableError("org-token-rejected", "The switchboard did not accept that token", {}, { why: "Nothing was changed. Check the token with the relay operator." });
+  }
+  return token;
+}
+
+/** Read raw, so an operator token is seen and named rather than skipped. On a Mac with two org clones a token kept here could be either org's, so none is read. */
+async function tokenKeptOnThisMac(deps: TeamDeps): Promise<string | null> {
+  const p = deps.probes;
+  if (discoverOrgs(p).length !== 1) return null;
+  return (
+    p.env.SWITCHBOARD_ADMIN_TOKEN ||
+    boardEnvValue(p, "SWITCHBOARD_ADMIN_TOKEN") ||
+    (await (deps.readLocalSecret ?? realReadLocalSecret)("switchboardAdminToken").catch(() => null))
+  );
 }
 
 export async function teamAdminSecrets(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
+  const fromStdin = args.includes("--token-stdin");
   try {
     const slug = resolveTeamSlug(args, "team admin-secrets");
-    const token = await readAdminToken(deps.probes, deps.readLocalSecret ?? realReadLocalSecret, null);
+    const token = fromStdin ? await orgTokenFromStdin(deps) : await tokenKeptOnThisMac(deps);
     const orgStore = (deps.membersSeams ?? realMembersSeams()).readTeamStore(slug);
-    const result = await syncAdminSecrets(deps.probes, slug, orgStore, createRealTeamSecretsSeams(slug), {
+    const result = await syncAdminSecrets(deps.probes, slug, orgStore, deps.secrets ?? createRealTeamSecretsSeams(slug), {
       token,
       replaceToken: args.includes("--replace-token"),
     });
@@ -580,7 +625,7 @@ export async function teamAdminSecrets(args: string[], _ctx: CommandContext = {}
       deps.print(JSON.stringify(envelope(result)));
       return;
     }
-    out.print(...adminSecretsBlocks(result));
+    out.print(...adminSecretsBlocks(result, { fromStdin }));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
