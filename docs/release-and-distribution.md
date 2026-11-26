@@ -309,7 +309,9 @@ With the setting off, today's prompt returns: a scheduled check opens
 Sparkle's own update window in front, except while setup runs (the "Update
 Available" menu item is the reminder then), and an update put off to quit
 waits for no window open and no setup run (`windowsOpen`, `setupRunning`).
-The status file then says `hold: "orgOff"`.
+The status file then says `hold: "orgOff"`, but only from a setting rt
+answered: a read past its five-second deadline keeps Sparkle's last mode and
+leaves the record alone (`UpdatePolicy.orgOffWrite`).
 
 Either way Sparkle offers its install handler once, and the tray keeps it
 (`HeldUpdateInstaller`) rather than declining: a declined update waits for
@@ -325,16 +327,25 @@ starts a detached `rt dev update --auto --json`, because the update's last
 step swaps the app, which restarts the daemon. That run checks the clone
 (`lib/dev/clone-guards.ts`: on `main`, clean including untracked files, no
 commits off `origin/main`, no merge or rebase in progress, `origin/main`
-fetched), then the daemon's busy state and the tools `origin/main` pins, and
+fetched with `--no-tags`; `git status` runs with `--no-optional-locks`, and
+one that fails or times out holds `statusFailed`), then the daemon's busy state and the tools `origin/main` pins, and
 changes nothing until all pass. Then it fast-forwards, runs
 `bun install --frozen-lockfile`, rebuilds the terminal helper, runs each
-served app's `dev.build`, re-registers the served apps, swaps the dev app
-and restarts the daemon. A hold writes the
+served app's `dev.build`, re-registers the served apps and swaps the dev app. Relaunching a running
+app restarts the daemon; otherwise the run asks the tray, and says so when
+no tray answered. Any error after the pull holds `updateFailed`, with the
+failed step's output in the CLI log. A release lookup that fails (GitHub
+down, `gh` missing or signed out) reports `unchecked`, not up to date, and
+writes `hold: "releasesUnreadable"` unless a hold is already recorded; a
+missing or signed-out `gh` also posts one notification. A hold writes the
 status file and posts one `setup_update` notification per version and hold
 (kv `dev-auto-update`/`announced`, so a daemon restart does not repeat it).
 With the setting off, the sweep only writes `hold: "orgOff"`. A locally built
-dev app is never touched. A hand-run `rt dev update` fast-forwards a clone
-that passes the same checks and reports one that does not.
+dev app, or none, is never touched, and clears any hold recorded earlier. A
+hand-run `rt dev update` fast-forwards a clone that passes the same checks
+and reports one that does not. Both take `~/.mattstack/rt/dev-update.lock`,
+so a hand run refuses while the hourly one runs; the lock goes stale after
+three hours, past the run's own timeouts.
 
 The tray writes what the updater last did to `~/.mattstack/rt/app-update.json`
 (`UpdateStatus`): the last check, the version offered, and a held version
@@ -344,7 +355,7 @@ telemetry page shows it beside each Mac that is behind, a dev Mac with a held
 update, and `off (turned off by the org)` for `orgOff`. Hold names:
 `setupRunning`, `windowsOpen`, `daemonBusy`, `orgOff`, `notOnMain`,
 `localCommits`, `dirtyTree`, `mergeInProgress`, `fetchFailed`,
-`updateFailed`. An app older than the file reports nothing there.
+`statusFailed`, `updateFailed`, `releasesUnreadable`. An app older than the file reports nothing there.
 
 ### The daemon restart
 
