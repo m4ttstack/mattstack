@@ -115,15 +115,23 @@ There was one sensible way to build this, and Matt took it:
       that has no token yet. The master token acts as that org on the old
       routes, so the rt released today is unaffected.
    2. The operator mints the legacy org's token.
-   3. Matt runs the new rt's
-      `rt team admin-secrets --token-stdin --replace-token` to put it in the
-      org's admin-only file. The other admins get it on their next pull.
-   4. Clear the master's copies from Macs' local secrets and boards' `.env`.
-      The `org.admin-secrets` row names each one.
+   3. Every owner and admin clears the master from their Mac's local secret
+      and their board's `.env`. The shared file still holds it, so nothing
+      stops working, and on the new rt the `org.admin-secrets` row names each
+      copy. The runbook lists the owners and admins to check. This comes
+      before the share, so no older rt is left holding a local master it
+      could write back over the org token (an older rt's "differs" advice
+      is `--replace-token`).
+   4. Matt runs the new rt's
+      `rt team admin-secrets --token-stdin --replace-token` to put the org
+      token in the org's admin-only file. The other admins get it on their
+      next pull.
    5. The operator rotates the master on Railway last. That also kills the
       copy in the org repo's git history.
-3. **Docs:** the write fence widens to `.claude/rules/team-switchboard.md`
-   and `apps/board/docs/peer-boards.md`, so both stay true when the PR lands.
+3. **Docs and the command tree:** the write fence widens to
+   `.claude/rules/team-switchboard.md`, `apps/board/docs/peer-boards.md` and
+   `lib/command-tree-def.ts` (the `team admin-secrets` node, plus any
+   command-tree test that pins it).
 
 ## Design
 
@@ -232,16 +240,23 @@ app bundle.
 
 - **`packages/rt-client/src/switchboard.ts`:** `ORG_TOKEN_PREFIX` and
   `isOrgToken`. Rebuild rt-client's `dist/` after touching it.
-- **Picking the admin token** (`lib/team/board-peers.ts`): `pickAdminToken`
-  takes the sources in their usual order and returns the first org token,
-  else the first token of any kind. `readAdminToken`, `readStoredAdminToken`,
-  invite's read and join's `rejoinAdminToken` all use it. So a master left in
-  a board's `.env` never shadows the org's token in the shared file, and a
-  Mac that holds only the master keeps working until step 5. The order of
-  sources stays as it is (environment, the board's `.env`, the admin-only
-  file, the local secret, then join's team secrets). A local read that throws
-  still reaches the caller, and is skipped when an earlier source already
-  gave an org token.
+- **Picking the admin token** (`lib/team/board-peers.ts`, my call after the
+  builder check): `pickAdminToken` takes the sources in their usual order
+  (environment, the board's `.env`, the admin-only file, the local secret,
+  then join's team secrets) and returns the first org token. Failing that, it
+  returns a token that is not an org token only when it came from one of the
+  org's own shared stores (the admin-only file, or join's member-wide team
+  secrets): that is where #829 put the master, and only the legacy org
+  holds it there. A master in the environment, a board's `.env` or the
+  local secret is never used, because rt cannot tell which org it would act
+  for. On the relay, a master with no `org` lands in the legacy org and
+  lists or deletes any board, so a second org created on a Mac holding it
+  would mix into the legacy org. `readAdminToken`, `readStoredAdminToken`,
+  invite's read and join's `rejoinAdminToken` all use it. So the legacy org
+  keeps working until step 5, and a master left on a Mac never shadows the
+  org's token. "No org token" everywhere below means `pickAdminToken`
+  returned null. A local read that throws still reaches the caller, and is
+  skipped when an earlier source already gave an org token.
 - **`username-taken`:** `rt team peer` and `rt team create`'s auto-peer
   throw a `UserActionableError` (code `username-taken`): another org on the
   switchboard already has a board under that username, so ask the relay
@@ -255,8 +270,10 @@ app bundle.
     (`GET /boards` must answer 200, else `org-token-rejected`), so a typo
     never replaces a working token. It is then the token to share, and
     `--replace-token` still decides whether it replaces a different one.
-  - Without `--token-stdin`, the token is read as today. A token that is not
-    an org token is never written: the outcome is a new `operator`, drawn as
+  - Without `--token-stdin`, the verb reads this Mac's own sources as
+    today (environment, the board's `.env`, the local secret), raw rather
+    than through `pickAdminToken`, so it can see an operator token and say
+    so. A token that is not an org token is never written: the outcome is a new `operator`, drawn as
     a `refused` line ("This Mac's switchboard token is the relay operator's,
     so rt did not share it"), with the next step "ask the relay operator for
     your org's token, then `rt team admin-secrets --token-stdin`". Locking
@@ -291,8 +308,10 @@ app bundle.
   `rt team peer`. Today this step is silent.
 - **Copy:** user-facing words say "the org's switchboard token" and "the
   relay operator's token", never "admin token". `--json` keys stay frozen.
-  The command-tree description and flags for `team admin-secrets` live in
-  `lib/command-tree-def.ts`, which is outside the write fence (see Open).
+  The `team admin-secrets` node in `lib/command-tree-def.ts` gets a
+  `--token-stdin` flag row, and its description becomes "Share your org's
+  switchboard token with its owners and admins, and keep it locked to
+  them".
 
 ### Docs
 
@@ -333,17 +352,26 @@ Each acceptance bullet in RT-613 is proved by a test:
   token working (`migration.test.ts`).
 - **Older clients still work.** Today's request bodies get today's
   response shapes on every route (`server.test.ts`).
-- **rt picks the org token first.** Covered in `board-peers.test.ts`,
-  `invite.test.ts`, `join.test.ts` and `peer.test.ts`, plus the
-  prefix-parity test.
+- **rt picks the org token first, and uses a master only from the org's
+  shared stores.** Covered in `board-peers.test.ts`, `invite.test.ts`,
+  `join.test.ts` and `peer.test.ts`: a master in the environment, a board's
+  `.env` or the local secret is never sent. Plus the prefix-parity test.
 - Each touched suite passes when run on its own from the worktree root, and
   `bun run typecheck` is clean.
 
-## Open
+## Calls I made (check these)
 
-- **The `admin-secrets` tree entry.** `--token-stdin` and the reworded
-  description of `team admin-secrets` need a row in `lib/command-tree-def.ts`,
-  which is outside the write fence.
+- The org token format is `sbo_` plus 64 hex characters, and the relay
+  refuses to start with a master that has the prefix.
+- An org has an opaque id and no name or label on the relay.
+- The master keeps its `SWITCHBOARD_ADMIN_TOKEN` name on Railway.
+- Rotating an org token is immediate, with no grace window. It cuts off
+  only admin actions, never boards.
+- rt uses a master only when it comes from the org's own shared stores.
+- `--token-stdin` checks the token against the relay before it writes, so a
+  typo never replaces a working token.
+- A board in another org answers exactly as a username nobody holds would.
+  The only exception is the 409 on a username that is taken.
 
 ## Left to the builder
 
