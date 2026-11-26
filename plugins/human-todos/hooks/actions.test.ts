@@ -394,8 +394,9 @@ test('Stop shows a toast, marks the item stopping, then asks the runner to stop'
   await pane.unmount()
 })
 
-test('Force stop on a herdr item with no known process group sends ctrl+c to the tab again and says so', async ($, on) => {
+test('Force stop on a herdr item whose tab has no foreground job sends ctrl+c to the tab again and says so', async ($, on) => {
   const { fake, run } = herdrWithTab()
+  fake.idle('pane1')
   const { events } = await seeded($, on, [herdrItem({ isStopping: true })], { run })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 

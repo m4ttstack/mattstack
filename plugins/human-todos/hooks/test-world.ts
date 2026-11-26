@@ -235,7 +235,7 @@ export function herdrFake({ hasRt = true, servers: running = { [BG]: true } }: {
   const workspaceServer = new Map<string, string | undefined>()
   const panes = new Map<string, FakePane>()
   const labels = new Map<string, string>()
-  const state = { hasRt, isCtrlCEnding: true, isKillRefused: false, printsPid: true, isCreateRefused: false, isRunRefused: false, isMissing: false, canStart: true }
+  const state = { hasRt, isCtrlCEnding: true, isKillRefused: false, printsPid: true, isInfoRefused: false, isCreateRefused: false, isRunRefused: false, isMissing: false, canStart: true }
   let seq = 0
   const ok = (stdout = ''): Reply => ({ exitCode: 0, stdout, stderr: '' })
   const no = (): Reply => ({ exitCode: 1, stdout: '', stderr: 'failed' })
@@ -333,7 +333,8 @@ export function herdrFake({ hasRt = true, servers: running = { [BG]: true } }: {
       case 'pane process-info': {
         const pane = panes.get(flag('--pane'))
         if (!pane?.isAlive) return no()
-        return json({ process_info: { shell_pid: 10, foreground_process_group_id: pane.isIdle ? 10 : 20 } })
+        if (state.isInfoRefused) return no()
+        return json({ process_info: { shell_pid: 10, foreground_process_group_id: pane.isIdle ? 10 : (pane.pid ?? 20) } })
       }
       case 'pane send-keys': {
         const pane = panes.get(w[3] ?? '')

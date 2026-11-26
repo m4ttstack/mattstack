@@ -1185,9 +1185,17 @@ function placeTab($, session, todo, cwd) {
   });
   return placed;
 }
+async function processInfo($, session, paneId) {
+  return (await herdrJson($, session, `pane process-info --pane ${quote(paneId)}`))?.process_info;
+}
 async function paneIsIdle($, session, paneId) {
-  const info = (await herdrJson($, session, `pane process-info --pane ${quote(paneId)}`))?.process_info;
+  const info = await processInfo($, session, paneId);
   return Boolean(info?.shell_pid && info.foreground_process_group_id === info.shell_pid);
+}
+async function foregroundGroup($, session, paneId) {
+  const info = await processInfo($, session, paneId);
+  const group = info?.foreground_process_group_id;
+  return info?.shell_pid && group && group !== info.shell_pid ? group : undefined;
 }
 async function readPane($, session, paneId, lines = SCAN_LINES) {
   try {
@@ -1239,8 +1247,11 @@ async function pollOnce($, token, run) {
   run.unreadPolls = 0;
   const scan = scanPane(text, token, todo.script ?? "");
   run.output = scan.output;
-  if (scan.pgid !== undefined && scan.pgid !== todo.pgid)
+  if (scan.pgid !== undefined && scan.pgid !== todo.pgid) {
     await patchTodo($, todo.id, { pgid: scan.pgid });
+    if (run.isGone)
+      return;
+  }
   const outputTail = scan.output.join(`
 `);
   if (scan.exitCode !== undefined) {
@@ -1328,26 +1339,40 @@ async function stopHerdr($, todo) {
   await patchTodo($, todo.id, { isStopping: false });
   $.ui.toast(`Could not stop #${todo.id}`);
 }
+async function stillRunning($, todo, token) {
+  if (runs.get(token)?.isGone)
+    return;
+  const current = (await listTodos($)).find((t) => t.id === todo.id);
+  return current?.status === "running" && current.token === token ? current : undefined;
+}
 async function forceStopHerdr($, todo) {
   const token = todo.token;
   if (!token || !todo.paneId || !todo.herdrSession)
     return;
   const text = await readPane($, todo.herdrSession, todo.paneId);
   const scan = text === null ? undefined : scanPane(text, token, todo.script ?? "");
-  const pgid = todo.pgid ?? scan?.pgid;
-  if (pgid === undefined) {
+  const recorded = todo.pgid ?? scan?.pgid;
+  const group = await foregroundGroup($, todo.herdrSession, todo.paneId).catch(() => {
+    return;
+  });
+  if (!await stillRunning($, todo, token))
+    return;
+  if (group === undefined || recorded !== undefined && recorded !== group) {
     $.ui.toast(`No process found for #${todo.id}, so Force stop sent ctrl+c again`);
     return stopHerdr($, todo);
   }
-  const killed = await $.process.run(killGroup(pgid)).catch(() => null);
+  const killed = await $.process.run(killGroup(group)).catch(() => null);
   if (killed?.exitCode !== 0) {
     $.ui.toast(`Could not force stop #${todo.id}`);
     return;
   }
+  const current = await stillRunning($, todo, token);
+  if (!current)
+    return;
   const run = runs.get(token);
   if (run)
     run.isGone = true;
-  await conclude($, token, todo, { kind: "stopped", outputTail: (scan?.output ?? run?.output ?? []).join(`
+  await conclude($, token, current, { kind: "stopped", outputTail: (scan?.output ?? run?.output ?? []).join(`
 `) });
 }
 async function showLog($, todo) {

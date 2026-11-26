@@ -428,13 +428,49 @@ test('Force stop before any poll has recorded the process group reads it from th
   expect(sent).toHaveLength(1)
 })
 
-test('with no process group known, Force stop sends ctrl+c again and says so', async ($, on) => {
-  const { run1, fake, item, clock, pane, sent, toasts, ran } = await seeded($, on, [todo({})])
+test("a pid line that scrolled out before any poll leaves Force stop the pane's foreground group to kill", async ($, on) => {
+  const { run1, fake, item, clock, pane, sent } = await seeded($, on, [todo({})])
   fake.state.isCtrlCEnding = false
   fake.state.printsPid = false
   await run1('1')
   await press(pane, '1', 'stop')
   await clock.advance(1000)
+  expect(item('1')?.pgid).toBeUndefined()
+
+  await press(pane, '1', 'forceStop')
+
+  expect(fake.panes.get(item('1')?.paneId ?? '')?.isKilled).toBe(true)
+  expect(item('1')).toMatchObject({ status: 'open', note: 'Stopped' })
+  expect(sent).toHaveLength(1)
+})
+
+test("a recorded group that is no longer the pane's foreground job is never killed; Force stop sends ctrl+c again and says so", async ($, on) => {
+  const { run1, fake, item, clock, pane, sent, toasts, ran } = await seeded($, on, [todo({})])
+  fake.state.isCtrlCEnding = false
+  await run1('1')
+  await press(pane, '1', 'stop')
+  await clock.advance(1000)
+  const live = fake.panes.get(item('1')?.paneId ?? '')
+  if (!live) throw new Error('no pane')
+  expect(item('1')?.pgid).toBe(live.pid)
+  live.pid = 9999
+
+  await press(pane, '1', 'forceStop')
+
+  expect(ran.some(argv => argv.at(-1)?.startsWith('kill'))).toBe(false)
+  expect(fake.ran('herdr pane send-keys')).toHaveLength(2)
+  expect(toasts).toEqual(['Stopping #1', 'Force stopping #1', 'No process found for #1, so Force stop sent ctrl+c again'])
+  expect(item('1')).toMatchObject({ status: 'running', isStopping: true })
+  expect(sent).toEqual([])
+})
+
+test("with no foreground job herdr can name, Force stop sends ctrl+c again and says so", async ($, on) => {
+  const { run1, fake, item, clock, pane, sent, toasts, ran } = await seeded($, on, [todo({})])
+  fake.state.isCtrlCEnding = false
+  await run1('1')
+  await press(pane, '1', 'stop')
+  await clock.advance(1000)
+  fake.state.isInfoRefused = true
 
   await press(pane, '1', 'forceStop')
 

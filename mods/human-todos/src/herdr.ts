@@ -153,9 +153,20 @@ function placeTab($: EngineInterface, session: string, todo: Todo, cwd: string):
   return placed
 }
 
+async function processInfo($: EngineInterface, session: string, paneId: string) {
+  return (await herdrJson($, session, `pane process-info --pane ${quote(paneId)}`))?.process_info
+}
+
 async function paneIsIdle($: EngineInterface, session: string, paneId: string): Promise<boolean> {
-  const info = (await herdrJson($, session, `pane process-info --pane ${quote(paneId)}`))?.process_info
+  const info = await processInfo($, session, paneId)
   return Boolean(info?.shell_pid && info.foreground_process_group_id === info.shell_pid)
+}
+
+// The job the pane's shell has in the foreground, when it has one: the run's wrapper, as a tab holds nothing else.
+async function foregroundGroup($: EngineInterface, session: string, paneId: string): Promise<number | undefined> {
+  const info = await processInfo($, session, paneId)
+  const group = info?.foreground_process_group_id
+  return info?.shell_pid && group && group !== info.shell_pid ? group : undefined
 }
 
 async function readPane($: EngineInterface, session: string, paneId: string, lines = SCAN_LINES): Promise<string | null> {
@@ -209,7 +220,10 @@ async function pollOnce($: EngineInterface, token: string, run: Run): Promise<vo
 
   const scan = scanPane(text, token, todo.script ?? '')
   run.output = scan.output
-  if (scan.pgid !== undefined && scan.pgid !== todo.pgid) await patchTodo($, todo.id, { pgid: scan.pgid })
+  if (scan.pgid !== undefined && scan.pgid !== todo.pgid) {
+    await patchTodo($, todo.id, { pgid: scan.pgid })
+    if (run.isGone) return
+  }
   const outputTail = scan.output.join('\n')
   if (scan.exitCode !== undefined) {
     await conclude($, token, todo, todo.isStopping ? { kind: 'stopped', outputTail } : { kind: 'ran', exitCode: scan.exitCode, outputTail })
@@ -291,26 +305,39 @@ export async function stopHerdr($: EngineInterface, todo: Todo): Promise<void> {
   $.ui.toast(`Could not stop #${todo.id}`)
 }
 
+// The item still holds this run, and the session that started it has not let it go: a /resume mid-call swaps the list for another
+// session's, where the same number is a different item.
+async function stillRunning($: EngineInterface, todo: Todo, token: string): Promise<Todo | undefined> {
+  if (runs.get(token)?.isGone) return undefined
+  const current = (await listTodos($)).find(t => t.id === todo.id)
+  return current?.status === 'running' && current.token === token ? current : undefined
+}
+
 // The wrapper dies with its group and prints no exit marker, so the stop is reported here rather than left to the idle polls.
-// A run from before the wrapper printed its pid has no group to kill; ctrl+c again is all herdr can do for it.
+// Only the pane's foreground job is killed, and only when it is the group the run recorded, if it recorded one: a stored pgid can
+// outlive its run and name someone else's group by now. With no foreground job to name, ctrl+c again is all herdr can do.
 export async function forceStopHerdr($: EngineInterface, todo: Todo): Promise<void> {
   const token = todo.token
   if (!token || !todo.paneId || !todo.herdrSession) return
   const text = await readPane($, todo.herdrSession, todo.paneId)
   const scan = text === null ? undefined : scanPane(text, token, todo.script ?? '')
-  const pgid = todo.pgid ?? scan?.pgid
-  if (pgid === undefined) {
+  const recorded = todo.pgid ?? scan?.pgid
+  const group = await foregroundGroup($, todo.herdrSession, todo.paneId).catch(() => undefined)
+  if (!(await stillRunning($, todo, token))) return
+  if (group === undefined || (recorded !== undefined && recorded !== group)) {
     $.ui.toast(`No process found for #${todo.id}, so Force stop sent ctrl+c again`)
     return stopHerdr($, todo)
   }
-  const killed = await $.process.run(killGroup(pgid)).catch(() => null)
+  const killed = await $.process.run(killGroup(group)).catch(() => null)
   if (killed?.exitCode !== 0) {
     $.ui.toast(`Could not force stop #${todo.id}`)
     return
   }
+  const current = await stillRunning($, todo, token)
+  if (!current) return
   const run = runs.get(token)
   if (run) run.isGone = true
-  await conclude($, token, todo, { kind: 'stopped', outputTail: (scan?.output ?? run?.output ?? []).join('\n') })
+  await conclude($, token, current, { kind: 'stopped', outputTail: (scan?.output ?? run?.output ?? []).join('\n') })
 }
 
 async function showLog($: EngineInterface, todo: Todo): Promise<string> {

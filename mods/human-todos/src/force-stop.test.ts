@@ -28,6 +28,11 @@ test.skipIf(process.platform !== 'darwin')("Force stop's kill ends a real run of
       if (found) pgid = Number(found)
     }
     reader.releaseLock()
+    // The script sets its trap before it starts sleep, so a sleep in the group means the kill meets a script ignoring INT and TERM.
+    const sleeping = () => Bun.spawnSync(['pgrep', '-g', String(pgid), '-x', 'sleep']).exitCode === 0
+    for (const startedAt = Date.now(); !sleeping(); await Bun.sleep(20)) {
+      if (Date.now() - startedAt > 5000) throw new Error('the script never started sleep')
+    }
 
     const [cmd, flag, line] = killGroup(pgid)
     const kill = Bun.spawnSync([cmd ?? '', flag ?? '', line ?? ''])
