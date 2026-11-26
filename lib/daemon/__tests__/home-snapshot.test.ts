@@ -29,7 +29,7 @@ function fakeLog(): Logger & { calls: { level: string; args: unknown[] }[] } {
   };
 }
 
-type ExecOpts = { cwd?: string; timeoutMs?: number; stderr?: "ignore" | "pipe" };
+type ExecOpts = { cwd?: string; timeoutMs?: number; stderr?: "ignore" | "pipe"; env?: Record<string, string> };
 type Responder = (argv: string[]) => RunResult | undefined;
 
 /** The git subcommand, past any leading `-c <config>` pairs — snapshot commits carry `-c commit.gpgsign=false`, so argv[1] is not always the verb. */
@@ -5333,5 +5333,54 @@ describe("settled", () => {
     expect(await resolvedYet(settled)).toBe(false);
     gated.open();
     expect(await resolvedYet(settled)).toBe(true);
+  });
+});
+
+describe("status reads skip the optional index lock", () => {
+  const statusEnvs = (calls: string[][], optsLog: ExecOpts[]) =>
+    calls.flatMap((c, i) => (gitVerb(c) === "status" ? [optsLog[i]?.env?.GIT_OPTIONAL_LOCKS] : []));
+
+  test("the commit cycle's status read", async () => {
+    const { fn, calls, optsLog } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    const { deps } = baseDeps({ exec: fn, repoDir: FAKE_REPO_DIR });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    await handle.runNow("manual");
+    const envs = statusEnvs(calls, optsLog);
+    expect(envs.length).toBeGreaterThan(0);
+    expect(envs.every((v) => v === "0")).toBe(true);
+    handle.stop();
+  });
+
+  test("the pull's post-pull status read on a watched spec", async () => {
+    const { fn, calls, optsLog } = makeFakeExec([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders()]);
+    const { deps } = baseDeps({ exec: fn });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot({ ...teamSpecFor(), scope: (path) => path.startsWith("mattstack/teams/widgets/"), watch: teamScope }, rest);
+    await handle.ready;
+    calls.length = 0; optsLog.length = 0;
+    await handle.pullNow();
+    const envs = statusEnvs(calls, optsLog);
+    expect(envs.length).toBeGreaterThan(0);
+    expect(envs.every((v) => v === "0")).toBe(true);
+    handle.stop();
+  });
+
+  test("the refused-pull blocker status read", async () => {
+    const { fn, calls, optsLog } = makeFakeExec([...pullResponders({ behind: 1, ahead: 1, rebase: "refused" }), ...defaultResponders()]);
+    const { deps } = baseDeps({ exec: fn });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot({
+      ...teamSpecFor(),
+      standingZones: () => ({ "mattstack/packs/": { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" } }),
+      janitorSavesOnly: () => true,
+    }, rest);
+    await handle.ready;
+    calls.length = 0; optsLog.length = 0;
+    await handle.pullNow();
+    const envs = statusEnvs(calls, optsLog);
+    expect(envs.length).toBeGreaterThan(0);
+    expect(envs.every((v) => v === "0")).toBe(true);
+    handle.stop();
   });
 });
