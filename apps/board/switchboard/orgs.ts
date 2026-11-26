@@ -9,6 +9,7 @@ export const ORG_TOKEN_PREFIX = 'sbo_';
 export const ORG_TOKEN_RE = /^sbo_[0-9a-f]{64}$/;
 
 const LEGACY_MASTER_HASH = 'legacy_master_hash';
+const LEGACY_TOKEN_RETIRED = 'legacy_token_retired';
 
 function sha256(v: string): string {
   return new Bun.CryptoHasher('sha256').update(v).digest('hex');
@@ -146,18 +147,43 @@ export class OrgStore {
     ]);
   }
 
+  /** Every legacy member held the stamped master, so a legacy org token
+      minted under it dies on the first start with another master. Once per
+      database: a later rotation never revokes the token minted after it. */
+  async retireLegacyToken(master: string, now: number): Promise<boolean> {
+    const stamp = this.stamp();
+    if (stamp === null || this.meta(LEGACY_TOKEN_RETIRED) !== null)
+      return false;
+    if (await Bun.password.verify(master, stamp)) return false;
+    return this.db.transaction((): boolean => {
+      if (this.meta(LEGACY_TOKEN_RETIRED) !== null) return false;
+      this.db.run(
+        `UPDATE orgs SET token_hash = NULL, token_at = NULL WHERE legacy = 1`
+      );
+      this.db.run(`INSERT INTO relay_meta (key, value) VALUES (?, ?)`, [
+        LEGACY_TOKEN_RETIRED,
+        String(now),
+      ]);
+      return true;
+    })();
+  }
+
   async masterGateClosed(master: string): Promise<boolean> {
     const stamp = this.stamp();
     return stamp !== null && (await Bun.password.verify(master, stamp));
   }
 
   private stamp(): string | null {
+    return this.meta(LEGACY_MASTER_HASH);
+  }
+
+  private meta(key: string): string | null {
     return (
       this.db
         .query<{ value: string }, [string]>(
           `SELECT value FROM relay_meta WHERE key = ?`
         )
-        .get(LEGACY_MASTER_HASH)?.value ?? null
+        .get(key)?.value ?? null
     );
   }
 }

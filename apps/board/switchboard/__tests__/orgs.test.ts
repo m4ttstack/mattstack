@@ -122,3 +122,46 @@ describe('the legacy master stamp', () => {
     expect(await orgs.masterGateClosed('master-two')).toBe(false);
   });
 });
+
+describe('retiring the legacy org token', () => {
+  const retired = (db: Database) =>
+    db
+      .query<{ value: string }, []>(
+        `SELECT value FROM relay_meta WHERE key = 'legacy_token_retired'`
+      )
+      .get()?.value ?? null;
+
+  test("under another master, it clears only the legacy org's token, once, and records the time", async () => {
+    const { db, orgs } = setup();
+    const legacy = orgs.ensureLegacy(1000)!;
+    await orgs.stampLegacyMaster('master-a');
+    const old = orgs.mintToken(legacy, 2000)!;
+    const { id: other } = orgs.create(3000);
+    const otherToken = orgs.mintToken(other, 3000)!;
+
+    expect(await orgs.retireLegacyToken('master-b', 5000)).toBe(true);
+    expect(orgs.authOrg(old)).toBeNull();
+    expect(orgs.authOrg(otherToken)).toBe(other);
+    expect(retired(db)).toBe('5000');
+    const rows = Object.fromEntries(orgs.list().map(o => [o.id, o]));
+    expect(rows[legacy]).toMatchObject({ hasToken: false, tokenAt: null });
+    expect(rows[other]).toMatchObject({ hasToken: true, tokenAt: 3000 });
+
+    const fresh = orgs.mintToken(legacy, 6000)!;
+    for (const master of ['master-b', 'master-c'])
+      expect(await orgs.retireLegacyToken(master, 7000)).toBe(false);
+    expect(orgs.authOrg(fresh)).toBe(legacy);
+    expect(retired(db)).toBe('5000');
+  });
+
+  test('it does nothing with no stamp, or while the master matches the stamp', async () => {
+    const { db, orgs } = setup();
+    const legacy = orgs.ensureLegacy(1000)!;
+    const token = orgs.mintToken(legacy, 2000)!;
+    expect(await orgs.retireLegacyToken('master-b', 3000)).toBe(false);
+    await orgs.stampLegacyMaster('master-a');
+    expect(await orgs.retireLegacyToken('master-a', 4000)).toBe(false);
+    expect(orgs.authOrg(token)).toBe(legacy);
+    expect(retired(db)).toBeNull();
+  });
+});

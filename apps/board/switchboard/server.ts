@@ -114,10 +114,25 @@ export function makeFetchHandler(
   waiters: InboxWaiters = new InboxWaiters(),
   supportWaiters: InboxWaiters = new InboxWaiters()
 ) {
-  const adminScope = (req: Request): AdminScope | null => {
+  const legacyRetired = store.orgs
+    .retireLegacyToken(adminToken, now())
+    .then(revoked => {
+      if (revoked)
+        console.warn(
+          `switchboard: the master changed since the legacy org was stamped, so the legacy org's token was revoked; mint a new one with operator.ts token ${store.orgs.legacyId()}`
+        );
+    })
+    .catch((err: unknown) => {
+      console.error(
+        "switchboard: could not revoke the legacy org's token",
+        err
+      );
+    });
+  const adminScope = async (req: Request): Promise<AdminScope | null> => {
     const token = bearer(req);
     if (token === null) return null;
     if (sameSecret(token, adminToken)) return { kind: 'operator' };
+    await legacyRetired;
     const org = store.orgs.authOrg(token);
     return org === null ? null : { kind: 'org', org };
   };
@@ -158,7 +173,7 @@ export function makeFetchHandler(
     if (relayed) return relayed;
 
     if (pathname === '/boards') {
-      const scope = adminScope(req);
+      const scope = await adminScope(req);
       if (!scope) return unauthorized();
       if (req.method === 'GET')
         return json(200, {
@@ -185,7 +200,7 @@ export function makeFetchHandler(
     }
 
     if (pathname.startsWith('/boards/') && req.method === 'DELETE') {
-      const scope = adminScope(req);
+      const scope = await adminScope(req);
       if (!scope) return unauthorized();
       let username: string;
       try {
@@ -208,7 +223,7 @@ export function makeFetchHandler(
     if (pathname === '/invites') {
       if (req.method !== 'POST')
         return new Response('method not allowed', { status: 405 });
-      const scope = adminScope(req);
+      const scope = await adminScope(req);
       if (!scope) return unauthorized();
       const body = await readAdminBody(req);
       if (body instanceof Response) return body;
@@ -224,7 +239,9 @@ export function makeFetchHandler(
     }
 
     if (pathname === '/orgs' || pathname.startsWith('/orgs/')) {
-      if (adminScope(req)?.kind !== 'operator') return unauthorized();
+      if ((await adminScope(req))?.kind !== 'operator') return unauthorized();
+      // A token minted while the revoke is still running would be revoked too.
+      await legacyRetired;
       if (pathname === '/orgs') {
         if (req.method === 'GET') return json(200, { orgs: store.orgs.list() });
         if (req.method !== 'POST')

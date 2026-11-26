@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 
 import { ORG_TOKEN_RE, type OrgRow } from '../orgs.ts';
 import { makeFetchHandler, masterTokenProblem } from '../server.ts';
@@ -614,6 +614,121 @@ describe('/orgs', () => {
     }
     expect(store.orgs.authOrg(a.token)).toBe(a.id);
     expect(store.orgs.list().length).toBe(1);
+  });
+});
+
+describe('a rotated master and the legacy org token', () => {
+  const B = 'rotated-master-b-0123456789abcdef0123';
+  const C = 'rotated-master-c-0123456789abcdef0123';
+
+  async function mintLegacy(call: Call, master: string, legacy: string) {
+    const res = await call(`/orgs/${legacy}/token`, {
+      method: 'POST',
+      token: master,
+    });
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { token: string }).token;
+  }
+
+  async function legacyRelay() {
+    const first = setup();
+    const ada = await register(first.call, ADMIN, 'ada');
+    const legacy = first.store.orgs.legacyId()!;
+    const old = await mintLegacy(first.call, ADMIN, legacy);
+    expect((await first.call('/boards', { token: old })).status).toBe(200);
+    return { db: first.db, ada, legacy, old };
+  }
+
+  test("a rotated master revokes the legacy org's token on first start", async () => {
+    const { db, ada, legacy, old } = await legacyRelay();
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const rotated = setup(db, B);
+      expect((await rotated.call('/boards', { token: old })).status).toBe(401);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const line = String(warn.mock.calls[0]![0]);
+      expect(line).toContain(legacy);
+      for (const secret of [old, ADMIN, B]) expect(line).not.toContain(secret);
+      const fresh = await mintLegacy(rotated.call, B, legacy);
+      expect((await rotated.call('/boards', { token: fresh })).status).toBe(
+        200
+      );
+      expect((await rotated.call('/inbox', { token: ada })).status).toBe(200);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a legacy token minted on the first request after a rotated start survives the revoke', async () => {
+    const { db, legacy, old } = await legacyRelay();
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const rotated = setup(db, B);
+      const fresh = await mintLegacy(rotated.call, B, legacy);
+      expect((await rotated.call('/boards', { token: old })).status).toBe(401);
+      expect((await rotated.call('/boards', { token: fresh })).status).toBe(
+        200
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('the revoke runs once', async () => {
+    const { db, legacy } = await legacyRelay();
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const rotated = setup(db, B);
+      const fresh = await mintLegacy(rotated.call, B, legacy);
+      for (const master of [B, C]) {
+        const restarted = setup(db, master);
+        expect((await restarted.call('/boards', { token: fresh })).status).toBe(
+          200
+        );
+      }
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a restart with the same master keeps the legacy token', async () => {
+    const { db, old } = await legacyRelay();
+    const restarted = setup(db, ADMIN);
+    expect((await restarted.call('/boards', { token: old })).status).toBe(200);
+  });
+
+  test('a fresh relay with no stamp never revokes', async () => {
+    const { db, store } = setup();
+    store.registerBoard('ada');
+    const legacy = store.orgs.legacyId()!;
+    const token = store.orgs.mintToken(legacy, 1000)!;
+    expect(await store.orgs.masterGateClosed(ADMIN)).toBe(false);
+    const rotated = setup(db, B);
+    expect((await rotated.call('/boards', { token })).status).toBe(200);
+  });
+
+  test("a non-legacy org's token survives a later rotation", async () => {
+    const { db } = await legacyRelay();
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const lifted = setup(db, B);
+      const res = await lifted.call('/orgs', { method: 'POST', token: B });
+      expect(res.status).toBe(201);
+      const org = (await res.json()) as { id: string; token: string };
+      const bob = await register(lifted.call, org.token, 'bob');
+      const again = setup(db, C);
+      const listed = await again.call('/boards', { token: org.token });
+      expect(listed.status).toBe(200);
+      expect(
+        (
+          (await listed.json()) as { boards: Array<{ username: string }> }
+        ).boards.map(b => b.username)
+      ).toEqual(['bob']);
+      expect((await again.call('/inbox', { token: bob })).status).toBe(200);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 
