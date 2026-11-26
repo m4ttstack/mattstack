@@ -28,7 +28,7 @@
 - After touching `packages/rt-client/src/switchboard.ts`, run `bun run build` in `packages/rt-client`.
 - rt tests run from the worktree root (`bun test <file>`). Relay tests run from the board app: `(cd apps/board && bun test switchboard/__tests__/<file>)`.
 - Write fence: `apps/board/switchboard/`, `commands/team.ts`, `lib/team/`, `lib/setup/`, `packages/rt-client/src/switchboard.ts`, `lib/command-tree-def.ts` (the `team admin-secrets` node), `.claude/rules/team-switchboard.md`, `apps/board/docs/peer-boards.md`, `docs/`, and those files' tests (`commands/__tests__/team*.test.ts` included). Nothing else.
-  - `apps/board/docs/configuration.md` is in the fence only if this plan's approval widens it (the milestone summary asks). Otherwise its `SWITCHBOARD_ADMIN_TOKEN` row goes in the PR as a follow-up.
+  - `apps/board/docs/configuration.md` is in the fence too (the shepherd widened it on 2026-11-25).
 - Never run a built rt binary, start a daemon, or call the live relay.
 
 ## Review Focus
@@ -370,7 +370,7 @@
 - [ ] **Step 2: Update `peer-boards.md` and the rule file.**
   - Keep each fact once: the rule file points to the runbook instead of copying it.
   - `peer-boards.md`'s operator setup carries the 32-character rule too.
-  - If the fence covers `apps/board/docs/configuration.md`, reword its `SWITCHBOARD_ADMIN_TOKEN` row: it holds the org's switchboard token, never the relay operator's.
+  - Reword the `SWITCHBOARD_ADMIN_TOKEN` row in `apps/board/docs/configuration.md`: it holds the org's switchboard token, never the relay operator's.
 - [ ] **Step 3: Run `bun test lib/__tests__/no-switchboard-url-setting.test.ts` and `bun run typecheck`, and expect PASS and clean.**
 - [ ] **Step 4: Commit.** `docs: switchboard org tokens runbook, peer-boards and rule updates`
 
