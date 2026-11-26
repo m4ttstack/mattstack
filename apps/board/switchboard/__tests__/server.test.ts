@@ -9,8 +9,13 @@ import { TelemetryStore } from '../telemetry.ts';
 
 const ADMIN = 'admin-secret';
 
-function setup(db = new Database(':memory:'), master = ADMIN) {
+function setup(
+  db = new Database(':memory:'),
+  master = ADMIN,
+  prepare: (store: SwitchboardStore) => void = () => {}
+) {
   const store = new SwitchboardStore(db);
+  prepare(store);
   const handler = makeFetchHandler(
     store,
     master,
@@ -688,6 +693,58 @@ describe('a rotated master and the legacy org token', () => {
       }
       expect(warn).toHaveBeenCalledTimes(1);
     } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a revoke that fails answers org tokens and /orgs with 503 relay-not-ready until a start whose revoke succeeds', async () => {
+    const { db, ada, legacy, old } = await legacyRelay();
+    const other = mintOrg(new SwitchboardStore(db));
+    const error = spyOn(console, 'error').mockImplementation(() => {});
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const broken = setup(db, B, store => {
+        store.orgs.retireLegacyToken = () =>
+          Promise.reject(new Error('disk I/O error'));
+      });
+      const notReady = { status: 503, text: '{"error":"relay-not-ready"}' };
+      for (const token of [old, other.token]) {
+        expect(await answer(broken.call('/boards', { token }))).toEqual(
+          notReady
+        );
+        expect(
+          await answer(
+            broken.call('/invites', { token, body: { username: 'cy' } })
+          )
+        ).toEqual(notReady);
+        expect(
+          await answer(broken.call('/boards/ada', { method: 'DELETE', token }))
+        ).toEqual(notReady);
+      }
+      expect(await answer(broken.call('/orgs', { token: B }))).toEqual(
+        notReady
+      );
+      expect(
+        await answer(
+          broken.call(`/orgs/${legacy}/token`, { method: 'POST', token: B })
+        )
+      ).toEqual(notReady);
+      expect((await broken.call('/boards', { token: B })).status).toBe(200);
+      expect((await broken.call('/boards', { token: ada })).status).toBe(401);
+      expect((await broken.call('/inbox', { token: ada })).status).toBe(200);
+      expect(error).toHaveBeenCalledTimes(1);
+      const logged = error.mock.calls[0]!.map(String).join(' ');
+      for (const secret of [old, other.token, ADMIN, B])
+        expect(logged).not.toContain(secret);
+
+      const healed = setup(db, B);
+      expect((await healed.call('/boards', { token: old })).status).toBe(401);
+      expect(
+        (await healed.call('/boards', { token: other.token })).status
+      ).toBe(200);
+      await mintLegacy(healed.call, B, legacy);
+    } finally {
+      error.mockRestore();
       warn.mockRestore();
     }
   });

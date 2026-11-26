@@ -9,7 +9,7 @@ import { Database } from 'bun:sqlite';
 
 import { parseDraftEnvelope } from '../src/peer/envelope.ts';
 import { readCappedText } from './capped-body.ts';
-import { ORG_TOKEN_PREFIX } from './orgs.ts';
+import { ORG_TOKEN_PREFIX, ORG_TOKEN_RE } from './orgs.ts';
 import {
   ENVELOPE_TTL_MS,
   SwitchboardStore,
@@ -48,6 +48,7 @@ function sameSecret(got: string, want: string): boolean {
 }
 
 const unauthorized = () => new Response('unauthorized', { status: 401 });
+const notReady = () => json(503, { error: 'relay-not-ready' });
 
 export type AdminScope = { kind: 'operator' } | { kind: 'org'; org: string };
 
@@ -114,27 +115,34 @@ export function makeFetchHandler(
   waiters: InboxWaiters = new InboxWaiters(),
   supportWaiters: InboxWaiters = new InboxWaiters()
 ) {
-  const legacyRetired = store.orgs
+  /** False until the next start when the revoke failed: a legacy org token
+      it should have killed may still be in the table, so no org token is
+      trusted, and no legacy token is minted for the next revoke to kill. */
+  const legacyRetired: Promise<boolean> = store.orgs
     .retireLegacyToken(adminToken, now())
-    .then(revoked => {
-      if (revoked)
-        console.warn(
-          `switchboard: the master changed since the legacy org was stamped, so the legacy org's token was revoked; mint a new one with operator.ts token ${store.orgs.legacyId()}`
+    .then(
+      revoked => {
+        if (revoked)
+          console.warn(
+            `switchboard: the master changed since the legacy org was stamped, so the legacy org's token was revoked; mint a new one with operator.ts token ${store.orgs.legacyId()}`
+          );
+        return true;
+      },
+      (err: unknown) => {
+        console.error(
+          `switchboard: could not revoke the legacy org's token, so org tokens and /orgs answer 503 until the relay restarts: ${err instanceof Error ? err.message : 'unknown error'}`
         );
-    })
-    .catch((err: unknown) => {
-      console.error(
-        "switchboard: could not revoke the legacy org's token",
-        err
-      );
-    });
-  const adminScope = async (req: Request): Promise<AdminScope | null> => {
+        return false;
+      }
+    );
+  const adminScope = async (req: Request): Promise<AdminScope | Response> => {
     const token = bearer(req);
-    if (token === null) return null;
+    if (token === null) return unauthorized();
     if (sameSecret(token, adminToken)) return { kind: 'operator' };
-    await legacyRetired;
+    if (!ORG_TOKEN_RE.test(token)) return unauthorized();
+    if (!(await legacyRetired)) return notReady();
     const org = store.orgs.authOrg(token);
-    return org === null ? null : { kind: 'org', org };
+    return org === null ? unauthorized() : { kind: 'org', org };
   };
   /** The org an admin write lands in: undefined is the legacy org. An org
       token gets the same 403 for every id that is not its own, so it learns
@@ -174,7 +182,7 @@ export function makeFetchHandler(
 
     if (pathname === '/boards') {
       const scope = await adminScope(req);
-      if (!scope) return unauthorized();
+      if (scope instanceof Response) return scope;
       if (req.method === 'GET')
         return json(200, {
           boards:
@@ -201,7 +209,7 @@ export function makeFetchHandler(
 
     if (pathname.startsWith('/boards/') && req.method === 'DELETE') {
       const scope = await adminScope(req);
-      if (!scope) return unauthorized();
+      if (scope instanceof Response) return scope;
       let username: string;
       try {
         username = decodeURIComponent(pathname.slice('/boards/'.length));
@@ -224,7 +232,7 @@ export function makeFetchHandler(
       if (req.method !== 'POST')
         return new Response('method not allowed', { status: 405 });
       const scope = await adminScope(req);
-      if (!scope) return unauthorized();
+      if (scope instanceof Response) return scope;
       const body = await readAdminBody(req);
       if (body instanceof Response) return body;
       const target = targetOrg(scope, body.org);
@@ -239,9 +247,11 @@ export function makeFetchHandler(
     }
 
     if (pathname === '/orgs' || pathname.startsWith('/orgs/')) {
-      if ((await adminScope(req))?.kind !== 'operator') return unauthorized();
+      const scope = await adminScope(req);
+      if (scope instanceof Response) return scope;
+      if (scope.kind !== 'operator') return unauthorized();
       // A token minted while the revoke is still running would be revoked too.
-      await legacyRetired;
+      if (!(await legacyRetired)) return notReady();
       if (pathname === '/orgs') {
         if (req.method === 'GET') return json(200, { orgs: store.orgs.list() });
         if (req.method !== 'POST')
