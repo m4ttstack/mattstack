@@ -64,7 +64,7 @@ export function safeRealpath(p: string): string {
   }
 }
 
-const INTERPRETER_FLAGS = /^((?:\S*\/)?(?:node|bun|deno|python3?))(?: (?:(?:-r|-C|--require|--import|--loader|--experimental-loader|--conditions) \S+|-\S+))+(?= )/;
+const INTERPRETER_FLAGS = /^((?:\S*\/)?(?:node|bun|deno|python3?))(?: (?:(?:-r|-C|--require|--import|--loader|--experimental-loader|--conditions|--preload|--cwd|--config|--env-file) \S+|-\S+))+(?= )/;
 
 /** A command line with an interpreter's own flags (and the values of the ones that take a separate value) dropped, so the script it runs comes next. */
 export function stripInterpreterFlags(args: string): string {
