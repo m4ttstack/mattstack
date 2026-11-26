@@ -1061,6 +1061,13 @@ async function pruneLogs($) {
 // mods/human-todos/src/store.ts
 import { atom, read, update } from "claude-code";
 
+// mods/human-todos/src/wrapper.ts
+function wrapped(token, script, cwd) {
+  const wrapper = `trap : INT; printf "__todo_pid_${token} %s\\n" $$; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`;
+  return `zsh -c ${quote(wrapper)} todo ${quote(script)} ${quote(cwd)}`;
+}
+var killGroup = (pgid) => ["/bin/sh", "-c", `kill -KILL -- -${pgid}`];
+
 // mods/human-todos/src/herdr.ts
 var POLL_MS = 1000;
 var SCAN_LINES = 400;
@@ -1178,9 +1185,17 @@ function placeTab($, session, todo, cwd) {
   });
   return placed;
 }
+async function processInfo($, session, paneId) {
+  return (await herdrJson($, session, `pane process-info --pane ${quote(paneId)}`))?.process_info;
+}
 async function paneIsIdle($, session, paneId) {
-  const info = (await herdrJson($, session, `pane process-info --pane ${quote(paneId)}`))?.process_info;
+  const info = await processInfo($, session, paneId);
   return Boolean(info?.shell_pid && info.foreground_process_group_id === info.shell_pid);
+}
+async function foregroundGroup($, session, paneId) {
+  const info = await processInfo($, session, paneId);
+  const group = info?.foreground_process_group_id;
+  return info?.shell_pid && group && group !== info.shell_pid ? group : undefined;
 }
 async function readPane($, session, paneId, lines = SCAN_LINES) {
   try {
@@ -1194,15 +1209,18 @@ function scanPane(text, token, script) {
   const lines = text.split(`
 `);
   const marker = `__todo_exit_${token}`;
+  const pidMarker = `__todo_pid_${token} `;
   const echoed = lines.findLastIndex((line) => line.includes(marker) && line.includes("%s"));
   const body = lines.slice(echoed === -1 ? 0 : echoed + script.split(`
 `).length);
+  const pidLine = body.findIndex((line) => /^\d+$/.test(line.trim().slice(pidMarker.length)) && line.trimStart().startsWith(pidMarker));
+  const pgid = pidLine === -1 ? undefined : Number((body[pidLine] ?? "").trim().slice(pidMarker.length));
   const end = body.findIndex((line) => line.trimStart().startsWith(`${marker} `));
-  const output = (end === -1 ? body : body.slice(0, end)).filter((line) => line.trim() !== "");
+  const output = (end === -1 ? body : body.slice(0, end)).filter((line, i) => i !== pidLine && line.trim() !== "");
   if (end === -1)
-    return { isEchoed: echoed !== -1, output };
+    return { isEchoed: echoed !== -1, output, pgid };
   const code = Number.parseInt((body[end] ?? "").trimStart().slice(marker.length + 1), 10);
-  return { isEchoed: echoed !== -1, output, exitCode: Number.isNaN(code) ? -1 : code };
+  return { isEchoed: echoed !== -1, output, exitCode: Number.isNaN(code) ? -1 : code, pgid };
 }
 function end(token) {
   runs.get(token)?.poller?.cancel();
@@ -1229,6 +1247,11 @@ async function pollOnce($, token, run) {
   run.unreadPolls = 0;
   const scan = scanPane(text, token, todo.script ?? "");
   run.output = scan.output;
+  if (scan.pgid !== undefined && scan.pgid !== todo.pgid) {
+    await patchTodo($, todo.id, { pgid: scan.pgid });
+    if (run.isGone)
+      return;
+  }
   const outputTail = scan.output.join(`
 `);
   if (scan.exitCode !== undefined) {
@@ -1288,9 +1311,8 @@ async function startHerdr($, todo) {
         await herdr($, session, `tab close ${quote(placed.tabId)}`);
       return end(token);
     }
-    await patchTodo($, todo.id, { token, paneId: placed.paneId, tabId: placed.tabId, herdrSession: session, liveTail: [], isStopping: false });
-    const wrapper = `trap : INT; builtin cd -qP -- "$2" && zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`;
-    const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(`zsh -c ${quote(wrapper)} todo ${quote(todo.script ?? "")} ${quote(cwd)}`)}`);
+    await patchTodo($, todo.id, { token, paneId: placed.paneId, tabId: placed.tabId, herdrSession: session, liveTail: [], isStopping: false, pgid: undefined });
+    const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(wrapped(token, todo.script ?? "", cwd))}`);
     if (typed.exitCode !== 0)
       throw new Error("herdr would not run the script");
   } catch (err) {
@@ -1316,6 +1338,42 @@ async function stopHerdr($, todo) {
     return;
   await patchTodo($, todo.id, { isStopping: false });
   $.ui.toast(`Could not stop #${todo.id}`);
+}
+async function stillRunning($, todo, token) {
+  if (runs.get(token)?.isGone)
+    return;
+  const current = (await listTodos($)).find((t) => t.id === todo.id);
+  return current?.status === "running" && current.token === token ? current : undefined;
+}
+async function forceStopHerdr($, todo) {
+  const token = todo.token;
+  if (!token || !todo.paneId || !todo.herdrSession)
+    return;
+  const text = await readPane($, todo.herdrSession, todo.paneId);
+  const scan = text === null ? undefined : scanPane(text, token, todo.script ?? "");
+  const recorded = todo.pgid ?? scan?.pgid;
+  const group = await foregroundGroup($, todo.herdrSession, todo.paneId).catch(() => {
+    return;
+  });
+  if (!await stillRunning($, todo, token))
+    return;
+  if (group === undefined || recorded !== undefined && recorded !== group) {
+    $.ui.toast(`No process found for #${todo.id}, so Force stop sent ctrl+c again`);
+    return stopHerdr($, todo);
+  }
+  const killed = await $.process.run(killGroup(group)).catch(() => null);
+  if (killed?.exitCode !== 0) {
+    $.ui.toast(`Could not force stop #${todo.id}`);
+    return;
+  }
+  const current = await stillRunning($, todo, token);
+  if (!current)
+    return;
+  const run = runs.get(token);
+  if (run)
+    run.isGone = true;
+  await conclude($, token, current, { kind: "stopped", outputTail: (scan?.output ?? run?.output ?? []).join(`
+`) });
 }
 async function showLog($, todo) {
   return `${await logFolder($)}/${await $.session.id()}-${todo.id}-herdr.log`;
@@ -1954,7 +2012,7 @@ function stopRun($, todo) {
   return todo.runner === "herdr" ? stopHerdr($, todo) : stopLocal($, todo);
 }
 function forceStopRun($, todo) {
-  return todo.runner === "herdr" ? stopHerdr($, todo) : forceStopLocal($, todo);
+  return todo.runner === "herdr" ? forceStopHerdr($, todo) : forceStopLocal($, todo);
 }
 function showRun($, todo) {
   return todo.runner === "herdr" ? showHerdr($, todo) : showLocal($, todo);

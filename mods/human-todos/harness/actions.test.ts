@@ -394,14 +394,15 @@ test('Stop shows a toast, marks the item stopping, then asks the runner to stop'
   await pane.unmount()
 })
 
-test('Force stop on a herdr item sends ctrl+c to the tab again', async ($, on) => {
+test('Force stop on a herdr item whose tab has no foreground job sends ctrl+c to the tab again and says so', async ($, on) => {
   const { fake, run } = herdrWithTab()
+  fake.idle('pane1')
   const { events } = await seeded($, on, [herdrItem({ isStopping: true })], { run })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   await press(pane, '1', 'forceStop')
 
-  expect(events).toEqual(['toast: Force stopping #1'])
+  expect(events).toEqual(['toast: Force stopping #1', 'toast: No process found for #1, so Force stop sent ctrl+c again'])
   expect(fake.ran('herdr pane send-keys')).toEqual(["herdr pane send-keys 'pane1' ctrl+c"])
   await pane.unmount()
 })
