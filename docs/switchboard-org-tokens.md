@@ -110,7 +110,9 @@ after step 5.
    `pbpaste | rt team admin-secrets --token-stdin --replace-token`. The other
    admins pull, then restart their boards. If `operator.ts` prints
    `the relay answered 503: relay-not-ready`, the relay logged that the revoke
-   failed: restart the relay, then run this step.
+   failed: restart the relay, then run this step. The revoke also dropped the
+   legacy org's open invites, so admins send again any they still need
+   (`rt team invite --handle <username>`).
 
    Then the operator checks the legacy org's boards. Anyone who read the old
    master could register an extra board before step 5, and its board token
@@ -135,6 +137,23 @@ after step 5.
    curl -sS -X DELETE -H "Authorization: Bearer $SWITCHBOARD_OPERATOR_TOKEN" \
      "${SWITCHBOARD_URL:-https://switchboard.mattstack.dev}/boards/<username>"
    ```
+
+   The roster check cannot see one more case. Anyone with the old master could
+   also have reissued a roster member's board token through `POST /boards`,
+   which leaves the member's real board with a token the relay rejects. So
+   every legacy member confirms their board still connects. On their Mac,
+
+   ```sh
+   curl -s http://localhost:11006/data.json | grep -o '"peering":"[a-z]*"'
+   ```
+
+   prints `"peering":"ok"`. `"peering":"unauthorized"` means the relay has
+   rejected the board's token on three polls in a row (about three minutes).
+   A board that stopped working between step 1 and step 6 gets a fresh token,
+   which kills the token someone else holds. On a Mac that holds the org's
+   switchboard token, its owner runs `rt team peer --rotate`. Any other
+   member gets a re-invite: an admin runs `rt team invite --handle <username>`,
+   then the member runs `rt team join`.
 
 Rolling the relay back is safe for boards until a second org exists: board
 tokens work on the old image, but org tokens get a 401 there until it rolls

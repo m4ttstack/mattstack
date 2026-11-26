@@ -282,6 +282,8 @@ export function makeFetchHandler(
     if (pathname === '/invites/redeem') {
       if (req.method !== 'POST')
         return new Response('method not allowed', { status: 405 });
+      // A legacy invite the revoke is about to drop could be redeemed first.
+      if (!(await legacyRetired)) return notReady();
       let body: unknown;
       try {
         body = await req.json();

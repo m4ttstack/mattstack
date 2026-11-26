@@ -138,10 +138,26 @@ describe('retiring the legacy org token', () => {
     const old = orgs.mintToken(legacy, 2000)!;
     const { id: other } = orgs.create(3000);
     const otherToken = orgs.mintToken(other, 3000)!;
+    const invite = (code: string, org: string, redeemedAt: number | null) =>
+      db.run(
+        `INSERT INTO invites (code_hash, username, created_at, expires_at, redeemed_at, org_id) VALUES (?, ?, 1, ?, ?, ?)`,
+        [hashToken(code), code, 1 + 60_000, redeemedAt, org]
+      );
+    invite('legacy-open', legacy, null);
+    invite('legacy-used', legacy, 2);
+    invite('other-open', other, null);
+    const invites = () =>
+      db
+        .query<{ username: string }, []>(
+          `SELECT username FROM invites ORDER BY username`
+        )
+        .all()
+        .map(r => r.username);
 
     expect(await orgs.retireLegacyToken('master-b', 5000)).toBe(legacy);
     expect(orgs.authOrg(old)).toBeNull();
     expect(orgs.authOrg(otherToken)).toBe(other);
+    expect(invites()).toEqual(['legacy-used', 'other-open']);
     expect(retired(db)).toBe('5000');
     const rows = Object.fromEntries(orgs.list().map(o => [o.id, o]));
     expect(rows[legacy]).toMatchObject({ hasToken: false, tokenAt: null });

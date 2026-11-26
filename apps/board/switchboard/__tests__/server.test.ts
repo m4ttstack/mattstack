@@ -743,6 +743,13 @@ describe('a rotated master and the legacy org token', () => {
       expect((await broken.call('/boards', { token: B })).status).toBe(200);
       expect((await broken.call('/boards', { token: ada })).status).toBe(401);
       expect((await broken.call('/inbox', { token: ada })).status).toBe(200);
+      expect(
+        await answer(
+          broken.call('/invites/redeem', {
+            body: { code: 'any-code', username: 'eve' },
+          })
+        )
+      ).toEqual(notReady);
       expect(error).toHaveBeenCalledTimes(1);
       const logged = error.mock.calls[0]!.map(String).join(' ');
       for (const secret of [old, other.token, ADMIN, B])
@@ -808,6 +815,74 @@ describe('a rotated master and the legacy org token', () => {
       expect((await back.call('/boards', { token: fresh })).status).toBe(200);
       const again = setup(db, B);
       await mintLegacy(again.call, B, legacy);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  async function inviteRelay() {
+    const first = setup();
+    const ada = await register(first.call, ADMIN, 'ada');
+    const invite = async (username: string) => {
+      const res = await first.call('/invites', {
+        token: ADMIN,
+        body: { username },
+      });
+      expect(res.status).toBe(201);
+      return ((await res.json()) as { code: string }).code;
+    };
+    const open = await invite('eve');
+    const used = await invite('grace');
+    const redeemed = await first.call('/invites/redeem', {
+      body: { code: used, username: 'grace' },
+    });
+    expect(redeemed.status).toBe(200);
+    const grace = ((await redeemed.json()) as { token: string }).token;
+    return { db: first.db, ada, grace, open };
+  }
+  const unknownInvite = {
+    status: 404,
+    text: 'invite not recognized. it may have been replaced; ask for a fresh one',
+  };
+
+  test("the revoke drops the legacy org's open invites and keeps boards from redeemed ones", async () => {
+    const { db, ada, grace, open } = await inviteRelay();
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const rotated = setup(db, B);
+      expect((await rotated.call('/orgs', { token: B })).status).toBe(200);
+      expect(
+        await answer(
+          rotated.call('/invites/redeem', {
+            body: { code: open, username: 'eve' },
+          })
+        )
+      ).toEqual(unknownInvite);
+      expect(rotated.store.boardOrg('eve')).toBeNull();
+      expect(rotated.store.listBoards().map(b => b.username)).toEqual([
+        'ada',
+        'grace',
+      ]);
+      for (const token of [ada, grace])
+        expect((await rotated.call('/inbox', { token })).status).toBe(200);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a redeem sent as the first request after a rotated start waits for the revoke', async () => {
+    const { db, open } = await inviteRelay();
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const rotated = setup(db, B);
+      expect(
+        await answer(
+          rotated.call('/invites/redeem', {
+            body: { code: open, username: 'eve' },
+          })
+        )
+      ).toEqual(unknownInvite);
+      expect(rotated.store.boardOrg('eve')).toBeNull();
     } finally {
       warn.mockRestore();
     }

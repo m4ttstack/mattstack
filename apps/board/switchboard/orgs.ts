@@ -147,10 +147,10 @@ export class OrgStore {
     ]);
   }
 
-  /** Every legacy member held the stamped master, so a legacy org token
-      minted under it dies on the first start with another master. Once per
-      database: a later rotation never revokes the token minted after it.
-      Returns the id of the legacy org it cleared, or null. */
+  /** Every legacy member held the stamped master, so a legacy org token or
+      open legacy invite minted under it dies on the first start with another
+      master. Once per database: a later rotation never revokes the token
+      minted after it. Returns the id of the legacy org it cleared, or null. */
   async retireLegacyToken(master: string, now: number): Promise<string | null> {
     const stamp = this.stamp();
     if (stamp === null || this.meta(LEGACY_TOKEN_RETIRED) !== null) return null;
@@ -162,6 +162,11 @@ export class OrgStore {
           `UPDATE orgs SET token_hash = NULL, token_at = NULL WHERE legacy = 1 RETURNING id`
         )
         .get();
+      if (cleared)
+        this.db.run(
+          `DELETE FROM invites WHERE org_id = ? AND redeemed_at IS NULL`,
+          [cleared.id]
+        );
       this.db.run(`INSERT INTO relay_meta (key, value) VALUES (?, ?)`, [
         LEGACY_TOKEN_RETIRED,
         String(now),
