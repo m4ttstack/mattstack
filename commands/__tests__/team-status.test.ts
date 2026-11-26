@@ -12,9 +12,12 @@ import { ADMIN_SECRETS_ROW_ID, ADMIN_SECRETS_SYNC_STEPS } from "../../lib/setup/
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { setWarningLog, __test__ as warnTest } from "../../lib/ui/warn.ts";
+import { orgClones, orgToken } from "../../lib/team/__tests__/org-token-fixtures.ts";
 
 const HOME = "/home/x";
 const SLUG = "acme";
+const ORG_TOKEN = orgToken("a");
+const ORG_FILE_TOKEN = orgToken("b");
 const TEAM_DIR = join(HOME, ".mattstack", "orgs", SLUG);
 const GIT_CONFIG = `[remote "origin"]\n\turl = git@github.com:acme/widgets.git\n`;
 
@@ -35,11 +38,11 @@ function fakeRead(values: Record<string, unknown>): SettingsReader {
   return <T>(key: string): T | undefined => values[key] as T | undefined;
 }
 
-function clonedDeps(overrides: { exec?: TeamDeps["probes"]["exec"]; fetch?: TeamDeps["probes"]["fetch"]; read?: Record<string, unknown>; gitConfig?: string; files?: Record<string, string> } = {}): TeamDeps & { lines: string[] } {
+function clonedDeps(overrides: { exec?: TeamDeps["probes"]["exec"]; fetch?: TeamDeps["probes"]["fetch"]; read?: Record<string, unknown>; gitConfig?: string; files?: Record<string, string>; dirs?: Record<string, string[]> } = {}): TeamDeps & { lines: string[] } {
   return baseDeps({
     probes: fakeProbes({
       home: HOME,
-      dirs: { [TEAM_DIR]: [] },
+      dirs: { [TEAM_DIR]: [], ...overrides.dirs },
       files: { [join(TEAM_DIR, ".git", "config")]: overrides.gitConfig ?? GIT_CONFIG, ...overrides.files },
       exec: overrides.exec,
       fetch: overrides.fetch,
@@ -200,8 +203,9 @@ describe("teamStatus", () => {
         return { status: 200, body: JSON.stringify({ boards: [{ username: "Dev1" }] }), headers: {} };
       },
       read: { "mattstack.roster": [{ username: "dev1" }, { username: "dev2" }] },
+      ...orgClones(HOME, SLUG),
     });
-    deps.readLocalSecret = async (key) => (key === "switchboardAdminToken" ? "admin-tok" : null);
+    deps.readLocalSecret = async (key) => (key === "switchboardAdminToken" ? ORG_TOKEN : null);
 
     await teamStatus(["--team", SLUG, "--json"], {}, deps);
 
@@ -209,7 +213,7 @@ describe("teamStatus", () => {
       { username: "dev1", role: "member", peered: true },
       { username: "dev2", role: "member", peered: false },
     ]);
-    expect(fetched).toEqual([{ url: `${switchboardUrl()}/boards`, auth: "Bearer admin-tok" }]);
+    expect(fetched).toEqual([{ url: `${switchboardUrl()}/boards`, auth: `Bearer ${ORG_TOKEN}` }]);
   });
 
   test("an admin whose token is only in the org's admin-only file still sees who is peered", async () => {
@@ -223,7 +227,7 @@ describe("teamStatus", () => {
       read: { "mattstack.roster": [{ username: "dev1" }, { username: "dev2" }] },
     });
     deps.readLocalSecret = async () => null;
-    deps.readAdminSecret = async (org, key) => (org === SLUG && key === "switchboardAdminToken" ? "admin-file" : null);
+    deps.readAdminSecret = async (org, key) => (org === SLUG && key === "switchboardAdminToken" ? ORG_FILE_TOKEN : null);
 
     await teamStatus(["--team", SLUG, "--json"], {}, deps);
 
@@ -231,7 +235,7 @@ describe("teamStatus", () => {
       { username: "dev1", role: "member", peered: true },
       { username: "dev2", role: "member", peered: false },
     ]);
-    expect(fetched).toEqual([{ url: `${switchboardUrl()}/boards`, auth: "Bearer admin-file" }]);
+    expect(fetched).toEqual([{ url: `${switchboardUrl()}/boards`, auth: `Bearer ${ORG_FILE_TOKEN}` }]);
   });
 
   test("without the admin token, the board's own token asks /peers, and the human view counts connected boards", async () => {
@@ -744,8 +748,8 @@ describe("teamStatus", () => {
     });
 
     test("any other needs-you reads needs-you", async () => {
-      const mismatch = row({ ...syncRow("The org shares a different switchboard admin token from this Mac's"), action: { type: "steps", label: "Show steps…", steps: ["If this Mac's token is the newer one, run rt team admin-secrets --replace-token"] } });
-      expect(await stateFor(mismatch)).toEqual({ state: "needs-you", detail: "The org shares a different switchboard admin token from this Mac's" });
+      const mismatch = row({ ...syncRow("The org shares a different switchboard token from this Mac's"), action: { type: "steps", label: "Show steps…", steps: ["If this Mac's token is the newer one, run rt team admin-secrets --replace-token"] } });
+      expect(await stateFor(mismatch)).toEqual({ state: "needs-you", detail: "The org shares a different switchboard token from this Mac's" });
     });
 
     test("skipped reads not-this-mac", async () => {

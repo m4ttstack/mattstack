@@ -120,10 +120,8 @@ export class SupportStore {
   publish(from: string, draft: SupportDraft, now: number): SupportPublish {
     return this.db.transaction((): SupportPublish => {
       this.prune(now);
-      const known = this.db
-        .query<unknown, [string]>(`SELECT 1 FROM boards WHERE username = ?`)
-        .get(draft.to);
-      if (!known) return { ok: false, error: 'unknown-recipient' };
+      if (!this.sameOrg(from, draft.to))
+        return { ok: false, error: 'unknown-recipient' };
       const held = this.db
         .query<{ kind: string; body: string }, [string, string, string]>(
           `SELECT kind, body FROM support_messages WHERE recipient = ? AND from_user = ? AND id = ?`
@@ -157,6 +155,18 @@ export class SupportStore {
       );
       return { ok: true };
     })();
+  }
+
+  /** False when either board is unknown or has no org. */
+  sameOrg(a: string, b: string): boolean {
+    return (
+      this.db
+        .query<unknown, [string, string]>(
+          `SELECT 1 FROM boards x JOIN boards y ON x.org_id = y.org_id
+           WHERE x.username = ? AND y.username = ?`
+        )
+        .get(canonicalUsername(a), canonicalUsername(b)) !== null
+    );
   }
 
   list(
@@ -443,7 +453,12 @@ export function makeSupportHandler(
           status: 400,
         });
       }
-      return json(200, store.host(host));
+      return json(
+        200,
+        store.sameOrg(username, host)
+          ? store.host(host)
+          : { accepting: false, lastSeenAt: null }
+      );
     }
 
     return null;

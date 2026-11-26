@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 
-import { INVITE_TTL_MS, SwitchboardStore } from '../store.ts';
+import { hashToken, INVITE_TTL_MS, SwitchboardStore } from '../store.ts';
 
 function store() {
   return new SwitchboardStore(new Database(':memory:'));
@@ -124,5 +124,55 @@ describe('listBoards / prune', () => {
       error: 'unknown',
     });
     expect(s.redeemInvite(live.code, 'grace', now).ok).toBe(true);
+  });
+});
+
+describe('invites and orgs', () => {
+  test("redeem registers into the invite's org", () => {
+    const s = store();
+    const a = s.orgs.create(1).id;
+    const inv = s.createInvite('grace', 1000, a);
+    const r = s.redeemInvite(inv.code, 'grace', 2000);
+    if (!r.ok) throw new Error(`expected ok, got ${r.error}`);
+    expect(s.authBoard(r.token)).toBe('grace');
+    expect(s.boardOrg('grace')).toBe(a);
+  });
+
+  test('redeem returns taken, and consumes nothing, when another org registered the username since', () => {
+    const db = new Database(':memory:');
+    const s = new SwitchboardStore(db);
+    const a = s.orgs.create(1).id;
+    const b = s.orgs.create(2).id;
+    const inv = s.createInvite('grace', 1000, a);
+    db.run(
+      `INSERT INTO boards (username, token_hash, created_at, org_id) VALUES (?, ?, ?, ?)`,
+      ['grace', hashToken('b-grace'), 1500, b]
+    );
+    expect(s.redeemInvite(inv.code, 'grace', 2000)).toEqual({
+      ok: false,
+      error: 'taken',
+    });
+    expect(s.authBoard('b-grace')).toBe('grace');
+    expect(s.boardOrg('grace')).toBe(b);
+    db.run(`DELETE FROM boards WHERE username = 'grace'`);
+    const r = s.redeemInvite(inv.code, 'grace', 3000);
+    if (!r.ok)
+      throw new Error(`expected the invite to survive, got ${r.error}`);
+    expect(s.boardOrg('grace')).toBe(a);
+  });
+
+  test('redeem of a NULL-org invite is unknown', () => {
+    const db = new Database(':memory:');
+    const s = new SwitchboardStore(db);
+    const code = 'e'.repeat(32);
+    db.run(
+      `INSERT INTO invites (code_hash, username, created_at, expires_at) VALUES (?, ?, ?, ?)`,
+      [hashToken(code), 'grace', 1000, 1000 + INVITE_TTL_MS]
+    );
+    expect(s.redeemInvite(code, 'grace', 2000)).toEqual({
+      ok: false,
+      error: 'unknown',
+    });
+    expect(s.listBoards()).toEqual([]);
   });
 });

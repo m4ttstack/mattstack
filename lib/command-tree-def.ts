@@ -3645,12 +3645,13 @@ export const TREE: Record<string, CommandNode> = {
         },
       },
       "admin-secrets": {
-        description: "Share the switchboard admin token with your org's owners and admins, and keep it locked to them",
+        description: "Share your org's switchboard token with its owners and admins, and keep it locked to them",
         module: "./commands/team.ts",
         fn: "teamAdminSecrets",
         args: [
           { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
-          { name: "Replace token", flag: "--replace-token", type: "boolean", default: false, hint: "Put this Mac's token in even when the org already shares a different one" },
+          { name: "Token from stdin", flag: "--token-stdin", type: "boolean", default: false, hint: "Read your org's switchboard token from stdin and share it" },
+          { name: "Replace token", flag: "--replace-token", type: "boolean", default: false, hint: "Share the token even when the org already shares a different one" },
           SETUP_JSON_ARG,
         ],
       },

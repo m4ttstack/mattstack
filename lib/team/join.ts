@@ -23,11 +23,12 @@ import { join } from "path";
 import { type AgeKeySeam, createRealAgeKeySeam, ensureAgeKey } from "../home/age-key.ts";
 import { createRealSecretsExecSeam, personalStoreReady, readSecret, validateSlug, writeSecret } from "../secrets/store.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
-import { readAdminSecret, readTeamSecret } from "../secrets/team-store.ts";
+import { readAdminSecret } from "../secrets/team-store.ts";
 import { logFailureDetail, UserActionableError } from "../errors.ts";
 import { clearIntent, intentPath, readIntent, writeIntent, INVITE_POINTER_VERSION, type InvitePointer } from "../setup/intent.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
-import { forgeFromRemote, parseOriginUrl, readTeamSnapshot, readUserIntegrationOverrides, stripUserinfo, type SettingsReader } from "../setup/team-settings.ts";
+import { discoverOrgs, forgeFromRemote, parseOriginUrl, readTeamSnapshot, readUserIntegrationOverrides, stripUserinfo, type SettingsReader } from "../setup/team-settings.ts";
+import { pickAdminToken } from "./board-peers.ts";
 import { stripJsonc } from "../jsonc.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
@@ -308,10 +309,9 @@ export type SecretsSeamsFactory = (slug: string) => SecretsSeams;
 export interface JoinRedeemSeams {
   ageKeySeam: AgeKeySeam;
   read: SettingsReader;
-  readTeamSecret: typeof readTeamSecret;
-  /** The org's admin-only secrets: a re-join on an owner's or admin's Mac reads the switchboard admin token here first. */
+  /** The org's admin-only secrets: a re-join on an owner's or admin's Mac reads the org's switchboard token here first. */
   readAdminSecret: typeof readAdminSecret;
-  /** This Mac's own LOCAL rt secret, the admin token's second source. */
+  /** This Mac's own LOCAL rt secret, the org's switchboard token's second source. */
   readLocalSecret: (key: string) => Promise<string | null>;
   forgeLogin: typeof forgeLogin;
   /** The forge token rt holds for `remote`'s host, or null: a fresh machine's git and gh/glab have nothing of their own to offer a private team repo. */
@@ -349,7 +349,6 @@ export function realJoinRedeemSeams(): JoinRedeemSeams {
   return {
     ageKeySeam,
     read: defaultRead(),
-    readTeamSecret,
     readAdminSecret,
     readLocalSecret: (key) => readSecret("rt", key, { ageKeySeam, execSeam: createRealSecretsExecSeam() }),
     forgeLogin,
@@ -389,17 +388,13 @@ async function storeBoardToken(seams: JoinRedeemSeams, pointer: InvitePointer, t
   return { peering: "applied" };
 }
 
-/** The admin token in the order every reader keeps: the org's admin-only file, this Mac's own secret, then the member-wide team secrets an older org may have kept it in. */
-async function rejoinAdminToken(seams: JoinRedeemSeams, secrets: SecretsSeamsFactory, slug: string): Promise<string | null> {
-  const store = secrets(slug);
-  return (
-    (await seams.readAdminSecret(slug, "rt", "switchboardAdminToken", store).catch((err: unknown) => {
-      warnLine("team", `admin-only secrets for ${slug} could not be read: ${err instanceof Error ? err.message : String(err)}`);
-      return null;
-    })) ||
-    (await seams.readLocalSecret("switchboardAdminToken").catch(() => null)) ||
-    (await seams.readTeamSecret(slug, "rt", "switchboardAdminToken", store))
-  );
+/** The org's admin-only file, then this Mac's own secret. Never the member-wide team secrets an older join kept it in: every member of the org can read those. */
+async function rejoinAdminToken(p: Probes, seams: JoinRedeemSeams, secrets: SecretsSeamsFactory, slug: string): Promise<string | null> {
+  const file = await seams.readAdminSecret(slug, "rt", "switchboardAdminToken", secrets(slug)).catch((err: unknown) => {
+    warnLine("team", `admin-only secrets for ${slug} could not be read: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  });
+  return pickAdminToken(file, [() => seams.readLocalSecret("switchboardAdminToken")], discoverOrgs(p).length === 1);
 }
 
 /** The board token and the admin token are only ever sent to `switchboard`, never to anything the invite names. */
@@ -431,7 +426,7 @@ async function peerBoard(
   // the token itself can register a board here; a first join cannot.
   let token: unknown;
   try {
-    const adminToken = await rejoinAdminToken(seams, secrets, pointer.team);
+    const adminToken = await rejoinAdminToken(p, seams, secrets, pointer.team);
     if (!adminToken) return { peering: "idle" };
     // The switchboard's admin register route: an upsert that mints (or
     // rotates) this member's board token.
@@ -440,6 +435,13 @@ async function peerBoard(
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
       body: JSON.stringify({ username: handle }),
     });
+    if (res.status === 409) {
+      seams.warn(`board peering: another org on the switchboard already has a board for ${handle}`, {
+        title: `Another org on the switchboard already has a board for ${handle}`,
+        hint: "usernames are unique across the switchboard, so ask the relay operator",
+      });
+      return reinvite;
+    }
     if (res.status < 200 || res.status >= 300) return reinvite;
     try {
       token = (JSON.parse(res.body) as { token?: unknown })?.token;

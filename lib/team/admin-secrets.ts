@@ -2,12 +2,14 @@
  * The org's admin-only secrets: sops files under `mattstack/org/admin-secrets/`,
  * locked by `.sops.yaml`'s admins rule to the age keys the roster records for
  * the org's owners and admins. The org store decides who that is; the rule
- * only follows it. Today the one secret kept here is the switchboard admin
+ * only follows it. Today the one secret kept here is the org's switchboard
  * token, which every reader looks for here before this Mac's own rt secret.
+ * The relay operator's own token is never written here.
  */
 
 import { rolesFrom, rosterFrom, sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
 import { isOrgAdmin, roleOf } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { isOrgToken } from "../../packages/rt-client/src/switchboard.ts";
 import type { StoreFile } from "../../packages/rt-client/src/settings/stores.ts";
 import { UserActionableError } from "../errors.ts";
 import { readAgePublicKey } from "../home/age-key.ts";
@@ -47,7 +49,8 @@ export function adminKeysIn(orgStore: Record<string, unknown>): AdminKeys {
   return { keys: [...keys].sort(), holders: holders.sort(), withoutKey: withoutKey.sort() };
 }
 
-export type TokenOutcome = "seeded" | "replaced" | "kept" | "differs" | "none";
+/** `operator`: the token offered is the relay operator's, so it was not written. */
+export type TokenOutcome = "seeded" | "replaced" | "kept" | "differs" | "operator" | "none";
 
 export interface AdminSecretsResult {
   /** `unused`: the org keeps no admin-only secrets and this run had no token to add, so nothing was touched. */
@@ -62,7 +65,7 @@ export interface AdminSecretsResult {
 }
 
 export interface AdminSecretsOpts {
-  /** This Mac's own switchboard admin token, put in when the file holds none. */
+  /** The org's switchboard token to share, put in when the file holds none. */
   token?: string | null;
   /** Put `token` in even when the file already holds a different one. */
   replaceToken?: boolean;
@@ -92,6 +95,7 @@ function notThisMac(slug: string): UserActionableError {
 
 async function placeToken(p: Pick<Probes, "readFile" | "home">, slug: string, secrets: SecretsSeams, token: string | null, replace: boolean): Promise<TokenOutcome> {
   if (token === null) return "none";
+  if (!isOrgToken(token)) return "operator";
   const stored = await readAdminSecret(slug, ADMIN_TOKEN_DOMAIN, SWITCHBOARD_ADMIN_TOKEN, secrets);
   if (stored === token) return "kept";
   if (stored !== null && !replace) return "differs";
@@ -102,10 +106,10 @@ async function placeToken(p: Pick<Probes, "readFile" | "home">, slug: string, se
 /**
  * Brings the admins rule to the owners' and admins' roster keys, re-encrypts
  * the admin-only files when that set changed (putting the rule back if sops
- * fails), then puts `opts.token` in. Writes nothing at all when nothing changed.
- * A token is put in only from a Mac whose age key is a holder's roster key,
- * checked before anything is written; with no token, any owner's or admin's
- * Mac may bring the rule to the roles.
+ * fails), then puts `opts.token` in when it is an org token. Writes nothing at
+ * all when nothing changed. A token is put in only from a Mac whose age key is
+ * a holder's roster key, checked before anything is written; with no token to
+ * put in, any owner's or admin's Mac may bring the rule to the roles.
  */
 export async function syncAdminSecrets(
   p: Pick<Probes, "readFile" | "home">,
@@ -118,12 +122,13 @@ export async function syncAdminSecrets(
   const want = adminKeysIn(orgStore);
   const current = readTeamRecipients(slug, secrets, "admins");
   const token = opts.token ? opts.token : null;
+  const shared = isOrgToken(token);
   const base = { holders: want.holders, withoutKey: want.withoutKey };
-  if (current.length === 0 && listRuleFiles(slug, secrets, "admins").length === 0 && token === null) {
-    return { ...base, state: "unused", added: [], removed: [], reencrypted: [], token: "none" };
+  if (current.length === 0 && listRuleFiles(slug, secrets, "admins").length === 0 && !shared) {
+    return { ...base, state: "unused", added: [], removed: [], reencrypted: [], token: token === null ? "none" : "operator" };
   }
   if (want.keys.length === 0) throw noAdminKeys(slug);
-  if (token !== null) {
+  if (shared) {
     const own = await readAgePublicKey(secrets.ageKeySeam);
     if (own === null || !want.keys.includes(own)) throw notThisMac(slug);
   }

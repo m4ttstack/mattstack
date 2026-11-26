@@ -192,9 +192,9 @@ export interface MembersSeams {
   forgeToken: typeof storedForgeToken;
   /** `message` is the log text; `shown` is what a person reads, and a warning without it shows its message. */
   warn: (message: string, shown?: ShownWarning) => void;
-  /** An rt-scope secret (the switchboard admin token), seamed like invite.ts's. */
+  /** An rt-scope secret (the org's switchboard token), seamed like invite.ts's. */
   readLocalSecret: ReadLocalSecret;
-  /** The org's admin-only secrets, where the switchboard admin token is looked for first. */
+  /** The org's admin-only secrets, where the org's switchboard token is looked for first. */
   readAdminSecret: ReadAdminSecret;
 }
 
@@ -516,7 +516,7 @@ export async function membersRemove(
     board.kind === "revoked" ? "revoked" : board.kind === "not-peered" ? "not-peered" : board.kind === "no-admin-token" ? "left-peered" : "failed";
   const boardSteps =
     board.kind === "no-admin-token"
-      ? [`${handle}'s board is still connected. Only a Mac holding the switchboard admin token can disconnect it, by running rt team members remove ${handle} there.`]
+      ? [`${handle}'s board is still connected. Only a Mac holding the org's switchboard token can disconnect it, by running rt team members remove ${handle} there.`]
       : board.kind === "failed"
         ? [`rt could not disconnect ${handle}'s board: ${board.detail}. Run this command again to retry.`]
         : [];

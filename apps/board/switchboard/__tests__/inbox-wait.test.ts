@@ -110,6 +110,21 @@ describe('GET /inbox/wait', () => {
     expect(((await (await l).json()) as { woke: boolean }).woke).toBe(true);
   });
 
+  test("a broadcast wakes only the sender's org", async () => {
+    const { call, ada, grace, waiters, store } = setup();
+    const other = store.orgs.create(1).id;
+    const linus = store.registerBoard('linus', other).token;
+    const a = call('/inbox/wait?since=0&timeout=25', { token: ada });
+    const l = call('/inbox/wait?since=0&timeout=0.2', { token: linus });
+    await until(
+      () => waiters.count('ada') === 1 && waiters.count('linus') === 1
+    );
+    await call('/envelopes', { token: grace, body: draft('e1', '*') });
+    expect(((await (await a).json()) as { woke: boolean }).woke).toBe(true);
+    expect(waiters.count('linus')).toBe(1);
+    expect(await (await l).json()).toEqual({ woke: false, cursor: 0 });
+  });
+
   test('times out with the cursor unchanged', async () => {
     const { call, ada } = setup();
     const res = await call('/inbox/wait?since=500&timeout=0.05', {

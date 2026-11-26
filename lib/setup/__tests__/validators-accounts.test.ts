@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { accountRows, SOLO_GITHUB_NOTE, SOLO_GITLAB_NOTE, teamDeclaresIntegration, type SecretPresence } from "../validators/accounts.ts";
+import { accountRows, SELF_INVITE_STEPS, SOLO_GITHUB_NOTE, SOLO_GITLAB_NOTE, teamDeclaresIntegration, type SecretPresence } from "../validators/accounts.ts";
 import { fakeProbes, ok } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
@@ -12,6 +12,7 @@ import { finalizePlan } from "../contract.ts";
 import { slackWaitRowDetail } from "../team-slack-secret.ts";
 import { SWITCHBOARD_URL } from "../../../packages/rt-client/src/switchboard.ts";
 import { teamLocalPath } from "../../team/team-local.ts";
+import { orgToken } from "../../team/__tests__/org-token-fixtures.ts";
 
 function baseTeam(overrides: Partial<TeamSnapshot> = {}): TeamSnapshot {
   return { slug: "acme", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null, ...overrides };
@@ -537,7 +538,9 @@ describe("accountRows: account.board-peering", () => {
     accountRows(p, team, [], secrets, null);
   const peeringRow = async (p: ReturnType<typeof fakeProbes>, secrets?: SecretPresence) => pickRow(rowsFor(p, secrets), "account.board-peering");
   const withToken = fakeSecrets({ "rt.switchboardToken": "tok-1" });
-  const withAdmin = fakeSecrets({ "rt.switchboardAdminToken": "admin-1" });
+  const ORG_TOKEN = orgToken("a");
+  const MASTER = "the-relay-operators-own-token";
+  const withAdmin = fakeSecrets({ "rt.switchboardAdminToken": ORG_TOKEN });
 
   test("a team with no token anywhere -> needs-you with the re-invite remedy, never required, no relay probe", async () => {
     const p = machine({ acme: { joinedByRt: true } });
@@ -630,7 +633,7 @@ describe("accountRows: account.board-peering", () => {
     expect(r.status).toBe("needs-you");
     expect(r.required).toBe(false);
     expect(r.finishGated).toBeUndefined();
-    expect(r.detail).toContain("This Mac holds the switchboard admin token");
+    expect(r.detail).toContain("This Mac holds the org's switchboard token");
     expect(r.detail).not.toContain("invite you again");
     expect(r.optionalNote).not.toContain("owner");
     expect(r.optionalNote?.toLowerCase().startsWith("works without")).toBe(false);
@@ -644,7 +647,7 @@ describe("accountRows: account.board-peering", () => {
   test("a joined Mac that holds the admin token is pointed at rt team peer, not at asking for an invite", async () => {
     const r = await peeringRow(machine({ acme: { joinedByRt: true } }), withAdmin);
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("This Mac holds the switchboard admin token");
+    expect(r.detail).toContain("This Mac holds the org's switchboard token");
     expect(r.detail).not.toContain("invite you again");
   });
 
@@ -654,9 +657,9 @@ describe("accountRows: account.board-peering", () => {
   });
 
   test("the admin token in the board's own .env counts for the creator's Mac", async () => {
-    const r = await peeringRow(machine({ acme: { joinedByRt: false } }, { extra: { [`${HOME}/.mattstack/board/.env`]: "SWITCHBOARD_ADMIN_TOKEN=admin-1\n" } }));
+    const r = await peeringRow(machine({ acme: { joinedByRt: false } }, { extra: { [`${HOME}/.mattstack/board/.env`]: `SWITCHBOARD_ADMIN_TOKEN=${ORG_TOKEN}\n` } }));
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("This Mac holds the switchboard admin token");
+    expect(r.detail).toContain("This Mac holds the org's switchboard token");
   });
 
   test("a creator without the admin token who also joined another team keeps the re-invite remedy", async () => {
@@ -666,24 +669,24 @@ describe("accountRows: account.board-peering", () => {
   });
 
   test("the admin token in the environment counts for the creator's Mac", async () => {
-    const r = await peeringRow(machine({ acme: { joinedByRt: false } }, { env: { SWITCHBOARD_ADMIN_TOKEN: "admin-1" } }));
+    const r = await peeringRow(machine({ acme: { joinedByRt: false } }, { env: { SWITCHBOARD_ADMIN_TOKEN: ORG_TOKEN } }));
     expect(r.status).toBe("needs-you");
   });
 
   const withAdminFile = (org: string): SecretPresence => ({
     has: async () => null,
-    hasAdmin: async (asked, key) => (asked === org && key === "switchboardAdminToken" ? "admin-file" : null),
+    hasAdmin: async (asked, key) => (asked === org && key === "switchboardAdminToken" ? ORG_TOKEN : null),
   });
 
   test("the admin token in the org's admin-only file counts for the creator's Mac", async () => {
     const r = await peeringRow(machine({ acme: { joinedByRt: false } }), withAdminFile("acme"));
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("This Mac holds the switchboard admin token");
+    expect(r.detail).toContain("This Mac holds the org's switchboard token");
   });
 
   test("a joined owner or admin who can open the admin-only file is pointed at rt team peer", async () => {
     const r = await peeringRow(machine({ acme: { joinedByRt: true } }), withAdminFile("acme"));
-    expect(r.detail).toContain("This Mac holds the switchboard admin token");
+    expect(r.detail).toContain("This Mac holds the org's switchboard token");
     expect(r.detail).not.toContain("invite you again");
   });
 
@@ -694,6 +697,33 @@ describe("accountRows: account.board-peering", () => {
 
   test("a Mac that cannot open the admin-only file and holds no token keeps the re-invite remedy", async () => {
     const r = await peeringRow(machine({ acme: { joinedByRt: true } }), withAdminFile("other"));
+    expect(r.detail).toContain("invite you again");
+  });
+
+  test("a Mac holding only an operator token is not told to run rt team peer", async () => {
+    const masters = fakeSecrets({ "rt.switchboardAdminToken": MASTER });
+    const env = { SWITCHBOARD_ADMIN_TOKEN: MASTER };
+    const boardEnv = { [`${HOME}/.mattstack/board/.env`]: `SWITCHBOARD_ADMIN_TOKEN=${MASTER}\n` };
+
+    const creator = await rowsFor(machine({ acme: { joinedByRt: false } }, { env, extra: boardEnv }), masters);
+    expect(creator.find((r) => r.id === "account.board-peering")).toBeUndefined();
+
+    const joined = await peeringRow(machine({ acme: { joinedByRt: true } }, { env, extra: boardEnv }), masters);
+    expect(joined.detail).toContain("invite you again");
+    expect(JSON.stringify(joined.action)).not.toContain("rt team peer");
+  });
+
+  test("a Mac holding an org token still is", async () => {
+    for (const secrets of [withAdmin, withAdminFile("acme")]) {
+      const r = await peeringRow(machine({ acme: { joinedByRt: false } }), secrets);
+      expect(r.status).toBe("needs-you");
+      expect(r.detail).toContain("This Mac holds the org's switchboard token, so you can connect your own board with rt team peer.");
+      expect(r.action).toEqual(SELF_INVITE_STEPS);
+    }
+  });
+
+  test("on a Mac with two org clones a token kept on the Mac does not count", async () => {
+    const r = await peeringRow(machine({ acme: { joinedByRt: true }, beta: { joinedByRt: true } }), withAdmin);
     expect(r.detail).toContain("invite you again");
   });
 

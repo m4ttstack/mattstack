@@ -5,10 +5,18 @@ import {
   type DraftEnvelope,
   type Envelope,
 } from '../src/peer/envelope.ts';
+import { OrgStore } from './orgs.ts';
 import { SupportStore } from './support.ts';
 
 export const ENVELOPE_TTL_MS = 7 * 24 * 60 * 60_000;
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60_000;
+
+export class UsernameTakenError extends Error {
+  constructor() {
+    super('username-taken');
+    this.name = 'UsernameTakenError';
+  }
+}
 
 export function hashToken(token: string): string {
   return new Bun.CryptoHasher('sha256').update(token).digest('hex');
@@ -25,11 +33,57 @@ function mintCode(): string {
   return crypto.randomUUID().replaceAll('-', '');
 }
 
+function addOrgColumn(db: Database, table: 'boards' | 'invites'): void {
+  const columns = db
+    .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+    .all();
+  if (!columns.some(c => c.name === 'org_id'))
+    db.run(`ALTER TABLE ${table} ADD COLUMN org_id TEXT`);
+}
+
+/** Moves every board and invite with no org into the legacy org. Rows with
+    no org beside a non-legacy org mean the relay was rolled back past orgs
+    and forward again, so nobody can tell whose they are: they stay NULL,
+    and a NULL row never authenticates or redeems. */
+export function sweepNullOrgs(
+  db: Database,
+  now: number
+): { moved: number; skipped: number } {
+  const orgs = new OrgStore(db);
+  return db.transaction(() => {
+    const orphans = (table: 'boards' | 'invites') =>
+      db
+        .query<{ username: string }, []>(
+          `SELECT username FROM ${table} WHERE org_id IS NULL ORDER BY username`
+        )
+        .all()
+        .map(r => r.username);
+    const boards = orphans('boards');
+    const invites = orphans('invites');
+    const count = boards.length + invites.length;
+    if (count === 0) return { moved: 0, skipped: 0 };
+    if (orgs.hasNonLegacy()) {
+      console.warn(
+        `switchboard: left ${count} rows with no org alone, since a non-legacy org exists; they fail closed. boards: ${boards.join(', ') || 'none'}; invites: ${invites.join(', ') || 'none'}`
+      );
+      return { moved: 0, skipped: count };
+    }
+    const legacy = orgs.ensureLegacy(now)!;
+    const moved =
+      db.run(`UPDATE boards SET org_id = ? WHERE org_id IS NULL`, [legacy])
+        .changes +
+      db.run(`UPDATE invites SET org_id = ? WHERE org_id IS NULL`, [legacy])
+        .changes;
+    return { moved, skipped: 0 };
+  })();
+}
+
 /** The relay's entire persistence. It stores envelopes it never inspects:
     payload stays an opaque JSON string end to end. Per-recipient rows make
     broadcast, ack, and TTL prune single statements. */
 export class SwitchboardStore {
   readonly support: SupportStore;
+  readonly orgs: OrgStore;
 
   constructor(private db: Database) {
     this.support = new SupportStore(db);
@@ -57,23 +111,76 @@ export class SwitchboardStore {
       expires_at INTEGER NOT NULL,
       redeemed_at INTEGER
     )`);
+    addOrgColumn(db, 'boards');
+    addOrgColumn(db, 'invites');
+    this.orgs = new OrgStore(db);
+    sweepNullOrgs(db, Date.now());
   }
 
-  registerBoard(username: string): { username: string; token: string } {
+  /** A register for a username already in the same org reissues its token:
+      a peer rotate, a re-join and a re-invite rely on it. */
+  registerBoard(
+    username: string,
+    orgId?: string
+  ): { username: string; token: string } {
     const canonical = canonicalUsername(username);
     const token = mintToken();
-    this.db.run(
-      `INSERT INTO boards (username, token_hash, created_at) VALUES (?, ?, ?)
-       ON CONFLICT(username) DO UPDATE SET token_hash = excluded.token_hash`,
-      [canonical, hashToken(token), Date.now()]
-    );
+    const now = Date.now();
+    this.db.transaction(() => {
+      const org = this.writeOrg(canonical, orgId, now);
+      this.db.run(
+        `INSERT INTO boards (username, token_hash, created_at, org_id) VALUES (?, ?, ?, ?)
+         ON CONFLICT(username) DO UPDATE SET token_hash = excluded.token_hash`,
+        [canonical, hashToken(token), now, org]
+      );
+    })();
     return { username: canonical, token };
+  }
+
+  /** Call it inside the write's transaction, so no other org can take the
+      username between the check and the write. */
+  private writeOrg(
+    canonical: string,
+    orgId: string | undefined,
+    now: number
+  ): string {
+    const org = orgId ?? this.orgs.ensureLegacy(now);
+    if (!org) throw new Error('name-an-org');
+    if (this.heldByAnotherOrg(canonical, org, now))
+      throw new UsernameTakenError();
+    return org;
+  }
+
+  /** `IS NOT` rather than `!=`, so a row with no org holds its username
+      against every org. */
+  private heldByAnotherOrg(canonical: string, org: string, now: number) {
+    return (
+      this.db
+        .query<unknown, [string, string, string, string, number]>(
+          `SELECT 1 FROM boards WHERE username = ? AND org_id IS NOT ?
+           UNION ALL
+           SELECT 1 FROM invites WHERE username = ? AND org_id IS NOT ?
+             AND redeemed_at IS NULL AND expires_at > ?
+           LIMIT 1`
+        )
+        .get(canonical, org, canonical, org, now) !== null
+    );
+  }
+
+  boardOrg(username: string): string | null {
+    return (
+      this.db
+        .query<{ org_id: string | null }, [string]>(
+          `SELECT org_id FROM boards WHERE username = ?`
+        )
+        .get(canonicalUsername(username))?.org_id ?? null
+    );
   }
 
   authBoard(token: string): string | null {
     const row = this.db
       .query<{ username: string }, [string]>(
-        `SELECT username FROM boards WHERE token_hash = ?`
+        `SELECT username FROM boards WHERE token_hash = ? AND org_id IS NOT NULL`
       )
       .get(hashToken(token));
     return row?.username ?? null;
@@ -83,16 +190,19 @@ export class SwitchboardStore {
       again replaces the old code atomically, which is also the rotation story. */
   createInvite(
     username: string,
-    now: number = Date.now()
+    now: number = Date.now(),
+    orgId?: string
   ): { code: string; username: string; expiresAt: number } {
     const canonical = canonicalUsername(username);
     const code = mintCode();
     const expiresAt = now + INVITE_TTL_MS;
     this.db.transaction(() => {
+      // Before the delete, which would otherwise drop another org's open invite.
+      const org = this.writeOrg(canonical, orgId, now);
       this.db.run(`DELETE FROM invites WHERE username = ?`, [canonical]);
       this.db.run(
-        `INSERT INTO invites (code_hash, username, created_at, expires_at) VALUES (?, ?, ?, ?)`,
-        [hashToken(code), canonical, now, expiresAt]
+        `INSERT INTO invites (code_hash, username, created_at, expires_at, org_id) VALUES (?, ?, ?, ?, ?)`,
+        [hashToken(code), canonical, now, expiresAt, org]
       );
     })();
     return { code, username: canonical, expiresAt };
@@ -109,41 +219,57 @@ export class SwitchboardStore {
     now: number = Date.now()
   ):
     | { ok: true; username: string; token: string }
-    | { ok: false; error: 'unknown' | 'expired' | 'spent' | 'mismatch' } {
+    | {
+        ok: false;
+        error: 'unknown' | 'expired' | 'spent' | 'mismatch' | 'taken';
+      } {
     const row = this.db
       .query<
-        { username: string; expires_at: number; redeemed_at: number | null },
+        {
+          username: string;
+          expires_at: number;
+          redeemed_at: number | null;
+          org_id: string | null;
+        },
         [string]
       >(
-        `SELECT username, expires_at, redeemed_at FROM invites WHERE code_hash = ?`
+        `SELECT username, expires_at, redeemed_at, org_id FROM invites WHERE code_hash = ?`
       )
       .get(hashToken(code));
-    if (!row) return { ok: false, error: 'unknown' };
+    if (!row || row.org_id === null) return { ok: false, error: 'unknown' };
+    const org = row.org_id;
     if (row.redeemed_at !== null) return { ok: false, error: 'spent' };
     if (row.expires_at <= now) return { ok: false, error: 'expired' };
     if (row.username !== canonicalUsername(username))
       return { ok: false, error: 'mismatch' };
     const board = this.db.transaction(() => {
+      if (this.heldByAnotherOrg(row.username, org, now)) return 'taken';
       const consumed = this.db.run(
         `UPDATE invites SET redeemed_at = ? WHERE code_hash = ? AND redeemed_at IS NULL AND expires_at > ?`,
         [now, hashToken(code), now]
       ).changes;
-      if (consumed === 0) return null;
-      return this.registerBoard(row.username);
+      if (consumed === 0) return 'spent';
+      return this.registerBoard(row.username, org);
     })();
-    if (!board) return { ok: false, error: 'spent' };
+    if (typeof board === 'string') return { ok: false, error: board };
     return { ok: true, ...board };
   }
 
   /** Remove a board outright: its registration (killing the token), its
       pending envelopes, any outstanding invite for the handle, and its
-      support messages and host flag. Returns false when no such board exists. */
-  deleteBoard(username: string): boolean {
+      support messages and host flag. Returns false when no such board
+      exists, or when an org is named and the board is in another one. */
+  deleteBoard(username: string, orgId?: string): boolean {
     const canonical = canonicalUsername(username);
     return this.db.transaction(() => {
-      const gone = this.db.run(`DELETE FROM boards WHERE username = ?`, [
-        canonical,
-      ]).changes;
+      const gone =
+        orgId === undefined
+          ? this.db.run(`DELETE FROM boards WHERE username = ?`, [canonical])
+              .changes
+          : this.db.run(
+              `DELETE FROM boards WHERE username = ? AND org_id = ?`,
+              [canonical, orgId]
+            ).changes;
       if (gone === 0) return false;
       this.db.run(`DELETE FROM envelopes WHERE recipient = ?`, [canonical]);
       this.db.run(`DELETE FROM invites WHERE username = ?`, [canonical]);
@@ -160,22 +286,66 @@ export class SwitchboardStore {
       this.db.run(`INSERT OR IGNORE INTO asks_off (username) VALUES (?)`, [u]);
   }
 
-  listAskableUsernames(): string[] {
-    return this.db
-      .query<{ username: string }, []>(
-        `SELECT username FROM boards WHERE username NOT IN (SELECT username FROM asks_off) ORDER BY username`
-      )
-      .all()
-      .map(r => r.username);
+  /** With no org, every org's boards. */
+  listAskableUsernames(orgId?: string): string[] {
+    const askable = `username NOT IN (SELECT username FROM asks_off)`;
+    const rows =
+      orgId === undefined
+        ? this.db
+            .query<{ username: string }, []>(
+              `SELECT username FROM boards WHERE ${askable} ORDER BY username`
+            )
+            .all()
+        : this.db
+            .query<{ username: string }, [string]>(
+              `SELECT username FROM boards WHERE org_id = ? AND ${askable} ORDER BY username`
+            )
+            .all(orgId);
+    return rows.map(r => r.username);
   }
 
-  listBoards(): Array<{ username: string; createdAt: number }> {
-    return this.db
-      .query<{ username: string; created_at: number }, []>(
-        `SELECT username, created_at FROM boards ORDER BY username`
-      )
-      .all()
-      .map(r => ({ username: r.username, createdAt: r.created_at }));
+  /** With no org, every org's boards. */
+  listBoards(
+    orgId?: string
+  ): Array<{ username: string; createdAt: number; org: string | null }> {
+    type Row = { username: string; created_at: number; org_id: string | null };
+    const rows =
+      orgId === undefined
+        ? this.db
+            .query<Row, []>(
+              `SELECT username, created_at, org_id FROM boards ORDER BY username`
+            )
+            .all()
+        : this.db
+            .query<Row, [string]>(
+              `SELECT username, created_at, org_id FROM boards WHERE org_id = ? ORDER BY username`
+            )
+            .all(orgId);
+    return rows.map(r => ({
+      username: r.username,
+      createdAt: r.created_at,
+      org: r.org_id,
+    }));
+  }
+
+  /** Who an envelope from `from` to `to` reaches: never a board outside the
+      sender's org. */
+  recipients(from: string, to: string): string[] {
+    const org = this.boardOrg(from);
+    if (org === null) return [];
+    const rows =
+      to === '*'
+        ? this.db
+            .query<{ username: string }, [string, string]>(
+              `SELECT username FROM boards WHERE org_id = ? AND username != ? ORDER BY username`
+            )
+            .all(org, from)
+        : this.db
+            .query<{ username: string }, [string, string]>(
+              `SELECT username FROM boards WHERE org_id = ? AND username = ?`
+            )
+            .all(org, to);
+    return rows.map(r => r.username);
   }
 
   publish(
@@ -185,20 +355,7 @@ export class SwitchboardStore {
   ):
     | { ok: true; delivered: number }
     | { ok: false; error: 'unknown-recipient' } {
-    const recipients =
-      draft.to === '*'
-        ? this.db
-            .query<{ username: string }, [string]>(
-              `SELECT username FROM boards WHERE username != ?`
-            )
-            .all(from)
-            .map(r => r.username)
-        : this.db
-            .query<{ username: string }, [string]>(
-              `SELECT username FROM boards WHERE username = ?`
-            )
-            .all(draft.to)
-            .map(r => r.username);
+    const recipients = this.recipients(from, draft.to);
     if (draft.to !== '*' && recipients.length === 0)
       return { ok: false, error: 'unknown-recipient' };
     const insert = this.db.prepare(

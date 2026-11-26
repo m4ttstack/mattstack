@@ -19,6 +19,7 @@ import { membersRemove, membersSync, MembersSyncAbortedError, type MembersSeams 
 import { ensureSupportKey, readSupportKeys } from "../../support/org-key.ts";
 import { teamLocalPath } from "../team-local.ts";
 import type { RelayClient } from "../relay-client.ts";
+import { orgClones, orgToken } from "./org-token-fixtures.ts";
 
 let fixtureHome: string;
 let priorHome: string | undefined;
@@ -37,6 +38,10 @@ afterEach(() => {
 
 const HOME = "/home/x";
 const SLUG = "acme";
+const ADMIN_LOCAL = orgToken("a");
+const ADMIN_FILE = orgToken("b");
+/** The org clone the wrapper below already writes, listed so `discoverOrgs` sees a one-org Mac and a token kept on it counts. */
+const ONE_ORG_DIRS = orgClones(HOME, SLUG).dirs;
 const OWNER_PUBLIC_KEY = "age19gmvtjcupd0gq46003yh9tepvlj4fr97pfg4zh024fpq0kqfqyys5ftxdh";
 const ALICE_PUBLIC_KEY = "age1g7smmpu6s9480mmmczw9vvcukwetteh3s7grduzr2zw74d8j99msrdyzhx";
 const ID_HEX = "0102030405060708090a0b0c0d0e0f10";
@@ -927,9 +932,9 @@ describe("membersRemove", () => {
   });
 
   test("membersRemove refuses on a joined clone, and never reaches the switchboard even with its admin token", async () => {
-    const p = probesWithJoinedTeam();
+    const p = fakeProbes({ home: HOME, dirs: ONE_ORG_DIRS, files: { [teamLocalPath(HOME, SLUG)]: JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, forgeUsername: "dev2" }) } });
     const { secrets } = seamsWithClone();
-    const { seams } = fakeMembersSeams({ readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin-secret" : null) });
+    const { seams } = fakeMembersSeams({ readLocalSecret: async (key) => (key === "switchboardAdminToken" ? ADMIN_LOCAL : null) });
 
     await expect(membersRemove(p, secrets, SLUG, "zaphod", undefined, seams)).rejects.toMatchObject({ code: "team-pull-only", message: "The org's shared files belong to its admins" });
     expect(p.calls.fetch).toEqual([]);
@@ -1137,7 +1142,7 @@ describe("membersAddToTeam and membersDropFromTeam", () => {
 
 describe("membersRemove: the member's board on the switchboard", () => {
   async function removeAlice(fetch: NonNullable<NonNullable<Parameters<typeof fakeProbes>[0]>["fetch"]>, adminToken: string | null) {
-    const p = fakeProbes({ home: HOME, fetch });
+    const p = fakeProbes({ home: HOME, dirs: ONE_ORG_DIRS, fetch });
     const { execSeam, secrets } = seamsWithClone();
     writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
     execSeam.writeFile(teamSecretsFile(SLUG, "board"), JSON.stringify({ data: "opaque", sops: {} }));
@@ -1150,32 +1155,32 @@ describe("membersRemove: the member's board on the switchboard", () => {
   }
 
   test("disconnects the board with the token from the org's admin-only file when this Mac holds none of its own", async () => {
-    const p = fakeProbes({ home: HOME, fetch: async () => ({ status: 200, body: "", headers: {} }) });
+    const p = fakeProbes({ home: HOME, dirs: ONE_ORG_DIRS, fetch: async () => ({ status: 200, body: "", headers: {} }) });
     const { execSeam, secrets } = seamsWithClone();
     writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
     execSeam.writeFile(teamSecretsFile(SLUG, "board"), JSON.stringify({ data: "opaque", sops: {} }));
     const { seams } = fakeMembersSeams({
       readTeamStore: () => ({ "mattstack.roster": [{ username: "matt" }, { username: "alice", agePublicKey: ALICE_PUBLIC_KEY }] }),
-      readAdminSecret: async (org, key) => (org === SLUG && key === "switchboardAdminToken" ? "admin-file" : null),
+      readAdminSecret: async (org, key) => (org === SLUG && key === "switchboardAdminToken" ? ADMIN_FILE : null),
     });
 
     const result = await membersRemove(p, secrets, SLUG, "alice", undefined, seams);
 
     expect(result.boardPeering).toBe("revoked");
-    expect(p.calls.fetchInits.find((c) => c.url.endsWith("/boards/alice"))?.init?.headers?.Authorization).toBe("Bearer admin-file");
+    expect(p.calls.fetchInits.find((c) => c.url.endsWith("/boards/alice"))?.init?.headers?.Authorization).toBe(`Bearer ${ADMIN_FILE}`);
   });
 
   test("disconnects the board with the admin token", async () => {
-    const { p, result } = await removeAlice(async () => ({ status: 200, body: "", headers: {} }), "admin-secret");
+    const { p, result } = await removeAlice(async () => ({ status: 200, body: "", headers: {} }), ADMIN_LOCAL);
     expect(result.boardPeering).toBe("revoked");
     const call = p.calls.fetchInits.find((c) => c.url.endsWith("/boards/alice"))!;
     expect(call.init?.method).toBe("DELETE");
-    expect(call.init?.headers?.Authorization).toBe("Bearer admin-secret");
+    expect(call.init?.headers?.Authorization).toBe(`Bearer ${ADMIN_LOCAL}`);
     expect(result.manualSteps.join(" ")).not.toContain("board");
   });
 
   test("a board the switchboard does not know was never connected, not a failure", async () => {
-    const { result } = await removeAlice(async () => ({ status: 404, body: "no such board", headers: {} }), "admin-secret");
+    const { result } = await removeAlice(async () => ({ status: 404, body: "no such board", headers: {} }), ADMIN_LOCAL);
     expect(result.boardPeering).toBe("not-peered");
     expect(result.manualSteps.join(" ")).not.toContain("board");
   });
@@ -1185,11 +1190,12 @@ describe("membersRemove: the member's board on the switchboard", () => {
     expect(result.boardPeering).toBe("left-peered");
     expect(p.calls.fetch.some((u) => u.includes("/boards/"))).toBe(false);
     expect(result.manualSteps.join(" ")).toContain("alice's board is still connected");
+    expect(result.manualSteps.join(" ")).toContain("Only a Mac holding the org's switchboard token can disconnect it");
     expect(result.rosterRemoved).toBe(true);
   });
 
   test("an unreachable switchboard says so, not that it answered 0", async () => {
-    const { result } = await removeAlice(async () => ({ status: 0, body: "", headers: {} }), "admin-secret");
+    const { result } = await removeAlice(async () => ({ status: 0, body: "", headers: {} }), ADMIN_LOCAL);
     expect(result.boardPeering).toBe("failed");
     expect(result.manualSteps.join(" ")).toContain("rt could not reach the switchboard");
     expect(result.manualSteps.join(" ")).not.toContain("answered 0");
@@ -1201,13 +1207,13 @@ describe("membersRemove: the member's board on the switchboard", () => {
   });
 
   test("a handle in another case still finds its roster entry and key, and the board is revoked under the canonical name", async () => {
-    const p = fakeProbes({ home: HOME, fetch: async () => ({ status: 200, body: "", headers: {} }) });
+    const p = fakeProbes({ home: HOME, dirs: ONE_ORG_DIRS, fetch: async () => ({ status: 200, body: "", headers: {} }) });
     const { execSeam, secrets } = seamsWithClone();
     writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
     execSeam.writeFile(teamSecretsFile(SLUG, "board"), JSON.stringify({ data: "opaque", sops: {} }));
     const { seams, writes } = fakeMembersSeams({
       readTeamStore: () => ({ "mattstack.roster": [{ username: "matt" }, { username: "grace", agePublicKey: ALICE_PUBLIC_KEY }] }),
-      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin-secret" : null),
+      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? ADMIN_LOCAL : null),
     });
 
     const result = await membersRemove(p, secrets, SLUG, "Grace", undefined, seams);
@@ -1219,12 +1225,12 @@ describe("membersRemove: the member's board on the switchboard", () => {
   });
 
   test("a handle on no roster still has its board revoked, since the CLI is the only way to drop it", async () => {
-    const p = fakeProbes({ home: HOME, fetch: async () => ({ status: 200, body: "", headers: {} }) });
+    const p = fakeProbes({ home: HOME, dirs: ONE_ORG_DIRS, fetch: async () => ({ status: 200, body: "", headers: {} }) });
     const { secrets } = seamsWithClone();
     writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY], secrets);
     const { seams } = fakeMembersSeams({
       readTeamStore: () => ({ "mattstack.roster": [{ username: "matt" }] }),
-      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin-secret" : null),
+      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? ADMIN_LOCAL : null),
     });
 
     const result = await membersRemove(p, secrets, SLUG, "smoketest", undefined, seams);
@@ -1234,7 +1240,7 @@ describe("membersRemove: the member's board on the switchboard", () => {
   });
 
   test("a switchboard error is a failure with a retry step", async () => {
-    const { result } = await removeAlice(async () => ({ status: 500, body: "", headers: {} }), "admin-secret");
+    const { result } = await removeAlice(async () => ({ status: 500, body: "", headers: {} }), ADMIN_LOCAL);
     expect(result.boardPeering).toBe("failed");
     expect(result.manualSteps.join(" ")).toContain("answered 500");
     expect(result.rosterRemoved).toBe(true);

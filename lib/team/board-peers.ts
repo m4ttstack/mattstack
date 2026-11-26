@@ -4,11 +4,12 @@
  * `switchboardUrl()`, the one place a board or admin token may be sent.
  */
 
-import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
+import { isOrgToken, switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { createRealSecretsExecSeam, readSecret, type SecretsSeams } from "../secrets/store.ts";
 import { createRealTeamSecretsSeams, readAdminSecret } from "../secrets/team-store.ts";
 import type { Probes } from "../setup/probes.ts";
+import { discoverOrgs } from "../setup/team-settings.ts";
 import { warn as warnLine } from "../ui/warn.ts";
 import { boardEnvValue, readBoardSwitchboardToken } from "./board-token.ts";
 
@@ -39,17 +40,43 @@ export async function readAdminSecretOrNull(org: string, key: string, seams: Sec
   }
 };
 
-/** The admin token rt keeps itself: the org's admin-only file, then this Mac's local secret. A throwing local read is the caller's to handle. */
-export async function readStoredAdminToken(readLocal: ReadLocalSecret, admin: AdminSource | null): Promise<string | null> {
-  return (admin ? await admin.read(admin.org, "switchboardAdminToken").catch(() => null) : null) || (await readLocal("switchboardAdminToken"));
+/**
+ * Neither an org token nor the relay operator's says which org it belongs
+ * to, so the token is picked by where it came from: the named org's file
+ * when it holds an org token; else, on a Mac with one org clone, the first
+ * org token this Mac keeps itself; else the file's operator token. An
+ * operator token kept on this Mac is never used, and on a Mac with two org
+ * clones nothing kept on it is. A thrown `own` read reaches the caller.
+ */
+export async function pickAdminToken(file: string | null, own: Array<() => Promise<string | null>>, oneOrg: boolean): Promise<string | null> {
+  if (isOrgToken(file)) return file;
+  if (oneOrg) {
+    for (const read of own) {
+      const token = await read();
+      if (isOrgToken(token)) return token;
+    }
+  }
+  return file || null;
 }
 
-/** The switchboard admin token from wherever this Mac keeps it, in the order the setup row checks: the environment, the board's .env, the org's admin-only file, then rt's secret. */
-export async function readAdminToken(p: Pick<Probes, "home" | "env" | "readFile">, readSecret: ReadLocalSecret, admin: AdminSource | null): Promise<string | null> {
-  return (
-    p.env.SWITCHBOARD_ADMIN_TOKEN ||
-    boardEnvValue(p, "SWITCHBOARD_ADMIN_TOKEN") ||
-    (await readStoredAdminToken((key) => readSecret(key).catch(() => null), admin))
+async function readAdminFile(admin: AdminSource | null): Promise<string | null> {
+  return admin ? await admin.read(admin.org, "switchboardAdminToken").catch(() => null) : null;
+}
+
+/**
+ * The org's switchboard token rt keeps itself: the org's admin-only file and this Mac's local secret. A throwing local read is the caller's to handle.
+ * `oneOrg` defaults to true so the daemon's board scope (`lib/daemon/handlers/secrets.ts`) keeps serving a token kept on the Mac; it only feeds the board's read-only peered badge.
+ */
+export async function readStoredAdminToken(readLocal: ReadLocalSecret, admin: AdminSource | null, oneOrg = true): Promise<string | null> {
+  return pickAdminToken(await readAdminFile(admin), [() => readLocal("switchboardAdminToken")], oneOrg);
+}
+
+/** The org's switchboard token from wherever this Mac keeps it: the org's admin-only file, then this Mac's environment, the board's .env and rt's secret. */
+export async function readAdminToken(p: Pick<Probes, "home" | "env" | "readFile" | "readDir" | "exists">, readSecret: ReadLocalSecret, admin: AdminSource | null): Promise<string | null> {
+  return pickAdminToken(
+    await readAdminFile(admin),
+    [async () => p.env.SWITCHBOARD_ADMIN_TOKEN || null, async () => boardEnvValue(p, "SWITCHBOARD_ADMIN_TOKEN"), () => readSecret("switchboardAdminToken").catch(() => null)],
+    discoverOrgs(p).length === 1,
   );
 }
 
@@ -60,8 +87,8 @@ export function canonicalHandle(handle: string): string {
 
 /**
  * The enrolled boards, as canonical usernames, or null when nothing on this
- * Mac can ask: the admin token lists every board, and a peered board's own
- * token lists its peers. A failed or malformed answer is also null, since a
+ * Mac can ask: the org's switchboard token lists the org's boards, and a
+ * peered board's own token lists its peers. A failed or malformed answer is also null, since a
  * wrong "not peered" would read as a removal that never happened.
  */
 export async function readPeeredBoards(p: Probes, readSecret: ReadLocalSecret, adminSource: AdminSource | null): Promise<Set<string> | null> {

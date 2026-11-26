@@ -2,7 +2,7 @@ import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 
 import { makeFetchHandler } from '../server.ts';
-import { SwitchboardStore } from '../store.ts';
+import { hashToken, SwitchboardStore } from '../store.ts';
 import { TeamInviteStore } from '../team-invites.ts';
 import { TelemetryStore } from '../telemetry.ts';
 
@@ -10,6 +10,7 @@ const ADMIN = 'admintok';
 function handler(db = new Database(':memory:')) {
   const store = new SwitchboardStore(db);
   return {
+    db,
     store,
     fetch: makeFetchHandler(
       store,
@@ -164,5 +165,95 @@ describe('GET /boards', () => {
       boards: Array<{ username: string; createdAt: number }>;
     };
     expect(body.boards.map(b => b.username)).toEqual(['grace']);
+  });
+});
+
+describe('invites and orgs', () => {
+  const redeem = (
+    fetch: ReturnType<typeof handler>['fetch'],
+    code: string,
+    username: string
+  ) =>
+    fetch(
+      req('/invites/redeem', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code, username }),
+      })
+    );
+
+  test('redeem answers 409 when another org took the username', async () => {
+    const { db, store, fetch } = handler();
+    const a = store.orgs.create(1).id;
+    const b = store.orgs.create(2).id;
+    const inv = store.createInvite('grace', 1000, a);
+    db.run(
+      `INSERT INTO boards (username, token_hash, created_at, org_id) VALUES (?, ?, ?, ?)`,
+      ['grace', hashToken('b-grace'), 1500, b]
+    );
+    const res = await redeem(fetch, inv.code, 'grace');
+    expect(res.status).toBe(409);
+    expect(await res.text()).toBe(
+      'that username already has a board in another org'
+    );
+    expect(store.authBoard('b-grace')).toBe('grace');
+    const row = db
+      .query<{ redeemed_at: number | null }, []>(
+        `SELECT redeemed_at FROM invites WHERE username = 'grace'`
+      )
+      .get();
+    expect(row).toEqual({ redeemed_at: null });
+  });
+
+  test("redeem's 409 leaves the other org's board token and inbox intact", async () => {
+    const { db, store, fetch } = handler();
+    const a = store.orgs.create(1).id;
+    const b = store.orgs.create(2).id;
+    const inv = store.createInvite('grace', 1000, a);
+    db.run(
+      `INSERT INTO boards (username, token_hash, created_at, org_id) VALUES (?, ?, ?, ?)`,
+      ['grace', hashToken('b-grace'), 1500, b]
+    );
+    const linus = store.registerBoard('linus', b).username;
+    expect(
+      store.publish(
+        linus,
+        { id: 'e1', to: 'grace', type: 'review-state', sentAt: 1, payload: {} },
+        1600
+      )
+    ).toEqual({ ok: true, delivered: 1 });
+    expect((await redeem(fetch, inv.code, 'grace')).status).toBe(409);
+    const inbox = await fetch(
+      req('/inbox', { headers: { authorization: 'Bearer b-grace' } })
+    );
+    expect(inbox.status).toBe(200);
+    const { envelopes } = (await inbox.json()) as {
+      envelopes: Array<{ id: string; from: string }>;
+    };
+    expect(envelopes.map(e => [e.id, e.from])).toEqual([['e1', 'linus']]);
+  });
+
+  test("an org token's invite lands in its org", async () => {
+    const { store, fetch } = handler();
+    const a = store.orgs.create(1).id;
+    const token = store.orgs.mintToken(a, 1)!;
+    const res = await fetch(
+      req('/invites', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ username: 'Grace' }),
+      })
+    );
+    expect(res.status).toBe(201);
+    const inv = (await res.json()) as { code: string; username: string };
+    expect(inv.username).toBe('grace');
+    const redeemed = await redeem(fetch, inv.code, 'grace');
+    expect(redeemed.status).toBe(200);
+    const { token: board } = (await redeemed.json()) as { token: string };
+    expect(store.authBoard(board)).toBe('grace');
+    expect(store.boardOrg('grace')).toBe(a);
   });
 });

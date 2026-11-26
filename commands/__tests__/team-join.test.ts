@@ -11,8 +11,10 @@ import type { JoinRedeemSeams } from "../../lib/team/join.ts";
 import type { InvitePointer } from "../../lib/setup/intent.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
 import type { SettingsReader } from "../../lib/setup/team-settings.ts";
+import { orgToken } from "../../lib/team/__tests__/org-token-fixtures.ts";
 
 const HOME = "/home/x";
+const ORG_TOKEN = orgToken("a");
 const ID_HEX = "0102030405060708090a0b0c0d0e0f10";
 const KEY = new Uint8Array(32).fill(7);
 const CODE = encodeCode(ID_HEX, KEY);
@@ -56,7 +58,7 @@ function fakeRead(values: Record<string, unknown> = {}): SettingsReader {
 
 /**
  * Explicit fakes for every redeem-side seam `teamJoin` doesn't own directly
- * (`read`/`readTeamSecret`/`forgeLogin`) — routed through `TeamDeps.joinRedeemSeams`
+ * (`read`/`readAdminSecret`/`forgeLogin`) — routed through `TeamDeps.joinRedeemSeams`
  * so this suite's outcomes depend on what a test configures, never on
  * whatever the isolated test HOME happens to have (or not have) configured
  * for `mattstack.integrations`.
@@ -65,7 +67,6 @@ function fakeJoinRedeemSeams(overrides: Partial<JoinRedeemSeams> = {}): JoinRede
   return {
     ageKeySeam: new FakeAgeKeySeam(),
     read: fakeRead(),
-    readTeamSecret: async () => null,
     readAdminSecret: async () => null,
     readLocalSecret: async () => null,
     forgeLogin: async () => "dev2",
@@ -335,7 +336,7 @@ describe("teamJoin", () => {
     expect(probes.calls.exec).toContainEqual(["git", "clone", "--sparse", REMOTE, dir]);
   });
 
-  test("redeem: an admin token in the team's secrets, explicitly faked via TeamDeps, peering applied", async () => {
+  test("redeem: an org token in the org's admin-only file, explicitly faked via TeamDeps, peering applied", async () => {
     const fetchCalls: string[] = [];
     const probes = fakeProbes({
       home: HOME,
@@ -350,7 +351,7 @@ describe("teamJoin", () => {
     const deps = baseDeps({
       probes,
       joinRedeemSeams: fakeJoinRedeemSeams({
-        readTeamSecret: async () => "admin-token",
+        readAdminSecret: async () => ORG_TOKEN,
         writeLocalSecret: async (key, value) => {
           secretWrites.push({ key, value });
         },
@@ -424,7 +425,7 @@ describe("teamJoin", () => {
     const deps = baseDeps({
       probes,
       joinRedeemSeams: fakeJoinRedeemSeams({
-        readTeamSecret: async () => "admin-token",
+        readAdminSecret: async () => ORG_TOKEN,
         writeLocalSecret: async () => {
           throw new Error("sops: no matching creation rules");
         },

@@ -101,8 +101,14 @@ relay, one process, one SQLite file. To deploy it to
 - **Volume**: attach one and point `SWITCHBOARD_DB` at a path on it. Otherwise
   the database lives on ephemeral disk and every redeploy loses all board
   registrations.
-- **Env**: `SWITCHBOARD_ADMIN_TOKEN`, a value you pick, is the bearer token for
-  minting boards. `PORT` is supplied by Railway.
+- **Env**: `SWITCHBOARD_ADMIN_TOKEN` is the relay operator's token. Make it at
+  least 32 random characters (`openssl rand -hex 32`); the relay warns when it
+  is shorter and refuses to start when it starts with `sbo_`. It stays with the
+  operator and is never shared with an org. `PORT` is supplied by Railway.
+- **Orgs**: each org has its own switchboard token (`sbo_` and 64 hex
+  characters). The first deploy puts today's boards in one legacy org. The
+  operator mints and rotates org tokens with `apps/board/switchboard/operator.ts`.
+  The move and the rotations are in `docs/switchboard-org-tokens.md`.
 - **Env, optional**: `SWITCHBOARD_TELEMETRY_TOKEN`, a value you pick, turns on
   the version readout. Open `GET /telemetry?key=<token>` (or send the token as
   a bearer) to see which versions each Mac runs. Unset, the page returns 404.
@@ -127,25 +133,26 @@ change is additive and older boards keep polling.
 ## Inviting teammates
 
 Inviting and removing teammates is the CLI's job, run on the Mac that holds
-the switchboard admin token (`rt secrets set rt switchboardAdminToken`):
+the org's switchboard token (`rt team admin-secrets --token-stdin` stores it;
+the relay operator mints it):
 
 - `rt team peer` connects your own board: it registers your username and
   stores the token where `rt team join` would. `rt team create` runs it for
-  you when the admin token is already on this Mac.
+  you when the org's switchboard token is already on this Mac.
 - `rt team invite --handle <username>` mints the teammate's board token and
   seals it into their team invite, so `rt team join` peers their board.
 - `rt team members remove <username>` takes them off the team and deletes
   their board's registration on the switchboard. Their token stops working
   immediately, pending envelopes for them are dropped, and the handle leaves
   every board's enrolled list on its next refresh. Run on a Mac without the
-  admin token, it does everything else and says their board is still
+  org's switchboard token, it does everything else and says their board is still
   connected: only the switchboard owner can disconnect it. Scripted, it is
-  `DELETE $URL/boards/<username>` with the admin bearer.
+  `DELETE $URL/boards/<username>` with the org's token as the bearer.
 - `rt team status --json` carries a `peered` flag per member: true or false
   when the switchboard answered, null when nothing on this Mac can ask it.
 
 The board's settings ("team members") shows the same thing read-only: with
-the admin token in place, a teammate whose board is connected gets a
+the org's switchboard token in place, a teammate whose board is connected gets a
 **peered** badge beside their name.
 
 The invite code travels in the URL path, so it shows up in the relay host's
@@ -157,20 +164,20 @@ and the leaked link stops working.
 
 ## Scripted operator setup
 
-The relay endpoints stay plain HTTP with the admin bearer token, for scripting
+The relay endpoints stay plain HTTP with the org's switchboard token as the bearer, for scripting
 or a headless operator setup:
 
 ```sh
 # Mint a board directly. username = their GitLab username, lowercased; one board
 # per username; re-minting rotates the token, so hand out the new one if you do.
 curl -X POST $URL/boards \
-  -H "Authorization: Bearer $SWITCHBOARD_ADMIN_TOKEN" \
+  -H "Authorization: Bearer $SWITCHBOARD_ORG_TOKEN" \
   -H "content-type: application/json" \
   -d '{"username":"grace"}'
 
 # Or mint a one-time invite link.
 curl -X POST $URL/invites \
-  -H "Authorization: Bearer $SWITCHBOARD_ADMIN_TOKEN" \
+  -H "Authorization: Bearer $SWITCHBOARD_ORG_TOKEN" \
   -H "content-type: application/json" \
   -d '{"username":"grace"}'
 # -> {"code":"...","username":"grace","expiresAt":...}; hand out "$URL/invite/<code>"
@@ -180,6 +187,8 @@ The invite link works in `bun run setup`'s prompt. A raw `POST /boards` token is
 only: put it in `.env` as `SWITCHBOARD_TOKEN` yourself.
 
 ## Privacy
+
+The relay records an opaque org id per board and nothing else about the org.
 
 The switchboard carries envelopes: who wrote to whom, when, about which MR, and
 what state it is in. Text that people or agents write is sealed on the sender's

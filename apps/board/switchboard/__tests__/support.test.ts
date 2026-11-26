@@ -531,6 +531,30 @@ describe('support wait', () => {
   });
 });
 
+describe('support across orgs', () => {
+  test("support publish to another org's board is unknown-recipient", async () => {
+    const { store, post, list, ada } = setup();
+    const other = store.orgs.create(1).id;
+    const zed = store.registerBoard('zed', other).token;
+    const res = await post(ada, draft('r1', 'zed'));
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: 'unknown-recipient' });
+    expect(await list(zed)).toEqual([]);
+    expect((await post(zed, draft('r2', 'ada'))).status).toBe(422);
+  });
+
+  test('sameOrg is false across orgs and for unknown usernames', () => {
+    const { store } = setup();
+    const other = store.orgs.create(1).id;
+    store.registerBoard('zed', other);
+    expect(store.support.sameOrg('ada', 'alex')).toBe(true);
+    expect(store.support.sameOrg('ada', 'zed')).toBe(false);
+    expect(store.support.sameOrg('zed', 'ada')).toBe(false);
+    expect(store.support.sameOrg('ada', 'nobody')).toBe(false);
+    expect(store.support.sameOrg('nobody', 'nobody')).toBe(false);
+  });
+});
+
 describe('the wire the relay and the client both declare', () => {
   test('limits match', () => {
     expect(relay.SUPPORT_BODY_MAX_BYTES).toBe(client.SUPPORT_BODY_MAX_BYTES);

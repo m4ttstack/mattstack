@@ -171,7 +171,7 @@ install.
 | `SLACK_CLIENT_ID` | public OAuth app identifier, used by setup. Falls back to the `mattstack.integrations` team setting (`slack.clientId`) |
 | `SLACK_CLIENT_SECRET` | the Slack app's client secret, used by setup only. Never a team setting |
 | `SWITCHBOARD_TOKEN` | this board's peer-relay token. Written by setup when you redeem an invite |
-| `SWITCHBOARD_ADMIN_TOKEN` | operator only. Its presence turns on the board's invite affordances. Daemon fallback: `switchboardAdminToken` in the `rt` domain |
+| `SWITCHBOARD_ADMIN_TOKEN` | the org's switchboard token, never the relay operator's. Its presence turns on the board's invite affordances. Daemon fallback: `switchboardAdminToken` in the `rt` domain |
 
 Without `GITLAB_TOKEN` the board still renders: MR data comes from the rt
 daemon, not from GitLab directly. Without `SLACK_TOKEN` the Slack menu actions

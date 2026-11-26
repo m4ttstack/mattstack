@@ -114,7 +114,7 @@ const adminSecrets = (extra: Partial<AdminSecretsResult> = {}): AdminSecretsResu
 
 test("admin-secrets says who the file is locked to and what happened to the token", () => {
   expect(renderPlain(adminSecretsBlocks(adminSecrets({ token: "seeded" })))).toBe(
-    "[ok] Locked the admin-only secrets to the org's owners and admins  dev1, dev2\n[ok] Shared this Mac's switchboard admin token with them\n",
+    "[ok] Locked the admin-only secrets to the org's owners and admins  dev1, dev2\n[ok] Shared the org's switchboard token with them\n",
   );
 });
 
@@ -126,18 +126,18 @@ test("admin-secrets with nothing to change says so", () => {
 
 test("admin-secrets in an org that keeps none, on a Mac with no token", () => {
   expect(renderPlain(adminSecretsBlocks(adminSecrets({ state: "unused", added: [], holders: [] })))).toBe(
-    "[skipped] This org keeps no admin-only secrets yet  this Mac holds no switchboard admin token to share\n",
+    "[skipped] This org keeps no admin-only secrets yet  this Mac holds no org switchboard token to share\n",
   );
 });
 
 test("admin-secrets warns that someone taken off keeps what they opened, and names who has no key", () => {
   const text = renderPlain(adminSecretsBlocks(adminSecrets({ added: [], removed: ["age1dev3"], withoutKey: ["dev4"] })));
   expect(text).toContain("dev4 cannot open them yet: the roster has no age key for them.");
-  expect(text).toContain("Anyone taken off keeps any value they already opened. Change the switchboard admin token to shut them out.");
+  expect(text).toContain("Anyone taken off keeps any value they already opened. Ask the relay operator to change the org's switchboard token, then share the new one with rt team admin-secrets --token-stdin --replace-token");
 });
 
 test("admin-secrets never overwrites a different shared token unasked", () => {
   const text = renderPlain(adminSecretsBlocks(adminSecrets({ state: "current", added: [], token: "differs" })));
-  expect(text).toContain("[needs you] The org shares a different switchboard admin token from this Mac's");
+  expect(text).toContain("[needs you] The org already shares a different switchboard token");
   expect(text).toContain("rt team admin-secrets --replace-token");
 });

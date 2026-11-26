@@ -1,6 +1,6 @@
 /**
  * `rt team peer`: connects this Mac's own board to the switchboard. Only a
- * Mac holding the switchboard admin token can register a board, so this is
+ * Mac holding the org's switchboard token can register a board, so this is
  * the team creator's path; everyone else gets their board token sealed into
  * an invite (`rt team invite`, then `rt team join`). The board token lands
  * exactly where `rt team join` stores it: rt's `switchboardToken` secret.
@@ -23,7 +23,7 @@ import { readTeamLocal } from "./team-local.ts";
 
 export interface PeerSeams {
   readLocalSecret: ReadLocalSecret;
-  /** The org's admin-only secrets, read before `readLocalSecret` for the admin token. */
+  /** The org's admin-only secrets, read before `readLocalSecret` for the org's switchboard token. */
   readAdminSecret: ReadAdminSecret;
   writeLocalSecret: (key: string, value: string) => Promise<void>;
   /** Whether `writeLocalSecret` can succeed now, asked before anything is registered. */
@@ -95,8 +95,8 @@ function parsed<T>(body: string): T | null {
 export async function peerOwnBoard(p: Probes, slug: string, opts: { rotate: boolean }, seams: PeerSeams = realPeerSeams()): Promise<PeerResult> {
   const admin = await readAdminToken(p, seams.readLocalSecret, { org: slug, read: seams.readAdminSecret });
   if (!admin) {
-    throw new UserActionableError("peer-needs-admin", "Only a Mac holding the switchboard admin token can connect its own board", {}, {
-      why: `This Mac holds no switchboard admin token. ${ASK_ADMIN}`,
+    throw new UserActionableError("peer-needs-admin", "Only a Mac holding the org's switchboard token can connect its own board", {}, {
+      why: `This Mac does not hold the org's switchboard token. ${ASK_ADMIN}`,
       next: "rt team join",
     });
   }
@@ -142,6 +142,11 @@ export async function peerOwnBoard(p: Probes, slug: string, opts: { rotate: bool
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin}` },
     body: JSON.stringify({ username }),
   });
+  if (res.status === 409) {
+    throw new UserActionableError("username-taken", `Another org on the switchboard already has a board for ${username}`, {}, {
+      why: "Usernames are unique across the switchboard. Ask the relay operator.",
+    });
+  }
   if (!ok(res.status)) throw switchboardFailure(answered(res.status, `to register ${username}`));
   const token = parsed<{ token?: unknown }>(res.body)?.token;
   if (typeof token !== "string" || !token) throw switchboardFailure("The switchboard registered your board but sent back no token.");

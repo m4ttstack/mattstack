@@ -478,11 +478,14 @@ describe("secrets:read scope \"board\"", () => {
 // domain typo in BOARD_SECRET_ENTRIES fails this suite even though the
 // handler-level tests above only stub the loader's return shape.
 describe("loadBoardSecrets", () => {
+  const FILE_ADMIN = `sbo_${"a".repeat(64)}`;
+  const LOCAL_ADMIN = `sbo_${"b".repeat(64)}`;
+  const value = (domain: string, key: string) => (domain === "rt" && key === "switchboardAdminToken" ? LOCAL_ADMIN : `${domain}:${key}`);
   const recording = () => {
     const calls: Array<[string, string]> = [];
     const fake: ReadSecretFn = async (domain, key) => {
       calls.push([domain, key]);
-      return `${domain}:${key}`;
+      return value(domain, key);
     };
     return { calls, fake };
   };
@@ -494,9 +497,9 @@ describe("loadBoardSecrets", () => {
   test("the admin token comes from the org's admin-only file first, and the local secret is not asked", async () => {
     const { calls, fake } = recording();
 
-    const data = await loadBoardSecrets(fake, adminFile("file-admin"));
+    const data = await loadBoardSecrets(fake, adminFile(FILE_ADMIN));
 
-    expect(data.switchboardAdminToken).toBe("file-admin");
+    expect(data.switchboardAdminToken).toBe(FILE_ADMIN);
     expect(calls).not.toContainEqual(["rt", "switchboardAdminToken"]);
     expect(data.switchboardToken).toBe("rt:switchboardToken");
   });
@@ -506,7 +509,7 @@ describe("loadBoardSecrets", () => {
 
     const data = await loadBoardSecrets(fake, adminFile(null));
 
-    expect(data.switchboardAdminToken).toBe("rt:switchboardAdminToken");
+    expect(data.switchboardAdminToken).toBe(LOCAL_ADMIN);
     expect(calls.at(-1)).toEqual(["rt", "switchboardAdminToken"]);
   });
 
@@ -514,12 +517,12 @@ describe("loadBoardSecrets", () => {
     const { fake } = recording();
     const failing: AdminSource = { org: "acme", read: async () => { throw new Error("sops crashed"); } };
 
-    expect((await loadBoardSecrets(fake, failing)).switchboardAdminToken).toBe("rt:switchboardAdminToken");
+    expect((await loadBoardSecrets(fake, failing)).switchboardAdminToken).toBe(LOCAL_ADMIN);
   });
 
   test("with no org on this Mac, only the local secret is read", async () => {
     const { fake } = recording();
-    expect((await loadBoardSecrets(fake, null)).switchboardAdminToken).toBe("rt:switchboardAdminToken");
+    expect((await loadBoardSecrets(fake, null)).switchboardAdminToken).toBe(LOCAL_ADMIN);
   });
 
   test("a throwing local admin-token read still rejects the whole call", async () => {
@@ -534,7 +537,7 @@ describe("loadBoardSecrets", () => {
     const calls: Array<[string, string]> = [];
     const fake: ReadSecretFn = async (domain, key) => {
       calls.push([domain, key]);
-      return `${domain}:${key}`;
+      return value(domain, key);
     };
 
     const data = await loadBoardSecrets(fake);
@@ -553,7 +556,7 @@ describe("loadBoardSecrets", () => {
       slackSigningSecret: "board:slackSigningSecret",
       gitlabToken: "rt:gitlabToken",
       switchboardToken: "rt:switchboardToken",
-      switchboardAdminToken: "rt:switchboardAdminToken",
+      switchboardAdminToken: LOCAL_ADMIN,
     };
     expect(data).toEqual(expected);
   });

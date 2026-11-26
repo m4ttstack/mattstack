@@ -44,6 +44,7 @@ import { rowsToChecks } from "../../../commands/verify.ts";
 import { updateNotification } from "../update.ts";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 import { ORG_LAYOUT } from "../../team/org-marker.ts";
+import { orgToken } from "../../team/__tests__/org-token-fixtures.ts";
 
 // ─── shared fakes (mirrors steps-a/b.test.ts's trivial no-ops) ─────────────
 
@@ -3001,7 +3002,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           },
         });
         const team: TeamSnapshot = { slug: "acme", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null, boardProjects: true };
-        const secrets = { has: async (domain: string, key: string) => (domain === "rt" && key === "switchboardAdminToken" ? "admin-1" : null) };
+        const secrets = { has: async (domain: string, key: string) => (domain === "rt" && key === "switchboardAdminToken" ? orgToken("a") : null) };
         const rows = await accountRows(p, team, [], secrets, null);
         const plan = finalizePlan({ slug: "acme", name: "acme", mode: "none" }, [{ id: "accounts", title: "Accounts", rows }]);
         expect(outcomeFromChecks(rowsToChecks(plan, { ci: false }), rows)).toEqual({ state: "needs-you", detail: "Board not peered: run rt team peer" });

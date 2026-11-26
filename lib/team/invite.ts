@@ -24,7 +24,7 @@ import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import { UserActionableError } from "../errors.ts";
 import { INVITE_POINTER_VERSION, type InvitePointer } from "../setup/intent.ts";
 import type { Probes } from "../setup/probes.ts";
-import { forgeFromRemote, readTeamSnapshot, readUserIntegrationOverrides, type SettingsReader } from "../setup/team-settings.ts";
+import { discoverOrgs, forgeFromRemote, readTeamSnapshot, readUserIntegrationOverrides, type SettingsReader } from "../setup/team-settings.ts";
 import { storedValue } from "../settings/presence.ts";
 import { setSetting } from "../settings/write.ts";
 import { forgeLogin, grantRead, membershipSteps, type ForgeAccess } from "./forge.ts";
@@ -35,7 +35,7 @@ import { readInviteRecords, upsertInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
 import { knownDataBranch, orgBranch, shellQuote } from "./org-branch.ts";
 import { readMainPointer } from "./main-pointer.ts";
-import { realReadAdminSecret, type ReadAdminSecret } from "./board-peers.ts";
+import { pickAdminToken, realReadAdminSecret, type ReadAdminSecret } from "./board-peers.ts";
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 
@@ -103,7 +103,7 @@ export interface InviteResult {
   pasteBlock: string;
   forgeAccess: ForgeAccess;
   manualSteps: string[];
-  /** "none" when this Mac holds no switchboard admin token; "missing" means the joiner's board will not peer from this invite. */
+  /** "none" when this Mac holds no org switchboard token; "missing" means the joiner's board will not peer from this invite. */
   peering: "embedded" | "missing" | "none";
   /** Present exactly when `peering` is "missing": the reason and the repair, the same sentence the mint warns on stderr. */
   peeringWarning?: string;
@@ -134,9 +134,9 @@ export interface MintInviteSeams {
   forgeLogin: typeof forgeLogin;
   /** The forge token rt holds for the team remote's host, or null. */
   forgeToken: typeof storedForgeToken;
-  /** This Mac's own LOCAL rt secret: where the switchboard admin token comes from when the org's admin-only file does not hold it or this Mac cannot open it. */
+  /** This Mac's own LOCAL rt secret: where the org's switchboard token comes from when the org's admin-only file does not hold one or this Mac cannot open it. */
   readLocalSecret: (key: string) => Promise<string | null>;
-  /** The org's admin-only secrets, read first for the switchboard admin token. */
+  /** The org's admin-only secrets, read first for the org's switchboard token. */
   readAdminSecret: ReadAdminSecret;
   /** `message` is the log text; `shown` is what a person reads, and a warning without it shows its message. */
   warn: (message: string, shown?: ShownWarning) => void;
@@ -355,13 +355,14 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   let embedFailure: string | null = null;
   let adminToken: string | null = null;
   try {
-    adminToken = (await seams.readAdminSecret(opts.slug, "switchboardAdminToken")) || (await seams.readLocalSecret("switchboardAdminToken"));
+    const file = await seams.readAdminSecret(opts.slug, "switchboardAdminToken");
+    adminToken = await pickAdminToken(file, [() => seams.readLocalSecret("switchboardAdminToken")], discoverOrgs(p).length === 1);
   } catch (err) {
     embedFailure = err instanceof Error ? err.message : String(err);
   }
   if (!adminToken && !embedFailure && opts.requirePeering) {
     throw new UserActionableError("peering-not-embedded", "rt did not make the invite, because it could not connect their board", {}, {
-      why: "This Mac holds no switchboard admin token, so it cannot register their board.",
+      why: "This Mac does not hold the org's switchboard token, so it cannot register their board.",
     });
   }
   if (embedFailure && opts.requirePeering) throw peeringNotEmbedded(embedFailure);
@@ -398,7 +399,9 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
         body: JSON.stringify({ username: opts.handle }),
       });
-      if (res.status < 200 || res.status >= 300) {
+      if (res.status === 409) {
+        embedFailure = `another org on the switchboard already has a board for ${opts.handle}`;
+      } else if (res.status < 200 || res.status >= 300) {
         embedFailure = `the switchboard register answered ${res.status}`;
       } else {
         let boardToken: unknown;
