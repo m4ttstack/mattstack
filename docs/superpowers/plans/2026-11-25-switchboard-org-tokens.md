@@ -13,8 +13,13 @@
 ## Global Constraints
 
 - Org token: `sbo_` followed by 64 lowercase hex characters, matched by `/^sbo_[0-9a-f]{64}$/`. Org id: 32 lowercase hex characters.
-- The relay keeps the master in `SWITCHBOARD_ADMIN_TOKEN` and refuses to start when it starts with `sbo_`.
-  - **Deviation from the spec:** for a master under 32 characters it logs a loud warning instead of refusing. `lib/daemon/__tests__/peer-waker-relay.test.ts` starts the relay with the 12-character `admin-secret`, sits outside the write fence, and must pass unchanged.
+- The relay keeps the master in `SWITCHBOARD_ADMIN_TOKEN` and refuses to start when it starts with `sbo_`, which is safe against today's master.
+  - **Deviation from the spec:** for a master under 32 characters it logs a loud warning (`rotate it to at least 32 random characters, e.g. openssl rand -hex 32`) instead of refusing.
+  - The reason: the relay deploys on merge, and today's master is "a value you pick" (`apps/board/docs/peer-boards.md`), so its length is unknown. A refusal could crash-loop the live relay and cut off every board, which is the spec's anti-goal.
+  - The fingerprint the rule protects is the legacy master's, which step 5 retires. Masters set after rotation are never stored.
+  - The runbook's step 5 and `peer-boards.md`'s operator setup require the new master to be at least 32 random characters (`openssl rand -hex 32`).
+- **Deviation from the spec, declared:** `readStoredAdminToken`'s `oneOrg` defaults to `true`, so `lib/daemon/handlers/secrets.ts` (outside the fence) is unchanged. On a Mac with two org clones, the daemon may serve the board a token kept on the Mac. The only consumer is the board's peered badge, a read-only `GET /boards`, which shows only the org whose token that Mac already holds. A follow-up in the PR passes the one-org check there.
+- The PR description carries the operator's steps for Matt (the runbook's steps 0 to 5) and the security review's verdict.
 - Today's wire shapes stay byte-compatible: same routes, bodies and response keys. Fields are only added, and only on operator answers.
 - No route answers another org's board differently from a username nobody holds. The exceptions are the 409 `username-taken` and the 403 `org-mismatch`, which is the same for every id that is not the caller's own.
 - Every comparison of the master is constant time (`sameSecret` in `server.ts`).
@@ -22,7 +27,8 @@
 - User-facing copy says "the org's switchboard token" and "the relay operator's token", never "admin token". `--json` keys never change. Everything printed goes through `lib/ui/out.ts`. Failures are `UserActionableError` (`.claude/rules/output-layer.md`).
 - After touching `packages/rt-client/src/switchboard.ts`, run `bun run build` in `packages/rt-client`.
 - rt tests run from the worktree root (`bun test <file>`). Relay tests run from the board app: `(cd apps/board && bun test switchboard/__tests__/<file>)`.
-- Write fence: `apps/board/switchboard/`, `commands/team.ts`, `lib/team/`, `lib/setup/`, `packages/rt-client/src/switchboard.ts`, `lib/command-tree-def.ts` (the `team admin-secrets` node), `.claude/rules/team-switchboard.md`, `apps/board/docs/peer-boards.md`, `docs/`, and those files' tests. Nothing else.
+- Write fence: `apps/board/switchboard/`, `commands/team.ts`, `lib/team/`, `lib/setup/`, `packages/rt-client/src/switchboard.ts`, `lib/command-tree-def.ts` (the `team admin-secrets` node), `.claude/rules/team-switchboard.md`, `apps/board/docs/peer-boards.md`, `docs/`, and those files' tests (`commands/__tests__/team*.test.ts` included). Nothing else.
+  - `apps/board/docs/configuration.md` is in the fence only if this plan's approval widens it (the milestone summary asks). Otherwise its `SWITCHBOARD_ADMIN_TOKEN` row goes in the PR as a follow-up.
 - Never run a built rt binary, start a daemon, or call the live relay.
 
 ## Review Focus
@@ -71,6 +77,11 @@
   - `pre-change boards keep authenticating and land in one legacy org`: both tokens pass `authBoard`, every row's `org_id` equals `orgs.legacyId()`, and `orgs.list()` has length 1 with `legacy: true, hasToken: false`.
   - `the sweep is idempotent across reopenings`
   - `NULL rows beside a non-legacy org are left alone and fail closed`: create a non-legacy org, insert a NULL-org board row by hand, then reopen. `authBoard(thatToken) === null` and `sweepNullOrgs` reports `skipped: 1`.
+  - `over a pre-change database, the handler keeps every board working`. This is a handler-level case: build `makeFetchHandler` over the swept database.
+    - Both boards' `/peers` list each other.
+    - The master's `POST /boards {username}` lands in the legacy org.
+    - `POST /orgs/<legacy id>/token` mints, then rotates.
+    - After each of those, both board tokens still pass `/inbox`.
 - [ ] **Step 3: Run both, and expect them to fail** (no `orgs.ts`): `(cd apps/board && bun test switchboard/__tests__/orgs.test.ts switchboard/__tests__/migration.test.ts)`
 - [ ] **Step 4: Implement `orgs.ts` and the constructor changes.**
   - Tables: `orgs(id TEXT PRIMARY KEY, token_hash TEXT UNIQUE, legacy INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, token_at INTEGER)` and `relay_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)`.
@@ -105,6 +116,8 @@
   - **`store.test.ts`:**
     - `a username another org holds is refused, and the first board keeps its token`: org A registers `ada`; org B's `registerBoard(' Ada ', B)` throws `UsernameTakenError`; A's token still authenticates.
     - `an open invite in another org holds the username`
+    - `createInvite(X, orgB) throws UsernameTakenError when org A holds X through a board, and again through an open invite; A's invite stays redeemable`. Today `createInvite` runs `DELETE FROM invites WHERE username = ?` first, so the check must come before that delete.
+    - `a NULL-org board row (the rollback case) holds its username: register and invite are refused for every org, and the row is unchanged`. The holder query uses `org_id IS NOT ?`, never `!=`, which would not match NULL.
     - `re-register in the same org still reissues`
     - `publish to * reaches only the sender's org`
     - `a direct publish to another org's board is unknown-recipient`
@@ -147,6 +160,12 @@
   - `the master with no org registers into the legacy org on a fresh relay` (today's body, today's 201 `{username, token}`).
   - `the master with no org after a non-legacy org exists, and no legacy org, is 400 name-an-org`
   - `POST /orgs is 409 rotate-master-first while the master matches the legacy stamp`: build a second handler over the same db with a different master and expect 201 `{id, token}`, the token matching `ORG_TOKEN_RE`.
+  - `on a fresh relay, a master POST /invites {username} with no org, then POST /orgs, is 409 rotate-master-first`. The route calls `stampLegacyMaster(hashToken(adminToken))` just before its gate check, so every lazy path is covered.
+  - `an org token's POST /invites for a username another org holds is 409 username-taken`
+  - `the master's POST /boards {username, org: <unknown>} is 404`
+  - `POST /orgs/<unknown>/token is 404`
+  - `GET /orgs returns {orgs: [{id, legacy, hasToken, boards, createdAt, tokenAt}]}`
+  - `the master on /peers is 401`
   - `POST /orgs/<id>/token rotates: the old org token is 401, boards are untouched`
   - `/orgs routes refuse org tokens and board tokens with 401`
   - `a board token on /boards and an org token on /peers are 401`
@@ -207,7 +226,8 @@
     2. else, when `oneOrg`, each `own` thunk in order, returning the first org token (a thrown read propagates);
     3. else `file` when it is non-empty;
     4. else null.
-  - `readAdminToken` and `readStoredAdminToken` keep their signatures. `readStoredAdminToken` gains a trailing `oneOrg = true`, so `lib/daemon/handlers/secrets.ts` needs no edit. `readAdminToken` passes `discoverOrgs(p).length === 1`.
+  - `readStoredAdminToken(readLocal, admin, oneOrg = true)`: the trailing default is the declared deviation (Global Constraints).
+  - `readAdminToken(p: Pick<Probes, "home" | "env" | "readFile" | "readDir" | "exists">, readSecret, admin)` widens its probes and passes `discoverOrgs(p).length === 1`. `discoverOrgs` in `lib/setup/team-settings.ts` narrows to `Pick<Probes, "home" | "readDir" | "exists">`.
   - Invite reads `pickAdminToken(file, [local], oneOrg)`. Join's `rejoinAdminToken` does the same, and `readTeamSecret` leaves `JoinRedeemSeams` and its fixtures.
   - Peer throws `UserActionableError("username-taken", "Another org on the switchboard already has a board for <username>", {}, { why: "Usernames are unique across the switchboard. Ask the relay operator." })` on a 409 from `POST /boards`.
   - Invite sets `embedFailure` to `another org on the switchboard already has a board for <handle>` on a 409.
@@ -233,8 +253,15 @@
     - `rejoin with no admin token is idle`
     - `a 409 on rejoin warns and asks for a re-invite`
 - [ ] **Step 2: Run them, and expect FAIL:** `bun test lib/team/__tests__/org-token-parity.test.ts lib/team/__tests__/board-peers.test.ts lib/team/__tests__/peer.test.ts lib/team/__tests__/invite.test.ts lib/team/__tests__/join.test.ts`
-- [ ] **Step 3: Implement.** Update the existing fixtures that pass a non-org admin token (`'admin'`, `'admin-secret'`, and so on) to an org-shaped token, and give one-org cases an org clone dir under the test HOME, as `discoverOrgs` expects. Do not weaken any assertion.
-- [ ] **Step 4: Run `bun run build` in `packages/rt-client`, then Step 2's command plus `bun test lib/team/__tests__/members.test.ts lib/team/__tests__/create.test.ts lib/daemon/__tests__/secrets-handler.test.ts packages/rt-client/test/dist-freshness.test.ts`, and expect PASS.**
+- [ ] **Step 3: Implement.**
+  - Update the existing fixtures that pass a non-org admin token (`'admin'`, `'admin-secret'`, `"admin-token"`, and so on) to an org-shaped token. That includes `commands/__tests__/team.test.ts` (its local `"admin"` token, around lines 264-329) and `commands/__tests__/team-join.test.ts` (its `readTeamSecret` returning `"admin-token"`, around lines 353 and 427, which also leaves with the seam).
+  - Give one-org cases an org clone dir under the test HOME, as `discoverOrgs` expects.
+  - Do not weaken any assertion.
+  - Reword this task's "switchboard admin token" copy to the spec's terms, and update the tests that pin it:
+    - `lib/team/peer.ts` (the `peer-needs-admin` text);
+    - `lib/team/invite.ts` (`peering-not-embedded`);
+    - `lib/team/members.ts` (the remove copy).
+- [ ] **Step 4: Run `bun run build` in `packages/rt-client`, then Step 2's command plus `bun test lib/team/__tests__/members.test.ts lib/team/__tests__/create.test.ts lib/daemon/__tests__/secrets-handler.test.ts commands/__tests__/team.test.ts commands/__tests__/team-join.test.ts packages/rt-client/test/dist-freshness.test.ts`, and expect PASS.**
 - [ ] **Step 5: Commit.** `team: pick the switchboard token by its source; never send a master kept on the Mac`
 
 ### Task 6: `rt team admin-secrets` shares only org tokens; create says what it waits for
@@ -249,8 +276,9 @@
   - `TokenOutcome` gains `"operator"`.
   - `placeToken` never writes a token that is not an org token. `syncAdminSecrets` skips its `notThisMac` check for such a token.
   - `TeamDeps.readStdin?: () => Promise<string>`, defaulting to `new Response(Bun.stdin.stream()).text()`.
+  - `TeamDeps.teamSecretsSeams?: (slug: string) => SecretsSeams`, defaulting to `createRealTeamSecretsSeams`. `teamAdminSecrets` uses it, and `deps.membersSeams` replaces the inline `realMembersSeams()`, so its tests never run real sops or age. Tests use `lib/secrets/__tests__/team-fakes.ts`.
   - Errors: `not-org-token` ("That is not an org switchboard token", why: "Org tokens start with sbo_. The relay operator's own token is never shared.") and `org-token-rejected` ("The switchboard did not accept that token", why: "Nothing was changed. Check the token with the relay operator.").
-  - Create prints `out.line("pending", "Your board connects once the relay operator gives this org its switchboard token")` and `out.callout("next", out.cmd("rt team admin-secrets --token-stdin"))` when `autoPeer` hits `peer-needs-admin`.
+  - Create prints `out.line("pending", "Your board connects once the relay operator gives this org its switchboard token")` when `autoPeer` hits `peer-needs-admin`, then two `next` callouts in order: `rt team admin-secrets --token-stdin`, then `rt team peer`.
   - Tree node description: "Share your org's switchboard token with its owners and admins, and keep it locked to them". New flag row: `{ name: "Token from stdin", flag: "--token-stdin", type: "boolean", default: false, hint: "Read your org's switchboard token from stdin and share it" }`.
 
 - [ ] **Step 1: Write the failing tests.**
@@ -270,6 +298,7 @@
 - [ ] **Step 3: Implement.**
   - Without `--token-stdin`, `teamAdminSecrets` reads this Mac's raw sources (env `SWITCHBOARD_ADMIN_TOKEN`, then `boardEnvValue(p, "SWITCHBOARD_ADMIN_TOKEN")`, then the local secret), and only on a one-org Mac.
   - The `operator` block is `out.line("refused", "This Mac's switchboard token is the relay operator's, so rt did not share it")` plus a `next` callout: `rt team admin-secrets --token-stdin`.
+  - Reword the "switchboard admin token" copy in `commands/team.ts` (`TOKEN_BLOCKS`, `adminSecretsBlocks`, the removal callout) to the spec's terms.
 - [ ] **Step 4: Run Step 2's command plus the command-tree tests, and expect PASS.**
 - [ ] **Step 5: Commit.** `team admin-secrets: share only org tokens; add --token-stdin`
 
@@ -301,7 +330,9 @@
     - `a Mac holding only an operator token is not told to run rt team peer`
     - `a Mac holding an org token still is`
 - [ ] **Step 2: Run them, and expect FAIL:** `bun test lib/setup/__tests__/validators-admin-secrets.test.ts lib/setup/__tests__/validators-accounts.test.ts`
-- [ ] **Step 3: Implement.** Update fixtures to org-shaped tokens where a test means an org token, as in Task 5.
+- [ ] **Step 3: Implement.**
+  - Update fixtures to org-shaped tokens where a test means an org token, as in Task 5.
+  - Reword the rows' "switchboard admin token" copy to the spec's terms: `BASE.why` and the existing details in `validators/admin-secrets.ts`, and the board-peering steps in `accounts.ts`.
 - [ ] **Step 4: Run Step 2's command plus `bun test lib/setup/__tests__/steps-c.test.ts commands/__tests__/team-status.test.ts`, and expect PASS.**
 - [ ] **Step 5: Commit.** `setup: the admin-secrets and board-peering rows tell org tokens from the operator's`
 
@@ -320,6 +351,26 @@
   - Rotating an org token, after which admins run `--token-stdin --replace-token`.
   - No rollback past this change once a second org exists.
   - No board keeps the master after step 5, the operator's included.
-- [ ] **Step 2: Update `peer-boards.md` and the rule file.** Keep each fact once: the rule file points to the runbook instead of copying it.
+  - Step 5's new master is at least 32 random characters (`openssl rand -hex 32`).
+- [ ] **Step 2: Update `peer-boards.md` and the rule file.**
+  - Keep each fact once: the rule file points to the runbook instead of copying it.
+  - `peer-boards.md`'s operator setup carries the 32-character rule too.
+  - If the fence covers `apps/board/docs/configuration.md`, reword its `SWITCHBOARD_ADMIN_TOKEN` row: it holds the org's switchboard token, never the relay operator's.
 - [ ] **Step 3: Run `bun test lib/__tests__/no-switchboard-url-setting.test.ts` and `bun run typecheck`, and expect PASS and clean.**
 - [ ] **Step 4: Commit.** `docs: switchboard org tokens runbook, peer-boards and rule updates`
+
+### Task 9: Dedicated security review before the PR
+
+Runs after the final whole-branch review is clean, before any push or PR (Matt's requirement, relayed by the shepherd).
+
+- [ ] **Step 1: Write `.superpowers/security-review-request.md`.**
+  - The commit range (`git log --oneline main..HEAD`) and the changed files (`git diff --stat main...HEAD`).
+  - The trust boundaries:
+    - who holds which token (the master, org tokens, board tokens) before and after each runbook step;
+    - what each relay route accepts from each scope;
+    - which rt reader takes which source;
+    - the migration steps 0 to 5.
+  - The two declared deviations from the spec.
+- [ ] **Step 2: Publish it** with `herd_milestone`, artifact that file, summary `RT-613 ready for security review`. The security reviewer is dispatched by the shepherd, on a model no weaker than this session's, and DMs its findings.
+- [ ] **Step 3: Fix each finding** with its test, re-run the touched suites and `bun run typecheck`, and commit. Answer the reviewer by DM.
+- [ ] **Step 4: Only after that milestone is approved,** push with `git_push` and open the PR with `mr_create` (`draft: false`). The description carries the operator's steps for Matt, the declared deviations, the follow-ups and the security review's verdict.
