@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { RoleConfig } from "../config.ts";
@@ -44,6 +44,23 @@ test("an intercepted command is read from the installed rt and from a source che
   expect(interceptCommandOf("rt intercept run doppler -- run -- parcel")).toEqual(want);
   expect(interceptCommandOf("/Applications/mattstack.app/Contents/MacOS/rt intercept run doppler -- run -- parcel")).toEqual(want);
   expect(interceptCommandOf("/Users/me/.bun/bin/bun run --preload=/Users/me/restore-cwd.ts /code/rt/cli.ts intercept run doppler -- run -- parcel")).toEqual(want);
+});
+
+describe("a source checkout whose path holds a space", () => {
+  let dir: string;
+  beforeEach(() => { dir = realpathSync(mkdtempSync(join(tmpdir(), "rt dev "))); });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  test("runs an intercepted command when its cli.ts is there", () => {
+    writeFileSync(join(dir, "cli.ts"), "");
+    expect(interceptCommandOf(`/Users/me/.bun/bin/bun run --preload=/x.ts ${dir}/cli.ts intercept run doppler -- run -- parcel`))
+      .toEqual({ command: "doppler", args: ["run", "--", "parcel"] });
+  });
+
+  test("is only a mention when the words before cli.ts are no path", () => {
+    writeFileSync(join(dir, "cli.ts"), "");
+    expect(interceptCommandOf(`bun /opt/bin/codex exec fix ${dir}/cli.ts intercept run doppler -- run -- parcel`)).toBeNull();
+  });
 });
 
 test("an intercepted command with no arguments has none", () => {
@@ -238,6 +255,44 @@ test("an agent whose path holds a space is named above a server and spared insid
   expect(inside.map((s) => s.pids)).toEqual([[10, 11]]);
 });
 
+test("a same-role server an agent started inside a server's tree is its own row", () => {
+  const found = findServers(snap([
+    ...apiTree(API, [10400]),
+    { pid: 20, ppid: 11, args: "claude --resume x", cwd: API },
+    { pid: 30, ppid: 20, args: API_RUN, cwd: API },
+    { pid: 31, ppid: 30, args: "node src/server", cwd: API, ports: [10401] },
+  ]), rules([{ worktree: TREE, role: "api", port: 10400 }]));
+  expect(found.map((s) => [s.pid, s.pids, s.agent, s.inside])).toEqual([
+    [10, [10, 11, 12, 13], null, "claude"],
+    [30, [30, 31], "claude", null],
+  ]);
+});
+
+test("an intercept run whose folder lsof did not report takes it from the one process it started", () => {
+  const found = snap(apiTree(API, [10400]));
+  found.cwds.delete(10);
+  found.cwds.delete(11);
+  expect(findServers(found, rules()).map((s) => [s.pid, s.pids])).toEqual([[10, [10, 11, 12, 13]]]);
+});
+
+test("an intercept run with no folder is skipped once its children split up, since one of them may have moved", () => {
+  const found = snap([
+    { pid: 10, ppid: 1, args: API_RUN, cwd: API },
+    { pid: 11, ppid: 10, args: "node src/server", cwd: API },
+    { pid: 12, ppid: 10, args: "node worker.js", cwd: "/code/other/apps/api" },
+  ]);
+  found.cwds.delete(10);
+  expect(findServers(found, rules())).toEqual([]);
+});
+
+test("an agent launched with interpreter flags is named above a server and inside one", () => {
+  const agent = "node --no-warnings --enable-source-maps /opt/bin/codex exec fix";
+  const above = findServers(snap([{ pid: 5, ppid: 1, args: agent, cwd: API }, ...apiTree(API, [10400], 5)]), rules());
+  expect(above.map((s) => s.agent)).toEqual(["codex"]);
+  const inside = findServers(snap([...apiTree(API).slice(0, 2), { pid: 12, ppid: 11, args: agent, cwd: API }]), rules());
+  expect(inside.map((s) => [s.pids, s.inside])).toEqual([[[10, 11], "codex"]]);
+});
+
 test("a left-behind tree never climbs into an agent or an app in the same folder", () => {
   const under = (top: { args: string; command: string }) => findServers(snap([
     { pid: 9, ppid: 1, cwd: API, ...top },
@@ -306,11 +361,16 @@ test("a session or an interactive shell inside a tree is named, and a script's s
   expect(inside("bash -i --rcfile /tmp/my session.rc")).toEqual(["shell"]);
   expect(inside("bash --rcfile /tmp/my session.rc")).toEqual(["shell"]);
   expect(inside("fish -C source x.fish")).toEqual(["shell"]);
+  expect(inside("fish -lC source x.fish")).toEqual(["shell"]);
+  expect(inside("fish --init-command=source x.fish")).toEqual(["shell"]);
+  expect(inside("fish --init-command source x.fish")).toEqual(["shell"]);
   expect(inside("bash -o pipefail -c node src/server")).toEqual([null]);
   expect(inside("/bin/zsh -lc node src/server")).toEqual([null]);
   expect(inside("zsh -i -c npm run dev")).toEqual([null]);
   expect(inside("bash -C scripts/start.sh")).toEqual([null]);
   expect(inside("fish --command node")).toEqual([null]);
+  expect(inside("fish --command=node")).toEqual([null]);
+  expect(inside("fish -lc node")).toEqual([null]);
   expect(inside("sh -c node src/server")).toEqual([null]);
   expect(inside("/bin/bash scripts/start.sh")).toEqual([null]);
   expect(inside("node src/server")).toEqual([null]);
@@ -353,6 +413,65 @@ test("a claimed folder that still exists but git does not list is not this repo'
   } finally {
     rmSync(other, { recursive: true, force: true });
   }
+});
+
+describe("a claimed folder git dropped while the folder stayed", () => {
+  let dir: string;
+  beforeEach(() => { dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-dropped-"))); });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  const findIn = (tree: string, gitFile: string) => {
+    const main = join(dir, "main");
+    mkdirSync(join(main, ".git", "worktrees"), { recursive: true });
+    mkdirSync(tree, { recursive: true });
+    writeFileSync(join(tree, ".git"), gitFile);
+    return findServers(
+      snap(apiTree(join(tree, "apps", "api"), [10400]), [{ path: main, branch: "main" }]),
+      rules([{ worktree: tree, role: "api", port: 10400 }]),
+    );
+  };
+
+  test("is this repo's when its .git points into this repo's worktrees", () => {
+    const tree = join(dir, "calm-marble");
+    const found = findIn(tree, `gitdir: ${join(dir, "main", ".git", "worktrees", "calm-marble")}\n`);
+    expect(found.map((s) => [s.worktree.path, s.branch, s.removed])).toEqual([[tree, null, true]]);
+  });
+
+  test("is this repo's when that gitdir is written relative to the folder", () => {
+    const tree = join(dir, "calm-marble");
+    expect(findIn(tree, "gitdir: ../main/.git/worktrees/calm-marble\n").map((s) => s.removed)).toEqual([true]);
+  });
+
+  test("is another repo's when its .git points anywhere else", () => {
+    mkdirSync(join(dir, "other", ".git", "worktrees"), { recursive: true });
+    expect(findIn(join(dir, "calm-marble"), `gitdir: ${join(dir, "other", ".git", "worktrees", "calm-marble")}\n`)).toEqual([]);
+  });
+});
+
+describe("a worktree reached through a symlink", () => {
+  let dir: string;
+  let real: string;
+  let link: string;
+  beforeEach(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-linked-")));
+    real = join(dir, "real", "calm-marble");
+    link = join(dir, "calm-marble");
+    mkdirSync(join(real, "apps", "api"), { recursive: true });
+    symlinkSync(real, link);
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  test("git's symlinked path holds the servers lsof reports under the real one", () => {
+    const found = findServers(snap(apiTree(join(real, "apps", "api"), [10400]), [{ path: link, branch: "feature/login" }]), rules());
+    expect(found.map((s) => [s.worktree.path, s.branch, s.removed])).toEqual([[link, "feature/login", false]]);
+  });
+
+  test("a claim made through the symlink finds the server left behind on its port", () => {
+    const found = findServers(
+      snap([{ pid: 13, ppid: 1, args: "node src/server", cwd: join(real, "apps", "api"), ports: [10400] }], [{ path: real, branch: "feature/login" }]),
+      rules([{ worktree: link, role: "api", port: 10400 }]),
+    );
+    expect(found.map((s) => [s.role, s.port, s.leftBehind, s.removed])).toEqual([["api", 10400, true, false]]);
+  });
 });
 
 test("a claimed worktree git still lists is not a removed one", () => {

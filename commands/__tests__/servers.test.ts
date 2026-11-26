@@ -17,7 +17,7 @@ import * as out from "../../lib/ui/out.ts";
 import { __test__ as pickTest, type PickHandle } from "../../lib/ui/pick.ts";
 import { installFakePick } from "../../lib/ui/pick-fake.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { branchesOf, pickView, realServersDeps, serverBlocks, serverHints, serversCommand, type Lookup, type ServersDeps } from "../servers.ts";
+import { askDaemonToRefresh, branchesOf, pickView, realServersDeps, serverBlocks, serverHints, serversCommand, type Lookup, type ServersDeps } from "../servers.ts";
 
 const IDENTITY = "remote:example.com%2Facme%2Fsample-app";
 const TREE = "/trees/calm-marble";
@@ -101,6 +101,33 @@ test("the hints name the agent, then what is odd about the server", () => {
   expect(serverHints(server({ inside: "shell" }))).toEqual(["shell inside"]);
 });
 
+describe("askDaemonToRefresh", () => {
+  test("sends one cache refresh", async () => {
+    const sent: unknown[][] = [];
+    await askDaemonToRefresh(async (...args) => { sent.push(args); return null; });
+    expect(sent).toEqual([["cache:refresh", undefined, 1_000]]);
+  });
+
+  test("a daemon that is down or fails changes nothing", async () => {
+    await askDaemonToRefresh(async () => { throw new Error("no daemon"); });
+  });
+});
+
+describe("realServersDeps.enrich", () => {
+  test("a detached server needs no lookup", async () => {
+    expect(await realServersDeps.enrich([server({ branch: null })], undefined)).toEqual(new Map());
+  });
+
+  test("answers by worktree path, each server's own branch", async () => {
+    const gone = server({ worktree: { path: "/trees/.trash/old-1", name: "old-1" }, branch: "web-198-order-totals", removed: true });
+    const found = await realServersDeps.enrich([gone, server()], undefined);
+    expect([...found].map(([path, eb]) => [path, eb.branch]).sort()).toEqual([
+      ["/trees/.trash/old-1", "web-198-order-totals"],
+      [TREE, "web-214-login-rate-limit"],
+    ]);
+  });
+});
+
 test("a removed worktree is never the first branch looked up, since git is run in the first one's folder", () => {
   const gone = server({ worktree: { path: "/trees/.trash/old-1", name: "old-1" }, branch: "web-198-order-totals", removed: true });
   expect(branchesOf([gone, server()]).map((b) => b.path)).toEqual([TREE, "/trees/.trash/old-1"]);
@@ -172,6 +199,7 @@ function harness(over: Over = {}) {
   const calls = {
     snapshot: 0, enrich: 0, pick: 0, stop: 0, slept: [] as number[], spare: new Set<number>(), picked: [] as RunningServer[],
     fresh: null as FreshServers | null, exits: [] as number[], cancelled: false, landedAtPick: undefined as Lookup["landed"] | undefined,
+    flushes: 0, refreshes: 0,
   };
   const deps: ServersDeps = {
     rules: () => over.rules ?? RULES,
@@ -207,9 +235,11 @@ function harness(over: Over = {}) {
         })),
       } as unknown as Promise<void>;
     },
+    flushed: async () => { calls.flushes++; },
+    refreshLater: async () => { calls.refreshes++; },
     exit: (code) => { calls.exits.push(code); },
   };
-  return { calls, run: (args: string[] = []) => serversCommand(args, CTX, deps) };
+  return { calls, run: (args: string[] = [], over: Partial<ServersDeps> = {}) => serversCommand(args, CTX, { ...deps, ...over }) };
 }
 
 const NEVER = () => new Promise<Map<string, EnrichedBranch>>(() => {});
@@ -264,6 +294,34 @@ describe("serversCommand", () => {
     const failed = harness({ ...slow, pick: [10], outcomes: ([s]) => [{ server: s!, result: "failed", why: "It did not stop." }] });
     await failed.run();
     expect([listed, escaped, stopped, failed].map((h) => h.calls.exits)).toEqual([[0], [0], [0], [1]]);
+  });
+
+  test("a forced exit waits for the output to flush", async () => {
+    const { run, calls } = harness({ enrich: NEVER, deadlinePasses: true });
+    const order: string[] = [];
+    let flush!: () => void;
+    const deps = { flushed: () => new Promise<void>((resolve) => { order.push("flush"); flush = resolve; }) };
+    const running = run([], deps);
+    for (let tries = 0; !flush && tries < 50; tries++) await Bun.sleep(1);
+    expect([order, calls.exits]).toEqual([["flush"], []]);
+    flush();
+    await running;
+    order.push(...calls.exits.map(String));
+    expect(order).toEqual(["flush", "0"]);
+  });
+
+  test("a lookup cut short by the exit asks the daemon to fill the cache before exiting, and one that landed does not", async () => {
+    const slow = harness({ enrich: NEVER, deadlinePasses: true });
+    let answer!: () => void;
+    const running = slow.run([], { refreshLater: () => new Promise<void>((resolve) => { answer = resolve; }) });
+    for (let tries = 0; !answer && tries < 50; tries++) await Bun.sleep(1);
+    expect(slow.calls.exits).toEqual([]);
+    answer();
+    await running;
+    expect(slow.calls.exits).toEqual([0]);
+    const quick = harness();
+    await quick.run();
+    expect(quick.calls.refreshes).toBe(0);
   });
 
   test("nothing running is one line, at a terminal too, and no picker opens", async () => {
@@ -410,6 +468,13 @@ describe("serversCommand", () => {
     expect(calls.stop).toBe(0);
   });
 
+  test("a re-read that fails with a lookup still pending is the typed failure, so the dispatch seam ends the process", async () => {
+    const { run, calls } = harness({ canAsk: true, pick: [10], snapshots: [SNAPSHOT, null], enrich: NEVER, deadlinePasses: true });
+    const error = await run().catch((err: unknown) => err);
+    expect(error).toMatchObject({ code: "servers-read-failed" });
+    expect([calls.stop, calls.exits]).toEqual([0, []]);
+  });
+
   test("the stop compares against the re-read, and spares rt's ancestors as they are then", async () => {
     const later = "Wed Nov 25 09:00:00 2026";
     const reread: ServerSnapshot = {
@@ -437,7 +502,12 @@ test("rows with the same role and port say which worktree, so no two picks read 
   expect(view([twin(10, "calm-marble"), twin(20, "old-pond"), server({ pid: 30, role: "web", port: 4001 })])).toEqual(["api no port calm-marble", "api no port old-pond", "web :4001"]);
   expect(view([twin(10, "calm-marble"), twin(20, "calm-marble")])).toEqual(["api no port calm-marble 10", "api no port calm-marble 20"]);
   const { rows } = pickView(groupServers([twin(10, "calm-marble"), twin(20, "calm-marble")], new Map()));
-  expect(rows.map((r) => r.match!.endsWith(` no port calm-marble ${r.value}`))).toEqual([true, true]);
+  expect(rows.map((r) => r.match!.endsWith(` ${r.value}`) && r.match!.includes(" no port calm-marble "))).toEqual([true, true]);
+});
+
+test("a single row with no port is found by typing no port", () => {
+  const { rows } = pickView(groupServers([server({ pid: 10, port: null, listening: false })], new Map()));
+  expect(rows[0]!.match).toContain("no port");
 });
 
 describe("realServersDeps.pick", () => {

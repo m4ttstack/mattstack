@@ -254,6 +254,16 @@ export function jsonFlushed(value: unknown, indent?: number): Promise<void> {
 }
 
 /**
+ * Resolves once everything already written to stdout and stderr has gone out,
+ * write errors included: a verb that must call process.exit awaits it first,
+ * or a pipe gets only what fit in its buffer.
+ */
+export function flushed(): Promise<void> {
+  const drained = (stream: NodeJS.WriteStream) => new Promise<void>((resolve) => void stream.write("", () => resolve()));
+  return Promise.all([drained(process.stdout), drained(process.stderr)]).then(() => {});
+}
+
+/**
  * Stderr text an agent-only verb writes for the program that ran it, byte for
  * byte and never styled: the stderr twin of payload(). A failure a person
  * reads goes through fail().

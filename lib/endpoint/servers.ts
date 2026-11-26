@@ -1,5 +1,5 @@
-import { existsSync } from "fs";
-import { basename, dirname, join } from "path";
+import { existsSync, readFileSync } from "fs";
+import { basename, dirname, join, resolve } from "path";
 import { agentNameOf, isUserOrAgentProcess, type KillCandidate } from "../daemon/worktree-process-kill.ts";
 import { canon } from "../fs-canon.ts";
 import type { EndpointClaim } from "../state/index.ts";
@@ -80,8 +80,12 @@ export function parseServerProcs(psOutput: string, commands: Map<number, string>
 // another rt verb can hold the rest of this text, and a match becomes a stop target.
 const INTERCEPT_ARGV = /^(?:(?:\S*\/)?rt|(?:\S*\/)?bun(?: run| -\S+)* \S*\/cli\.ts) intercept run ([A-Za-z0-9._-]+) -- ?(.*)$/;
 
+// ps drops the quoting around a path that holds a space, so only a cli.ts on disk there says where the path ends.
+const SPACED_SOURCE_ARGV = /^(?:\S*\/)?bun(?: run| -\S+)* (\/.* .*\/cli\.ts) intercept run ([A-Za-z0-9._-]+) -- ?(.*)$/;
+
 export function interceptCommandOf(args: string): { command: string; args: string[] } | null {
-  const hit = INTERCEPT_ARGV.exec(args);
+  const spaced = SPACED_SOURCE_ARGV.exec(args);
+  const hit = INTERCEPT_ARGV.exec(args) ?? (spaced && existsSync(spaced[1]!) ? spaced.slice(1) : null);
   if (!hit) return null;
   const rest = hit[2]!;
   return { command: hit[1]!, args: rest === "" ? [] : rest.split(" ") };
@@ -102,8 +106,11 @@ export function ancestorPids(procs: ServerProc[], pid: number): number[] {
   return ancestorsIn(new Map(procs.map((p) => [p.pid, p.ppid])), pid);
 }
 
+const INTERPRETER_FLAGS = /^((?:\S*\/)?(?:node|bun|deno|python3?))(?: -\S+)+(?= )/;
+
+/** An interpreter's own flags dropped, so the script it runs names the process. */
 function asCandidate(proc: ServerProc): KillCandidate {
-  return { pid: proc.pid, ppid: proc.ppid, command: proc.command, fullCommand: proc.args };
+  return { pid: proc.pid, ppid: proc.ppid, command: proc.command, fullCommand: proc.args.replace(INTERPRETER_FLAGS, "$1") };
 }
 
 /** A shell, agent or multiplexer, or an app such as an editor. A framework Python runs from an app bundle and is not one. */
@@ -112,8 +119,10 @@ function isUsersOwn(proc: ServerProc): boolean {
 }
 
 const SHELL = /^-?(?:\S*\/)?(zsh|bash|fish|sh)$/;
-const RUNS_A_COMMAND = /^(?:-[a-zA-Z]*c[a-zA-Z]*|--command)$/;
-const STARTS_A_SESSION = /^(?:-[a-zA-Z]*i[a-zA-Z]*|--rcfile|--init-file|--init-command)$/;
+const RUNS_A_COMMAND = /^(?:-[a-zA-Z]*c[a-zA-Z]*|--command(?:=.*)?)$/;
+const STARTS_A_SESSION = /^(?:-[a-zA-Z]*i[a-zA-Z]*|--rcfile|--init-file|--init-command(?:=.*)?)$/;
+/** fish's `-C`, alone or among other short flags. */
+const FISH_INIT = /^-[a-zA-Z]*C[a-zA-Z]*$/;
 const SET_OPTION = /^[-+][oO]$/;
 
 /**
@@ -128,7 +137,7 @@ function isInteractiveShell(args: string): boolean {
   const operand = rest.findIndex((word) => !/^[-+]/.test(word));
   const options = operand === -1 ? rest : rest.slice(0, operand);
   if (options.some((option) => RUNS_A_COMMAND.test(option))) return false;
-  if (options.some((option) => STARTS_A_SESSION.test(option) || (shell === "fish" && option === "-C"))) return true;
+  if (options.some((option) => STARTS_A_SESSION.test(option) || (shell === "fish" && FISH_INIT.test(option)))) return true;
   return operand === -1;
 }
 
@@ -144,6 +153,19 @@ function inNestedRepo(cwd: string, treeRoot: string): boolean {
   return false;
 }
 
+/** A folder whose `.git` file still points into the main checkout's worktrees: git dropped it, and the folder stayed. */
+function droppedFrom(folder: string, mainCheckout: string | undefined): boolean {
+  if (mainCheckout === undefined) return false;
+  let gitFile: string;
+  try {
+    gitFile = readFileSync(join(folder, ".git"), "utf8");
+  } catch {
+    return false;
+  }
+  const target = /^gitdir: (.+)$/m.exec(gitFile)?.[1]?.trim();
+  return target !== undefined && canon(dirname(resolve(folder, target))) === canon(join(mainCheckout, ".git", "worktrees"));
+}
+
 /** Sorted by worktree name, role, port. */
 export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: ServerRules): RunningServer[] {
   const byPid = new Map(snapshot.procs.map((p) => [p.pid, p]));
@@ -156,8 +178,12 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
 
   const listed = snapshot.worktrees.map((w) => ({ path: w.path, branch: w.branch, removed: w.removed ?? false, real: canon(w.path) }));
   const placed = claims.map((c) => ({ role: c.role, port: c.port, path: c.worktree, tree: canon(c.worktree) }));
-  // Claims are keyed by remote, so a folder that still exists unlisted is another clone's, or another repo's by now.
-  const deleted = new Map(placed.filter((c) => !listed.some((t) => t.real === c.tree) && !existsSync(c.tree)).map((c) => [c.tree, c.path]));
+  // Git lists the main checkout first.
+  const mainCheckout = listed.find((t) => !t.removed)?.path;
+  // Claims are keyed by remote, so a folder that still exists unlisted is another clone's, or another repo's by now, unless its .git says otherwise.
+  const deleted = new Map(placed
+    .filter((c) => !listed.some((t) => t.real === c.tree) && (!existsSync(c.tree) || droppedFrom(c.tree, mainCheckout)))
+    .map((c) => [c.tree, c.path]));
   // Longest first, so a tree nested in the main checkout wins over it.
   const trees = [...listed, ...[...deleted].map(([real, path]) => ({ path, branch: null, removed: true, real }))]
     .sort((a, b) => b.real.length - a.real.length);
@@ -167,11 +193,28 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
     return tree && !inNestedRepo(cwd, tree.real) ? tree : undefined;
   };
 
+  const children = new Map<number, number[]>();
+  for (const proc of snapshot.procs) children.set(proc.ppid, [...(children.get(proc.ppid) ?? []), proc.pid]);
+  /**
+   * lsof can miss a process's folder. A child starts in its parent's, so down a
+   * chain of only children the first folder found stands in; past a fork, any
+   * one child may have moved, so none speaks for the parent.
+   */
+  const cwdOf = (pid: number) => {
+    const seen = new Set<number>();
+    for (let at: number | undefined = pid; at !== undefined && !seen.has(at); at = children.get(at)?.length === 1 ? children.get(at)![0] : undefined) {
+      seen.add(at);
+      const cwd = snapshot.cwds.get(at);
+      if (cwd !== undefined) return cwd;
+    }
+    return undefined;
+  };
+
   const repoRules = rules.map((rule) => ({ ...rule, repoRemote: null }));
   const matched = new Map<number, { role: string; tree: Tree }>();
   for (const proc of snapshot.procs) {
     const run = interceptCommandOf(proc.args);
-    const cwd = snapshot.cwds.get(proc.pid);
+    const cwd = run ? cwdOf(proc.pid) : undefined;
     if (!run || cwd === undefined) continue;
     const tree = treeOf(cwd);
     if (!tree) continue;
@@ -181,7 +224,10 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
 
   const roots = new Map<number, { role: string; tree: Tree; leftBehind: boolean }>();
   for (const [pid, at] of matched) {
-    const nested = ancestors(pid).some((up) => matched.get(up)?.role === at.role && matched.get(up)?.tree === at.tree);
+    const above = ancestors(pid);
+    const outer = above.findIndex((up) => matched.get(up)?.role === at.role && matched.get(up)?.tree === at.tree);
+    // One an agent started is its own: stopping the outer one spares the agent and everything under it.
+    const nested = outer >= 0 && !above.slice(0, outer).some((up) => agentAt(up) !== null);
     if (!nested) roots.set(pid, { ...at, leftBehind: false });
   }
 

@@ -1,10 +1,11 @@
 import type { CommandContext } from "../lib/command-tree.ts";
 import { loadEndpointConfig } from "../lib/endpoint/config.ts";
-import { groupServers, mrText, serverMatch, type GroupedServer, type ServerGroup } from "../lib/endpoint/server-groups.ts";
+import { groupServers, mrText, NO_PORT, portText, serverMatch, type GroupedServer, type ServerGroup } from "../lib/endpoint/server-groups.ts";
 import { agentLabel, ancestorPids, findServers, type RunningServer, type ServerRules, type ServerSnapshot } from "../lib/endpoint/servers.ts";
 import { readServerSnapshot, stopServers, type ServerRepo, type StopOutcome } from "../lib/endpoint/servers-system.ts";
 import { loadInterceptRules } from "../lib/endpoint/shim.ts";
 import { loadClaims } from "../lib/endpoint/store.ts";
+import { daemonSocketQuery } from "../lib/daemon-client.ts";
 import { enrichBranches, mrSegments, type EnrichedBranch } from "../lib/enrich.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { repoLabel } from "../lib/repo-label.ts";
@@ -28,6 +29,10 @@ export interface ServersDeps {
   canAsk(): boolean;
   /** Settles early when `cancel` aborts, so a lookup that answers first leaves no timer holding the process open. */
   sleep(ms: number, cancel: AbortSignal): Promise<void>;
+  /** Everything printed so far has gone out. */
+  flushed(): Promise<void>;
+  /** Has the daemon fill the branch cache, for a lookup the exit cuts short. */
+  refreshLater(): Promise<void>;
   exit(code: number): void;
 }
 
@@ -42,9 +47,6 @@ const PICK_ENRICH_DEADLINE_MS = 10_000;
 const READ_FAILED = "rt could not read what is running";
 /** The width rt cd pads its ticket states to. */
 const STATE_WIDTH = 15;
-
-const NO_PORT = "no port";
-const portText = (s: RunningServer) => (s.port === null ? NO_PORT : `:${s.port}`);
 
 export function serverHints(s: RunningServer): string[] {
   return [
@@ -122,7 +124,7 @@ export function pickView(groups: ServerGroup[]): { rows: PickRow[]; groupHeading
   const uptimeWidth = Math.max(...all.map(({ uptime }) => uptime.length));
   const rows = all.map(({ group, row, uptime }): PickRow => ({
     value: String(row.server.pid),
-    match: portCell(row.server) === portText(row.server) ? serverMatch(group, row) : `${serverMatch(group, row)} ${portCell(row.server)}`,
+    match: portCell(row.server).endsWith(` ${row.server.worktree.name} ${row.server.pid}`) ? `${serverMatch(group, row)} ${row.server.pid}` : serverMatch(group, row),
     group: group.key,
     left: [
       { text: `${row.server.role.padEnd(roleWidth)}  `, tone: "peach", bold: true },
@@ -136,6 +138,17 @@ export function pickView(groups: ServerGroup[]): { rows: PickRow[]; groupHeading
 }
 
 const STOP_ACTION: PickAction = { id: "select", label: "stop", key: "enter", scope: "item", group: "mark", primary: true };
+
+const REFRESH_ASK_MS = 1_000;
+
+/** Fire and forget: the daemon's refresh outlives this process, and a daemon that is down or starting is left as it is. */
+export async function askDaemonToRefresh(query: typeof daemonSocketQuery = daemonSocketQuery): Promise<void> {
+  try {
+    await query("cache:refresh", undefined, REFRESH_ASK_MS);
+  } catch {
+    // Best effort: the next run looks the branches up again.
+  }
+}
 
 export const realServersDeps: ServersDeps = {
   rules: (identity) => {
@@ -189,6 +202,8 @@ export const realServersDeps: ServersDeps = {
         resolve();
       });
     }),
+  flushed: out.flushed,
+  refreshLater: () => askDaemonToRefresh(),
   exit: (code) => process.exit(code),
 };
 
@@ -277,5 +292,8 @@ export async function serversCommand(args: string[], ctx: CommandContext, deps: 
   if (deps.canAsk()) await pickAndStop();
   else out.print(...serverBlocks(label, groupServers(servers, await enrichedWithin(deps, lookup, LIST_ENRICH_DEADLINE_MS))));
   // A forge lookup has no timeout of its own, and a pending one holds the process open.
-  if (!lookup.landed) deps.exit(Number(process.exitCode ?? 0));
+  if (lookup.landed) return;
+  await deps.refreshLater();
+  await deps.flushed();
+  deps.exit(Number(process.exitCode ?? 0));
 }
