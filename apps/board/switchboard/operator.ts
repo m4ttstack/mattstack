@@ -16,17 +16,22 @@ function acceptedUrl(raw: string): string | null {
     return null;
   }
   if (parsed.username !== '' || parsed.password !== '') return null;
-  const local = parsed.protocol === 'http:' && LOOPBACK_HOSTS.has(parsed.hostname);
+  const local =
+    parsed.protocol === 'http:' && LOOPBACK_HOSTS.has(parsed.hostname);
   if (parsed.protocol !== 'https:' && !local) return null;
   return trimmed.replace(/\/+$/, '');
 }
 
-const fail = (stderr: string): Result => ({ code: 1, stdout: '', stderr: `${stderr}\n` });
+const fail = (stderr: string): Result => ({
+  code: 1,
+  stdout: '',
+  stderr: `${stderr}\n`,
+});
 
 export async function runOperator(
   argv: string[],
   env: Record<string, string | undefined>,
-  fetchFn: typeof fetch,
+  fetchFn: typeof fetch
 ): Promise<Result> {
   const [verb, id] = argv;
   const valid =
@@ -36,18 +41,30 @@ export async function runOperator(
   if (!valid) return fail(USAGE);
 
   const master = env.SWITCHBOARD_OPERATOR_TOKEN;
-  if (!master) return fail('set SWITCHBOARD_OPERATOR_TOKEN to the relay operator\'s token');
+  if (!master)
+    return fail("set SWITCHBOARD_OPERATOR_TOKEN to the relay operator's token");
   const base = acceptedUrl(env.SWITCHBOARD_URL ?? DEFAULT_URL);
   if (base === null)
-    return fail('SWITCHBOARD_URL must be https, or http to localhost, 127.0.0.1 or [::1]');
+    return fail(
+      'SWITCHBOARD_URL must be https, or http to localhost, 127.0.0.1 or [::1]'
+    );
 
   const [method, path] =
-    verb === 'orgs' ? ['GET', '/orgs'] : verb === 'mint' ? ['POST', '/orgs'] : ['POST', `/orgs/${id}/token`];
+    verb === 'orgs'
+      ? ['GET', '/orgs']
+      : verb === 'mint'
+        ? ['POST', '/orgs']
+        : ['POST', `/orgs/${id}/token`];
   let res: Response;
   try {
-    res = await fetchFn(`${base}${path}`, { method, headers: { authorization: `Bearer ${master}` } });
+    res = await fetchFn(`${base}${path}`, {
+      method,
+      headers: { authorization: `Bearer ${master}` },
+    });
   } catch (err) {
-    return fail(`could not reach ${base}: ${err instanceof Error ? err.message : String(err)}`);
+    return fail(
+      `could not reach ${base}: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
   const text = await res.text();
   let body: any = null;
@@ -62,16 +79,25 @@ export async function runOperator(
   }
 
   if (verb === 'orgs') {
-    if (!Array.isArray(body?.orgs)) return fail('the relay sent an answer this script does not understand');
+    if (!Array.isArray(body?.orgs))
+      return fail('the relay sent an answer this script does not understand');
     const lines = body.orgs.map(
       (o: any) =>
-        `${o.id}  boards=${o.boards}  token=${o.hasToken ? 'yes' : 'no'}${o.legacy ? '  legacy' : ''}`,
+        `${o.id}  boards=${o.boards}  token=${o.hasToken ? 'yes' : 'no'}${o.legacy ? '  legacy' : ''}`
     );
-    return { code: 0, stdout: lines.length ? `${lines.join('\n')}\n` : 'no orgs\n', stderr: '' };
+    return {
+      code: 0,
+      stdout: lines.length ? `${lines.join('\n')}\n` : 'no orgs\n',
+      stderr: '',
+    };
   }
   if (typeof body?.id !== 'string' || !ORG_TOKEN_RE.test(String(body?.token)))
     return fail('the relay sent an answer this script does not understand');
-  return { code: 0, stdout: `org ${body.id}\ntoken ${body.token}\n`, stderr: '' };
+  return {
+    code: 0,
+    stdout: `org ${body.id}\ntoken ${body.token}\n`,
+    stderr: '',
+  };
 }
 
 if (import.meta.main) {
