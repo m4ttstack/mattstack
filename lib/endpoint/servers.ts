@@ -112,8 +112,10 @@ function isUsersOwn(proc: ServerProc): boolean {
 }
 
 const SHELL = /^-?(?:\S*\/)?(zsh|bash|fish|sh)$/;
-const RUNS_A_COMMAND = /^(?:-[a-zA-Z]*c[a-zA-Z]*|--command)$/;
-const STARTS_A_SESSION = /^(?:-[a-zA-Z]*i[a-zA-Z]*|--rcfile|--init-file|--init-command)$/;
+const RUNS_A_COMMAND = /^(?:-[a-zA-Z]*c[a-zA-Z]*|--command(?:=.*)?)$/;
+const STARTS_A_SESSION = /^(?:-[a-zA-Z]*i[a-zA-Z]*|--rcfile|--init-file|--init-command(?:=.*)?)$/;
+/** fish's `-C`, alone or among other short flags. */
+const FISH_INIT = /^-[a-zA-Z]*C[a-zA-Z]*$/;
 const SET_OPTION = /^[-+][oO]$/;
 
 /**
@@ -128,7 +130,7 @@ function isInteractiveShell(args: string): boolean {
   const operand = rest.findIndex((word) => !/^[-+]/.test(word));
   const options = operand === -1 ? rest : rest.slice(0, operand);
   if (options.some((option) => RUNS_A_COMMAND.test(option))) return false;
-  if (options.some((option) => STARTS_A_SESSION.test(option) || (shell === "fish" && option === "-C"))) return true;
+  if (options.some((option) => STARTS_A_SESSION.test(option) || (shell === "fish" && FISH_INIT.test(option)))) return true;
   return operand === -1;
 }
 
