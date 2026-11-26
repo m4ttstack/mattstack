@@ -179,9 +179,18 @@ describe("endpoint handlers", () => {
     try {
       expect(() => releaseEndpointsForWorktree(ctx, idOf("repoReadonly"), "/wt/z")).not.toThrow();
     } finally {
-      chmodSync(dbPath, 0o644);
+      // The read-only open re-creates state.db-wal with state.db's 0444 mode,
+      // and bun keeps the WAL file after close on macOS, so the sidecars need
+      // their write bit back as well.
+      for (const path of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+        if (existsSync(path)) chmodSync(path, 0o644);
+      }
       closeStateDb();
     }
+
+    // Anything that opens this db before afterEach removes it (a notifier
+    // fallback timer from another file, RT-601) must find it writable again.
+    expect(() => listEndpointClaims(idOf("repoReadonly"))).not.toThrow();
   });
 
   /**
