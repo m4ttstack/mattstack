@@ -414,7 +414,6 @@ describe("rtCommand: retry while the daemon restarts", () => {
     const prior = process.env.RT_DAEMON_RETRY_BUDGET_MS;
     process.env.RT_DAEMON_RETRY_BUDGET_MS = "2000";
     try {
-      const started = Date.now();
       const res = await rtCommand("ping", {}, { sockPath: sock });
       expect(res).toEqual({ ok: true, data: { n: 1 } });
     } finally {

@@ -160,16 +160,17 @@ FAKE
 
   # real_run PAYLOAD -- sets $out/$rc/$elapsed, with the sandbox env rt needs
   # so it never reaches the real HOME or the real daemon
+  now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time*1000'; }
   real_run() {
     rm -f "$SANDBOX/realhome/.mattstack/rt/chat/sessions/sess-r.json"
-    local start=$SECONDS
+    local start; start=$(now_ms)
     out="$(printf '%s' "$1" | env -u RT_DAEMON_RETRY_BUDGET_MS \
       PATH="$SANDBOX/realbin:$PATH" HOME="$SANDBOX/realhome" \
       RT_DAEMON_SOCK="$RSOCK" RT_APP_SOCKET="$SOCKDIR/tray.sock" \
       NODE_ENV=test RT_SKIP_SETUP=1 CI=true CLAUDE_CODE_SESSION_ID=sess-r \
       CLAUDE_CODE_ENTRYPOINT=cli HERDR_PANE_ID=w1:p1 "$HOOK" 2>/dev/null)"
     rc=$?
-    elapsed=$((SECONDS - start))
+    elapsed=$(($(now_ms) - start))
   }
   RPAYLOAD="{\"session_id\":\"sess-r\",\"source\":\"startup\",\"cwd\":\"$RREPO\"}"
 
@@ -177,7 +178,7 @@ FAKE
   real_run "$RPAYLOAD"
   check "real rt, no daemon: no stdout" "" "$out"
   check "real rt, no daemon: exits 0" "0" "$rc"
-  check "real rt, no daemon: ends inside 7s" "yes" "$([ "$elapsed" -lt 7 ] && echo yes || echo no)"
+  check "real rt, no daemon: ends inside 7s" "yes" "$([ "$elapsed" -lt 7000 ] && echo yes || echo no)"
 
   DAEMON_LOG="$SANDBOX/daemon-requests"
   : > "$DAEMON_LOG"
