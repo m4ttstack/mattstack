@@ -87,21 +87,23 @@ function setup(w: World = {}) {
   };
   const statuses: Array<{ offeredVersion: string | null; heldVersion: string | null; hold: string | null }> = [];
   const notices: Array<[string, string, string]> = [];
+  const failures: Array<[string, string]> = [];
   let checked = 0;
   const state = { autoUpdate: true, busy: false, clone: { ok: true, behind: 3 } as CloneCheck, installExit: 0, ffExit: 0, cleared: 0, installBun: "" };
   const d: DevAutoDeps = {
     autoUpdateOn: () => state.autoUpdate,
     daemonBusy: async () => state.busy,
     checkClone: async () => { checked++; once("fetch"); return state.clone; },
-    fastForward: async () => { once("ff"); return { exitCode: state.ffExit, stderr: "" }; },
+    fastForward: async () => { once("ff"); return { exitCode: state.ffExit, stderr: state.ffExit === 0 ? "" : "error: Not possible to fast-forward, aborting." }; },
     install: async (_c, _env, bun) => { once("install"); state.installBun = bun; return { exitCode: state.installExit, tail: "lockfile changed" }; },
     restartDaemon: async () => { once("restart"); },
     writeStatus: (st) => { statuses.push(st); },
     clearHeld: () => { state.cleared++; },
     notifyOnce: (version, hold, detail) => { notices.push([version, hold, detail]); },
     lock: async (fn) => fn(),
+    logFailure: (detail, output) => { failures.push([detail, output]); },
   };
-  return { s, d, order, statuses, notices, state, checked: () => checked };
+  return { s, d, order, statuses, notices, failures, state, checked: () => checked };
 }
 
 describe("runDevAutoUpdate", () => {
@@ -187,6 +189,33 @@ describe("runDevAutoUpdate", () => {
     const out = await runDevAutoUpdate(t.s, runner, t.d);
     expect(out).toMatchObject({ kind: "held", hold: "updateFailed" });
     expect((out as { detail: string }).detail).toContain("bun install");
+    expect(t.order).not.toContain("swap");
+    expect(t.order).not.toContain("restart");
+  });
+
+  test("a failed install keeps bun's output in the log", async () => {
+    const t = setup();
+    t.state.installExit = 1;
+    await runDevAutoUpdate(t.s, runner, t.d);
+    expect(t.failures).toEqual([["bun install failed in your clone.", "lockfile changed"]]);
+  });
+
+  test("a failed fast-forward keeps git's output in the log", async () => {
+    const t = setup();
+    t.state.ffExit = 1;
+    const out = await runDevAutoUpdate(t.s, runner, t.d);
+    expect(out).toMatchObject({ kind: "held", hold: "updateFailed" });
+    expect(t.failures).toEqual([["Fast-forwarding your clone to origin/main failed.", "error: Not possible to fast-forward, aborting."]]);
+  });
+
+  test("any other throw after the pull is held updateFailed, recorded and logged, not a silent exit", async () => {
+    const t = setup();
+    t.d.install = async () => { throw new Error("spawn ENOENT"); };
+    const out = await runDevAutoUpdate(t.s, runner, t.d);
+    expect(out).toEqual({ kind: "held", version: "2.23.0", hold: "updateFailed", detail: "Update your clone stopped on an unexpected error." });
+    expect(t.statuses).toEqual([{ offeredVersion: "2.23.0", heldVersion: "2.23.0", hold: "updateFailed" }]);
+    expect(t.notices).toEqual([["2.23.0", "updateFailed", "Update your clone stopped on an unexpected error."]]);
+    expect(t.failures[0]![1]).toContain("spawn ENOENT");
     expect(t.order).not.toContain("swap");
     expect(t.order).not.toContain("restart");
   });

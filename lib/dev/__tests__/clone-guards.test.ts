@@ -202,4 +202,14 @@ describe("fastForwardMain", () => {
     expect(r.stderr).toContain("not on main");
     expect(git(clone, "rev-parse", "HEAD")).toBe(before);
   });
+
+  test("a failed fast-forward returns what git said on stderr", async () => {
+    const { clone, upstream } = fixture();
+    advanceOrigin(upstream, 1);
+    git(clone, "fetch", "origin");
+    writeFileSync(join(clone, "u0.txt"), "mine\n");
+    const r = await fastForwardMain(deps, clone);
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr).toContain("would be overwritten");
+  });
 });

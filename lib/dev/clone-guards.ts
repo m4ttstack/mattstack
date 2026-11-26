@@ -14,7 +14,7 @@ export type CloneCheck =
   | { ok: false; hold: CloneHold; detail: string };
 
 export interface CloneGuardDeps {
-  git(cwd: string, args: string[], opts?: { timeoutMs?: number }): Promise<{ stdout: string; exitCode: number }>;
+  git(cwd: string, args: string[], opts?: { timeoutMs?: number }): Promise<{ stdout: string; stderr?: string; exitCode: number }>;
   fetch(cwd: string): Promise<{ exitCode: number }>;
 }
 
@@ -73,5 +73,5 @@ export async function fastForwardMain(deps: CloneGuardDeps, clone: string): Prom
   const branch = await deps.git(clone, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
   if (branch.exitCode !== 0 || branch.stdout.trim() !== "main") return { exitCode: 1, stderr: "Your clone is not on main any more." };
   const r = await deps.git(clone, ["merge", "--ff-only", "refs/remotes/origin/main"], { timeoutMs: 5 * 60_000 });
-  return { exitCode: r.exitCode, stderr: r.exitCode === 0 ? "" : r.stdout };
+  return { exitCode: r.exitCode, stderr: r.exitCode === 0 ? "" : `${r.stdout}\n${r.stderr ?? ""}`.trim() };
 }

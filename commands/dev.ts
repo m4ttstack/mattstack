@@ -121,6 +121,7 @@ function realAutoDeps(): DevAutoDeps {
         lock.release();
       }
     },
+    logFailure: (detail, output) => logCliEvent("warn", "dev", detail, { output: withoutUrls(output) }),
   };
 }
 

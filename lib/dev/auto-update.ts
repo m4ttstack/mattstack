@@ -40,6 +40,8 @@ export interface DevAutoDeps {
   /** One notification per (version, hold). */
   notifyOnce(version: string, hold: DevHold, detail: string): void;
   lock<T>(fn: () => Promise<T>): Promise<T | "locked">;
+  /** The detached run's output goes nowhere, so a failure's own output is kept here. */
+  logFailure(detail: string, output: string): void;
 }
 
 const CURRENT: DevAutoOutcome = { kind: "current" };
@@ -71,32 +73,42 @@ export async function runDevAutoUpdate(s: DevSeams, stage: StageRunner, d: DevAu
     const tools = await toolsForOriginMain(s, clone);
     if ("missing" in tools) return held("updateFailed", tools.missing);
 
+    let current = "";
+    const step: StageRunner = (title, task) => {
+      current = title;
+      return stage(title, task);
+    };
     try {
-      await stage("Update your clone", async () => {
+      await step("Update your clone", async () => {
         const ff = await d.fastForward(clone);
-        if (ff.exitCode !== 0) throw new StepFailed("Fast-forwarding your clone to origin/main failed.");
+        if (ff.exitCode !== 0) throw new StepFailed("Fast-forwarding your clone to origin/main failed.", ff.stderr);
         const inst = await d.install(clone, toolchainEnv(s, tools), tools.bunPath);
-        if (inst.exitCode !== 0) throw new StepFailed("bun install failed in your clone.");
+        if (inst.exitCode !== 0) throw new StepFailed("bun install failed in your clone.", inst.tail);
         return { status: "done", title: "Updated your clone" };
       });
-      await stage("Rebuild rt's terminal helper", async () => {
+      await step("Rebuild rt's terminal helper", async () => {
         if (!(await rtUiStale(s, clone))) return { status: "skipped", title: "rt's terminal helper is current" };
         await asStep(() => buildRtUi(s, clone, tools), "Building rt's terminal helper failed.");
         return { status: "done", title: "Rebuilt rt's terminal helper" };
       });
-      await stage("Build the served apps", async () => {
+      await step("Build the served apps", async () => {
         const failed = await buildServedApps(s, clone, toolchainEnv(s, tools));
         if (failed) throw new StepFailed(`Building ${failed} from your clone failed.`);
         return { status: "done", title: "Built the served apps" };
       });
-      await stage("Serve the apps from your clone", async (io) => {
+      await step("Serve the apps from your clone", async (io) => {
         await asStep(() => registerApps(s, clone, io), "Serving the apps from your clone failed.");
         return { status: "done", title: "The apps run from your clone" };
       });
-      await stage("Update the dev app", (io) => asStep(() => ensureDevApp(s, io, "update", pick), "Installing the dev app failed."));
+      await step("Update the dev app", (io) => asStep(() => ensureDevApp(s, io, "update", pick), "Installing the dev app failed."));
     } catch (err) {
-      if (err instanceof StepFailed) return held("updateFailed", err.message);
-      throw err;
+      if (err instanceof StepFailed) {
+        d.logFailure(err.message, err.output);
+        return held("updateFailed", err.message);
+      }
+      const detail = `${current} stopped on an unexpected error.`;
+      d.logFailure(detail, err instanceof Error ? (err.stack ?? err.message) : String(err));
+      return held("updateFailed", detail);
     }
     await d.restartDaemon();
     d.writeStatus({ offeredVersion: version, heldVersion: null, hold: null });
@@ -104,13 +116,17 @@ export async function runDevAutoUpdate(s: DevSeams, stage: StageRunner, d: DevAu
   });
 }
 
-class StepFailed extends Error {}
+class StepFailed extends Error {
+  constructor(message: string, readonly output: string = "") {
+    super(message);
+  }
+}
 
 async function asStep<T>(fn: () => Promise<T>, detail: string): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    if (err instanceof UserActionableError) throw new StepFailed(detail);
+    if (err instanceof UserActionableError) throw new StepFailed(detail, err.log ?? err.message);
     throw err;
   }
 }
