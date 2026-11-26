@@ -252,6 +252,8 @@ export type SnapshotDeps = Omit<HomeSnapshotDeps, "repoDir">;
 export type SnapshotHandle = HomeSnapshotHandle;
 
 const GIT_TIMEOUT_MS = 15_000;
+/** Built per call so PATH is read after path resolution. A status that refreshes the index holds index.lock and fails a git command another process starts meanwhile. */
+const statusEnv = (): Record<string, string> => ({ ...childEnv(), GIT_OPTIONAL_LOCKS: "0" }) as Record<string, string>;
 /** Commit-cycle skips that also rule out a push; any other skip (nothing new, a locked index) still leaves earlier commits to push. */
 const PUSH_BARRING_SKIPS: ReadonlySet<SkipReason> = new Set(["disabled", "not-a-repo", "not-provisioned", "init-failed", "git-unavailable", "detached", "merge-in-progress", "conflict", "pull-only"]);
 const GIT_PROBE_RETRY_BASE_MS = 30_000;
@@ -1095,7 +1097,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     let blockers = stderr.split("\n").filter((line) => line.startsWith("\t")).map((line) => line.trim()).filter((line) => line !== "");
     if (blockers.length === 0) {
       if (!/unstaged changes|uncommitted changes/i.test(stderr)) return null;
-      const status = await deps.exec(["git", "status", "--porcelain=v1", "-uall", "-z"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+      const status = await deps.exec(["git", "status", "--porcelain=v1", "-uall", "-z"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe", env: statusEnv() });
       if (status.exitCode !== 0) return null;
       blockers = parsePorcelainZ(status.stdout).filter((entry) => entry.xy !== "??").flatMap((entry) => (entry.origPath ? [entry.path, entry.origPath] : [entry.path]));
     }
@@ -1128,7 +1130,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     lastPullAt = deps.now();
     lastPullError = null;
     if (spec.watch) {
-      const dirty = await deps.exec(["git", "status", "--porcelain=v1", "-uall", "-z"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+      const dirty = await deps.exec(["git", "status", "--porcelain=v1", "-uall", "-z"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe", env: statusEnv() });
       if (dirty.exitCode === 0) {
         reportUnowned(parsePorcelainZ(dirty.stdout), (await authorization()).scope);
       }
@@ -1603,6 +1605,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       cwd: deps.repoDir,
       timeoutMs: GIT_TIMEOUT_MS,
       stderr: "pipe",
+      env: statusEnv(),
     });
     const rawEntries = parsePorcelainZ(statusResult.stdout);
     const current = await authorization();
