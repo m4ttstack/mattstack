@@ -58,6 +58,40 @@ public enum UpdatePolicy {
     }
 }
 
+extension UpdatePolicy {
+    public struct SettingReading: Equatable, Sendable {
+        public var silent: Bool
+        public var answered: Bool
+        public init(silent: Bool, answered: Bool) { self.silent = silent; self.answered = answered }
+    }
+
+    /// `reading` is nil past the deadline, `.some(nil)` when rt could not
+    /// answer, else the org's value. Only the last counts as answered.
+    public static func settingReading(_ reading: Bool??, lastSilent: Bool) -> SettingReading {
+        switch reading {
+        case .none: return SettingReading(silent: lastSilent, answered: false)
+        case .some(.none): return SettingReading(silent: true, answered: false)
+        case .some(.some(let value)): return SettingReading(silent: value, answered: true)
+        }
+    }
+
+    /// Only a setting rt answered moves the orgOff record. A read that ran
+    /// past its deadline (a first launch, a slow rt) leaves Sparkle on its
+    /// last mode, which is a guess and must never be reported as the org's.
+    public static func orgOffWrite(settingAnswered: Bool, silent: Bool, heldVersion: String?, hold: String?) -> OrgOffWrite {
+        guard settingAnswered else { return .leave }
+        if !silent, heldVersion == nil, hold != UpdateStatus.orgOff { return .record }
+        if silent, hold == UpdateStatus.orgOff { return .clear }
+        return .leave
+    }
+}
+
+public enum OrgOffWrite: Equatable, Sendable {
+    case record
+    case clear
+    case leave
+}
+
 public enum UpdateHold: Equatable, Sendable {
     case setupRunning
     case windowsOpen

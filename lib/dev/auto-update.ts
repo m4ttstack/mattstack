@@ -9,16 +9,17 @@ import { UserActionableError } from "../errors.ts";
 import { chooseDevRelease, listDevReleases, readInstalledDevApp } from "./dev-app.ts";
 import type { CloneCheck, CloneHold } from "./clone-guards.ts";
 import { registerApps } from "./setup.ts";
-import type { DevSeams, StageRunner } from "./seams.ts";
-import { buildRtUi, ensureDevApp, requireGh, toolchainEnv } from "./stages.ts";
+import type { ChosenDevRelease, DevSeams, StageRunner } from "./seams.ts";
+import { buildRtUi, ensureDevApp, toolchainEnv } from "./stages.ts";
 import { compareVersions, parseBunPin, parseGoPin, probeDevTools } from "./tools.ts";
 import { buildServedApps, rtUiStale } from "./update.ts";
 
 export type DevHold = CloneHold | "daemonBusy" | "orgOff" | "updateFailed";
 export type DevAutoOutcome =
   | { kind: "current" }
+  | { kind: "unchecked"; detail: string }
   | { kind: "held"; version: string; hold: DevHold; detail: string }
-  | { kind: "updated"; version: string };
+  | { kind: "updated"; version: string; daemonRestarted: boolean };
 
 import type { DevAutoStatus } from "./app-update-status.ts";
 export type { DevAutoStatus };
@@ -33,13 +34,22 @@ export interface DevAutoDeps {
   /** bun install --frozen-lockfile */
   /** `bun` is the path the tools stage probed; Go's directory comes first in `env.PATH`. */
   install(clone: string, env: Record<string, string>, bun: string): Promise<{ exitCode: number; tail: string }>;
-  restartDaemon(): Promise<void>;
+  /** True once the tray took the restart; false when no tray answered. */
+  restartDaemon(): Promise<boolean>;
   writeStatus(s: DevAutoStatus): void;
   /** Clears a held status left by an earlier run; writes nothing when none is recorded. */
   clearHeld(): void;
   /** One notification per (version, hold). */
   notifyOnce(version: string, hold: DevHold, detail: string): void;
   lock<T>(fn: () => Promise<T>): Promise<T | "locked">;
+  /** The detached run's output goes nowhere, so a failure's own output is kept here. */
+  logFailure(detail: string, output: string): void;
+  /**
+   * The releases could not be listed. Records that this Mac is not checking
+   * unless a hold already says more; `signedOut` marks a cause that never
+   * clears by itself, which the person is told about once.
+   */
+  unchecked(detail: string, signedOut: boolean): void;
 }
 
 const CURRENT: DevAutoOutcome = { kind: "current" };
@@ -48,11 +58,21 @@ export async function runDevAutoUpdate(s: DevSeams, stage: StageRunner, d: DevAu
   return d.lock(async () => {
     const clone = s.storedSourcePath();
     if (s.flavor !== "dev" || !clone || !s.probes.exists(join(clone, "cli.ts"))) return CURRENT;
+    // No dev app, or one built on this Mac, is not this run's to update, so
+    // a hold an earlier run recorded no longer says anything true.
     const installed = await readInstalledDevApp(s.probes);
-    if (installed && !installed.releaseBuild) return CURRENT;
-    const pick = await newestRelease(s);
+    if (!installed || !installed.releaseBuild) {
+      d.clearHeld();
+      return CURRENT;
+    }
+    const look = await newestRelease(s);
+    if ("unreadable" in look) {
+      d.unchecked(look.unreadable, look.signedOut);
+      return { kind: "unchecked", detail: look.unreadable };
+    }
+    const pick = look.pick;
     if (!pick) return CURRENT;
-    if (installed && compareVersions(installed.version, pick.release.version) >= 0) {
+    if (compareVersions(installed.version, pick.release.version) >= 0) {
       d.clearHeld();
       return CURRENT;
     }
@@ -71,57 +91,83 @@ export async function runDevAutoUpdate(s: DevSeams, stage: StageRunner, d: DevAu
     const tools = await toolsForOriginMain(s, clone);
     if ("missing" in tools) return held("updateFailed", tools.missing);
 
+    let current = "";
+    let relaunched = false;
+    const step: StageRunner = (title, task) => {
+      current = title;
+      return stage(title, task);
+    };
     try {
-      await stage("Update your clone", async () => {
+      await step("Update your clone", async () => {
         const ff = await d.fastForward(clone);
-        if (ff.exitCode !== 0) throw new StepFailed("Fast-forwarding your clone to origin/main failed.");
+        if (ff.exitCode !== 0) throw new StepFailed("Fast-forwarding your clone to origin/main failed.", ff.stderr);
         const inst = await d.install(clone, toolchainEnv(s, tools), tools.bunPath);
-        if (inst.exitCode !== 0) throw new StepFailed("bun install failed in your clone.");
+        if (inst.exitCode !== 0) throw new StepFailed("bun install failed in your clone.", inst.tail);
         return { status: "done", title: "Updated your clone" };
       });
-      await stage("Rebuild rt's terminal helper", async () => {
+      await step("Rebuild rt's terminal helper", async () => {
         if (!(await rtUiStale(s, clone))) return { status: "skipped", title: "rt's terminal helper is current" };
         await asStep(() => buildRtUi(s, clone, tools), "Building rt's terminal helper failed.");
         return { status: "done", title: "Rebuilt rt's terminal helper" };
       });
-      await stage("Build the served apps", async () => {
+      await step("Build the served apps", async () => {
         const failed = await buildServedApps(s, clone, toolchainEnv(s, tools));
         if (failed) throw new StepFailed(`Building ${failed} from your clone failed.`);
         return { status: "done", title: "Built the served apps" };
       });
-      await stage("Serve the apps from your clone", async (io) => {
+      await step("Serve the apps from your clone", async (io) => {
         await asStep(() => registerApps(s, clone, io), "Serving the apps from your clone failed.");
         return { status: "done", title: "The apps run from your clone" };
       });
-      await stage("Update the dev app", (io) => asStep(() => ensureDevApp(s, io, "update", pick), "Installing the dev app failed."));
+      await step("Update the dev app", (io) =>
+        asStep(() => ensureDevApp(s, io, "update", pick, { onInstalled: (r) => { relaunched = r.relaunchedPid !== null; } }), "Installing the dev app failed."));
     } catch (err) {
-      if (err instanceof StepFailed) return held("updateFailed", err.message);
-      throw err;
+      if (err instanceof StepFailed) {
+        d.logFailure(err.message, err.output);
+        return held("updateFailed", err.message);
+      }
+      const detail = `${current} stopped on an unexpected error.`;
+      d.logFailure(detail, err instanceof Error ? (err.stack ?? err.message) : String(err));
+      return held("updateFailed", detail);
     }
-    await d.restartDaemon();
+    // The swap's relaunch of a running app already restarted the daemon.
+    const daemonRestarted = relaunched || (await d.restartDaemon());
     d.writeStatus({ offeredVersion: version, heldVersion: null, hold: null });
-    return { kind: "updated", version };
+    return { kind: "updated", version, daemonRestarted };
   });
 }
 
-class StepFailed extends Error {}
+class StepFailed extends Error {
+  constructor(message: string, readonly output: string = "") {
+    super(message);
+  }
+}
 
 async function asStep<T>(fn: () => Promise<T>, detail: string): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    if (err instanceof UserActionableError) throw new StepFailed(detail);
+    if (err instanceof UserActionableError) throw new StepFailed(detail, err.log ?? err.message);
     throw err;
   }
 }
 
-/** No release, or GitHub not answering, both mean there is nothing to install this hour. */
-async function newestRelease(s: DevSeams) {
+type ReleaseLook = { pick: ChosenDevRelease | null } | { unreadable: string; signedOut: boolean };
+
+/** No release with a dev app means nothing to install; a lookup that failed means rt does not know. */
+async function newestRelease(s: DevSeams): Promise<ReleaseLook> {
+  const gh = s.gh();
+  if (!gh) {
+    return { unreadable: "rt could not ask GitHub for releases: this app does not include the GitHub command-line tool rt needs. Reinstall mattstack.", signedOut: true };
+  }
   try {
-    return await chooseDevRelease(s.probes, await listDevReleases(s.probes, requireGh(s)));
+    return { pick: await chooseDevRelease(s.probes, await listDevReleases(s.probes, gh)) };
   } catch (err) {
-    if (err instanceof UserActionableError) return null;
-    throw err;
+    const said = err instanceof UserActionableError ? (err.log ?? "") : "";
+    if (/gh auth login|not logged in/i.test(said)) {
+      return { unreadable: "rt could not ask GitHub for releases: gh is not signed in. Run gh auth login.", signedOut: true };
+    }
+    return { unreadable: "rt could not ask GitHub for releases. It tries again within the hour.", signedOut: false };
   }
 }
 

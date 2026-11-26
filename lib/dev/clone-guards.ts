@@ -8,17 +8,18 @@ import { isAbsolute, join } from "path";
 import { runGitOrigin } from "../worktree/fetch-auth.ts";
 import { runGit } from "../worktree/git-async.ts";
 
-export type CloneHold = "notOnMain" | "localCommits" | "dirtyTree" | "mergeInProgress" | "fetchFailed";
+export type CloneHold = "notOnMain" | "localCommits" | "dirtyTree" | "mergeInProgress" | "fetchFailed" | "statusFailed";
 export type CloneCheck =
   | { ok: true; behind: number }
   | { ok: false; hold: CloneHold; detail: string };
 
 export interface CloneGuardDeps {
-  git(cwd: string, args: string[], opts?: { timeoutMs?: number }): Promise<{ stdout: string; exitCode: number }>;
+  git(cwd: string, args: string[], opts?: { timeoutMs?: number }): Promise<{ stdout: string; stderr?: string; exitCode: number }>;
   fetch(cwd: string): Promise<{ exitCode: number }>;
 }
 
 const FETCH_TIMEOUT_MS = 120_000;
+const STATUS_TIMEOUT_MS = 60_000;
 const IN_PROGRESS_MARKERS = ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"];
 
 export function realCloneGuardDeps(): CloneGuardDeps {
@@ -26,7 +27,7 @@ export function realCloneGuardDeps(): CloneGuardDeps {
     git: (cwd, args, opts) => runGit(cwd, args, opts),
     // An explicit refspec moves refs/remotes/origin/main whatever the
     // clone's own fetch config says.
-    fetch: (cwd) => runGitOrigin(cwd, ["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"], { timeoutMs: FETCH_TIMEOUT_MS }),
+    fetch: (cwd) => runGitOrigin(cwd, ["fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main"], { timeoutMs: FETCH_TIMEOUT_MS }),
   };
 }
 
@@ -48,8 +49,11 @@ export async function checkClone(deps: CloneGuardDeps, clone: string): Promise<C
   if (!name) return hold("notOnMain", "Your clone is not on a branch.");
   if (name !== "main") return hold("notOnMain", `Your clone is on ${name}, not main.`);
 
-  const status = await deps.git(clone, ["status", "--porcelain=v1", "--untracked-files=all"]);
-  if (status.exitCode !== 0 || status.stdout.trim() !== "") return hold("dirtyTree", "Your clone has uncommitted changes.");
+  // --no-optional-locks: a status that refreshes the index takes index.lock,
+  // and the person's own git in the clone would then fail.
+  const status = await deps.git(clone, ["--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all"], { timeoutMs: STATUS_TIMEOUT_MS });
+  if (status.exitCode !== 0) return hold("statusFailed", "rt could not read your clone's status: git status failed or took too long.");
+  if (status.stdout.trim() !== "") return hold("dirtyTree", "Your clone has uncommitted changes.");
 
   const counts = await deps.git(clone, ["rev-list", "--left-right", "--count", "refs/remotes/origin/main...HEAD"]);
   const [behind, ahead] = counts.stdout.trim().split(/\s+/).map(Number);
@@ -69,5 +73,5 @@ export async function fastForwardMain(deps: CloneGuardDeps, clone: string): Prom
   const branch = await deps.git(clone, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
   if (branch.exitCode !== 0 || branch.stdout.trim() !== "main") return { exitCode: 1, stderr: "Your clone is not on main any more." };
   const r = await deps.git(clone, ["merge", "--ff-only", "refs/remotes/origin/main"], { timeoutMs: 5 * 60_000 });
-  return { exitCode: r.exitCode, stderr: r.exitCode === 0 ? "" : r.stdout };
+  return { exitCode: r.exitCode, stderr: r.exitCode === 0 ? "" : `${r.stdout}\n${r.stderr ?? ""}`.trim() };
 }

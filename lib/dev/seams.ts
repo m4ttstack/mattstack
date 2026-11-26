@@ -37,5 +37,5 @@ export interface DevSeams extends DevAppInstallSeams {
   devWrapperOwnsRt(): boolean;
 }
 
-export const DEV_REFUSAL_CODES: ReadonlySet<string> = new Set(["dev-no-push-access", "dev-clone-path-taken", "dev-not-set-up", "dev-gh-login"]);
+export const DEV_REFUSAL_CODES: ReadonlySet<string> = new Set(["dev-no-push-access", "dev-clone-path-taken", "dev-not-set-up", "dev-gh-login", "dev-update-running"]);
 export const DEV_NEEDS_YOU_CODES: ReadonlySet<string> = new Set(["dev-no-repo-root", "dev-tool-missing", "dev-clone-missing"]);

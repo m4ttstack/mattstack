@@ -17,6 +17,9 @@ interface World {
   flavor?: "dev" | "prod";
   appBuildFails?: boolean;
   githubDown?: boolean;
+  signedOut?: boolean;
+  noApp?: boolean;
+  appRunning?: boolean;
 }
 
 function setup(w: World = {}) {
@@ -34,12 +37,13 @@ function setup(w: World = {}) {
     "/Applications/mattstack-dev.app/Contents/Info.plist": "",
     "/scratch/unpacked/mattstack-dev.app/Contents/Info.plist": "",
   };
+  if (w.noApp) delete files["/Applications/mattstack-dev.app/Contents/Info.plist"];
   const release = w.release ?? "2.23.0";
   const probes = fakeProbes({
     home: "/Users/collab",
     env: { PATH: "/usr/bin" },
     files,
-    dirs: { "/Applications/mattstack-dev.app": ["Contents"] },
+    dirs: w.noApp ? {} : { "/Applications/mattstack-dev.app": ["Contents"] },
     fetch: async () => ({ status: 200, headers: {}, body: `abc123  mattstack-dev-${release}.zip\n` }),
     exec: (argv) => {
       const a = argv.join(" ");
@@ -56,6 +60,7 @@ function setup(w: World = {}) {
       if (a.includes("MSDevReleaseBuild")) return w.releaseBuild === false ? { code: 1, stdout: "", stderr: "" } : { code: 0, stdout: "true\n", stderr: "" };
       if (a.includes("api repos/m4ttstack/mattstack/releases")) {
         if (w.githubDown) return { code: 1, stdout: "", stderr: "HTTP 502" };
+        if (w.signedOut) return { code: 4, stdout: "", stderr: "To get started with GitHub CLI, please run:  gh auth login" };
         return {
           code: 0,
           stderr: "",
@@ -69,9 +74,18 @@ function setup(w: World = {}) {
       return { code: 0, stdout: "", stderr: "" };
     },
   });
+  let appPids = w.appRunning ? "111" : "";
   const s: DevSeams = {
     probes,
-    swap: { exec: async () => { once("swap"); return { stdout: "", stderr: "", exitCode: 0 }; }, sleep: async () => {} },
+    swap: {
+      exec: async (argv) => {
+        once("swap");
+        if (argv[0] === "kill") appPids = "";
+        if (argv.includes("/usr/bin/open") && w.appRunning) appPids = "222";
+        return { stdout: argv[0] === "pgrep" ? appPids : "", stderr: "", exitCode: 0 };
+      },
+      sleep: async () => {},
+    },
     download: async () => {},
     scratchDir: () => "/scratch",
     flavor: w.flavor ?? "dev",
@@ -87,21 +101,25 @@ function setup(w: World = {}) {
   };
   const statuses: Array<{ offeredVersion: string | null; heldVersion: string | null; hold: string | null }> = [];
   const notices: Array<[string, string, string]> = [];
+  const failures: Array<[string, string]> = [];
+  const unchecked: Array<[string, boolean]> = [];
   let checked = 0;
-  const state = { autoUpdate: true, busy: false, clone: { ok: true, behind: 3 } as CloneCheck, installExit: 0, ffExit: 0, cleared: 0, installBun: "" };
+  const state = { autoUpdate: true, busy: false, clone: { ok: true, behind: 3 } as CloneCheck, installExit: 0, ffExit: 0, cleared: 0, installBun: "", restartOk: true };
   const d: DevAutoDeps = {
     autoUpdateOn: () => state.autoUpdate,
     daemonBusy: async () => state.busy,
     checkClone: async () => { checked++; once("fetch"); return state.clone; },
-    fastForward: async () => { once("ff"); return { exitCode: state.ffExit, stderr: "" }; },
+    fastForward: async () => { once("ff"); return { exitCode: state.ffExit, stderr: state.ffExit === 0 ? "" : "error: Not possible to fast-forward, aborting." }; },
     install: async (_c, _env, bun) => { once("install"); state.installBun = bun; return { exitCode: state.installExit, tail: "lockfile changed" }; },
-    restartDaemon: async () => { once("restart"); },
+    restartDaemon: async () => { once("restart"); return state.restartOk; },
     writeStatus: (st) => { statuses.push(st); },
     clearHeld: () => { state.cleared++; },
     notifyOnce: (version, hold, detail) => { notices.push([version, hold, detail]); },
     lock: async (fn) => fn(),
+    logFailure: (detail, output) => { failures.push([detail, output]); },
+    unchecked: (detail, signedOut) => { unchecked.push([detail, signedOut]); },
   };
-  return { s, d, order, statuses, notices, state, checked: () => checked };
+  return { s, d, order, statuses, notices, failures, unchecked, state, checked: () => checked };
 }
 
 describe("runDevAutoUpdate", () => {
@@ -113,11 +131,29 @@ describe("runDevAutoUpdate", () => {
     expect(t.state.cleared).toBe(1);
   });
 
-  test("GitHub not answering keeps a recorded hold", async () => {
+  test("GitHub not answering is unchecked, not current: a recorded hold stays, and the miss is recorded", async () => {
     const t = setup({ githubDown: true });
-    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "current" });
+    const detail = "rt could not ask GitHub for releases. It tries again within the hour.";
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "unchecked", detail });
+    expect(t.unchecked).toEqual([[detail, false]]);
     expect(t.state.cleared).toBe(0);
     expect(t.checked()).toBe(0);
+  });
+
+  test("gh signed out is unchecked and marked for the person, since it never fixes itself", async () => {
+    const t = setup({ signedOut: true });
+    const detail = "rt could not ask GitHub for releases: gh is not signed in. Run gh auth login.";
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "unchecked", detail });
+    expect(t.unchecked).toEqual([[detail, true]]);
+  });
+
+  test("no gh at all is unchecked and marked for the person", async () => {
+    const t = setup();
+    t.s.gh = () => null;
+    const out = await runDevAutoUpdate(t.s, runner, t.d);
+    expect(out).toMatchObject({ kind: "unchecked" });
+    expect(t.unchecked).toEqual([[(out as { detail: string }).detail, true]]);
+    expect((out as { detail: string }).detail).toContain("GitHub command-line tool");
   });
 
   test("the clone's packages install with the bun that was probed", async () => {
@@ -131,6 +167,20 @@ describe("runDevAutoUpdate", () => {
     expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "current" });
     expect(t.checked()).toBe(0);
     expect(t.statuses).toEqual([]);
+  });
+
+  test("a locally built dev app clears a hold an earlier run recorded, orgOff included", async () => {
+    const t = setup({ releaseBuild: false });
+    await runDevAutoUpdate(t.s, runner, t.d);
+    expect(t.state.cleared).toBe(1);
+  });
+
+  test("no dev app installed: current, nothing fetched, installed or swapped, and a recorded hold is cleared", async () => {
+    const t = setup({ noApp: true });
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "current" });
+    expect(t.order).toEqual([]);
+    expect(t.statuses).toEqual([]);
+    expect(t.state.cleared).toBe(1);
   });
 
   test("a prod Mac: current, nothing touched", async () => {
@@ -172,13 +222,26 @@ describe("runDevAutoUpdate", () => {
   test("a daemon that does not answer does not hold", async () => {
     const t = setup();
     t.d.daemonBusy = async () => false;
-    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "updated", version: "2.23.0" });
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "updated", version: "2.23.0", daemonRestarted: true });
   });
 
   test("all clear: fast-forward, install, helper, register, then swap, then restart, in that order", async () => {
     const t = setup();
-    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "updated", version: "2.23.0" });
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "updated", version: "2.23.0", daemonRestarted: true });
     expect(t.order).toEqual(["fetch", "tools", "ff", "install", "ui", "apps", "register", "swap", "restart"]);
+  });
+
+  test("a swap that relaunched the running app restarts nothing more: the relaunch restarted the daemon", async () => {
+    const t = setup({ appRunning: true });
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "updated", version: "2.23.0", daemonRestarted: true });
+    expect(t.order).not.toContain("restart");
+  });
+
+  test("a restart nobody answered says so instead of a plain updated", async () => {
+    const t = setup();
+    t.state.restartOk = false;
+    expect(await runDevAutoUpdate(t.s, runner, t.d)).toEqual({ kind: "updated", version: "2.23.0", daemonRestarted: false });
+    expect(t.statuses.at(-1)).toEqual({ offeredVersion: "2.23.0", heldVersion: null, hold: null });
   });
 
   test("a failed install is held updateFailed naming bun install, and the app is not swapped", async () => {
@@ -187,6 +250,33 @@ describe("runDevAutoUpdate", () => {
     const out = await runDevAutoUpdate(t.s, runner, t.d);
     expect(out).toMatchObject({ kind: "held", hold: "updateFailed" });
     expect((out as { detail: string }).detail).toContain("bun install");
+    expect(t.order).not.toContain("swap");
+    expect(t.order).not.toContain("restart");
+  });
+
+  test("a failed install keeps bun's output in the log", async () => {
+    const t = setup();
+    t.state.installExit = 1;
+    await runDevAutoUpdate(t.s, runner, t.d);
+    expect(t.failures).toEqual([["bun install failed in your clone.", "lockfile changed"]]);
+  });
+
+  test("a failed fast-forward keeps git's output in the log", async () => {
+    const t = setup();
+    t.state.ffExit = 1;
+    const out = await runDevAutoUpdate(t.s, runner, t.d);
+    expect(out).toMatchObject({ kind: "held", hold: "updateFailed" });
+    expect(t.failures).toEqual([["Fast-forwarding your clone to origin/main failed.", "error: Not possible to fast-forward, aborting."]]);
+  });
+
+  test("any other throw after the pull is held updateFailed, recorded and logged, not a silent exit", async () => {
+    const t = setup();
+    t.d.install = async () => { throw new Error("spawn ENOENT"); };
+    const out = await runDevAutoUpdate(t.s, runner, t.d);
+    expect(out).toEqual({ kind: "held", version: "2.23.0", hold: "updateFailed", detail: "Update your clone stopped on an unexpected error." });
+    expect(t.statuses).toEqual([{ offeredVersion: "2.23.0", heldVersion: "2.23.0", hold: "updateFailed" }]);
+    expect(t.notices).toEqual([["2.23.0", "updateFailed", "Update your clone stopped on an unexpected error."]]);
+    expect(t.failures[0]![1]).toContain("spawn ENOENT");
     expect(t.order).not.toContain("swap");
     expect(t.order).not.toContain("restart");
   });

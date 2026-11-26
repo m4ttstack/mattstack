@@ -20,7 +20,7 @@ import { rtCommand } from "../packages/rt-client/src/index.ts";
 import { RT_DIR } from "../lib/daemon-config.ts";
 import { trayQuery } from "../lib/daemon-client.ts";
 import { notify } from "../lib/notifier.ts";
-import { createUpdateLock } from "../lib/setup/update-lock.ts";
+import { devUpdateLock, underDevUpdateLock } from "../lib/dev/update-lock.ts";
 import { getKvValue, setKvValueCritical } from "../lib/state/kv-blob.ts";
 import { exitUserError, failureFor, logFailureDetail, UserActionableError } from "../lib/errors.ts";
 import { processFlavor } from "../lib/flavor.ts";
@@ -100,27 +100,25 @@ function realAutoDeps(): DevAutoDeps {
     checkClone: sync.checkClone,
     fastForward: sync.fastForward,
     install: sync.install,
-    restartDaemon: async () => {
-      await trayQuery("/daemon/restart", "POST");
-    },
+    restartDaemon: async () => (await trayQuery("/daemon/restart", "POST"))?.ok === true,
     writeStatus: writeAppUpdate,
     clearHeld: () => {
       if (readAppUpdateHold(RT_DIR) !== null) writeAppUpdate({ offeredVersion: null, heldVersion: null, hold: null });
+      if (getKvValue<string | null>("dev-auto-update", "unchecked", null) !== null) setKvValueCritical("dev-auto-update", "unchecked", null);
+    },
+    unchecked: (detail, signedOut) => {
+      if (readAppUpdateHold(RT_DIR) === null) writeAppUpdate({ offeredVersion: null, heldVersion: null, hold: "releasesUnreadable" });
+      if (!signedOut || getKvValue<string | null>("dev-auto-update", "unchecked", null) === detail) return;
+      setKvValueCritical("dev-auto-update", "unchecked", detail);
+      notify("mattstack-dev can't check for updates", detail, undefined, "setup_update", undefined, "dev_update:unchecked");
     },
     notifyOnce: createNotifyOnce({
       read: () => getKvValue<string | null>("dev-auto-update", "announced", null),
       write: (v) => { setKvValueCritical("dev-auto-update", "announced", v); },
       notify: (n) => notify(n.title, n.message, undefined, "setup_update", undefined, n.id),
     }),
-    lock: async (fn) => {
-      const lock = createUpdateLock(join(RT_DIR, "dev-update.lock"));
-      if (!lock.acquire()) return "locked";
-      try {
-        return await fn();
-      } finally {
-        lock.release();
-      }
-    },
+    lock: (fn) => underDevUpdateLock(devUpdateLock(RT_DIR), fn),
+    logFailure: (detail, output) => logCliEvent("warn", "dev", detail, { output: withoutUrls(output) }),
   };
 }
 
@@ -194,7 +192,12 @@ export function devSetupBlocks(r: DevSetupResult): Block[] {
 export function devAutoBlocks(r: DevAutoOutcome | "locked"): Block[] {
   if (r === "locked") return [out.line("skipped", "Another dev update is running")];
   if (r.kind === "current") return [out.line("done", "Your dev setup is up to date")];
-  if (r.kind === "updated") return [out.line("done", `Updated to mattstack-dev ${r.version}`)];
+  if (r.kind === "unchecked") return [out.line("pending", "rt could not check for a new dev app", r.detail)];
+  if (r.kind === "updated") {
+    const done = out.line("done", `Updated to mattstack-dev ${r.version}`);
+    if (r.daemonRestarted) return [done];
+    return [done, out.line("pending", "The daemon still runs the code from before the update", "mattstack-dev did not answer"), out.callout("next", out.cmd("rt daemon restart"))];
+  }
   return [out.line("pending", `An update to mattstack-dev ${r.version} is waiting`, r.detail)];
 }
 
@@ -269,7 +272,7 @@ export async function devUpdate(args: string[], _ctx: CommandContext = {}): Prom
     return;
   }
   const release = args.includes("--release");
-  await run(args, (s, stage) => runDevUpdate(s, stage, { release, clone: realCloneSync() }), (r, stages, json) => {
+  await run(args, (s, stage) => runDevUpdate(s, stage, { release, clone: realCloneSync(), lock: (fn) => underDevUpdateLock(devUpdateLock(RT_DIR), fn) }), (r, stages, json) => {
     if (json) out.json(devEnvelope({ ok: true, clone: r.clone, stages }, new Date()));
     else out.print(...devUpdateBlocks(r));
   });

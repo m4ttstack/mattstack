@@ -24,7 +24,7 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     private var observation: NSKeyValueObservation?
     private let installer: HeldUpdateInstaller
     private let isBusy: () -> Bool
-    private let readAutoUpdate: () async -> Bool
+    private let readAutoUpdate: () async -> Bool?
     private let daemonBusyProbe: () async -> Bool
     private let policy = PolicyState()
     private var status = UpdateStatus()
@@ -52,7 +52,7 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     ]
 
     init(isDevBuild: Bool, isBusy: @escaping () -> Bool,
-         readAutoUpdate: @escaping () async -> Bool, daemonBusy: @escaping () async -> Bool) {
+         readAutoUpdate: @escaping () async -> Bool?, daemonBusy: @escaping () async -> Bool) {
         self.isBusy = isBusy
         self.readAutoUpdate = readAutoUpdate
         daemonBusyProbe = daemonBusy
@@ -105,28 +105,30 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         let readSetting = readAutoUpdate
         let probe = daemonBusyProbe
         let (ticket, lastSilent) = await MainActor.run { (self.policy.refreshes.start(), self.policy.silent) }
-        let silent = await firstAnswer(within: Self.readDeadline, otherwise: lastSilent) { await readSetting() }
+        let reading: Bool?? = await firstAnswer(within: Self.readDeadline, otherwise: nil) { .some(await readSetting()) }
+        let setting = UpdatePolicy.settingReading(reading, lastSilent: lastSilent)
+        let silent = setting.silent
         let busy = silent ? await firstAnswer(within: Self.readDeadline, otherwise: false) { await probe() } : false
         await MainActor.run {
             guard self.policy.refreshes.isLatest(ticket) else { return }
-            self.apply(silent: silent, daemonBusy: busy)
+            self.apply(silent: silent, settingAnswered: setting.answered, daemonBusy: busy)
         }
     }
 
     /// Sparkle keeps a value set at runtime in UserDefaults over the plist, so
     /// checking is switched back on here for a Mac whose person once turned it
     /// off; nothing in the app turns it off any more.
-    private func apply(silent: Bool, daemonBusy: Bool) {
+    private func apply(silent: Bool, settingAnswered: Bool, daemonBusy: Bool) {
         policy.silent = silent
         policy.daemonBusy = daemonBusy
         guard let updater = controller?.updater else { return }
         updater.automaticallyChecksForUpdates = true
         updater.automaticallyDownloadsUpdates = silent
         updater.updateCheckInterval = UpdatePolicy.checkInterval(silent: silent)
-        if !silent, installer.heldVersion == nil, status.hold != UpdateStatus.orgOff {
-            writeStatus { $0.heldVersion = nil; $0.hold = UpdateStatus.orgOff }
-        } else if silent, status.hold == UpdateStatus.orgOff {
-            writeStatus { $0.hold = nil }
+        switch UpdatePolicy.orgOffWrite(settingAnswered: settingAnswered, silent: silent, heldVersion: installer.heldVersion, hold: status.hold) {
+        case .record: writeStatus { $0.heldVersion = nil; $0.hold = UpdateStatus.orgOff }
+        case .clear: writeStatus { $0.hold = nil }
+        case .leave: break
         }
     }
 
