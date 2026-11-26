@@ -310,8 +310,10 @@ Sparkle's own update window in front, except while setup runs (the "Update
 Available" menu item is the reminder then), and an update put off to quit
 waits for no window open and no setup run (`windowsOpen`, `setupRunning`).
 The status file then says `hold: "orgOff"`, but only from a setting rt
-answered: a read past its five-second deadline keeps Sparkle's last mode and
-leaves the record alone (`UpdatePolicy.orgOffWrite`).
+answered. A read past its five-second deadline keeps Sparkle's last mode, and
+an rt that could not answer (an error, or not wired yet at launch) counts as
+on; neither records or clears `orgOff` (`UpdatePolicy.settingReading`,
+`UpdatePolicy.orgOffWrite`).
 
 Either way Sparkle offers its install handler once, and the tray keeps it
 (`HeldUpdateInstaller`) rather than declining: a declined update waits for

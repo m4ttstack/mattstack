@@ -170,6 +170,14 @@ let updatePolicyChecks: [Check] = [
         c.expectEqual(UpdateNotice.waiting(version: "2.28.0", hold: .setupRunning),
                       UpdateNotice.Copy(title: "mattstack 2.28.0 is ready", body: "Installs once setup finishes and mattstack's windows close"))
     },
+    Check("UpdatePolicy.settingReading: only a decoded value counts as answered") { c in
+        c.expectEqual(UpdatePolicy.settingReading(.some(.some(false)), lastSilent: true), UpdatePolicy.SettingReading(silent: false, answered: true))
+        c.expectEqual(UpdatePolicy.settingReading(.some(.some(true)), lastSilent: false), UpdatePolicy.SettingReading(silent: true, answered: true))
+        // rt failed or is not wired yet: the setting's default, on, but no answer
+        c.expectEqual(UpdatePolicy.settingReading(.some(nil), lastSilent: false), UpdatePolicy.SettingReading(silent: true, answered: false))
+        // past the deadline: Sparkle keeps its last mode, and no answer
+        c.expectEqual(UpdatePolicy.settingReading(nil, lastSilent: false), UpdatePolicy.SettingReading(silent: false, answered: false))
+    },
     Check("UpdatePolicy.orgOffWrite: a setting read that timed out never writes or clears orgOff") { c in
         c.expectEqual(UpdatePolicy.orgOffWrite(settingAnswered: false, silent: false, heldVersion: nil, hold: nil), .leave)
         c.expectEqual(UpdatePolicy.orgOffWrite(settingAnswered: false, silent: true, heldVersion: nil, hold: UpdateStatus.orgOff), .leave)

@@ -66,7 +66,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         isDevBuild: BundleFlavor.isDevBuild || BundleFlavor.isStubActive,
         isBusy: { UpdatePolicy.setupBusy(windowRunning: SetupSession.isRunning, runInFlight: SetupSession.runInFlight) },
         readAutoUpdate: { @MainActor [weak self] in
-            guard let rt = self?.rtClient else { return true }
+            guard let rt = self?.rtClient else { return nil }
             return await AutoUpdateSetting.read(rt)
         },
         daemonBusy: { [daemonClient] in await daemonClient.isBusy() })
