@@ -23,11 +23,11 @@ No setting holds it and no setup row asks for it; the hidden
 `RT_SWITCHBOARD_URL` override (https, or http to loopback, never written or
 shown) exists for local relay work and tests. A board token is only ever sent
 to `switchboardUrl()`. `rt team invite` mints the invitee's board token there
-when this Mac holds the switchboard admin token and seals only the token into
+when this Mac holds the org's switchboard token and seals only the token into
 the invite; `rt team join` stores it under the rt secrets scope, writes no URL
 setting, and refuses a pointer from an older rt whose URL is not
 `switchboardUrl()`. `rt team peer` connects the own board of a Mac holding
-the switchboard admin token, in practice the org admin's (`lib/team/peer.ts`): with the admin token readable it registers the
+the org's switchboard token, in practice the org admin's (`lib/team/peer.ts`): with the token readable it registers the
 board under the username this Mac recorded for the org, the handle join
 registers (else `board.defaultMember`, else the org forge's login), stores the
 token in that same `switchboardToken` secret, and leaves a board whose token
@@ -37,11 +37,11 @@ The board's own roster only shows a read-only peered badge; it no longer
 invites, removes or joins.
 The `account.board-peering` row applies on a Mac in a team (created or
 joined) that runs a board (the team's `board.projects` tracks projects). It never shows on a Just Me Mac,
-nor on a creator's Mac that lacks the switchboard admin token (in the
+nor on a creator's Mac that lacks the org's switchboard token (in the
 environment, the board's `.env`, the org's admin-only secrets or rt's secrets) and joined no other team,
 since nothing there can peer it. It reads `needs-you` when neither the
 board's `.env` nor rt's `switchboardToken` holds a token (with the
-re-invite remedy, or, on any Mac holding the admin token, the
+re-invite remedy, or, on any Mac holding the token, the
 `rt team peer` steps, which `verify`'s note names too), `error` with a re-check when
 `<url>/healthz` (no auth header; `/health` is not a route) does not answer
 200, `ready` otherwise. It blocks neither Install nor Finish, so it never
@@ -67,19 +67,23 @@ with an admin's `rt team members sync`, so a roster entry can be without one.
 Read `docs/superpowers/specs/2026-11-25-switchboard-sealed-text-design.md`
 before adding a message or a field.
 
-The switchboard admin token lives in the org's admin-only secrets
+The org's switchboard token (an `sbo_` token the relay operator mints; the
+relay's master token never lives on a Mac, and the operator's steps are in
+`docs/switchboard-org-tokens.md`) lives in the org's admin-only secrets
 (`mattstack/org/admin-secrets/rt.json`, key `switchboardAdminToken`),
 locked by `.sops.yaml`'s admins rule to the age keys the roster records for
 the org's owners and admins (`lib/team/admin-secrets.ts`).
 `lib/secrets/team-store.ts` owns exactly that rule and the members rule,
-writes the members rule first, and refuses any other. Every reader
+writes the members rule first, and refuses any other. Readers pick an org token first. Every reader
 (`readAdminToken` in `lib/team/board-peers.ts`, invite, join, the
 `account.board-peering` row) reads the admin-only file before this Mac's
 own `rt` secret, so a Mac that has not pulled the move keeps working, and a
 Mac that cannot open the file reads it as absent. The daemon's `secrets:read` board scope serves the board the token the same way (`loadBoardSecrets`, `lib/daemon/handlers/secrets.ts`), after the board's own environment. `rt team admin-secrets`
 (owners and admins) locks the file to the current owners and admins and
 puts this Mac's token in when the file holds none (`--replace-token` after
-the token changes); `rt team members sync` and `remove` run the same sync,
+the token changes; `--token-stdin` reads it from stdin, trimmed and checked
+against the relay). It and the row never share a token that is not an org
+token. A username another org holds fails with `username-taken`; `rt team members sync` and `remove` run the same sync,
 and the `org.admin-secrets` row asks for it when the roles drift or this
 Mac's token is not shared yet, and reads `skipped` instead on a Mac whose
 age key is not the one the roster holds, since the verb refuses there. An rt older than this refuses a `.sops.yaml`
