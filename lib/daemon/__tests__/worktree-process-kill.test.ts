@@ -35,6 +35,12 @@ test("agentNameOf names the agent a process is, through an interpreter too", () 
   expect(agentNameOf(row(1, 0, "node", "node server.js"))).toBeNull();
 });
 
+test("agentNameOf names the script after an interpreter's flags", () => {
+  expect(agentNameOf(row(1, 0, "node", "node --no-warnings /opt/bin/codex"))).toBe("codex");
+  expect(agentNameOf(row(1, 0, "bun", "bun --bun /opt/bin/codex"))).toBe("codex");
+  expect(agentNameOf(row(1, 0, "node", "node --no-warnings server.js"))).toBeNull();
+});
+
 describe("selectKillTargets", () => {
   test("kills package-script chains and orphaned compilers", () => {
     const rows = [

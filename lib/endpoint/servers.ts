@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
-import { agentNameOf, isUserOrAgentProcess, type KillCandidate } from "../daemon/worktree-process-kill.ts";
+import { agentNameOf, isUserOrAgentProcess, stripInterpreterFlags, type KillCandidate } from "../daemon/worktree-process-kill.ts";
 import { canon } from "../fs-canon.ts";
 import type { EndpointClaim } from "../state/index.ts";
 import type { RoleConfig } from "./config.ts";
@@ -106,11 +106,9 @@ export function ancestorPids(procs: ServerProc[], pid: number): number[] {
   return ancestorsIn(new Map(procs.map((p) => [p.pid, p.ppid])), pid);
 }
 
-const INTERPRETER_FLAGS = /^((?:\S*\/)?(?:node|bun|deno|python3?))(?: -\S+)+(?= )/;
-
 /** An interpreter's own flags dropped, so the script it runs names the process. */
 function asCandidate(proc: ServerProc): KillCandidate {
-  return { pid: proc.pid, ppid: proc.ppid, command: proc.command, fullCommand: proc.args.replace(INTERPRETER_FLAGS, "$1") };
+  return { pid: proc.pid, ppid: proc.ppid, command: proc.command, fullCommand: stripInterpreterFlags(proc.args) };
 }
 
 /** A shell, agent or multiplexer, or an app such as an editor. A framework Python runs from an app bundle and is not one. */
