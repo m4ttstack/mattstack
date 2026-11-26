@@ -141,14 +141,21 @@ after step 5.
    The roster check cannot see one more case. Anyone with the old master could
    also have reissued a roster member's board token through `POST /boards`,
    which leaves the member's real board with a token the relay rejects. So
-   every legacy member confirms their board still connects. On their Mac,
+   every legacy member confirms their board still connects. After the restart
+   above, wait a minute, then run on their Mac
 
    ```sh
-   curl -s http://localhost:11006/data.json | grep -o '"peering":"[a-z]*"'
+   curl -s http://localhost:11006/data.json | grep -o '"peers":\[[^]]*\]'
    ```
 
-   prints `"peering":"ok"`. `"peering":"unauthorized"` means the relay has
-   rejected the board's token on three polls in a row (about three minutes).
+   It prints `"peers":[...]` (usernames in the org, maybe `[]`) only once
+   the relay has accepted the board's own token since the board started: the
+   board fills that field from a 200 to its token on `/peers` and leaves it out
+   otherwise. Do not go by `peering`: it reads `ok` until three polls in a row
+   are refused, and a restart starts that count over. The board polls once
+   when it gets its token, then every 60 seconds. If nothing prints two minutes
+   after the restart, the relay is not taking the board's token.
+
    A board that stopped working between step 1 and step 6 gets a fresh token,
    which kills the token someone else holds. On a Mac that holds the org's
    switchboard token, its owner runs `rt team peer --rotate`. Any other
