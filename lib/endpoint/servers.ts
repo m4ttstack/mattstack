@@ -195,16 +195,17 @@ export function findServers(snapshot: ServerSnapshot, { rules, roles, claims }: 
 
   const children = new Map<number, number[]>();
   for (const proc of snapshot.procs) children.set(proc.ppid, [...(children.get(proc.ppid) ?? []), proc.pid]);
-  /** lsof can miss a process's folder; a child starts in its parent's, so the nearest child's stands in. */
+  /**
+   * lsof can miss a process's folder. A child starts in its parent's, so down a
+   * chain of only children the first folder found stands in; past a fork, any
+   * one child may have moved, so none speaks for the parent.
+   */
   const cwdOf = (pid: number) => {
-    const queue = [pid];
-    const seen = new Set(queue);
-    for (const at of queue) {
+    const seen = new Set<number>();
+    for (let at: number | undefined = pid; at !== undefined && !seen.has(at); at = children.get(at)?.length === 1 ? children.get(at)![0] : undefined) {
+      seen.add(at);
       const cwd = snapshot.cwds.get(at);
       if (cwd !== undefined) return cwd;
-      for (const child of children.get(at) ?? []) {
-        if (!seen.has(child)) queue.push(child), seen.add(child);
-      }
     }
     return undefined;
   };

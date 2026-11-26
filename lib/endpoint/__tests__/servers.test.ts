@@ -268,11 +268,21 @@ test("a same-role server an agent started inside a server's tree is its own row"
   ]);
 });
 
-test("an intercept run whose folder lsof did not report takes its nearest child's", () => {
+test("an intercept run whose folder lsof did not report takes it from the one process it started", () => {
   const found = snap(apiTree(API, [10400]));
   found.cwds.delete(10);
   found.cwds.delete(11);
   expect(findServers(found, rules()).map((s) => [s.pid, s.pids])).toEqual([[10, [10, 11, 12, 13]]]);
+});
+
+test("an intercept run with no folder is skipped once its children split up, since one of them may have moved", () => {
+  const found = snap([
+    { pid: 10, ppid: 1, args: API_RUN, cwd: API },
+    { pid: 11, ppid: 10, args: "node src/server", cwd: API },
+    { pid: 12, ppid: 10, args: "node worker.js", cwd: "/code/other/apps/api" },
+  ]);
+  found.cwds.delete(10);
+  expect(findServers(found, rules())).toEqual([]);
 });
 
 test("an agent launched with interpreter flags is named above a server and inside one", () => {
